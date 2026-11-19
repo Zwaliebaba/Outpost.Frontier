@@ -320,6 +320,9 @@ void RunNeuronClientSuites()
     SceneScriptBuildSuite();
     RunTextureSuites();
     SceneScriptRuntimeSuites();
+    RunUiSuites();
+    RunParticleSuites();
+    RunMaterialSuites();
 }
 
 void RunSceneScriptDataDump(const std::vector<std::string>& Files)

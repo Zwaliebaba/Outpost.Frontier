@@ -7,22 +7,46 @@
 //! client pumps messages. Here the frames go through the renderer: each due
 //! frame is copied into a texture drawn at the movie's placement in the
 //! back buffer, and the sound is decoded whole and streamed by the audio
-//! device (D330). A closed window stops the movies and quits, as `WM_QUIT`
-//! does in the C++.
+//! device (D330). Shift or Escape stops a movie and every other key-down is
+//! swallowed, as the movie's window procedure does; a closed window stops
+//! the movies and quits, as `WM_QUIT` does in the C++.
 
 use std::path::PathBuf;
 use std::time::Instant;
 
-use neuron_client::media::{FramePacer, placement, wav_file};
+use neuron_client::input::keyboard::KeyEvent;
+use neuron_client::media::{FramePacer, placement, stops_movie, wav_file};
 use neuron_client::platform::audio::AudioDevice;
 use neuron_client::platform::d3d12::backend::D3d12Backend;
 use neuron_client::platform::media::MovieReader;
-use neuron_client::platform::window::{Pump, Window};
+use neuron_client::platform::window::{InputRouter, Pump, Window};
 use neuron_client::render::ff::device::{ClearFlags, Device};
 use neuron_client::window::WindowEvent;
 use neuron_core::image::PixelFormat;
 
 use crate::startup_config::{MOVIE_SLOTS, StartupConfig};
+
+/// `WM_KEYDOWN`.
+const WM_KEYDOWN: u32 = 0x100;
+
+/// The movie's key handling (`MoviePlaybackWndProc`): every key-down is
+/// swallowed, and Shift or Escape stops the movie.
+#[derive(Default)]
+struct SkipKeys {
+    stop: bool,
+}
+
+impl InputRouter for SkipKeys {
+    fn key_event(&mut self, event: &KeyEvent) -> bool {
+        if event.message != WM_KEYDOWN {
+            return false;
+        }
+        if stops_movie(event.key) {
+            self.stop = true;
+        }
+        true
+    }
+}
 
 /// How the movies ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -107,8 +131,9 @@ fn play_one(
     let start = Instant::now();
     let mut ended = false;
     let mut result = MoviesEnd::Played;
-    while !ended {
-        match window.pump() {
+    let mut keys = SkipKeys::default();
+    while !ended && !keys.stop {
+        match window.pump_routed(&mut keys) {
             Pump::Quit(..) => {
                 result = MoviesEnd::Quit;
                 break;
@@ -160,6 +185,34 @@ fn play_one(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn key(message: u32, key: u32) -> KeyEvent {
+        KeyEvent {
+            kind: neuron_client::input::keyboard::KeyEventKind::Key,
+            key,
+            down: message == WM_KEYDOWN,
+            repeat: false,
+            modifiers: neuron_client::input::keyboard::Modifiers(0),
+            message,
+            wparam: key,
+            lparam: 0,
+        }
+    }
+
+    #[test]
+    fn key_downs_are_swallowed_and_shift_or_escape_stop() {
+        let mut k = SkipKeys::default();
+        assert!(k.key_event(&key(WM_KEYDOWN, 0x41)));
+        assert!(!k.stop);
+        // Key-ups pass through.
+        assert!(!k.key_event(&key(0x101, 0x1b)));
+        assert!(!k.stop);
+        assert!(k.key_event(&key(WM_KEYDOWN, 0x1b)));
+        assert!(k.stop);
+        let mut k = SkipKeys::default();
+        k.key_event(&key(WM_KEYDOWN, 0x10));
+        assert!(k.stop);
+    }
 
     #[test]
     fn the_quad_is_a_strip_over_the_rectangle() {

@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "OutpostFrontier (windowed)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/x86_64-pc-windows-msvc/debug/OutpostFrontier.exe",
+      "args": ["-W"],
+      "cwd": "${workspaceFolder}/outdir",
+      "console": "integratedTerminal",
+      "preLaunchTask": "cargo build OutpostFrontier"
+    }
+  ]
+}

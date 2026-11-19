@@ -449,7 +449,7 @@ namespace
             {0x40000ul, "Dt_flags", "Diffuse V Address Mode", "",
              9, {0, 0, 0, 0}, 9, {0, 0, 0, 0}, 9, {0, 0, 0, 0}},
             {0, "nt_name", "VeilbornTexture Name", "",
-             7, {(unsigned long)("VeilbornRGB1_VeilbornAlpha1"), 0, 0, 0},
+             7, {(unsigned long)("NomadRGB1_NomadAlpha1"), 0, 0, 0},
              7, {0, 0, 0, 0}, 7, {0, 0, 0, 0}},
             {0, "nt_flags", "VeilbornTexture Wrap Mode", "",
              8, {5, 0, 0, 0}, 8, {0, 0, 0, 0}, 8, {0, 0, 0, 0}},

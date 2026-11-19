@@ -171,7 +171,15 @@ void FVoiceProfile::ResolveScriptFile()
     if (_access(FullPath, 0) == -1)
         return;
 
-    UtfPath = FullPath;
+    // Decision O31: baseline stored FullPath, which OpenScriptFileSystem hands
+    // to NeuronRuntime::Data. The UTF factory joins it to the data root again
+    // (ReadFile.cpp, _makepath(root, path)), which only resolves when the data
+    // path is a single "..\NAME" (the shipped "..\DATA"). The path relative to
+    // the data root opens the same archive under any data path.
+    char RelPath[MAX_PATH];
+    RelPath[0] = '\0';
+    _makepath(RelPath, nullptr, "audio", Name, "utf");
+    UtfPath = RelPath;
 }
 
 int LoadClientVoicesIni(char const* FullPath)

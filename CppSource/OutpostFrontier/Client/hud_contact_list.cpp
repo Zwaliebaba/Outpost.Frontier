@@ -84,7 +84,7 @@ namespace
         "interface\\HUD\\HUD_contacttradelane.3db",     // 7
         "interface\\HUD\\HUD_contactfrieghter.3db",     // 8
         "interface\\HUD\\HUD_contacttransport.3db",     // 9
-        "interface\\HUD\\HUD_contactveilborn.3db",         // 10
+        "interface\\HUD\\HUD_contactnomad.3db",         // 10
         "interface\\HUD\\HUD_contactloot.3db",          // 11
         "interface\\HUD\\HUD_contactweaponplat.3db",    // 12
         "interface\\HUD\\HUD_contactlootabledepot.3db", // 13

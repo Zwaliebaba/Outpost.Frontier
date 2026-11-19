@@ -391,8 +391,8 @@ public:
     void DrawZoneOutlines();
 
     // --- Members (baseline offsets) ---
-    FClientMeshHolder ZoomedMapMesh;    // +0x350 zoomedmap_helion.3db, rotation * 1.5
-    FClientMeshHolder ZoomedMapMesh2;   // +0x378 zoomedmap_helion.3db
+    FClientMeshHolder ZoomedMapMesh;    // +0x350 zoomedmap_liberty.3db, rotation * 1.5
+    FClientMeshHolder ZoomedMapMesh2;   // +0x378 zoomedmap_liberty.3db
     FClientMeshHolder PrettyMapMesh;    // +0x3a0 NAV_prettymap.3db, [0] * 1.175, [4] * 1.5
     float Field_0x3c8[3];               // +0x3c8 SetPosition: position + (0.2, -0.25, 0). TODO
     float Field_0x3d4[9];               // +0x3d4 ctor identity. TODO

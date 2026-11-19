@@ -205,3 +205,102 @@ fn mutated_libraries_do_not_panic() {
         let _ = load_material_animations(&mut fs);
     }
 }
+
+#[test]
+fn saving_writes_the_fields_and_packs_the_modes() {
+    let mem = MemFileSystem::new(
+        None,
+        GENERIC_READ,
+        3,
+        MemSource::Copy(Some(&build_full(&library()))),
+    );
+    let mut fs = UtfFileSystem::open_memory(&mem, &FsDesc::read(b"m.mat")).unwrap();
+    fs.open_node(b"Material library").unwrap();
+    fs.open_node(b"hull").unwrap();
+    let mut hull = Material::new(MaterialKind::by_name(b"DcDtOcOt").unwrap());
+    hull.load(&fs);
+    // Address U 1 and V 2, wrap 2 (Dt_flags 0x29 as loaded).
+    let writes = hull.save_properties(&fs);
+    let names: Vec<&[u8]> = writes.iter().map(|w| w.name.as_slice()).collect();
+    assert_eq!(
+        names,
+        [
+            &b"Ac"[..],
+            b"Dc",
+            b"Ec",
+            b"Sc",
+            b"Sp",
+            b"Oc",
+            b"Dt_name",
+            b"Dt_flags",
+            b"Dt_flags",
+            b"Dt_flags"
+        ]
+    );
+    assert_eq!(writes[1].bytes, floats(&[0.5, 0.25, 0.125]));
+    assert_eq!(writes[5].bytes, floats(&[0.5]));
+    assert_eq!(writes[6].bytes, b"hull.tga\0");
+    // The wrap mode over the leaf's 0x29.
+    assert_eq!(writes[7].bytes, 0x29u32.to_le_bytes());
+    // U (1) into bits 0-1, and also into bits 2-3.
+    assert_eq!(writes[8].bytes, 0x25u32.to_le_bytes());
+    // V (2) into bits 2-3 of the word the U write left.
+    assert_eq!(writes[9].bytes, 0x29u32.to_le_bytes());
+
+    // Without a leaf to read, the modes pack into 0.
+    fs.open_node(b"..").unwrap();
+    fs.open_node(b"rock").unwrap();
+    let mut rock = Material::new(MaterialKind::by_name(b"DcDt").unwrap());
+    rock.store(
+        9,
+        &PropertyValue {
+            kind: value_type::ADDRESS_MODE,
+            words: [3, 0, 0, 0],
+            text: None,
+        },
+    );
+    let writes = rock.save_properties(&fs);
+    assert_eq!(writes[7].bytes, 0x40u32.to_le_bytes());
+    assert_eq!(writes[8].bytes, 0x40u32.to_le_bytes());
+    assert_eq!(writes[9].bytes, 0x4Cu32.to_le_bytes());
+    assert!(
+        Material::new(MaterialKind::by_name(b"NullMaterial").unwrap())
+            .save_properties(&fs)
+            .is_empty()
+    );
+}
+
+#[test]
+fn declared_ranges() {
+    let m = Material::new(MaterialKind::by_name(b"AtmosphereMaterial").unwrap());
+    let colour = |r: f32| PropertyValue {
+        kind: value_type::VEC3,
+        words: [r.to_bits(), 0, 0, 0],
+        text: None,
+    };
+    // Dc: 0 to 10.
+    assert!(m.in_declared_range(1, &colour(10.0)));
+    assert!(m.in_declared_range(1, &colour(-1.0e-7)));
+    assert!(!m.in_declared_range(1, &colour(10.001)));
+    assert!(!m.in_declared_range(1, &colour(-0.001)));
+    assert!(m.in_declared_range(1, &colour(f32::NAN)));
+    // The type must match.
+    assert!(!m.in_declared_range(6, &colour(1.0)));
+    let fade = |v: f32| PropertyValue {
+        kind: value_type::FLOAT,
+        words: [v.to_bits(), 0, 0, 0],
+        text: None,
+    };
+    assert!(m.in_declared_range(6, &fade(1.0e38)));
+    // The widened bound of FLT_MAX is FLT_MAX in f64: the maximum itself
+    // is out of range.
+    assert!(!m.in_declared_range(6, &fade(f32::MAX)));
+    assert!(!m.in_declared_range(9, &fade(1.0)));
+    // Texture names are not range-checked.
+    let name = PropertyValue {
+        kind: value_type::TEXTURE_NAME,
+        words: [0; 4],
+        text: None,
+    };
+    assert!(m.in_declared_range(2, &name));
+}

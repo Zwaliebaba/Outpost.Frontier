@@ -1066,10 +1066,10 @@ void NeuroNetNavMap::LoadMapResources()
 
     // (the routine x3, arguments (path, 0, 1)).
     ClientMeshLoadFromPath(&ZoomedMapMesh,
-                           "Interface\\NeuroNet\\NavMap\\NewNavMap\\zoomedmap_helion.3db", 0,
+                           "Interface\\NeuroNet\\NavMap\\NewNavMap\\zoomedmap_liberty.3db", 0,
                            true);
     ClientMeshLoadFromPath(&ZoomedMapMesh2,
-                           "Interface\\NeuroNet\\NavMap\\NewNavMap\\zoomedmap_helion.3db", 0,
+                           "Interface\\NeuroNet\\NavMap\\NewNavMap\\zoomedmap_liberty.3db", 0,
                            true);
     ClientMeshLoadFromPath(&PrettyMapMesh,
                            "Interface\\NeuroNet\\NavMap\\NewNavMap\\NAV_prettymap.3db", 0, true);

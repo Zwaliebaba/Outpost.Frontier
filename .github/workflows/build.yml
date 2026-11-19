@@ -159,6 +159,20 @@ jobs:
           git diff --no-index --stat crates/game-sim/tests/vectors oracle-out-game-sim
           git diff --no-index crates/game-sim/tests/vectors oracle-out-game-sim
           if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Run the GDI font metrics mode
+        # P4.12 (oracle_gdi_fonts.cpp): GDI's text metrics on this runner for
+        # crates/neuron-client/tests/fixtures/oracle/gdi_fonts.list, compared by
+        # the next step once tests/vectors/gdi_fonts.jsonl is committed, and with
+        # DirectWrite's by tests/gdi_font_metrics.rs. Until then it is printed.
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force oracle-out-neuron-client | Out-Null
+          & .\bin\Oracle.exe gdi-fonts "$PWD\crates\neuron-client\tests\fixtures\oracle" "$PWD\oracle-out-neuron-client"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path crates\neuron-client\tests\vectors\gdi_fonts.jsonl)) {
+            Get-Content oracle-out-neuron-client\gdi_fonts.jsonl
+            Remove-Item oracle-out-neuron-client\gdi_fonts.jsonl
+          }
       - name: Run the neuron-client suites and compare
         # Work package P4.14: the scene-script Lua state through the reference's
         # own Lua 3.2 (CppSource/Oracle/oracle_scene_script.cpp); P4.12-P4.14:
@@ -167,7 +181,17 @@ jobs:
         # calls of the parser's second pass (oracle_scene_script_build.cpp); P4.14: param
         # curves, spline paths and playback (oracle_scene_script_runtime.cpp); P4.4: the
         # texture library at run time and ximage's BigImage (oracle_texture.cpp,
-        # oracle_big_image.cpp); over crates/neuron-client/tests/fixtures/oracle.
+        # oracle_big_image.cpp); P4.5: the material regular expressions, library,
+        # global records, animation and batcher of Shading (oracle_material.cpp), and
+        # the 22 material kinds and BatchedMaterial against recording services
+        # (oracle_material_kinds.cpp), surfacematerials' 19 materials
+        # (oracle_material_surface.cpp) and FLAppearance (oracle_material_appearance.cpp;
+        # material_*.jsonl); P4.6: RendComp's render
+        # manager and mesh kinds against recording services (oracle_mesh_render.cpp,
+        # compiled into oracle_mesh_data.cpp; mesh_render.jsonl); P4.8: particlefx's
+        # ramp evaluation and simulation, its sources compiled in
+        # (oracle_particles.cpp; particle_*.jsonl); over
+        # crates/neuron-client/tests/fixtures/oracle.
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force oracle-out-neuron-client | Out-Null

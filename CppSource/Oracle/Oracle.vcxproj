@@ -103,6 +103,9 @@
          Deformable2.dll's (with EyeMaterial.cpp) into oracle_mesh_data_dfm.cpp; neither DLL
          exports anything but DllMain. -->
     <ClCompile Include="oracle_mesh_data.cpp" />
+    <!-- P4.6: the mesh render suite; oracle_mesh_data.cpp includes it after the RendComp sources,
+         so it is not compiled on its own. -->
+    <ClInclude Include="oracle_mesh_render.cpp" />
     <ClCompile Include="oracle_mesh_data_dfm.cpp" />
     <!-- P1.9: the RemoteCommon codecs and their packet base, compiled in as RemoteClient.dll
          compiles them (its definitions, no /sdl); the two oracle_net_*_codecs.cpp files
@@ -136,6 +139,52 @@
     <ClCompile Include="..\Shading\MaterialBatcher.cpp" />
     <ClCompile Include="..\Shading\MaterialLibrary.cpp" />
     <ClCompile Include="..\Shading\MaterialRegex.cpp" />
+    <!-- P4.5: surfacematerials.dll's materials for oracle_material_surface.cpp (material_surface);
+         its DllMain renamed. FLAppearance.cpp is not compiled on its own: oracle_material_surface.cpp
+         defines what the materials use of it, and oracle_material_appearance.cpp
+         (material_appearance) includes it with those four definitions renamed. -->
+    <ClCompile Include="oracle_material_surface.cpp" />
+    <ClCompile Include="oracle_material_appearance.cpp" />
+    <ClInclude Include="..\surfacematerials\FLAppearance.cpp" />
+    <ClCompile Include="..\surfacematerials\MaterialImpl.cpp" />
+    <ClCompile Include="..\surfacematerials\surfacematerials.cpp">
+      <PreprocessorDefinitions>DllMain=SurfaceMaterialsDllMain;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <!-- P4.8: particlefx.dll's sources for oracle_particles.cpp (particle_ramp, particle_sim), but
+         particlefx.cpp (DllMain): the suite registers the components itself. The two numeric
+         files keep the settings particlefx.vcxproj gives them. -->
+    <ClCompile Include="oracle_particles.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_types.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_common.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_update.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_fxruntime.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_effectarchetype.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_effectobject.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_effectlibrary.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_genericfx.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_fields.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_emitters.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_appearances.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_ramp.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_nodelibrary.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_factory.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_material.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_math.cpp">
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <Optimization>MaxSpeed</Optimization>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <FloatingPointModel>Fast</FloatingPointModel>
+      <EnableEnhancedInstructionSet>NoExtensions</EnableEnhancedInstructionSet>
+      <SupportJustMyCode>false</SupportJustMyCode>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+    </ClCompile>
+    <ClCompile Include="..\particlefx\particlefx_float_forward.cpp">
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <Optimization>MaxSpeed</Optimization>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <SupportJustMyCode>false</SupportJustMyCode>
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+    </ClCompile>
     <!-- P2.3: Oracle.exe sim, the scenario oracle; links Server.lib (the pub:: exports it calls,
          delay-loaded) and loads SimClientStub.dll at run time, in sim mode only. -->
     <!-- P2.3: the exact physics pieces of Common.dll (CalcCollisionDamage, CDeadReckonedVector,
@@ -318,6 +367,8 @@
     <!-- P4.12-P4.14: the client's number texts (msvcrt_numeric_format.h) and RDLX markup
          through Common.dll's XMLReader (MSXML SAX2). -->
     <ClCompile Include="oracle_text.cpp" />
+    <!-- P4.12: Oracle.exe gdi-fonts, GDI's text metrics for the DirectWrite font backend. -->
+    <ClCompile Include="oracle_gdi_fonts.cpp" />
     <!-- P4.10: SoundManager.dll exports nothing but its factory; oracle_audio.cpp includes
          SoundManager.cpp (DllMain renamed, GetTickCount redirected) to call its mixer code. -->
     <ClCompile Include="oracle_audio.cpp" />
@@ -325,7 +376,17 @@
          oracle_shading.cpp) and ximage.dll's BigImage; oracle_big_image.cpp includes ximage.cpp
          (DllMain renamed) to make FBigImage of its anonymous namespace. -->
     <ClCompile Include="oracle_texture.cpp" />
+    <!-- P4.5: the material regular expressions, library, animation and batcher of Shading.dll,
+         compiled in above for P1.7. -->
+    <ClCompile Include="oracle_material.cpp" />
+    <!-- P4.5: the 22 material kinds (Material.cpp) and BatchedMaterial against recording
+         services. -->
+    <ClCompile Include="oracle_material_kinds.cpp" />
     <ClCompile Include="oracle_big_image.cpp" />
+    <!-- P4.13: the client UI toolkit; oracle_ui.cpp includes the client's ui_page_desc.cpp,
+         oracle_ui_quads.cpp its screen_quad_state.cpp. -->
+    <ClCompile Include="oracle_ui.cpp" />
+    <ClCompile Include="oracle_ui_quads.cpp" />
     <ClCompile Include="oracle_physics.cpp" />
     <ClCompile Include="oracle_sim.cpp" />
     <ClCompile Include="oracle_sim_spread.cpp" />

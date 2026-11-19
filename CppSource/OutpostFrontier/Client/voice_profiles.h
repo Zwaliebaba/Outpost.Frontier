@@ -78,7 +78,7 @@ struct FVoiceProfile : Archetype::IVoice
     char* Name;                                    // +0x08 StringAlloc(nickname)
     std::map<unsigned int, FVoiceMsg> Messages;    // +0x0C
     std::list<std::string> Scripts;                // +0x20 `script =`
-    std::string UtfPath;                           // +0x2C DATA\AUDIO\<nickname>.utf
+    std::string UtfPath;                           // +0x2C audio\<nickname>.utf, relative to the data root (O31)
     std::map<unsigned int, std::string> SoundFiles; // +0x3C `file =` per msg
 
     FVoiceProfile();

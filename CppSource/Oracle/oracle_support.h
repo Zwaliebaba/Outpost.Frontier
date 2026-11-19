@@ -110,6 +110,12 @@ void RunCatalogDump();
 // Its output is made from the game data and is never committed.
 int RunSimMode(int Argc, char** Argv);
 
+// Oracle.exe gdi-fonts <fixture directory> <output directory> (oracle_gdi_fonts.cpp, work
+// package P4.12): GDI's text metrics on this machine for the faces of
+// crates/neuron-client/tests/fixtures/oracle/gdi_fonts.list. A separate mode, not a suite: its
+// output depends on the fonts installed. Argv is main's.
+int RunGdiFontsMode(int Argc, char** Argv);
+
 // Oracle.exe render-replay <vectors directory> <output directory> (oracle_render_replay.cpp,
 // record 0004 point 15, work package P4.3): plays version-1 renderer traces into
 // DX8RENDERER.dll and writes each selected frame's image. Argv is main's.
@@ -237,6 +243,21 @@ void RunAudioSuites();
 // RunNeuronClientSuites.
 void RunTextureSuites();
 void BigImageSuite();
+// P4.5 (oracle_material.cpp): the material regular expressions, library, global records,
+// animation and batcher of Shading.dll, over
+// crates/neuron-client/tests/fixtures/oracle/material_*.list; called by RunNeuronClientSuites,
+// last (its batcher cases leave their INI in the manager's profile parser).
+void RunMaterialSuites();
+// P4.8 (oracle_particles.cpp): particlefx.dll's ramp evaluation and simulation (its sources
+// compiled in), over crates/neuron-client/tests/fixtures/oracle/particle_{ramp,sim}.list; called
+// by RunNeuronClientSuites before RunMaterialSuites.
+void RunParticleSuites();
+// P4.13 (oracle_ui.cpp, oracle_ui_quads.cpp): the client UI toolkit's page descriptors
+// (ui_page_desc.cpp compiled in) and screen-quad batcher (screen_quad_state.cpp compiled in),
+// over crates/neuron-client/tests/fixtures/oracle/ui_{page_desc,quad_batch}.list; called by
+// RunNeuronClientSuites. RunUiSuites runs both.
+void RunUiSuites();
+void RunUiQuadSuites();
 
 // P4.14 (oracle_scene_script.cpp): every .thn under DATA through lua_dobuffer in a fresh
 // Lua state, and the state after it; kind "thn".
