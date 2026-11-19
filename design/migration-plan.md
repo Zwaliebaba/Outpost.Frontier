@@ -276,14 +276,23 @@ server's collision filter switched to its single-player branch (on the
 multiplayer path only bullets and missiles collide; [reference-build.md](reference-build.md)
 section 10, "Collisions"). It is judged to its first contact (record 0003
 point 9): every object equals the oracle exactly before it, the contact
-comes in the same tick, the first contact's damage falls inside its
-envelope, and after it only the outcome (which objects are alive) is
-compared. The fights (`dogfight`, `skirmish`, `strafe`) are judged the same
-way: exactly up to their first contact or munition impact, whichever comes
-first; after it their outcomes and trajectories are compared within the
-approved envelopes, because the differences after a contact come from the
-accepted contact solver (D87, decision O19) and the fuse's timing (D177)
-(owner, 2026-11-18). `ram_asteroid`, in which neither the C++ pilot nor
+comes in the same tick, the first contact's damage is within 5 % of the
+oracle's (owner, 2026-11-19), and after it only the outcome (which objects
+are alive) is compared. The fights (`dogfight`, `skirmish`, `strafe`) are
+judged the same way: exactly up to their first contact or munition impact,
+whichever comes first, which must come in the same tick; after it their
+outcomes are compared within the envelopes, because the differences after
+a contact come from the accepted contact solver (D87, decision O19) and the
+fuse's timing (D177) (owner, 2026-11-18). The oracle's runs are identical
+(its run-to-run spread is 0), so each of these scenarios, `fly_to_point`
+and `fire_at_target` too, runs over a seed ensemble (owner, 2026-11-19;
+record 0003 points 9 and 10): 20 fixed seeds at the seeding point on both
+sides, every seed judged as above, and after the first contact the fights'
+outcome statistics over the seeds (survival count, kill tick, munition
+hits, collision events, final hull and shield) compared, Rust's
+distribution against the oracle's, within bounds that record 0003 proposes
+and the owner approves. The scenarios without contact keep the strict
+outcome check. `ram_asteroid`, in which neither the C++ pilot nor
 the Rust one touches the rock, stays as a near-miss check but does not count for the
 gate (owner, 2026-11-18). The scenarios are judged as recorded from the
 seeding point: the harness calls `srand(seed)` again once the system and

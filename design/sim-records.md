@@ -48,8 +48,8 @@ Conventions:
 
 | `rec` | Fields |
 | --- | --- |
-| `start` | `version` u, `scenario` s (path), `data_root` s, `system` s, `system_id` u, `ticks` u, `frame` d (seconds), `stepping` s (`sp` or `mp`), `collisions` s (`sp` or `mp`; since the load-draw work, after `stepping`), `seed` u, `clock` d (the fixed clock at tick 0), `objects` u, `commands` u |
-| `server` | `data_path` s, `controller` u (SimClientStub's controller id), `system_id` u, `system_loaded` b, `reseed` u (the seed of the `srand` the harness calls again after the load, before the objects are spawned: the seeding point the Rust world matches; reference-build.md section 10, start-up step 5) |
+| `start` | `version` u, `scenario` s (path), `data_root` s, `system` s, `system_id` u, `ticks` u, `frame` d (seconds), `stepping` s (`sp` or `mp`), `collisions` s (`sp` or `mp`; since the load-draw work, after `stepping`), `seed` u (the scenario's: the first `srand`, before the load), `reseed` u (the seed of the seeding point: `--seed`'s, else `seed`; since the G2 seed ensemble, 2026-11-19), `clock` d (the fixed clock at tick 0), `objects` u, `commands` u |
+| `server` | `data_path` s, `controller` u (SimClientStub's controller id), `system_id` u, `system_loaded` b, `reseed` u (the seed of the `srand` the harness calls again after the load, before the objects are spawned: the seeding point the Rust world matches, `--seed`'s when given; reference-build.md section 10, start-up step 5) |
 | `spawn` | `obj` s, `kind` s (`ship` or `solar`); a ship: `arch` s, `arch_id` u, `loadout` s, `loadout_id` u, `result` i (`pub::SpaceObj::Create`), `id` u, [`state_graph` s, `state_graph_id` i, [`pilot` s, `pilot_found` b (the `pilot` option; its personality was submitted)], `submit_state` i]; with `faction`, before `arch`: `faction` s, `faction_result` i (`GetReputationGroup`), then when the group is known `faction_id` u, `vibe` i (the ship's `VibeGroupId`), `vibe_alloc` i, `vibe_affiliation` i (`pub::Reputation::Alloc`, `SetAffiliation`); a solar: `nickname` s, `id` u (`CreateID(nickname)`), `found` b; then (P2.5, the transport's collision geometry) a created ship's `part_map` [[`part` u, `instance` i], …] (`CObject::PartMap`) and `attached` [{`id` u, `connected` b, `kind` s (`non_physical`, `physical` or `none`), with `non_physical` also `hp_crc` u, `collisions` b}, …] (every `CAttachedEquip` and its attachment) |
 | `command` | `tick` u, `line` i (in the scenario file), `obj` s, `cmd` s (the command as written), `ok` b, `result` i (what the called function returned; for a directive the `OP_RTYPE`), [`note` s, why it did not run] |
 | `error`, `critical_warning`, `note` | `tick` u, `text` s (`note`: an object marked `psi` whose PSIs are not recorded, and why; once per object) |
@@ -594,7 +594,7 @@ records are written when the first frame starts.
 | --- | --- |
 | `load_rand_start` | `version` u (1), `seed` u, `symbols` b (dbghelp started), `hooks` [s, …] (the modules whose import was replaced, in load order) |
 | `draw` | `i` u (the draw's index in the CRT sequence of the seed, from 0), `phase` s, `mod` s (the module that called `rand`), `v` i (the value), `gap` u (draws just before this one the hooks did not see), `at` s (`<module>+0x<offset>` of the return address), `fn` s (the caller: the innermost inlined function first, `<` between the inline levels), `line` s (`file:line` of the call, paths from `CppSource/`; empty without line data), `stack` [s, …] (the callers' frames, each `<module>+0x<offset> <functions> (<file:line>)`, at most nine) |
-| `reseed` | `seed` u, `drawn` u (the index the generator had reached: the draws since the first `srand`), between the `draw` records of before and after it |
+| `reseed` | `seed` u (the seed of this `srand`: `--seed`'s when given, else the scenario's), `drawn` u (the index the generator had reached: the draws since the first `srand`), between the `draw` records of before and after it |
 | `phase` | `phase` s, `first` u (index of its first draw, or the next index when it drew nothing), `count` u (indices it spans), `recorded` u (draws the hooks saw) |
 | `load_rand_end` | `recorded` u, `unseen` u (the sum of the gaps), `lost` b (a value was not found within 10⁶ steps of the generator; the indices after it are counts of seen draws only), `next_index` u (the index of the first draw of frame 1) |
 
@@ -654,7 +654,7 @@ hex, text) and `metrics.txt` the plain-text input of `--runs`
 | `event` | `kind` s, `obj` s, `present` u (runs with the event), `of` u (completed runs), `first_min` u, `first_max` u, `spread` u (ticks) |
 
 For each object and tick the spread of a metric is its largest difference
-between any two completed runs (record 0003 point 9): the distance between
+between any two completed runs (the determinism check of record 0003's envelope method): the distance between
 positions, velocities and angular velocities, the largest element
 difference of the orientation matrices, the hit-point difference; ticks at
 which the object is not alive in every run are counted in
@@ -665,3 +665,24 @@ An event's spread is the difference between its earliest and latest first
 occurrence (`kind` `collision` keyed by object `a`, `munition_hit` by the
 target, `dock` by the ship, `destroyed` by the object; other objects by
 `#<id>`). `spread.txt` says the same in decimal.
+
+## The seed ensemble (`--seed S`)
+
+Gate G2's seed ensemble (record 0003 point 9, owner 2026-11-19): the data
+job runs each scenario of `crates/game-sim/tests/fixtures/g2_ensemble.txt`
+once per seed listed there, as `Oracle.exe sim <data root> <scenario>
+<ensemble>\seed_<S>\<scenario> --seed S`. Each run's folder holds the
+records of a single run; the job keeps only those the comparison reads
+(`tick.jsonl`, `events.jsonl`, the `munition_hit` and `collision_damage`
+records of `calls.jsonl`, the first 2,000 lines of `ai.jsonl`,
+`session.jsonl`, `load_rand.txt`). A run records its seed in the `start`
+and `server` records (`reseed`) and in `load_rand.jsonl`'s `reseed`
+record. The Rust test (`scenario_replay`'s `g2_seed_ensemble`, with
+`OUTPOST_ENSEMBLE_DIR` set to `<ensemble>`) writes `rust-ensemble.txt`
+there: per scenario and seed the first contact or impact on both sides,
+the tick at which the seed's run leaves the first seed's, each object's
+outcome (survived, kill tick, munition hits taken, collision events, final
+hull and shield) on both sides and the seed's judgement; then per object
+and metric both sides' distributions (median, quartiles, range), the
+median difference against its margin and the exact two-sample
+Kolmogorov–Smirnov test (Fisher's exact test for the survival counts).

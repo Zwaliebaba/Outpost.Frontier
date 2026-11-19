@@ -592,7 +592,22 @@ reason is in `session.jsonl` and on stderr), 4 a fault in a frame (the
 program starts itself N times, each run in a fresh process writing to
 `<out>\run_NN\`, and writes `spread.jsonl` and `spread.txt` into `<out>`:
 the largest difference between any two runs per object, metric and event
-(record 0003 point 9). It exits 1 when a run did not complete.
+(the determinism check of record 0003's envelope method). It exits 1
+when a run did not complete.
+
+`--seed S` (decimal or `0x` hex, 32 bits; Gate G2's seed ensemble,
+record 0003 point 9, owner 2026-11-19) replaces the seed of the seeding
+point (start-up step 5) with `S`; the first `srand`, before the load,
+keeps the scenario's `seed`, so the load-time draws stay as they are. The
+run records `S` as `reseed` in `session.jsonl`'s `start` and `server`
+records and in `load_rand.jsonl`'s `reseed` record. With `--runs N` each
+child gets the same `--seed`. The options come after the three paths, in
+any order. The data job runs the ensemble of
+`crates/game-sim/tests/fixtures/g2_ensemble.txt` this way:
+
+```powershell
+.\bin\Oracle.exe sim "$PWD\outdir" CppSource\Oracle\scenarios\dogfight.txt "$env:TEMP\ens\seed_3985226492\dogfight" --seed 3985226492
+```
 
 ### Start-up
 
@@ -648,6 +663,7 @@ As `OutpostServer.exe` (`OutpostServer.cpp:437`, `:523`, `:731-745`,
    drawn their values. The scenario is compared from here as recorded: the
    Rust world, which has no population yet (P3.6), seeds its generator at
    the same point, and the population's draws are checked at Gate G3.
+   With `--seed S` the seed here is `S` (the seed ensemble).
 6. The objects are spawned (`pub::SpaceObj::Create`, then
    `pub::AI::SubmitState` with the state graph for `ai`) or looked up
    (solars, `CreateID(nickname)`); a missing object ends the run.
@@ -884,7 +900,9 @@ thread), the control words before every frame (IVP's point-soup builder
 sets 64-bit precision and never restores it; the `frame` record shows what
 it found). Not fixed, as record 0003 says: the pointer-keyed physics sync
 set and IVP's pointer-XOR pair hash, so runs can differ; that is the spread
-`--runs` measures. Not audited: `timeGetTime` and `GetTickCount` reads in
+`--runs` measures (0 in every scenario so far: the runs are identical, so
+Gate G2 varies the seed instead, `--seed`, record 0003 point 9). Not
+audited: `timeGetTime` and `GetTickCount` reads in
 Content.dll and the engine DLLs.
 
 The load-time draws (`load_rand.jsonl`; first recorded 2026-11-18, the same

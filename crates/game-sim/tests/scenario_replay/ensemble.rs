@@ -40,31 +40,33 @@ const RAM_DAMAGE_BOUND: f64 = 0.05;
 const ENVELOPES_APPROVED: bool = false;
 
 /// The outcome bounds, proposed and awaiting the owner (record 0003 point
-/// 9): for each metric Rust's 20 values against the oracle's 20.
+/// 9): for each metric Rust's 20 values against the oracle's 20. They
+/// apply to the fights; `ram_ship` after its first contact is judged by
+/// its outcome (alive) only, and its other statistics are reported.
 struct Bounds {
-    /// The survival count: |rust − oracle| at most this, of the seeds.
-    survival: usize,
     /// The significance level of the two-sample tests (Fisher's exact test
     /// of the survival counts, the exact two-sample Kolmogorov–Smirnov test
     /// of the other metrics): a metric fails when its p-value is below it.
     alpha: f64,
     /// The median of a metric: |rust − oracle| at most
-    /// `max(floor, iqr × the oracle's interquartile range)`.
+    /// `max(floor, iqr × the oracle's interquartile range)`. 0.75 is about
+    /// 2.5 standard errors of the difference of two medians of 20 (normal
+    /// approximation: 0.30 × IQR), the same level as `alpha`.
     iqr: f64,
 }
 
 const BOUNDS: Bounds = Bounds {
-    survival: 4,
     alpha: 0.01,
-    iqr: 1.0,
+    iqr: 0.75,
 };
 
 /// The floors of the median bound, per metric: one second of kill time,
-/// two munition hits, one collision event, 50 hull and 50 shield points.
+/// two munition hits, one contact (its two collision events), 50 hull and
+/// 50 shield points.
 const MEDIAN_FLOORS: [(&str, f64); 5] = [
     ("kill_tick", 30.0),
     ("hits", 2.0),
-    ("collisions", 1.0),
+    ("collisions", 2.0),
     ("hull", 50.0),
     ("shield", 50.0),
 ];
@@ -523,12 +525,16 @@ fn compare_metric(metric: &str, mut rust: Vec<f64>, mut oracle: Vec<f64>) -> (St
     )
 }
 
-/// The ensemble statistics of one scenario.
+/// The ensemble statistics of one scenario. `outcome_only`: a contact
+/// scenario (`ram_ship`), whose statistics after the first contact other
+/// than survival are reported, not bounded (Gate G2: after its first
+/// contact only the outcome is compared).
 fn report_statistics(
     summary: &mut String,
     outside: &mut Vec<String>,
     name: &str,
     results: &[SeedResult],
+    outcome_only: bool,
 ) {
     let rust: Vec<&Outcome> = results.iter().filter_map(|r| r.rust.as_ref()).collect();
     let oracle: Vec<&Outcome> = results.iter().filter_map(|r| r.oracle.as_ref()).collect();
@@ -547,6 +553,43 @@ fn report_statistics(
         fmt_sample(&fr),
         fmt_sample(&fo)
     );
+    // The seeds whose first contact or impact comes in the oracle's tick.
+    let fmt_tick = |t: Option<u32>| t.map_or_else(|| "-".to_owned(), |t| t.to_string());
+    let paired: Vec<(u32, Option<u32>, Option<u32>)> = results
+        .iter()
+        .filter_map(|r| {
+            Some((
+                r.seed,
+                r.rust.as_ref()?.first_event,
+                r.oracle.as_ref()?.first_event,
+            ))
+        })
+        .collect();
+    if !paired.is_empty() {
+        let other: Vec<String> = paired
+            .iter()
+            .filter(|p| p.1 != p.2)
+            .map(|p| {
+                format!(
+                    "seed {} rust {} oracle {}",
+                    p.0,
+                    fmt_tick(p.1),
+                    fmt_tick(p.2)
+                )
+            })
+            .collect();
+        let _ = writeln!(
+            summary,
+            "{name}: first contact or impact in the oracle's tick in {} of {} seeds{}",
+            paired.len() - other.len(),
+            paired.len(),
+            if other.is_empty() {
+                String::new()
+            } else {
+                format!(" (not: {})", other.join(", "))
+            }
+        );
+    }
     let objects: Vec<String> = rust
         .iter()
         .chain(&oracle)
@@ -567,14 +610,14 @@ fn report_statistics(
         );
         if !o.is_empty() {
             let p = fisher_p_value(sr, r.len(), so, o.len());
-            let off = sr.abs_diff(so) > BOUNDS.survival || p < BOUNDS.alpha;
+            let off = p < BOUNDS.alpha;
             let _ = writeln!(
                 summary,
-                "{name}: {obj}: survived: rust {sr} of {} | oracle {so} of {} | diff {:+} (bound {}), Fisher p {p:.4}{}",
+                "{name}: {obj}: survived: rust {sr} of {} | oracle {so} of {} | diff {:+}, Fisher p {p:.4} (bound {}){}",
                 r.len(),
                 o.len(),
                 sr as i64 - so as i64,
-                BOUNDS.survival,
+                BOUNDS.alpha,
                 if off { "  OUTSIDE" } else { "" }
             );
             if off {
@@ -604,7 +647,12 @@ fn report_statistics(
                 continue;
             }
             let (line, off) = compare_metric(metric, rv, ov);
-            let _ = writeln!(summary, "{name}: {obj}: {line}");
+            let off = off && !outcome_only;
+            let _ = writeln!(
+                summary,
+                "{name}: {obj}: {line}{}",
+                if outcome_only { " (reported)" } else { "" }
+            );
             if off {
                 outside.push(format!("{name}: {obj}: {metric}"));
             }
@@ -732,7 +780,7 @@ fn g2_seed_ensemble() {
                 100.0 * RAM_DAMAGE_BOUND
             );
         }
-        report_statistics(&mut summary, &mut outside, name, &results);
+        report_statistics(&mut summary, &mut outside, name, &results, base.contact);
     }
     let _ = writeln!(
         summary,
