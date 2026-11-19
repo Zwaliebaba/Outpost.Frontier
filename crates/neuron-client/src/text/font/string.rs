@@ -666,6 +666,26 @@ impl FontString {
         self.text.as_deref()
     }
 
+    /// The font (`+0x1c`).
+    #[must_use]
+    pub fn font(&self) -> Option<FontId> {
+        self.font
+    }
+
+    /// The extents of the last layout (`+0x20`, `+0x24`).
+    #[must_use]
+    pub fn extents(&self) -> (i32, i32) {
+        (self.extent_w, self.extent_h)
+    }
+
+    /// `+0x30` with the layout made stale when it changes.
+    pub fn set_multi_line(&mut self, on: bool) {
+        if self.multi_line != on {
+            self.multi_line = on;
+            self.layout_gen = 0;
+        }
+    }
+
     /// The wrap width key.
     #[must_use]
     pub fn scale_key(&self) -> i32 {

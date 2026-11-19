@@ -232,6 +232,37 @@ impl ParticleFx {
         self.effects.find(hash)
     }
 
+    /// `ClearNodeLibrary`: every prototype released and the node library
+    /// emptied.
+    pub fn clear_node_library(&mut self, svc: &mut dyn ParticleServices) {
+        for id in std::mem::take(&mut self.prototypes).into_values() {
+            self.release(id, svc);
+        }
+    }
+
+    /// `ApplyParticleFxIniAndPools` over the engine INI's `[ParticleFx]`
+    /// section: each pool sized by its `<class>.poolSize` key (1000 without
+    /// one) and the draw buffers sized for them. `ParticleFx.useMaterialBatcher`
+    /// is read and discarded, as in the reference, so the batcher stays off.
+    /// Called before the vertex buffer is made (the draw state starts
+    /// over).
+    pub fn configure(&mut self, section: Option<&neuron_core::ini::EngineSection>) {
+        let mut sizes = [super::pool::DEFAULT_POOL_SIZE; 8];
+        for (size, kind) in sizes.iter_mut().zip(PoolKind::ALL) {
+            if let Some(value) = section.and_then(|s| s.value(kind.ini_key().as_bytes()))
+                && !value.is_empty()
+            {
+                *size = parse_ini_value(value);
+            }
+        }
+        for (&size, kind) in sizes.iter().zip(PoolKind::ALL) {
+            self.pools.reallocate(kind, size);
+        }
+        let use_batcher = self.draw.use_batcher;
+        self.draw = DrawState::new(&sizes);
+        self.draw.use_batcher = use_batcher;
+    }
+
     /// Both libraries of a loaded `.ale` file, as the client loads one into
     /// the node library and the effect library.
     pub fn load(&mut self, ale: &fx::AleFile) {
@@ -493,4 +524,26 @@ impl ParticleFx {
             }
         }
     }
+}
+
+/// `ParseParticleFxIniValue`: the value cut at its first character outside
+/// the profile charset (unless that leaves nothing); true/yes 1, false/no
+/// 0, hexadecimal with an x, else `atoi`.
+#[must_use]
+pub fn parse_ini_value(text: &[u8]) -> u32 {
+    use neuron_core::hash::eq_ignore_case;
+    const CHARSET: &[u8] = b"0123456789truefalsynoxTRUEFALSYNOX+-";
+    let span = text.iter().take_while(|c| CHARSET.contains(c)).count();
+    let text = if span != 0 { &text[..span] } else { text };
+    if eq_ignore_case(text, b"true") || eq_ignore_case(text, b"yes") {
+        return 1;
+    }
+    if eq_ignore_case(text, b"false") || eq_ignore_case(text, b"no") {
+        return 0;
+    }
+    if text.contains(&b'x') || text.contains(&b'X') {
+        let wide: Vec<u16> = text.iter().map(|&c| u16::from(c)).collect();
+        return neuron_core::msvcrt::wcstoul(&wide, 16);
+    }
+    neuron_core::msvcrt::atoi(text).cast_unsigned()
 }

@@ -1,8 +1,12 @@
 // P4.13: the client UI toolkit's generic controls, through the reference's own code.
 // The Win3D manager (win3d.cpp), WinControl (wincontrol_base.cpp), the factory registry
 // (win_factory.cpp), the hover pulse (nn_ui_pulse.cpp) and the controls ListBox / UIListBox
-// (list_box.cpp, ui_list_box.cpp), UIScroll / UICycle (ui_scroll.cpp) and WinObject /
-// UIWinObject (win_object.cpp, ui_win_object.cpp) are compiled into this file. The controls draw
+// (list_box.cpp, ui_list_box.cpp), UIScroll / UICycle (ui_scroll.cpp), WinObject /
+// UIWinObject (win_object.cpp, ui_win_object.cpp), TextControl / EditControl
+// (nn_text_control.cpp), StaticControl (nn_static_control.cpp), ButtonControl /
+// ToggleButtonControl (nn_button_control.cpp), the wire controls (wire_controls.cpp),
+// ScrollControl (scroll_control.cpp) and UITable (ui_table.cpp) are compiled into this file
+// (their file-local helpers of the same name renamed around the includes). The controls draw
 // through recording stand-ins for the immediate-mode layer (win3d_immediate.cpp), the render
 // pipeline, the font strings and the mesh holder; the client functions they reach otherwise
 // (the screen projection of text objects, the frame time, the software cursor, the game options,
@@ -28,6 +32,25 @@
 //             custom V, active V, soff X Y Z (SetScrollOffset), offset X Y Z (property 6),
 //             prop M A B (SetProperty with integers)
 //   UIWinObject: flags V, tint RRGGBBAA
+// The later controls are made by the factory with no payload (new CLASS), UITable with its
+// payload (new UITable R B ROWS COLS), then set up through their Init:
+//   TextControl / EditControl: init STYLE X Y Z HP W H IDS JUST TIP ANCHOR
+//   StaticControl: init MESH OX OY OZ HP HX HY HZ NOZ ZCLEAR NOMESH NOWIRE NOCOLOR RTW NOCLEAR
+//                  RADIUS SPEED ROT YAW PITCH ROLL
+//   ButtonControl / ToggleButtonControl: init MESH MESH2 SOUND KEY OX OY OZ HP HX HY HZ NOMESH
+//                  ACTION NOCOLOR NOZ TIP TIP2 CMD (the toggle has no command)
+//   WireStaticControl: init OX OY OZ HX HY HZ WHITE NOZ TIP MASK
+//   WireButtonControl: init SOUND OX OY OZ HX HY HZ WHITE NOZ TIP CMD MASK
+//   ScrollControl: init, per part back, next, prev: MESH OX OY OZ HP MX MY MZ NOMESH; then the
+//                  thumb: MESH O0X O0Y O0Z O1X O1Y O1Z HP0 HP1 MX MY MZ NOMESH; then MIN MAX PAGE
+//                  SLIDER NOZ
+// (texts and paths in hex, "-" for null), and take the operations
+//   enter (MouseEnter) | inactive (UpdateInactive) | key K M (KeyEvent) | time T (the elapsed
+//   time) | gopt I V (GetGameOption(I)) | prop M A B (SetProperty with integers) | offset X Y Z
+//   (property 6) | text HEX (0x1d) | colour RRGGBBAA B (0x33) | colours RRGGBBAA RRGGBBAA (0x18)
+//   | getcmd (0x2e) | gettoggle (0x2f) | sounds S0 S1 (0x31) | tset HEX (SetText) | ids N
+//   (SetIds) | width W (SetWidth) | cached C I (SetCachedDraw) | number HEX (SetNumberText) |
+//   cedge I X / redge I Y (SetColumnEdge / SetRowEdge) | rows H S... (the rows' flags)
 //
 // Line formats, each prefixed with "case": the stand-ins' calls --
 //   {"ev":"begin","p"} {"ev":"end"} {"ev":"v","x","y","z"} {"ev":"c3","c"} {"ev":"c4","c"}
@@ -35,6 +58,13 @@
 //   {"ev":"ortho"} {"ev":"mv","m"} {"ev":"rs","s","v"} {"ev":"color","c"}
 //   {"ev":"paint","t","x","y","l","r"} {"ev":"load","path","mat"} {"ev":"mpos","x","y","z"}
 //   {"ev":"mupd"} {"ev":"submit"} {"ev":"tinted","tint","l"}
+//   {"ev":"en","cap"} {"ev":"mori","m"} {"ev":"mxf","m"} (mesh events of a second or later
+//   instance carry "i") {"ev":"body","t","cull","s"} after a submit with a tint, front culling or
+//   a scale; {"ev":"tscale","cull","s"} after a tinted submit without front culling or with a
+//   scale; {"ev":"outlined","w","s"} {"ev":"line","f","t","c","w"} (the line batcher)
+//   {"ev":"fscale","w","z"} {"ev":"ftext","t"} {"ev":"fnum","f"} {"ev":"fdraw","x","y","w","h",
+//   "hm","vm","l","r"} (the Font::String) {"ev":"hover","k","a","x","p","e","l"} {"ev":"hidetip"}
+//   {"ev":"sound","s"} {"ev":"tplay","s"} {"ev":"tstop","s"} {"ev":"roll"} {"ev":"post","c"}
 // -- the parent's (slot 23 and SetProperty from the control; "self" for the control, a list
 // row's text in hex or "null") --
 //   {"ev":"msg","m","a","b"} {"ev":"prop","m","a","b"}
@@ -44,12 +74,18 @@
 //   {"ev":"scroll","flags","pos","v","rect","arrow","drag","rt","dragging","doff","inv","colors",
 //    "soff","dpage"}
 //   {"ev":"obj","flags","pos","orient","origin","corner"}
+//   {"ev":"text",...} {"ev":"static",...} {"ev":"button",...} {"ev":"wire",...}
+//   {"ev":"sctl",...} {"ev":"table",...} (the fields in the order the state functions print;
+//   their flags are the low four bits, the Win3D constructor keeps the others as allocated)
 
 #include "oracle_support.h"
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <cmath>
+#include <new>
 
 #include <string>
 #include <vector>
@@ -63,6 +99,32 @@
 #include "../OutpostFrontier/Client/ui_scroll.cpp"
 #include "../OutpostFrontier/Client/win_object.cpp"
 #include "../OutpostFrontier/Client/ui_win_object.cpp"
+#include "../OutpostFrontier/Client/nn_text_control.cpp"
+#define HasInstance StaticHasInstance
+#define kInv255 StaticInv255
+#define SetHolderTint StaticSetHolderTint
+#define SetIdentityTransform StaticSetIdentityTransform
+#include "../OutpostFrontier/Client/nn_static_control.cpp"
+#undef HasInstance
+#undef kInv255
+#undef SetHolderTint
+#undef SetIdentityTransform
+#define HasInstance ButtonHasInstance
+#define kInv255 ButtonInv255
+#define SetHolderTint ButtonSetHolderTint
+#define kOne ButtonOne
+#define TellParent ButtonTellParent
+#include "../OutpostFrontier/Client/nn_button_control.cpp"
+#undef HasInstance
+#undef kInv255
+#undef SetHolderTint
+#undef kOne
+#undef TellParent
+#include "../OutpostFrontier/Client/wire_controls.cpp"
+#define SetIdentityTransform ScrollSetIdentityTransform
+#include "../OutpostFrontier/Client/scroll_control.cpp"
+#undef SetIdentityTransform
+#include "../OutpostFrontier/Client/ui_table.cpp"
 
 namespace
 {
@@ -72,6 +134,10 @@ namespace
     double GCtlFrameTime = 0.0;
     int GCtlCursor[2] = {0, 0};
     int GCtlOption = 1;
+    int GCtlOptions[0x20];
+    double GCtlElapsed = 0.0;
+    int GCtlInstances = 0;
+    float GCtlXforms[8][12];
 
     void CtlEvent(const std::string& Fields)
     {
@@ -288,7 +354,9 @@ namespace
         }
         intptr_t SetProperty(int Msg, uintptr_t A, uintptr_t B) override
         {
-            CtlEvent(oracle::Format("\"ev\":\"prop\",\"m\":\"%x\",\"a\":\"%s\",\"b\":\"%d\"", Msg, Arg(A).c_str(),
+            std::string const Text =
+                Msg == 0x45 ? Units(reinterpret_cast<wchar_t const*>(A)) : Arg(A);
+            CtlEvent(oracle::Format("\"ev\":\"prop\",\"m\":\"%x\",\"a\":\"%s\",\"b\":\"%d\"", Msg, Text.c_str(),
                                     (int)B));
             return 0;
         }
@@ -389,6 +457,516 @@ namespace
                  "\",\"origin\":\"" + Bits3(Origin) + "\",\"corner\":\"" + Bits3(Corner) + "\"");
     }
 
+
+    // The mesh instances of a case: the loader hands out 0x1000, 0x1001, ...; each keeps the
+    // transform the engine calls set.
+    int InstanceIndex(void const* Instance)
+    {
+        uintptr_t const Raw = reinterpret_cast<uintptr_t>(Instance);
+        if (Raw < 0x1000 || Raw >= 0x1008)
+            return 0;
+        return (int)(Raw - 0x1000);
+    }
+
+    std::string MeshEv(char const* Name, int Index)
+    {
+        std::string Out = oracle::Format("\"ev\":\"%s\"", Name);
+        if (Index > 0)
+            Out += oracle::Format(",\"i\":\"%d\"", Index);
+        return Out;
+    }
+
+    void MeshPos(int Index, float const* P)
+    {
+        GCtlXforms[Index][9] = P[0];
+        GCtlXforms[Index][10] = P[1];
+        GCtlXforms[Index][11] = P[2];
+        CtlEvent(MeshEv("mpos", Index) + ",\"x\":\"" + Bits(P[0]) + "\",\"y\":\"" + Bits(P[1]) + "\",\"z\":\"" +
+                 Bits(P[2]) + "\"");
+    }
+
+    // The engine the controls place their instances through (NeuronRuntime::Engine while the suite
+    // runs): positions, orientations, matrices and updates recorded, the transforms kept, a radius
+    // of 0.25 for every instance.
+    class FOracleCtlEngine final : public IEngine
+    {
+    public:
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Result) override
+        {
+            *Result = nullptr;
+            return GR_INTERFACE_UNSUPPORTED;
+        }
+        unsigned long NEURONCOMPONENTS_API AddRef() override { return 1; }
+        unsigned long NEURONCOMPONENTS_API Release() override { return 1; }
+        GENRESULT NEURONCOMPONENTS_API UpdateInstance(void* Instance, unsigned long Flags, void* Arg) override
+        {
+            CtlEvent(MeshEv("mupd", InstanceIndex(Instance)));
+            return GR_OK;
+        }
+        GENRESULT NEURONCOMPONENTS_API SetInstancePosition(void* Instance, void* Position) override
+        {
+            MeshPos(InstanceIndex(Instance), static_cast<float const*>(Position));
+            return GR_OK;
+        }
+        float* NEURONCOMPONENTS_API GetInstancePosition(void* Instance) override
+        {
+            return &GCtlXforms[InstanceIndex(Instance)][9];
+        }
+        GENRESULT NEURONCOMPONENTS_API SetInstanceOrientation(void* Instance, void* Orient) override
+        {
+            int const Index = InstanceIndex(Instance);
+            memcpy(GCtlXforms[Index], Orient, 9 * sizeof(float));
+            CtlEvent(MeshEv("mori", Index) + ",\"m\":\"" + BitsN(GCtlXforms[Index], 9) + "\"");
+            return GR_OK;
+        }
+        float* NEURONCOMPONENTS_API GetInstanceOrientation(void* Instance) override
+        {
+            return GCtlXforms[InstanceIndex(Instance)];
+        }
+        GENRESULT NEURONCOMPONENTS_API SetInstanceMatrix(void* Instance, void* Matrix) override
+        {
+            int const Index = InstanceIndex(Instance);
+            memcpy(GCtlXforms[Index], Matrix, 12 * sizeof(float));
+            CtlEvent(MeshEv("mxf", Index) + ",\"m\":\"" + BitsN(GCtlXforms[Index], 12) + "\"");
+            return GR_OK;
+        }
+        float* NEURONCOMPONENTS_API GetInstanceTransform(void* Instance) override
+        {
+            return GCtlXforms[InstanceIndex(Instance)];
+        }
+        GENRESULT NEURONCOMPONENTS_API GetInstanceExtent(void* Instance, unsigned long Flags, float* OutExtent,
+                                                         float* OutVec) override
+        {
+            *OutExtent = 0.25f;
+            OutVec[0] = 0.0f;
+            OutVec[1] = 0.0f;
+            OutVec[2] = 0.0f;
+            return GR_OK;
+        }
+        GENRESULT NEURONCOMPONENTS_API LoadEngineComponents(INeuronComponent* SystemContainer) override { return 0; }
+        unsigned long NEURONCOMPONENTS_API EnumerateEngineComponents(int(__cdecl* Callback)(const char*, void*)) override { return 0; }
+        GENRESULT NEURONCOMPONENTS_API NotifyEngineComponents(void* Arg) override { return 0; }
+        GENRESULT NEURONCOMPONENTS_API SetSearchPath(const char* Path) override { return 0; }
+        GENRESULT NEURONCOMPONENTS_API QuerySearchPath(char* Dest, unsigned long MaxChars) override { return 0; }
+        GENRESULT NEURONCOMPONENTS_API SetFilesystem(INeuronComponent* NewPath) override { return 0; }
+        GENRESULT NEURONCOMPONENTS_API GetSearchPath(void** Out) override { return 0; }
+        GENRESULT NEURONCOMPONENTS_API CreateFileSystem(const char* Path, void** Out, void* Factory) override { return 0; }
+        void* NEURONCOMPONENTS_API CreateCompoundArchetype(FEngineName* Name) override { return nullptr; }
+        void* NEURONCOMPONENTS_API CreateArchetypeHandle(FEngineName* Name, void* FileSystem) override { return nullptr; }
+        void* NEURONCOMPONENTS_API DuplicateArchetype(void* ArchIn, FEngineName* Name) override { return nullptr; }
+        unsigned long NEURONCOMPONENTS_API AddRefHandle(void* Handle) override { return 0; }
+        unsigned long NEURONCOMPONENTS_API ReleaseHandle(void* Handle) override { return 0; }
+        FEngineName* NEURONCOMPONENTS_API GetArchetypeName(FEngineName* Out, void* Handle) override { return nullptr; }
+        void* NEURONCOMPONENTS_API FindArchetype(FEngineName* Name) override { return nullptr; }
+        GENRESULT NEURONCOMPONENTS_API QueryEngineComponent(int Id, void* Name, void** Out) override { return 0; }
+        unsigned long NEURONCOMPONENTS_API IsCompoundArchetype(void* Handle) override { return 0; }
+        GENRESULT NEURONCOMPONENTS_API EnumerateArchetypeConstraints(void* Handle, int(__cdecl* Callback)(void*, void*, void*, void*), void* Context) override { return 0; }
+        GENRESULT NEURONCOMPONENTS_API EnumerateArchetypeChildren(void* Handle, int(__cdecl* Callback)(void*, void*, int, void*), void* Context) override { return 0; }
+        void* NEURONCOMPONENTS_API CreateInstanceFromName(FEngineName* Name, void* FileSystem, void* Transform) override { return nullptr; }
+        void* NEURONCOMPONENTS_API CreateInstance(void* Handle, void* Transform) override { return nullptr; }
+        GENRESULT NEURONCOMPONENTS_API DestroyInstance(void* Instance) override { return 0; }
+        void* NEURONCOMPONENTS_API GetInstanceArchetype(void* Instance) override { return nullptr; }
+        FEngineName* NEURONCOMPONENTS_API GetInstanceName(FEngineName* Out, void* Instance) override { return nullptr; }
+        GENRESULT NEURONCOMPONENTS_API SetInstanceTransform(void* Instance, void* Transform) override { return 0; }
+        GENRESULT NEURONCOMPONENTS_API GetInstanceTransformObject(void* Instance, void** Out) override { return 0; }
+        GENRESULT NEURONCOMPONENTS_API QueryInstance(void* Instance, const char* Iid, void** Out) override { return 0; }
+        GENRESULT NEURONCOMPONENTS_API SetInstanceUserData(void* Instance, void* Value) override { return 0; }
+        void* NEURONCOMPONENTS_API GetInstanceUserData(void* Instance) override { return nullptr; }
+        GENRESULT NEURONCOMPONENTS_API SetInstanceExtent(void* Instance, unsigned long Flags, float Extent, const float* Vec) override { return 0; }
+        GENRESULT NEURONCOMPONENTS_API NoOp41(void* A, void* B) override { return 0; }
+        float* NEURONCOMPONENTS_API GetIdentityMatrix(void* Unused) override { return nullptr; }
+        GENRESULT NEURONCOMPONENTS_API NoOp43(void* A, void* B) override { return 0; }
+        float* NEURONCOMPONENTS_API GetIdentityMatrix2(void* Unused) override { return nullptr; }
+        GENRESULT NEURONCOMPONENTS_API SetTransformUser(void* Instance, unsigned long User) override { return 0; }
+        unsigned long NEURONCOMPONENTS_API GetTransformUser(void* Instance) override { return 0; }
+        unsigned long NEURONCOMPONENTS_API CreateJoint(void* Parent, void* Child, const unsigned long* Payload) override { return 0; }
+        unsigned long NEURONCOMPONENTS_API DestroyJoint(void* Parent, void* Child) override { return 0; }
+        unsigned long* NEURONCOMPONENTS_API GetInstanceRelative(void* Instance) override { return nullptr; }
+        unsigned long NEURONCOMPONENTS_API SetJointParams(void* Instance, unsigned long Index, const float* Values) override { return 0; }
+        unsigned long NEURONCOMPONENTS_API GetJointParams(void* Instance, unsigned long Index, float* Out) override { return 0; }
+        void* NEURONCOMPONENTS_API FindMappedInstance(void* Instance) override { return nullptr; }
+        void* NEURONCOMPONENTS_API GetInstanceParent(void* Instance) override { return nullptr; }
+        void* NEURONCOMPONENTS_API GetRelatedInstance(void* From, unsigned long Flags, void* Cursor) override { return nullptr; }
+        void* NEURONCOMPONENTS_API GetInstanceRoot(void* Instance) override { return nullptr; }
+        void* NEURONCOMPONENTS_API FindArchetypeChild(void* Handle, void* ChildHandle) override { return nullptr; }
+        unsigned long NEURONCOMPONENTS_API RejectOperation(void* A, void* B) override { return 0; }
+    };
+
+    std::string Bits12(float const* V)
+    {
+        return BitsN(V, 12);
+    }
+
+    std::string Pending(wchar_t const* Text)
+    {
+        return (Text != nullptr && Text[0] != 0) ? Units(Text) : std::string();
+    }
+
+    void TextState(NnTextControl* T, NnEditControl* E)
+    {
+        float const Off[3] = {T->Offset[0], T->Offset[1], T->Offset[2]};
+        std::string Line =
+            oracle::Format("\"ev\":\"text\",\"flags\":\"%02x\",\"pos\":\"", T->Flags & 0x0f) + Bits3(T->Position) +
+            "\",\"off\":\"" + Bits3(Off) + "\",\"w\":\"" + Bits(T->Width) + "\",\"h\":\"" + Bits(T->Height) +
+            "\",\"t\":\"" + Units(T->GetFontString()->Text) +
+            oracle::Format("\",\"tc\":\"%d\",\"te\":\"", T->TypedCount) + Bits(T->TypeElapsed) + "\",\"ti\":\"" +
+            Bits(T->TypeInterval) +
+            oracle::Format("\",\"tw\":\"%d\",\"typing\":\"%d\",\"pend\":\"", T->bTypewriter, T->bTyping) +
+            Pending(T->PendingText) + oracle::Format("\",\"blink\":\"%d\",\"ph\":\"%d\",\"be\":\"", T->bBlink,
+                                                     T->BlinkPhase) +
+            Bits(T->BlinkElapsed) + "\",\"oc\":\"" + Rgba(T->OverrideColour) +
+            oracle::Format("\",\"co\":\"%d\",\"cap\":\"%d\",\"lc\":\"%d\",\"n\":\"%d\"", T->bColourOverride,
+                           T->bInCaptureList, T->Field340, G_TextControlTypingCount);
+        if (E != nullptr)
+            Line += ",\"ct\":\"" + Bits(E->CursorTimer) +
+                    oracle::Format("\",\"cs\":\"%d\",\"ml\":\"%d\",\"ed\":\"%d\",\"dg\":\"%d\"", E->bCursorShown,
+                                   E->MaxLength, E->bEditable, E->bDigitsOnly);
+        CtlEvent(Line);
+    }
+
+    void StaticState(NnStaticControl* S)
+    {
+        float const Angles[3] = {S->CurRoll, S->CurPitch, S->CurYaw};
+        float const Off[3] = {S->Offset[0], S->Offset[1], S->Offset[2]};
+        CtlEvent(oracle::Format("\"ev\":\"static\",\"flags\":\"%02x\",\"pos\":\"", S->Flags & 0x0f) + Bits3(S->Position) +
+                 "\",\"orient\":\"" + BitsN(S->Orientation, 9) + "\",\"off\":\"" + Bits3(Off) + "\",\"a\":\"" +
+                 Bits3(Angles) + "\",\"s\":\"" + Bits3(S->StartYpr) +
+                 oracle::Format("\",\"f\":\"%d%d%d%d%d%d%d%d%d%d\",\"fr\":\"", S->bNoMeshRender, S->bNoWireRender,
+                                S->bNoColoring, S->Field_0x347, S->bUseColours, S->bEnableRotation,
+                                S->bNoClearRender, S->bRenderToWindow, S->bZClear, S->bNoZEnable) +
+                 Bits(S->ForceRadius) + "\",\"rs\":\"" + Bits(S->RotationSpeed) + "\",\"mc\":\"" +
+                 Rgba(S->MeshColour) + "\",\"wc\":\"" + Rgba(S->WireColour) + "\"");
+    }
+
+    void ButtonState(NnButtonControl* B, NnToggleButtonControl* T)
+    {
+        float const Off[3] = {B->Offset[0], B->Offset[1], B->Offset[2]};
+        CtlEvent(oracle::Format("\"ev\":\"button\",\"flags\":\"%02x\",\"pos\":\"", B->Flags & 0x0f) + Bits3(B->Position) +
+                 "\",\"orient\":\"" + BitsN(B->Orientation, 9) + "\",\"off\":\"" + Bits3(Off) +
+                 oracle::Format("\",\"b\":\"%02x\",\"b2\":\"%02x\",\"spin\":\"", B->ButtonBits, B->ButtonBits2) +
+                 Bits(B->SpinAngle) + "\",\"bt\":\"" + Bits(B->BlinkTimer) +
+                 oracle::Format("\",\"ph\":\"%d\",\"glow\":\"%08lx\",\"cmd\":\"%d\",\"tip\":\"%d\",\"tip2\":\"%d\","
+                                "\"slot\":\"%d\",\"ts\":\"%d\",\"uc\":\"%d\",\"col\":\"",
+                                B->bBlinkPhase, B->GlowArgb, B->CommandId, B->ToolTipIds, B->ToolTip2Ids,
+                                B->UiSoundSlot, T != nullptr ? T->ToggleState : -1, B->bUseColour) +
+                 Rgba(B->Colour) + "\"");
+    }
+
+    void WireState(WireStaticControl* W, WireButtonControl* B)
+    {
+        CtlEvent(oracle::Format("\"ev\":\"wire\",\"flags\":\"%02x\",\"pos\":\"", W->Flags & 0x0f) + Bits3(W->Position) +
+                 "\",\"c\":\"" + Bits3(W->WireCenter) +
+                 oracle::Format("\",\"st\":\"%02x\",\"m\":\"%x\",\"bl\":\"%d\",\"ph\":\"%d\",\"bt\":\"", W->WireState,
+                                W->EdgeMask, W->bBlink, W->bBlinkPhase) +
+                 Bits(W->BlinkTimer) +
+                 oracle::Format("\",\"bs\":\"%d\",\"cmd\":\"%d\",\"slot\":\"%d\"", B != nullptr ? B->ButtonState & 7 : -1,
+                                B != nullptr ? B->CommandId : 0, W->SoundSlot));
+    }
+
+    void ScrollControlState(ScrollControl* C)
+    {
+        CtlEvent(oracle::Format("\"ev\":\"sctl\",\"v\":\"%d\",\"min\":\"%d\",\"max\":\"%d\",\"pg\":\"%d\",\"st\":\"%d\","
+                                "\"valid\":\"%d\",\"f\":\"%d%d%d%d%d%d%d\",\"rt\":\"",
+                                C->Value, C->MinRange, C->MaxRange, C->PageSize, C->Step, C->bThumbValid,
+                                C->bDragging, C->bPaging, C->bNextPressed, C->bPrevPressed, C->bThumbHover,
+                                C->bNextHover, C->bPrevHover) +
+                 Bits(C->RepeatTime) + "\",\"back\":\"" +
+                 Bits12(reinterpret_cast<float const*>(&C->Back.Xform)) + "\",\"next\":\"" +
+                 Bits12(reinterpret_cast<float const*>(&C->Next.Xform)) + "\",\"prev\":\"" +
+                 Bits12(reinterpret_cast<float const*>(&C->Prev.Xform)) + "\",\"thumb\":\"" +
+                 Bits12(reinterpret_cast<float const*>(&C->ThumbXform)) + "\",\"ts\":\"" +
+                 Bits12(reinterpret_cast<float const*>(&C->ThumbStart)) + "\",\"te\":\"" +
+                 Bits12(reinterpret_cast<float const*>(&C->ThumbEnd)) + "\"");
+    }
+
+    void TableState(UiTable* T)
+    {
+        std::string Rows;
+        for (size_t Index = 0; Index < T->RowEdges.size(); ++Index)
+            Rows += (Index == 0 ? "" : " ") + Bits(T->RowEdges[Index]);
+        std::string Columns;
+        for (size_t Index = 0; Index < T->ColumnEdges.size(); ++Index)
+            Columns += (Index == 0 ? "" : " ") + Bits(T->ColumnEdges[Index]);
+        CtlEvent("\"ev\":\"table\",\"w\":\"" + Bits(T->Width) + "\",\"h\":\"" + Bits(T->Height) + "\",\"re\":\"" +
+                 Rows + "\",\"ce\":\"" + Columns +
+                 oracle::Format("\",\"sel\":\"%d %u\",\"hov\":\"%d %u\",\"drag\":\"%d%d%d %u\",\"do\":\"",
+                                T->bSelected, T->SelectedRow, T->bHovered, T->HoveredRow, T->bDragArmed,
+                                T->bDragging, T->bDragColumn, T->DragEdge) +
+                 Bits(T->DragOffset) + "\",\"inv\":\"" + Bits12(T->InverseTransform) + "\"");
+    }
+
+    // "-" is null; anything else hex bytes.
+    std::string NullOr(const std::string& Hex, bool& bNull)
+    {
+        bNull = Hex == "-";
+        return bNull ? std::string() : BytesFromHex(Hex);
+    }
+
+    void Rgba4(const std::string& Hex, unsigned char* Out)
+    {
+        unsigned long const Packed = strtoul(Hex.c_str(), nullptr, 16);
+        Out[0] = (unsigned char)(Packed >> 24);
+        Out[1] = (unsigned char)(Packed >> 16);
+        Out[2] = (unsigned char)(Packed >> 8);
+        Out[3] = (unsigned char)Packed;
+    }
+
+    // The Init operation of the later controls.
+    void InitControl(Win3D* O, const std::string& Class, const std::vector<std::string>& T)
+    {
+        bool bNull[8];
+        if (Class == "TextControl" || Class == "EditControl")
+        {
+            std::string const Style = NullOr(T[1], bNull[0]);
+            std::string const Hp = NullOr(T[5], bNull[1]);
+            float const P[3] = {F(T[2]), F(T[3]), F(T[4])};
+            static_cast<NnTextControl*>(static_cast<WinControl*>(O))
+                ->Init(bNull[0] ? nullptr : Style.c_str(), P, bNull[1] ? nullptr : Hp.c_str(), F(T[6]), F(T[7]),
+                       0.0f, (unsigned)I(T[8]), I(T[9]), I(T[10]), (unsigned char)I(T[11]));
+        }
+        else if (Class == "StaticControl")
+        {
+            std::string const Mesh = NullOr(T[1], bNull[0]);
+            std::string const Hp = NullOr(T[5], bNull[1]);
+            float const Off[3] = {F(T[2]), F(T[3]), F(T[4])};
+            float const Half[3] = {F(T[6]), F(T[7]), F(T[8])};
+            float const Ypr[3] = {F(T[19]), F(T[20]), F(T[21])};
+            static_cast<NnStaticControl*>(static_cast<WinControl*>(O))
+                ->Init(bNull[0] ? nullptr : Mesh.c_str(), Off, bNull[1] ? nullptr : Hp.c_str(), Half,
+                       (unsigned char)I(T[9]), (unsigned char)I(T[10]), (unsigned char)I(T[11]),
+                       (unsigned char)I(T[12]), (unsigned char)I(T[13]), (unsigned char)I(T[14]),
+                       (unsigned char)I(T[15]), I(T[16]), I(T[17]), (unsigned char)I(T[18]), Ypr);
+        }
+        else if (Class == "ButtonControl" || Class == "ToggleButtonControl" || Class == "RichTextButtonControl")
+        {
+            std::string const Mesh = NullOr(T[1], bNull[0]);
+            std::string const Mesh2 = NullOr(T[2], bNull[1]);
+            std::string const Sound = NullOr(T[3], bNull[2]);
+            std::string const Key = NullOr(T[4], bNull[3]);
+            std::string const Hp = NullOr(T[8], bNull[4]);
+            float const Off[3] = {F(T[5]), F(T[6]), F(T[7])};
+            float const Half[3] = {F(T[9]), F(T[10]), F(T[11])};
+            char const* const A0 = bNull[0] ? nullptr : Mesh.c_str();
+            char const* const A1 = bNull[1] ? nullptr : Mesh2.c_str();
+            char const* const A2 = bNull[2] ? nullptr : Sound.c_str();
+            char const* const A3 = bNull[3] ? nullptr : Key.c_str();
+            char const* const A5 = bNull[4] ? nullptr : Hp.c_str();
+            if (Class == "ToggleButtonControl")
+                static_cast<NnToggleButtonControl*>(static_cast<WinControl*>(O))
+                    ->Init(A0, A1, A2, A3, Off, A5, Half, (unsigned char)I(T[12]), (unsigned char)I(T[13]),
+                           (unsigned char)I(T[14]), (unsigned char)I(T[15]), I(T[16]), I(T[17]));
+            else
+                static_cast<NnButtonControl*>(static_cast<WinControl*>(O))
+                    ->Init(A0, A1, A2, A3, Off, A5, Half, (unsigned char)I(T[12]), (unsigned char)I(T[13]),
+                           (unsigned char)I(T[14]), (unsigned char)I(T[15]), I(T[16]), I(T[17]), I(T[18]));
+        }
+        else if (Class == "WireStaticControl")
+        {
+            float const Off[3] = {F(T[1]), F(T[2]), F(T[3])};
+            float const Half[3] = {F(T[4]), F(T[5]), F(T[6])};
+            static_cast<WireStaticControl*>(static_cast<WinControl*>(O))
+                ->Init(Off, Half, (unsigned char)I(T[7]), (unsigned char)I(T[8]), I(T[9]), (unsigned)I(T[10]));
+        }
+        else if (Class == "WireButtonControl")
+        {
+            std::string const Sound = NullOr(T[1], bNull[0]);
+            float const Off[3] = {F(T[2]), F(T[3]), F(T[4])};
+            float const Half[3] = {F(T[5]), F(T[6]), F(T[7])};
+            static_cast<WireButtonControl*>(static_cast<WinControl*>(O))
+                ->Init(bNull[0] ? nullptr : Sound.c_str(), Off, Half, (unsigned char)I(T[8]),
+                       (unsigned char)I(T[9]), I(T[10]), I(T[11]), (unsigned)I(T[12]));
+        }
+        else if (Class == "ScrollControl")
+        {
+            std::string Mesh[4];
+            std::string Hp[5];
+            bool bMesh[4];
+            bool bHp[5];
+            float V[11][3];
+            bool bNo[4];
+            for (int Part = 0; Part < 3; ++Part)
+            {
+                int const B = 1 + Part * 9;
+                Mesh[Part] = NullOr(T[B], bMesh[Part]);
+                V[Part * 2][0] = F(T[B + 1]);
+                V[Part * 2][1] = F(T[B + 2]);
+                V[Part * 2][2] = F(T[B + 3]);
+                Hp[Part] = NullOr(T[B + 4], bHp[Part]);
+                V[Part * 2 + 1][0] = F(T[B + 5]);
+                V[Part * 2 + 1][1] = F(T[B + 6]);
+                V[Part * 2 + 1][2] = F(T[B + 7]);
+                bNo[Part] = I(T[B + 8]) != 0;
+            }
+            int const B = 28;
+            Mesh[3] = NullOr(T[B], bMesh[3]);
+            for (int K = 0; K < 3; ++K)
+            {
+                V[6][K] = F(T[B + 1 + K]);
+                V[7][K] = F(T[B + 4 + K]);
+                V[8][K] = F(T[B + 9 + K]);
+            }
+            Hp[3] = NullOr(T[B + 7], bHp[3]);
+            Hp[4] = NullOr(T[B + 8], bHp[4]);
+            bNo[3] = I(T[B + 12]) != 0;
+            auto M = [&](int K) { return bMesh[K] ? nullptr : Mesh[K].c_str(); };
+            auto H = [&](int K) { return bHp[K] ? nullptr : Hp[K].c_str(); };
+            // The constructor leaves RepeatTime (+0x670) and bPageTowardMin (+0x67b) as
+            // allocated: the zeroed allocation the Rust port starts from (divergence D442),
+            // not whatever the heap holds.
+            static_cast<ScrollControl*>(static_cast<WinControl*>(O))->RepeatTime = 0.0f;
+            static_cast<ScrollControl*>(static_cast<WinControl*>(O))->bPageTowardMin = 0;
+            static_cast<ScrollControl*>(static_cast<WinControl*>(O))
+                ->Init(M(0), V[0], H(0), V[1], bNo[0], M(1), V[2], H(1), V[3], bNo[1], M(2), V[4], H(2), V[5],
+                       bNo[2], M(3), V[6], V[7], H(3), H(4), V[8], bNo[3], I(T[B + 13]), I(T[B + 14]),
+                       I(T[B + 15]), I(T[B + 16]) != 0, I(T[B + 17]) != 0);
+        }
+    }
+
+    // The operations of the later controls; false when the operation is not one of them.
+    bool LaterOp(Win3D* O, const std::string& Class, const std::vector<std::string>& T)
+    {
+        const std::string& Name = T[0];
+        WinControl* const W = O->AsWinControl();
+        bool const bText = Class == "TextControl" || Class == "EditControl";
+        NnTextControl* const Text = bText ? static_cast<NnTextControl*>(W) : nullptr;
+        NnEditControl* const Edit = Class == "EditControl" ? static_cast<NnEditControl*>(W) : nullptr;
+        NnStaticControl* const Static = Class == "StaticControl" ? static_cast<NnStaticControl*>(W) : nullptr;
+        bool const bButton =
+            Class == "ButtonControl" || Class == "ToggleButtonControl" || Class == "RichTextButtonControl";
+        NnButtonControl* const Button = bButton ? static_cast<NnButtonControl*>(W) : nullptr;
+        NnToggleButtonControl* const Toggle =
+            Class == "ToggleButtonControl" ? static_cast<NnToggleButtonControl*>(W) : nullptr;
+        bool const bWire = Class == "WireStaticControl" || Class == "WireButtonControl";
+        WireStaticControl* const Wire = bWire ? static_cast<WireStaticControl*>(W) : nullptr;
+        WireButtonControl* const WireButton =
+            Class == "WireButtonControl" ? static_cast<WireButtonControl*>(W) : nullptr;
+        ScrollControl* const Sctl = Class == "ScrollControl" ? static_cast<ScrollControl*>(W) : nullptr;
+        UiTable* const Table = Class == "UITable" ? static_cast<UiTable*>(O) : nullptr;
+        if (Name == "init")
+            InitControl(O, Class, T);
+        else if (Name == "enter")
+        {
+            float Ray[3];
+            Win3DGetMouseRay(Ray);
+            O->MouseEnter(Ray);
+        }
+        else if (Name == "inactive")
+            O->UpdateInactive();
+        else if (Name == "key")
+        {
+            unsigned char Mods = (unsigned char)I(T[2]);
+            bool const bResult = O->KeyEvent((unsigned)I(T[1]), &Mods);
+            CtlEvent(oracle::Format("\"ev\":\"r\",\"v\":\"%d\"", bResult ? 1 : 0));
+        }
+        else if (Name == "time")
+            GCtlElapsed = F(T[1]);
+        else if (Name == "gopt")
+            GCtlOptions[I(T[1])] = I(T[2]);
+        else if (W != nullptr && Name == "prop")
+        {
+            intptr_t const Result = W->SetProperty((int)strtol(T[1].c_str(), nullptr, 16),
+                                                   (uintptr_t)(intptr_t)I(T[2]), (uintptr_t)(intptr_t)I(T[3]));
+            CtlEvent(oracle::Format("\"ev\":\"r\",\"v\":\"%d\"", (int)Result));
+        }
+        else if (W != nullptr && Name == "offset")
+        {
+            float V[3] = {F(T[1]), F(T[2]), F(T[3])};
+            intptr_t const Result = W->SetProperty(6, reinterpret_cast<uintptr_t>(V), 0);
+            CtlEvent(oracle::Format("\"ev\":\"r\",\"v\":\"%d\"", (int)Result));
+        }
+        else if (W != nullptr && Name == "text")
+        {
+            std::vector<wchar_t> Wide = WideFromHex(T[1]);
+            intptr_t const Result = W->SetProperty(0x1d, reinterpret_cast<uintptr_t>(Wide.data()), 0);
+            CtlEvent(oracle::Format("\"ev\":\"r\",\"v\":\"%d\"", (int)Result));
+        }
+        else if (W != nullptr && Name == "colour")
+        {
+            unsigned char C[4];
+            Rgba4(T[1], C);
+            intptr_t const Result = W->SetProperty(0x33, reinterpret_cast<uintptr_t>(C), (uintptr_t)I(T[2]));
+            CtlEvent(oracle::Format("\"ev\":\"r\",\"v\":\"%d\"", (int)Result));
+        }
+        else if (W != nullptr && Name == "colours")
+        {
+            unsigned char C0[4];
+            unsigned char C1[4];
+            Rgba4(T[1], C0);
+            Rgba4(T[2], C1);
+            intptr_t const Result =
+                W->SetProperty(0x18, reinterpret_cast<uintptr_t>(C0), reinterpret_cast<uintptr_t>(C1));
+            CtlEvent(oracle::Format("\"ev\":\"r\",\"v\":\"%d\"", (int)Result));
+        }
+        else if (W != nullptr && (Name == "getcmd" || Name == "gettoggle"))
+        {
+            int Out = -7;
+            W->SetProperty(Name == "getcmd" ? 0x2e : 0x2f, reinterpret_cast<uintptr_t>(&Out), 0);
+            CtlEvent(oracle::Format("\"ev\":\"r\",\"v\":\"%d\"", Out));
+        }
+        else if (W != nullptr && Name == "sounds")
+        {
+            bool bNull0 = false;
+            bool bNull1 = false;
+            std::string const S0 = NullOr(T[1], bNull0);
+            std::string const S1 = NullOr(T[2], bNull1);
+            W->SetProperty(0x31, bNull0 ? 0 : reinterpret_cast<uintptr_t>(S0.c_str()),
+                           bNull1 ? 0 : reinterpret_cast<uintptr_t>(S1.c_str()));
+        }
+        else if (Text != nullptr && Name == "tset")
+        {
+            std::vector<wchar_t> Wide = WideFromHex(T[1]);
+            Text->SetText(Wide.data());
+        }
+        else if (Text != nullptr && Name == "ids")
+            Text->SetIds((unsigned)I(T[1]));
+        else if (Text != nullptr && Name == "width")
+            Text->SetWidth(F(T[1]));
+        else if (Text != nullptr && Name == "cached")
+            Text->SetCachedDraw((unsigned char)I(T[1]), (unsigned char)I(T[2]));
+        else if (Text != nullptr && Name == "number")
+            Text->SetNumberText(BytesFromHex(T[1]).c_str());
+        else if (Table != nullptr && Name == "cedge")
+            CtlEvent(oracle::Format("\"ev\":\"r\",\"v\":\"%d\"", Table->SetColumnEdge((unsigned)I(T[1]), F(T[2]))));
+        else if (Table != nullptr && Name == "redge")
+            CtlEvent(oracle::Format("\"ev\":\"r\",\"v\":\"%d\"", Table->SetRowEdge((unsigned)I(T[1]), F(T[2]))));
+        else if (Table != nullptr && Name == "rows")
+        {
+            for (size_t Index = 0; Index < Table->Rows.size() && 1 + Index * 2 + 1 < T.size(); ++Index)
+            {
+                Table->Rows[Index].bHoverable = (unsigned char)I(T[1 + Index * 2]);
+                Table->Rows[Index].bSelectable = (unsigned char)I(T[2 + Index * 2]);
+            }
+        }
+        else if (Name == "state")
+        {
+            if (Text != nullptr)
+                TextState(Text, Edit);
+            else if (Static != nullptr)
+                StaticState(Static);
+            else if (Button != nullptr)
+                ButtonState(Button, Toggle);
+            else if (Wire != nullptr)
+                WireState(Wire, WireButton);
+            else if (Sctl != nullptr)
+                ScrollControlState(Sctl);
+            else if (Table != nullptr)
+                TableState(Table);
+            else
+                return false;
+        }
+        else
+            return false;
+        return true;
+    }
+
+    bool IsLaterClass(const std::string& Class)
+    {
+        return Class == "TextControl" || Class == "EditControl" || Class == "StaticControl" ||
+               Class == "ButtonControl" || Class == "ToggleButtonControl" || Class == "RichTextButtonControl" ||
+               Class == "WireStaticControl" || Class == "WireButtonControl" || Class == "ScrollControl" ||
+               Class == "UITable";
+    }
+
     void RunCase(const std::string& Line, FOracleCtlParent* Parent, std::string& Class)
     {
         for (const std::string& Op : Split(Line, " ; "))
@@ -422,6 +1000,13 @@ namespace
                     P.Flag = (unsigned char)I(T[8]);
                     Created = WinFactoryCreate("C", Class.c_str(), Parent, &P);
                 }
+                else if (Class == "UITable")
+                {
+                    FUiPayloadTable P = {F(T[2]), F(T[3]), I(T[4]), I(T[5])};
+                    Created = WinFactoryCreate("C", Class.c_str(), Parent, &P);
+                }
+                else if (IsLaterClass(Class))
+                    Created = WinFactoryCreate("C", Class.c_str(), Parent, nullptr);
                 else if (Class == "UIWinObject")
                 {
                     std::string Path = BytesFromHex(T.size() > 5 ? T[5] : "");
@@ -434,6 +1019,8 @@ namespace
                 CtlEvent(oracle::Format("\"ev\":\"new\",\"ok\":\"%d\"", Created != nullptr ? 1 : 0));
             }
             else if (O == nullptr)
+                continue;
+            else if (IsLaterClass(Class) && LaterOp(O, Class, T))
                 continue;
             else if (Name == "xform")
             {
@@ -585,6 +1172,9 @@ namespace
         FOracleCtlPipeline Pipeline;
         IRenderPipeline* const SavedPipeline = NeuronRuntime::Pipeline;
         NeuronRuntime::Pipeline = &Pipeline;
+        FOracleCtlEngine Engine;
+        IEngine* const SavedEngine = NeuronRuntime::Engine;
+        NeuronRuntime::Engine = &Engine;
         GCtlCase = 0;
         for (const std::string& Line : oracle::InputLines("ui_controls.list"))
         {
@@ -593,6 +1183,11 @@ namespace
             GCtlCursor[0] = 0;
             GCtlCursor[1] = 0;
             GCtlOption = 1;
+            for (int Index = 0; Index < 0x20; ++Index)
+                GCtlOptions[Index] = 1;
+            GCtlElapsed = 0.0;
+            GCtlInstances = 0;
+            G_TextControlTypingCount = 0;
             NnUiPulseReset();
             float* const Ray = Win3DMouseRayStorage();
             Ray[0] = 0.0f;
@@ -618,6 +1213,7 @@ namespace
         }
         GCtlOut = nullptr;
         NeuronRuntime::Pipeline = SavedPipeline;
+        NeuronRuntime::Engine = SavedEngine;
     }
 }
 
@@ -837,7 +1433,14 @@ void GetClientSoftwareCursor(int* OutX, int* OutY, int* OutZ)
 
 int GetGameOption(int Index)
 {
-    return Index == 0x16 ? GCtlOption : 1;
+    if (Index == 0x16)
+        return GCtlOption;
+    return (Index >= 0 && Index < 0x20) ? GCtlOptions[Index] : 1;
+}
+
+double GetClientElapsedTime()
+{
+    return GCtlElapsed;
 }
 
 // ---- the scroll bars' shapes (texture_shapes.cpp): the three names of UITextures.ini, whose
@@ -873,7 +1476,10 @@ bool ClientMeshLoadFromPath(FClientMeshHolder* Holder, char const* Path, char co
 {
     CtlEvent("\"ev\":\"load\",\"path\":\"" + oracle::HexC(Path) + "\",\"mat\":\"" + oracle::HexC(MaterialPath) +
              "\"");
-    Holder->EngineInstance = reinterpret_cast<void*>(static_cast<uintptr_t>(0x1000));
+    int const Index = GCtlInstances < 7 ? GCtlInstances++ : 7;
+    Holder->EngineInstance = reinterpret_cast<void*>(static_cast<uintptr_t>(0x1000 + Index));
+    float const Identity[12] = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f};
+    memcpy(GCtlXforms[Index], Identity, sizeof(Identity));
     return true;
 }
 
@@ -883,29 +1489,57 @@ bool ClientMeshHolderHasInstance(FMeshHolder const* Holder)
            Holder->EngineInstance != reinterpret_cast<void*>(static_cast<ptrdiff_t>(-1));
 }
 
-void ClientMeshHolderSetPosition(FMeshHolder* /*Holder*/, float const Position[3])
+void ClientMeshHolderSetPosition(FMeshHolder* Holder, float const Position[3])
 {
-    CtlEvent("\"ev\":\"mpos\",\"x\":\"" + Bits(Position[0]) + "\",\"y\":\"" + Bits(Position[1]) + "\",\"z\":\"" +
-             Bits(Position[2]) + "\"");
+    MeshPos(InstanceIndex(Holder->EngineInstance), Position);
 }
 
-void ClientMeshHolderUpdate(FMeshHolder* /*Holder*/)
+void ClientMeshHolderUpdate(FMeshHolder* Holder)
 {
-    CtlEvent("\"ev\":\"mupd\"");
+    CtlEvent(MeshEv("mupd", InstanceIndex(Holder->EngineInstance)));
 }
 
-void SubmitWin3DEngineInstance(FClientMeshHolder* /*Holder*/, void* /*ArchAnchor*/, unsigned char /*bFrontCull*/,
-                               float /*Scale*/, unsigned long /*Flags*/)
+float* ClientMeshHolderGetPosition(FMeshHolder const* Holder)
+{
+    return &GCtlXforms[InstanceIndex(Holder->EngineInstance)][9];
+}
+
+void ClientMeshHolderSetColor(FClientMeshHolder* Holder, unsigned char const* Rgba)
+{
+    float const Inv255 = 1.0f / 255.0f;
+    Holder->UserFloats[0] = static_cast<float>(static_cast<double>(Rgba[0]) * Inv255);
+    Holder->UserFloats[1] = static_cast<float>(static_cast<double>(Rgba[1]) * Inv255);
+    Holder->UserFloats[2] = static_cast<float>(static_cast<double>(Rgba[2]) * Inv255);
+    Holder->UserFloats[4] = static_cast<float>(static_cast<double>(Rgba[3]) * Inv255);
+}
+
+void SubmitWin3DEngineInstance(FClientMeshHolder* Holder, void* /*ArchAnchor*/, unsigned char bFrontCull,
+                               float Scale, unsigned long /*Flags*/)
 {
     CtlEvent("\"ev\":\"submit\"");
+    float const* const U = Holder->UserFloats;
+    if (bFrontCull != 0 || Scale != 1.0f || U[0] != 1.0f || U[1] != 1.0f || U[2] != 1.0f || U[4] != 1.0f)
+    {
+        float const Tint[4] = {U[0], U[1], U[2], U[4]};
+        CtlEvent("\"ev\":\"body\",\"t\":\"" + BitsN(Tint, 4) + oracle::Format("\",\"cull\":\"%d\",\"s\":\"", bFrontCull) +
+                 Bits(Scale) + "\"");
+    }
 }
 
 void SubmitWin3DTintedEngineInstanceWrapped(void* /*ArchAnchor*/, void* /*EngineInstance*/,
-                                            unsigned char /*bFrontCull*/, unsigned char const ColorRgba[4],
-                                            unsigned char bLightingEnable, float /*Scale*/,
+                                            unsigned char bFrontCull, unsigned char const ColorRgba[4],
+                                            unsigned char bLightingEnable, float Scale,
                                             unsigned long /*Flags*/)
 {
     CtlEvent("\"ev\":\"tinted\",\"tint\":\"" + Rgba(ColorRgba) + oracle::Format("\",\"l\":\"%d\"", bLightingEnable));
+    if (bFrontCull != 1 || Scale != 1.0f)
+        CtlEvent(oracle::Format("\"ev\":\"tscale\",\"cull\":\"%d\",\"s\":\"", bFrontCull) + Bits(Scale) + "\"");
+}
+
+void SubmitWin3DOutlinedEngineInstance(void* /*Camera*/, void* /*EngineInstance*/, unsigned char /*bFrontCull*/,
+                                       unsigned char const* WireRgba, float Scale, unsigned long /*Flags*/)
+{
+    CtlEvent("\"ev\":\"outlined\",\"w\":\"" + Rgba(WireRgba) + "\",\"s\":\"" + Bits(Scale) + "\"");
 }
 
 // ---- the math of the UI_PAGE widgets (ui_page.cpp) and of the HUD (hud_target.cpp), as the
@@ -993,11 +1627,26 @@ FClientMeshHolder::~FClientMeshHolder()
 void EngineLightClearRegisteredList()
 {
 }
-void FontStringConstruct(FFontString*)
+void FontStringConstruct(FFontString* Self)
 {
+    Self->Text = nullptr;
+    Self->Capacity = 0;
+    Self->Field08 = 0x7fff;
+    Self->Field0C = 0;
+    Self->ChildBegin = nullptr;
+    Self->ChildEnd = nullptr;
+    Self->ChildCap = nullptr;
+    Self->FontIface = nullptr;
+    Self->ExtentW = 0;
+    Self->ExtentH = 0;
+    Self->LayoutGen = 0;
+    Self->ScaleKey = 0x7fff;
+    Self->bMultiLine = 0;
 }
-void FontStringDestroy(FFontString*)
+void FontStringDestroy(FFontString* Self)
 {
+    free(Self->Text);
+    Self->Text = nullptr;
 }
 unsigned char GetClientMouseCursorDrawFlag()
 {
@@ -1007,9 +1656,28 @@ int GetClientMouseWheel()
 {
     return 0;
 }
+// The Win3D camera of a 640 x 480 surface, as the manager sets it up (the field values the
+// Rust camera gives): the orientation, the screen centre, the scales, the planes, the viewport.
+// The controls read its fields and project through it.
 FSpaceCamera* GetWin3DSceneCamera()
 {
-    return nullptr;
+    alignas(FSpaceCamera) static unsigned char Storage[sizeof(FSpaceCamera)];
+    static FSpaceCamera* const Cam = new (Storage) FSpaceCamera();
+    float const Identity[9] = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+    memcpy(Cam->World, Identity, sizeof(Identity));
+    Cam->ScreenCenterX = 320.0f;
+    Cam->ScreenCenterY = 240.0f;
+    Cam->HalfWidth = 320.0f;
+    Cam->HalfHeight = 240.0f;
+    Cam->XScale = oracle::FloatFromBits(0x441b8e6au);
+    Cam->YScale = oracle::FloatFromBits(0xc41b8e6au);
+    Cam->ZNear = oracle::FloatFromBits(0x3dcccccdu);
+    Cam->ZFar = 1000.0f;
+    Cam->Viewport[0] = 0;
+    Cam->Viewport[1] = 0;
+    Cam->Viewport[2] = 639;
+    Cam->Viewport[3] = 479;
+    return Cam;
 }
 FHudCmdRecord* HudCommandRecord()
 {
@@ -1039,8 +1707,18 @@ void MouseShutdown()
 void NnRolloverTickGlobal(double)
 {
 }
-void NnToolTipFeedHover(FToolTipHoverInfo const*)
+void NnToolTipFeedHover(FToolTipHoverInfo const* Info)
 {
+    std::string Key;
+    if (GCtlObject != nullptr && (Info->Ids == static_cast<int>(reinterpret_cast<intptr_t>(GCtlObject)) ||
+                                  Info->Ids == static_cast<int>(reinterpret_cast<intptr_t>(GCtlObject->AsWinControl()))))
+        Key = "self";
+    else
+        Key = oracle::Format("%d", Info->Ids);
+    CtlEvent("\"ev\":\"hover\",\"k\":\"" + Key +
+             oracle::Format("\",\"a\":\"%d\",\"x\":\"%d\",\"p\":\"", Info->IdsAlt, Info->AuxField) +
+             Bits3(Info->WorldPos) + "\",\"e\":\"" + Bits3(Info->HalfExtents) +
+             oracle::Format("\",\"l\":\"%d\"", Info->bLive));
 }
 void NnToolTipTickGlobal(double)
 {
@@ -1085,8 +1763,43 @@ void Win3DImmedBatchReset()
 void Win3DModelCacheClear()
 {
 }
-bool Win3DRayHitsAabbHalfExtents(float const[3], float const[12], float const[3])
+// The reference's body (win3d_engine_submit.cpp), over x86math's engine.
+namespace
 {
+    bool CtlSlabHitStrict(float OriginA, float OriginB, float OriginC, float DirA, float DirB, float DirC, float HalfB,
+                          float HalfC)
+    {
+        if (DirA == 0.0f)
+            return false;
+        float const T = -(OriginA / DirA);
+        if (!(T > 0.0f))
+            return false;
+        if (!(std::fabs(OriginB + DirB * T) < HalfB))
+            return false;
+        if (!(std::fabs(OriginC + DirC * T) < HalfC))
+            return false;
+        return true;
+    }
+}
+
+bool Win3DRayHitsAabbHalfExtents(float const HalfExtents[3], float const Matrix3x4[12], float const RayDir[3])
+{
+    if (HalfExtents[0] == 0.0f && HalfExtents[1] == 0.0f && HalfExtents[2] == 0.0f)
+        return false;
+    FVector Out;
+    UiWidgetMathEngine()->InverseTransform(Out, *reinterpret_cast<FTransform const*>(Matrix3x4),
+                                           *reinterpret_cast<FVector const*>(RayDir));
+    float const LocalDir[3] = {Out.X + Matrix3x4[9], Out.Y + Matrix3x4[10], Out.Z + Matrix3x4[11]};
+    float const LocalOrigin[3] = {-Matrix3x4[9], -Matrix3x4[10], -Matrix3x4[11]};
+    if (CtlSlabHitStrict(LocalOrigin[0], LocalOrigin[1], LocalOrigin[2], LocalDir[0], LocalDir[1], LocalDir[2],
+                         HalfExtents[1], HalfExtents[2]))
+        return true;
+    if (CtlSlabHitStrict(LocalOrigin[1], LocalOrigin[0], LocalOrigin[2], LocalDir[1], LocalDir[0], LocalDir[2],
+                         HalfExtents[0], HalfExtents[2]))
+        return true;
+    if (CtlSlabHitStrict(LocalOrigin[2], LocalOrigin[0], LocalOrigin[1], LocalDir[2], LocalDir[0], LocalDir[1],
+                         HalfExtents[0], HalfExtents[1]))
+        return true;
     return false;
 }
 void Win3DSetViewport(ICamera*, const char*, int)
@@ -1112,6 +1825,453 @@ FTextureRef::FTextureRef()
 }
 FTextureRef::~FTextureRef()
 {
+}
+
+
+// ---- the Font::String of the text controls (font_string.cpp): the text kept, the scale, text,
+// number text and child draws recorded. A laid-out string has one line when it has a text or a
+// number (the slots point at one shared row); its extent is 7 pixels a character by 16.
+
+namespace
+{
+    FontStringChild GCtlLine;
+    FFontStringChildSlot GCtlSlots[1];
+    std::string GCtlNumber;
+
+    int StringLength(FFontString const* Self)
+    {
+        if (Self->Text != nullptr && Self->Text[0] != 0)
+        {
+            int Count = 0;
+            while (Self->Text[Count] != 0)
+                ++Count;
+            return Count;
+        }
+        return Self->Field0C != 0 ? (int)GCtlNumber.size() : 0;
+    }
+
+    void LayOut(FFontString* Self)
+    {
+        int const Lines = StringLength(Self) > 0 || Self->Field0C != 0 ? 1 : 0;
+        GCtlSlots[0].Child = &GCtlLine;
+        GCtlSlots[0].Kind = Self->Field0C;
+        Self->ChildBegin = Lines != 0 ? GCtlSlots : nullptr;
+        Self->ChildEnd = Lines != 0 ? GCtlSlots + 1 : nullptr;
+    }
+
+    void DropText(FFontString* Self)
+    {
+        free(Self->Text);
+        Self->Text = nullptr;
+        Self->ChildBegin = nullptr;
+        Self->ChildEnd = nullptr;
+        Self->Field0C = 0;
+    }
+}
+
+void FontStringSetScale(FFontString* /*Self*/, float Width, float Depth)
+{
+    CtlEvent("\"ev\":\"fscale\",\"w\":\"" + Bits(Width) + "\",\"z\":\"" + Bits(Depth) + "\"");
+}
+
+void FontStringSetText(FFontString* Self, wchar_t const* Text)
+{
+    wchar_t const* const Left = Text != nullptr ? Text : L"";
+    wchar_t const* const Right = Self->Text != nullptr ? Self->Text : L"";
+    size_t Same = 0;
+    while (Left[Same] != 0 && Left[Same] == Right[Same])
+        ++Same;
+    if (Left[Same] == Right[Same])
+        return;
+    if (Self->Text != nullptr && Self->Text[0] != 0)
+        DropText(Self);
+    if (Text != nullptr)
+    {
+        size_t Length = 0;
+        while (Text[Length] != 0)
+            ++Length;
+        free(Self->Text);
+        Self->Text = (wchar_t*)malloc((Length + 1) * sizeof(wchar_t));
+        memcpy(Self->Text, Text, (Length + 1) * sizeof(wchar_t));
+    }
+    else if (Self->Text != nullptr)
+        Self->Text[0] = 0;
+    CtlEvent("\"ev\":\"ftext\",\"t\":\"" + Units(Self->Text) + "\"");
+}
+
+void FontStringSetNumberText(FFontString* Self, char const* Format)
+{
+    if (Self->Text != nullptr && Self->Text[0] != 0)
+        DropText(Self);
+    Self->Field0C = 1;
+    GCtlNumber = Format;
+    CtlEvent("\"ev\":\"fnum\",\"f\":\"" + oracle::HexC(Format) + "\"");
+}
+
+void FontStringSetFont(FFontString* Self, IFont* Font)
+{
+    if (Self->FontIface == Font)
+        return;
+    Self->FontIface = Font;
+    Self->LayoutGen = 0;
+}
+
+void FontStringClearContents(FFontString* Self)
+{
+    DropText(Self);
+}
+
+int FontStringChildCount(FFontString* Self)
+{
+    LayOut(Self);
+    return Self->ChildBegin != nullptr ? 1 : 0;
+}
+
+int* FontStringGetExtent(FFontString* Self, int* OutWH)
+{
+    LayOut(Self);
+    OutWH[0] = 7 * StringLength(Self);
+    OutWH[1] = Self->ChildBegin != nullptr ? 16 : 0;
+    return OutWH;
+}
+
+void FontStringDrawChildren(FFontStringDrawOrigin* Origin, FFontString* Self, void* DrawCtx, void* DrawArg)
+{
+    LayOut(Self);
+    float Left = 0.0f;
+    float Right = 0.0f;
+    memcpy(&Left, &DrawCtx, sizeof(Left));
+    memcpy(&Right, &DrawArg, sizeof(Right));
+    CtlEvent("\"ev\":\"fdraw\",\"x\":\"" + Bits(Origin->X) + "\",\"y\":\"" + Bits(Origin->Y) + "\",\"w\":\"" +
+             Bits(Origin->Scale) + "\",\"h\":\"" + Bits(Origin->Height) +
+             oracle::Format("\",\"hm\":\"%u\",\"vm\":\"%u\",\"l\":\"", Origin->Field10, Origin->Field14) + Bits(Left) +
+             "\",\"r\":\"" + Bits(Right) + "\"");
+}
+
+void WideTextReserve(FHudWideText* Self, unsigned Need)
+{
+    if (Need <= Self->Capacity)
+        return;
+    if (Self->Text != nullptr)
+    {
+        Self->Text = static_cast<wchar_t*>(realloc(Self->Text, Need * 2));
+        Self->Capacity = Need;
+        return;
+    }
+    Self->Text = static_cast<wchar_t*>(malloc(Need * 2));
+    Self->Text[0] = 0;
+    Self->Capacity = Need;
+}
+
+void WideTextClear(FHudWideText* Self)
+{
+    if (Self->Text != nullptr && Self->Text[0] != 0)
+        Self->Text[0] = 0;
+}
+
+void WideTextFree(FHudWideText* Self)
+{
+    if (Self->Text != nullptr)
+    {
+        free(Self->Text);
+        Self->Text = nullptr;
+        Self->Capacity = 0;
+    }
+}
+
+void WideTextAssign(FHudWideText* Self, wchar_t const* Source, unsigned Len)
+{
+    if (Source == nullptr)
+    {
+        WideTextClear(Self);
+        return;
+    }
+    if (Len == 0xffffffffu)
+    {
+        Len = 0;
+        while (Source[Len] != 0)
+            ++Len;
+    }
+    WideTextReserve(Self, Len + 1);
+    memcpy(Self->Text, Source, Len * sizeof(wchar_t));
+    Self->Text[Len] = 0;
+}
+
+// ---- the sounds, the key-map commands, the tooltip and the ids (menu_ui_init.cpp,
+// menu_sound_arch.cpp, hud_command_dispatch.cpp, nn_tooltip.cpp, ids_strings.cpp): a UI sound's
+// slot is the length of its name; the plays, stops, posts and hides are recorded; no id has a
+// string.
+
+int FindUiSoundSlot(const char* Name)
+{
+    return (Name == nullptr || Name[0] == 0) ? -1 : (int)strlen(Name);
+}
+void PlayOrRewindUiSoundSlot(unsigned int Slot)
+{
+    CtlEvent(oracle::Format("\"ev\":\"sound\",\"s\":\"%u\"", Slot));
+}
+void PlayUiSoundSlotFlag1(unsigned int Slot)
+{
+    CtlEvent(oracle::Format("\"ev\":\"tplay\",\"s\":\"%u\"", Slot));
+}
+void StopUiSoundSlot(unsigned int Slot)
+{
+    CtlEvent(oracle::Format("\"ev\":\"tstop\",\"s\":\"%u\"", Slot));
+}
+void PlayUiRolloverSound()
+{
+    CtlEvent("\"ev\":\"roll\"");
+}
+void* LookupClientSoundArch(struct ID_String const*)
+{
+    return nullptr;
+}
+unsigned char PlayClientSoundArchIfIdle(void*, unsigned*, void**)
+{
+    return 0;
+}
+int HudPostCommand(unsigned MsgId, int)
+{
+    CtlEvent(oracle::Format("\"ev\":\"post\",\"c\":\"%u\"", MsgId));
+    return 1;
+}
+void NnToolTipHideGlobal()
+{
+    CtlEvent("\"ev\":\"hidetip\"");
+}
+bool ShouldSkipLocalServerTick()
+{
+    return false;
+}
+unsigned int GetIdsStringWWithRawFallback(unsigned int, wchar_t* Dest, int)
+{
+    if (Dest != nullptr)
+        Dest[0] = 0;
+    return 0;
+}
+
+// ---- the immediate-mode layer's other calls (win3d_immediate.cpp, win3d_renderables.cpp)
+
+void Win3DEnable(int Capability)
+{
+    CtlEvent(oracle::Format("\"ev\":\"en\",\"cap\":\"%x\"", Capability));
+}
+void Win3DVec3Add(float* Out, float const* A, float const* B)
+{
+    Out[0] = A[0] + B[0];
+    Out[1] = A[1] + B[1];
+    Out[2] = A[2] + B[2];
+}
+float* CockpitMulMatrix(float* Out9, const float* A9, const float* B9)
+{
+    FMatrix Product;
+    UiWidgetMathEngine()->MulMatrix(Product, *reinterpret_cast<FMatrix const*>(A9),
+                                    *reinterpret_cast<FMatrix const*>(B9));
+    memcpy(Out9, &Product, sizeof(Product));
+    return Out9;
+}
+FImmedBatcher G_ImmedBatchA;
+void ImmedBatchAddLine(FImmedBatcher* /*Batch*/, float const* From, float const* To, unsigned long Argb,
+                       unsigned long /*Rgb*/, float Width)
+{
+    CtlEvent("\"ev\":\"line\",\"f\":\"" + Bits3(From) + "\",\"t\":\"" + Bits3(To) +
+             oracle::Format("\",\"c\":\"%08lx\",\"w\":\"", Argb) + Bits(Width) + "\"");
+}
+
+// ---- the button montage (nn_montage_draw.cpp): no tiles.
+
+std::vector<FButtonMontageTile> G_ButtonMontageTiles;
+bool G_bButtonMontageLoaded = true;
+void LoadButtonMontage()
+{
+}
+bool NnMontageDrawTileAt(FButtonMontageTile const*, float const*, unsigned char const*, float, int, float)
+{
+    return false;
+}
+
+// ---- the rest of what the later controls name: the rich-text caption window of the rich-text
+// wire button and the cells of UITable (rich_text_win.cpp, ids_rdl.cpp), the static control's
+// render-to-window camera (space_camera.cpp, win3d_immediate.cpp), the table rows' payload
+// handle (ui_fast_table.cpp), and the helpers the reference bodies name (star_sphere.cpp,
+// hud_element_list.cpp, the latter as the reference writes it). No case reaches the first four.
+
+void BaseRichTextWin::SetNeverHit(bool)
+{
+}
+void BaseRichTextWin::SetAutoScrollbar(bool)
+{
+}
+void BaseRichTextWin::SetAlignMode(int)
+{
+}
+void BaseRichTextWin::SetAttachOffset(float const*)
+{
+}
+void BaseRichTextWin::SetNormSize(float, float)
+{
+}
+void BaseRichTextWin::EnsureSurface()
+{
+}
+void RichTextWin::AppendContent(RenderDisplayList const&)
+{
+}
+bool LoadIdsIntoRdl(unsigned int, RenderDisplayList&)
+{
+    return false;
+}
+void RdlAppendNode(RenderDisplayList&, RDLNode* Node)
+{
+    delete Node;
+}
+
+void SpaceCameraConstruct(FSpaceCamera*)
+{
+}
+void SpaceCameraSetFovY(FSpaceCamera*, float)
+{
+}
+void Win3DApplyCameraPerspective(ICamera*)
+{
+}
+void Win3DGetViewport(int, int* Out4)
+{
+    Out4[0] = 0;
+    Out4[1] = 0;
+    Out4[2] = 0;
+    Out4[3] = 0;
+}
+void Win3DSetViewportRect(int, int, int, int, const char*, int)
+{
+}
+GENRESULT NEURONCOMPONENTS_API FSpaceCamera::QueryInterface(char const*, void** Out)
+{
+    *Out = nullptr;
+    return GR_INTERFACE_UNSUPPORTED;
+}
+unsigned long NEURONCOMPONENTS_API FSpaceCamera::AddRef()
+{
+    return 1;
+}
+unsigned long NEURONCOMPONENTS_API FSpaceCamera::Release()
+{
+    return 1;
+}
+float const* NEURONCOMPONENTS_API FSpaceCamera::GetPosition()
+{
+    return WorldPos;
+}
+float const* NEURONCOMPONENTS_API FSpaceCamera::GetOrientation()
+{
+    return World;
+}
+int const* NEURONCOMPONENTS_API FSpaceCamera::GetViewport()
+{
+    return Viewport;
+}
+float NEURONCOMPONENTS_API FSpaceCamera::GetHalfFovXDeg()
+{
+    return HalfFovXDeg;
+}
+float NEURONCOMPONENTS_API FSpaceCamera::GetFovYDeg()
+{
+    return FovYDeg;
+}
+float NEURONCOMPONENTS_API FSpaceCamera::GetZNear()
+{
+    return ZNear;
+}
+float NEURONCOMPONENTS_API FSpaceCamera::GetZFar()
+{
+    return ZFar;
+}
+float NEURONCOMPONENTS_API FSpaceCamera::GetAspect()
+{
+    return Aspect;
+}
+double NEURONCOMPONENTS_API FSpaceCamera::GetXScaleOverNear()
+{
+    return 0.0;
+}
+double NEURONCOMPONENTS_API FSpaceCamera::GetYScaleOverNear()
+{
+    return 0.0;
+}
+// The reference's body (space_camera.cpp), over x86math's engine.
+int NEURONCOMPONENTS_API FSpaceCamera::Project(float* OutX, float* OutY, float* OutZ, float const* WorldPoint)
+{
+    FVector Local;
+    UiWidgetMathEngine()->InverseTransform(Local, *reinterpret_cast<FTransform const*>(this->World),
+                                           *reinterpret_cast<FVector const*>(WorldPoint));
+    if (!(-this->ZNear >= Local.Z))
+        return 0;
+    const double InvZ = -1.0 / static_cast<double>(Local.Z);
+    *OutX = static_cast<float>(static_cast<double>(Local.X) * this->XScale * InvZ + this->ScreenCenterX);
+    *OutY = static_cast<float>(static_cast<double>(Local.Y) * this->YScale * InvZ + this->ScreenCenterY);
+    *OutZ = -Local.Z;
+    return 1;
+}
+void NEURONCOMPONENTS_API FSpaceCamera::Unproject(float*, float, float)
+{
+}
+int NEURONCOMPONENTS_API FSpaceCamera::ClassifySphere(float const*, float)
+{
+    return 0;
+}
+float const* NEURONCOMPONENTS_API FSpaceCamera::GetViewTransform()
+{
+    return View;
+}
+int NEURONCOMPONENTS_API FSpaceCamera::ProjectVec(float*, float const*)
+{
+    return 0;
+}
+void FSpaceCamera::GetVelocity(float*)
+{
+}
+int FSpaceCamera::SetProperty(char const*, char const*)
+{
+    return 0;
+}
+
+UiFastTableRefPtr::UiFastTableRefPtr(UiFastTableRefPtr const& Other)
+    : Object(Other.Object)
+{
+}
+UiFastTableRefPtr::~UiFastTableRefPtr()
+{
+}
+UiFastTableRefPtr& UiFastTableRefPtr::operator=(UiFastTableRefPtr const& Other)
+{
+    Object = Other.Object;
+    return *this;
+}
+
+void Win3DIdentityRotation3x3(float* Out9)
+{
+    if (Out9 == nullptr)
+        return;
+    Out9[0] = 1.0f;
+    Out9[1] = 0.0f;
+    Out9[2] = 0.0f;
+    Out9[3] = 0.0f;
+    Out9[4] = 1.0f;
+    Out9[5] = 0.0f;
+    Out9[6] = 0.0f;
+    Out9[7] = 0.0f;
+    Out9[8] = 1.0f;
+}
+void HudVec3ScaleByInverse(float* Out, float const* In, float Length)
+{
+    double const InvExact = 1.0 / static_cast<double>(Length);
+    float const Inv = static_cast<float>(InvExact);
+    float const Z = static_cast<float>(InvExact * In[2]);
+    float const Y = static_cast<float>(static_cast<double>(Inv) * In[1]);
+    float const X = static_cast<float>(static_cast<double>(Inv) * In[0]);
+    Out[0] = X;
+    Out[1] = Y;
+    Out[2] = Z;
 }
 
 void RunUiControlSuites()

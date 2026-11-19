@@ -1,16 +1,15 @@
 # Gate G4: the owner's hardware runs
 
-Gate G4 ([migration plan](migration-plan.md), Phase 4) needs three things
+Gate G4 ([migration plan](migration-plan.md), Phase 4) needs four things
 that CI's Windows runner cannot give: renderer traces of the C++ client on
 the original data, the audio device on a machine with an audio endpoint,
-and the movie decoder on a Windows with Media Foundation's Windows Media
-decoders. This page is the procedure for the owner's Windows machine. Every
+the movie decoder on a Windows with Media Foundation's Windows Media
+decoders, and the model viewer's scenes over the original data on a GPU. This page is the procedure for the owner's Windows machine. Every
 file it produces is made from the game data: keep traces, images and
 reports outside the repository (AGENTS.md, test data), and share them only
 in the conversation.
 
-The fourth G4 item, the model viewer, comes with the engine composition
-(P4.16) and is not covered here.
+The model viewer (P4.16, the crate's example `model_viewer`) is section 4.
 
 ## 0. Requirements
 
@@ -117,8 +116,57 @@ shipped logo movie. A test that finds no device or decoder prints
 covered yet. Send back the output, and say whether the sounds played and
 whether anything sounded wrong (crackle, wrong pitch, no stereo movement).
 
-## 4. Then
+## 4. The model viewer
 
-The reports go into the P4.2, P4.10 and P4.15 rows of
-[README.md](README.md), with any divergences they show; G4 also needs the
-model viewer (P4.16).
+The viewer runs from the repository root over `outdir\data`, which holds
+the original data (decision O15); `NeuronComponents.ini` and
+`OutpostFrontier.ini` are read from `outdir\` (`--ini` names another
+folder). Keep the output folder outside the repository.
+
+The headless mode shows each of the nine fixed scenes for 30 frames at
+1/30 s and writes one BMP per scene and `report.txt`:
+
+```powershell
+cargo run --locked --release -p neuron-client --example model_viewer -- `
+  --data outdir\data --headless --out C:\viewer-out
+# Again on the GPU instead of WARP:
+cargo run --locked --release -p neuron-client --example model_viewer -- `
+  --data outdir\data --headless --adapter hardware --out C:\viewer-out-gpu
+```
+
+The scenes are `synthetic` (a lit cube made in memory), `ship` (the
+Starflier, `ge_fighter`), `station` (`largestation1`), `character` (the
+bartender's body playing the first animation of `bodygenericmale.anm`
+that binds), `effect` (an engine effect), `script` (`m03_survivor1.thn`,
+looping), `sound` (`hud_comm_window`), `voice` (the first line of
+`announcer.utf`) and `menu` (`page_charselectsingle.page` over the
+scene). `--scenes ship,character` picks some; `--ship`, `--solar`,
+`--model`, `--character`, `--effect`, `--script`, `--sound`, `--voice` and
+`--page` add others (`--help` lists the forms); `--audio` opens the audio
+device in a headless run; `--size 1920x1080` changes the back buffer.
+
+In a window, the same scenes with the audio device open:
+
+```powershell
+cargo run --locked --release -p neuron-client --example model_viewer -- --data outdir\data
+```
+
+Tab or Right and Left switch scenes, 1 to 9 pick one; A, D, W and S orbit,
+Q, E and the wheel zoom, a left drag orbits; R frames the scene again,
+Space spins the camera, N plays the character's next animation, P plays
+the scene's sound again, Esc quits. The console prints what each scene
+loaded and, every two seconds, the camera, the script clock and the
+voices playing.
+
+What to look at: the ship, the station and the character are lit and
+textured and the character moves; the effect animates; the sound and the
+voice line are heard; the `menu` scene draws nothing of the page yet (its
+controls need the immediate-mode layer and P5.2's classes) but the report
+lists where each widget sits. Send back `report.txt` and the BMP files,
+and say what looks wrong (black or untextured models, wrong colours,
+faces missing, a camera that does not frame the object).
+
+## 5. Then
+
+The reports go into the P4.2, P4.10, P4.15 and P4.16 rows and the Gate G4
+row of [README.md](README.md), with any divergences they show.

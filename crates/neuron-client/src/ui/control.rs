@@ -37,6 +37,26 @@ pub trait ControlMesh {
     /// A hardpoint of the mesh's archetype by name: its orientation and
     /// position.
     fn hardpoint(&self, name: &[u8]) -> Option<Transform>;
+    /// `GetInstancePosition` (`ClientMeshHolderGetPosition`).
+    fn position(&self) -> Vector {
+        self.transform().translation
+    }
+    /// `GetInstanceOrientation`.
+    fn orientation(&self) -> Matrix {
+        self.transform().rotation
+    }
+    /// `GetInstanceExtent(instance, flags)`: the bounding radius.
+    fn radius(&self, _flags: u32) -> f32 {
+        0.0
+    }
+    /// `SetInstanceOrientation` without `UpdateInstance`.
+    fn put_orientation(&mut self, orientation: Matrix) {
+        self.set_orientation(orientation);
+    }
+    /// `ClientMeshHolderSetPosition` without `UpdateInstance`.
+    fn put_position(&mut self, position: Vector) {
+        self.set_position(position);
+    }
 }
 
 /// Loads a control mesh (`ClientMeshLoadFromPath`); `None` when the path
@@ -223,8 +243,35 @@ pub mod base {
     /// `WinControl::HitTest`: the ray against the hit box; on a hit the
     /// parent `WinControl` hears property 0x25, then 0x4F when a tooltip id
     /// is set, and unless it answered non-zero an active, visible control
-    /// with a tooltip asks for it.
+    /// with a tooltip asks for it (slot 34, [`show_tooltip`]).
     pub fn hit_test(ui: &mut Ui, id: NodeId, this: &WinControl, ray: Vector) -> bool {
+        hit_test_with(ui, id, this, ray, |ui| show_tooltip(ui, id, this))
+    }
+
+    /// `WinControl::ShowToolTip`: a hover record keyed by the control
+    /// (divergence D436) showing its tooltip id, not live, fed to the
+    /// tooltip; the request is also kept for the game.
+    pub fn show_tooltip(ui: &mut Ui, id: NodeId, this: &WinControl) {
+        ui.request_tooltip(ToolTipRequest {
+            owner: id,
+            ids: this.tooltip_ids,
+        });
+        let hover = crate::ui::services::ToolTipHover {
+            key: crate::ui::services::HoverKey::Object(id),
+            ids_alt: this.tooltip_ids,
+            ..Default::default()
+        };
+        ui.feed_tooltip_hover(&hover);
+    }
+
+    /// [`hit_test`] with the control's own slot 34.
+    pub fn hit_test_with(
+        ui: &mut Ui,
+        id: NodeId,
+        this: &WinControl,
+        ray: Vector,
+        show_tooltip: impl FnOnce(&mut Ui),
+    ) -> bool {
         let transform = this.hit_transform(node_position(ui, id));
         if !ray_hits_box(this.half_extents, &transform, ray) {
             return false;
@@ -242,10 +289,7 @@ pub mod base {
         }
         let flags = ui.node(id).map_or(0, |n| n.flags);
         if this.tooltip_ids != 0 && flags & ACTIVE != 0 && flags & VISIBLE != 0 {
-            ui.request_tooltip(ToolTipRequest {
-                owner: id,
-                ids: this.tooltip_ids,
-            });
+            show_tooltip(ui);
         }
         true
     }
@@ -377,15 +421,17 @@ pub mod base {
 
     /// `WinControl::SetMesh`: a different path loads a new instance, placed
     /// at the position plus the offset; then `RefreshAttachment`.
+    ///
+    /// Returns whether the attachment was refreshed (a different path).
     pub fn set_mesh(
         ui: &mut Ui,
         id: NodeId,
         this: &mut WinControl,
         path: &[u8],
         material_path: &[u8],
-    ) {
+    ) -> bool {
         if this.mesh.is_some() && neuron_core::hash::eq_ignore_case(&this.mesh_path, path) {
-            return;
+            return false;
         }
         this.mesh_path = path.to_vec();
         this.mesh = None;
@@ -402,6 +448,7 @@ pub mod base {
             ));
         }
         refresh_attachment(ui, id, this);
+        true
     }
 
     /// `WinControl::RefreshAttachment`: the children first, then this
@@ -477,7 +524,7 @@ pub mod base {
                 1
             }
             Property::Mesh(path, material) => {
-                set_mesh(ui, id, this, path, material);
+                let _ = set_mesh(ui, id, this, path, material);
                 1
             }
             Property::Position(_) => 1,
@@ -519,6 +566,14 @@ pub mod base {
             | Property::ScrollValue(_)
             | Property::GetScrollValue
             | Property::ScrollChanged(..)
+            | Property::FromChild { .. }
+            | Property::EditText { .. }
+            | Property::SetText(_)
+            | Property::Colour(..)
+            | Property::Colours(..)
+            | Property::GetCommand(_)
+            | Property::GetToggleState(_)
+            | Property::ToggleSounds(..)
             | Property::Other(..) => 0,
         }
     }
@@ -536,7 +591,7 @@ pub mod base {
             }
             if ini.is_value(b"mesh") {
                 let path = ini.value_string();
-                set_mesh(ui, id, this, &path, b"");
+                let _ = set_mesh(ui, id, this, &path, b"");
                 continue;
             }
             if ini.is_value(b"offset") {
@@ -697,4 +752,72 @@ pub fn load_ini(ui: &mut Ui, id: NodeId, ini: &mut IniReader) {
             base::load_ini(ui, id, c, ini);
         }
     });
+}
+
+/// The position a `WinControl` parent's slot 5 hands this control when the
+/// control's own method places the parent (`RefreshAttachment`, the tail
+/// of `Create`): the reference's call reaches the control again, which a
+/// widget taken out of its node cannot take (divergence D347), so the
+/// controls make that call themselves with this position.
+#[must_use]
+pub fn parent_slot5_position(ui: &Ui, id: NodeId) -> Option<Vector> {
+    let p = ui.parent(id)?;
+    ui.win_control(p)?;
+    Some(ui.node(p)?.position)
+}
+
+/// The parent notification the controls spell out (`TellParent`): with a
+/// `WinControl` parent, its slot 42 with `(msg, this, value)`; 0 without
+/// one.
+pub fn tell_parent(ui: &mut Ui, id: NodeId, msg: i32, value: i32) -> isize {
+    let Some(parent) = ui.parent(id) else {
+        return 0;
+    };
+    if ui.win_control(parent).is_none() {
+        return 0;
+    }
+    ui.property(
+        parent,
+        Property::FromChild {
+            msg,
+            from: id,
+            value,
+        },
+    )
+}
+
+/// The cursor's ray as the controls build it inline from the software
+/// cursor through the Win3D camera: `(c - centre) / scale * near` on the
+/// near plane, turned by the camera's orientation, normalised by
+/// `1 / sqrt`.
+#[must_use]
+pub fn cursor_ray_inline(ui: &Ui) -> Vector {
+    let cam = &ui.camera;
+    let (cx, cy) = ui.cursor;
+    let near = Vector::new(
+        ((f64::from(cx) - f64::from(cam.screen_center_x)) / f64::from(cam.x_scale)
+            * f64::from(cam.z_near)) as f32,
+        ((f64::from(cy) - f64::from(cam.screen_center_y)) / f64::from(cam.y_scale)
+            * f64::from(cam.z_near)) as f32,
+        -cam.z_near,
+    );
+    normalise_ray(neuron_core::math::transform_matrix(&cam.world, near))
+}
+
+/// The cursor's ray through `Win3DScreenToNearPlane` (the pixel as a
+/// float), turned by the camera's orientation, normalised by `1 / sqrt`.
+#[must_use]
+pub fn cursor_ray_near_plane(ui: &Ui) -> Vector {
+    let cam = &ui.camera;
+    let (cx, cy) = ui.cursor;
+    let near = cam.screen_to_near_plane(cx as f32, cy as f32);
+    normalise_ray(neuron_core::math::transform_matrix(&cam.world, near))
+}
+
+/// `1 / sqrt(x x + y y + z z)` kept unrounded, each product stored.
+#[must_use]
+pub fn normalise_ray(v: Vector) -> Vector {
+    let (x, y, z) = (f64::from(v.x), f64::from(v.y), f64::from(v.z));
+    let inv = 1.0 / (x * x + y * y + z * z).sqrt();
+    Vector::new((x * inv) as f32, (y * inv) as f32, (z * inv) as f32)
 }
