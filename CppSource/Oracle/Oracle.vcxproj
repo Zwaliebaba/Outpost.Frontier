@@ -389,9 +389,11 @@
     <ClCompile Include="oracle_material_kinds.cpp" />
     <ClCompile Include="oracle_big_image.cpp" />
     <!-- P4.13: the client UI toolkit; oracle_ui.cpp includes the client's ui_page_desc.cpp,
-         oracle_ui_quads.cpp its screen_quad_state.cpp. -->
+         oracle_ui_quads.cpp its screen_quad_state.cpp, oracle_ui_controls.cpp the Win3D
+         manager, WinControl, the factory, the pulse and the controls ported so far. -->
     <ClCompile Include="oracle_ui.cpp" />
     <ClCompile Include="oracle_ui_quads.cpp" />
+    <ClCompile Include="oracle_ui_controls.cpp" />
     <ClCompile Include="oracle_physics.cpp" />
     <ClCompile Include="oracle_sim.cpp" />
     <ClCompile Include="oracle_sim_spread.cpp" />
