@@ -820,11 +820,32 @@ impl neuron_client::audio::client::SoundDevice for Recorder {
 }
 
 /// The harness's data: a PCM RIFF file of zero frames for each name
-/// `c<channels>b<bits>r<rate>f<frames>.wav`.
+/// `c<channels>b<bits>r<rate>f<frames>.wav`. A name inside an archive (a
+/// voice profile's `audio\<nickname>.utf`) is a leaf of the fixture file
+/// of that path, whose lines map a leaf to such a name.
 struct SyntheticWavs;
 
+/// The wav name a leaf of a fixture archive stands for.
+fn archive_leaf(archive: &[u8], leaf: &[u8]) -> Option<Vec<u8>> {
+    let relative = String::from_utf8(archive.to_vec()).ok()?.replace('\\', "/");
+    let text = fs::read(super::fixtures().join(relative)).ok()?;
+    text.split(|&b| b == b'\n').find_map(|line| {
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        let space = line.iter().position(|&b| b == b' ')?;
+        (&line[..space] == leaf).then(|| line[space + 1..].to_vec())
+    })
+}
+
 impl neuron_client::audio::client::WavFiles for SyntheticWavs {
-    fn read(&self, file: &[u8], _: Option<&[u8]>) -> Option<Vec<u8>> {
+    fn read(&self, file: &[u8], archive: Option<&[u8]>) -> Option<Vec<u8>> {
+        let mapped;
+        let file = match archive {
+            Some(archive) => {
+                mapped = archive_leaf(archive, file)?;
+                mapped.as_slice()
+            }
+            None => file,
+        };
         let name = std::str::from_utf8(file).ok()?;
         let name = name.rsplit(['\\', '/']).next()?;
         let rest = name.strip_prefix('c')?;
@@ -875,6 +896,62 @@ fn hex_bytes(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// The manager's archetype of a mixer id, or four dashes.
+fn sm_fields(mixer: &Mixer<u32>, sm_arch_id: i32) -> String {
+    match (sm_arch_id != -1)
+        .then(|| mixer.archetype(sm_arch_id))
+        .flatten()
+    {
+        Some(m) => format!(
+            ",\"sm_flags\":\"{:x}\",\"sm_buffer\":\"{:x}\",\"sm_frames\":\"{}\",\
+             \"sm_duration\":\"{}\"",
+            m.flags, m.buffer_flags, m.frames, m.duration_ms
+        ),
+        None => ",\"sm_flags\":\"-\",\"sm_buffer\":\"-\",\"sm_frames\":\"-\",\"sm_duration\":\"-\""
+            .to_owned(),
+    }
+}
+
+/// The voice profiles in id order, each followed by its lines
+/// (`oracle_audio_client.cpp`'s `DumpVoices`).
+fn client_voice_lines(case: &ClientCase, out: &mut Vec<String>) {
+    let or_dash = |s: String| if s.is_empty() { "-".to_owned() } else { s };
+    for p in case.sound.voices.iter() {
+        let scripts: Vec<String> = p.scripts.iter().map(|s| hex_bytes(s)).collect();
+        let files: Vec<String> = p
+            .sound_files
+            .iter()
+            .map(|(id, f)| format!("{id:08x}:{}", hex_bytes(f)))
+            .collect();
+        out.push(format!(
+            "{{\"case\":\"{}\",\"voice\":\"{:08x}\",\"name\":\"{}\",\"utf\":\"{}\",\
+             \"scripts\":\"{}\",\"files\":\"{}\"}}",
+            case.index,
+            p.id,
+            hex_bytes(&p.name),
+            p.utf_path
+                .as_deref()
+                .map_or_else(|| "-".to_owned(), hex_bytes),
+            or_dash(scripts.join(",")),
+            or_dash(files.join(","))
+        ));
+        for (id, m) in &p.messages {
+            out.push(format!(
+                "{{\"case\":\"{}\",\"voice\":\"{:08x}\",\"msg\":\"{id:08x}\",\"sm\":\"{}\",\
+                 \"prio\":\"{}\",\"atten\":\"{}\",\"refs\":\"{}\",\"file\":\"{}\"{}}}",
+                case.index,
+                p.id,
+                m.sm_arch_id,
+                m.priority,
+                m.attenuation,
+                m.ref_count,
+                hex_bytes(&p.sound_file(*id)),
+                sm_fields(&case.mixer, m.sm_arch_id)
+            ));
+        }
+    }
+}
+
 fn client_arch_lines(case: &ClientCase, out: &mut Vec<String>) {
     for a in case.sound.sounds.iter() {
         let linked = a
@@ -896,25 +973,11 @@ fn client_arch_lines(case: &ClientCase, out: &mut Vec<String>) {
             a.use_count,
             a.unlinked_uses
         );
-        match (a.sm_arch_id != -1)
-            .then(|| case.mixer.archetype(a.sm_arch_id))
-            .flatten()
-        {
-            Some(m) => {
-                let _ = write!(
-                    line,
-                    ",\"sm_flags\":\"{:x}\",\"sm_buffer\":\"{:x}\",\"sm_frames\":\"{}\",\
-                     \"sm_duration\":\"{}\"",
-                    m.flags, m.buffer_flags, m.frames, m.duration_ms
-                );
-            }
-            None => line.push_str(
-                ",\"sm_flags\":\"-\",\"sm_buffer\":\"-\",\"sm_frames\":\"-\",\"sm_duration\":\"-\"",
-            ),
-        }
+        line.push_str(&sm_fields(&case.mixer, a.sm_arch_id));
         line.push('}');
         out.push(line);
     }
+    client_voice_lines(case, out);
 }
 
 fn client_name(case: &ClientCase, key: neuron_client::audio::client::SourceKey) -> String {
@@ -1014,11 +1077,15 @@ fn client_session(list: &str) -> Vec<String> {
             continue;
         }
         let c = case.as_mut().expect("a case first");
-        let find = |sound: &ClientSound, hex: &str| {
-            sound
+        // A `PROFILE/MSG` token names a line of a voice profile.
+        let find = |sound: &ClientSound, hex: &str| match hex.split_once('/') {
+            Some((profile, msg)) => {
+                sound.voice_line(create_id(&unhex(profile)), create_id(&unhex(msg)))
+            }
+            None => sound
                 .sounds
                 .lookup(create_id(&unhex(hex)))
-                .map(ArchRef::Sound)
+                .map(ArchRef::Sound),
         };
         let mut env = SoundEnv {
             mixer: &mut c.mixer,
@@ -1030,6 +1097,22 @@ fn client_session(list: &str) -> Vec<String> {
         let sound = &mut c.sound;
         let mut dump = false;
         match t[0] {
+            "voices" => {
+                // A file that does not open adds nothing (`INI_Reader::open`).
+                let bytes = std::fs::read(super::fixtures().join(t[1]));
+                // `ResolveScriptFile`'s `_access` under the data root, the
+                // fixture directory.
+                let exists = |p: &[u8]| {
+                    let relative = String::from_utf8_lossy(p).replace('\\', "/");
+                    super::fixtures().join(relative).is_file()
+                };
+                let added = bytes.map_or(0, |b| sound.load_voices(&b, &exists));
+                out.push(format!(
+                    "{{\"case\":\"{}\",\"op\":\"voices\",\"nick\":\"-\",\"r\":\"{added}\"}}",
+                    c.index
+                ));
+                dump = true;
+            }
             "ini" => {
                 let path = super::fixtures().join(t[2]);
                 let bytes =
@@ -1154,6 +1237,12 @@ pub fn arch_lines() -> Vec<String> {
 /// mixer.
 pub fn client_lines() -> Vec<String> {
     client_session("audio/client.list")
+}
+
+/// `audio_voice.jsonl`: the voice profiles (`LoadClientVoicesIni`), their
+/// lines' wavs out of the profiles' archives, and their plays.
+pub fn voice_lines() -> Vec<String> {
+    client_session("audio/voice.list")
 }
 
 /// The bounds of `audio_client.jsonl`: the score passes through the

@@ -709,6 +709,229 @@ def client_cases():
     write("client.list", [line for line in client_cases.__doc__.strip().splitlines()], L)
 
 
+def _crc30_table():
+    """CreateID's table (Common's CRC-30, polynomial 0x8005, reflected)."""
+    def reflect(value, count):
+        out = 0
+        for i in range(count):
+            if value & (1 << i):
+                out |= 1 << (count - 1 - i)
+        return out
+    table = []
+    for byte in range(256):
+        work = reflect(byte, 8) << 22
+        for _ in range(8):
+            work = (work << 1) ^ 0x8005 if work & (1 << 29) else work << 1
+        table.append(reflect(work & 0x3FFFFFFF, 30))
+    return table
+
+
+CRC30 = _crc30_table()
+
+
+def create_id(name):
+    """Common's CreateID of a name (case-blind)."""
+    crc = 0
+    for b in name.lower().encode("latin-1")[:0xFF]:
+        crc = CRC30[(crc & 0xFF) ^ b] ^ (crc >> 8)
+    remain = crc & 0x3FFFFFFF
+    folded = 0
+    for shift in (8, 16, 24, 32):
+        folded |= (remain & 0xFF) << (32 - shift)
+        remain >>= 8
+    return (folded >> 2) | 0x80000000
+
+
+LONG_NICK = "pilot_" + "x" * 121
+
+VOICE_A = """; P4.10 client wiring: [Voice] profiles for audio_voice.jsonl, written by make_audio_fixtures.py.
+[Sound]
+msg = orphan_line
+
+[Voice]
+nickname = pilot_a
+script = scripts\\pilot_a.thn
+script = scripts\\pilot_a_extra.thn
+unknown_key = 3
+
+[Sound]
+msg = gcs_hello
+priority = 3
+attenuation = -6
+duration = 2.5
+file = ignored.wav
+
+[Sound]
+msg = gcs_hello
+attenuation = -1
+
+[VoiceSound]
+msg = gcs_bye, second_value
+priority = 200
+attenuation = 300
+
+[Sound]
+msg = gcs_no_leaf
+
+[Sound]
+priority = 1
+bogus = 1
+
+[Voice]
+nickname = plain_b
+
+[Sound]
+file = %(w300)s
+msg = late_line
+
+[Sound]
+msg = early_line
+file = %(w500)s
+
+[Sound]
+msg = nofile_line
+
+[Sound]
+msg = missing_wav
+file = audio\\nothing_here.wav
+
+[Voice]
+nickname = PILOT_A
+
+[Sound]
+msg = lost_line
+
+[Voice]
+extend = pilot_a
+nickname = ignored_nick
+
+[Sound]
+msg = gcs_extra
+
+[Voice]
+extend = nobody_here
+
+[Sound]
+msg = dropped_line
+
+[Voice]
+extend =
+nickname = empty_extend
+
+[Sound]
+msg = e1
+
+[voice]
+nickname = lower_c
+
+[SOUND]
+MSG = Upper_Line
+PRIORITY = -3
+
+[Voice]
+nickname = %(long)s
+
+[Voice]
+extend = %(long)szzzzzzzzzzzzzz
+
+[Sound]
+msg = long_line
+
+[Voice]
+script = no_nickname
+
+[Sound]
+msg = anon_line
+""" % dict(w300=wav(1, 16, 22050, 300), w500=wav(1, 16, 11025, 500), long=LONG_NICK)
+
+VOICE_B = """; P4.10 client wiring: a second voices file for audio_voice.jsonl, written by make_audio_fixtures.py.
+[Voice]
+extend = plain_b
+
+[Sound]
+msg = b_line
+file = %(w400)s
+attenuation = -20
+
+[Voice]
+nickname = pilot_d
+
+[Sound]
+msg = d_line
+priority = 7
+
+[Voice]
+nickname = plain_b
+
+[Sound]
+msg = shadowed_line
+""" % dict(w400=wav(2, 8, 22050, 400))
+
+
+def voice_cases():
+    """voice.list: one command per line (the format is in oracle_audio_client.cpp)."""
+    write_text("voice_a.ini", VOICE_A.replace("\n", "\r\n"))
+    write_text("voice_b.ini", VOICE_B.replace("\n", "\r\n"))
+    # The profiles' archives: a leaf "0x%X" of a line's id per line, mapped to a wav name.
+    leaf = lambda m: "0x%X" % create_id(m)
+    # A lower-case spelling of a leaf and a short one are decoys: the leaf is "0x%X" exactly.
+    write_text("pilot_a.utf", "".join("%s %s\n" % (name, w) for name, w in (
+        (leaf("gcs_hello"), "c1b16r22050f2205.wav"),
+        (leaf("gcs_bye"), "c2b16r44100f441.wav"),
+        (leaf("gcs_extra"), "c1b8r11025f1100.wav"),
+        ("0x%x" % create_id("gcs_no_leaf"), "c1b16r22050f9.wav"),
+        ("0x1", "c1b16r22050f1.wav"),
+    )))
+    write_text("pilot_d.utf", "%s c1b16r22050f777.wav\r\n" % leaf("d_line"))
+    L = []
+
+    def case(use3d=1.0, scale=1.0, maxsub=32, maxch=8):
+        L.append("case %s %s %d %d" % (f(use3d), f(scale), maxsub, maxch))
+
+    def v(profile, msg):
+        return "%s/%s" % (nick(profile), nick(msg))
+
+    def tick(now, dt=1.0 / 30.0):
+        L.append("tick %d %s" % (now, f(dt)))
+
+    # 1. The profiles and their lines; the archives' leaves, the `file =` wavs and the misses.
+    case()
+    L.append("voices audio/voice_a.ini")
+    for p, m in (("pilot_a", "gcs_hello"), ("pilot_a", "gcs_bye"), ("pilot_a", "gcs_no_leaf"),
+                 ("pilot_a", "gcs_extra"), ("plain_b", "early_line"), ("plain_b", "late_line"),
+                 ("plain_b", "nofile_line"), ("plain_b", "missing_wav"), ("pilot_a", "nobody"),
+                 ("nobody", "gcs_hello"), ("lower_c", "upper_line"), (LONG_NICK, "long_line")):
+        L.append("acquire %s" % v(p, m))
+    L.append("acquire %s" % v("pilot_a", "gcs_hello"))
+    L.append("release %s" % v("pilot_a", "gcs_hello"))
+    L.append("release %s" % v("pilot_a", "gcs_hello"))
+    L.append("release %s" % v("pilot_a", "gcs_hello"))
+    L.append("release %s" % v("plain_b", "nofile_line"))
+    L.append("voices audio/voice_b.ini")
+    L.append("acquire %s" % v("pilot_d", "d_line"))
+    L.append("acquire %s" % v("plain_b", "b_line"))
+    L.append("voices audio/no_such_voices.ini")
+    # 2. Lines played through the sound tick: the voice category, ducking and retirement.
+    case(maxch=2)
+    L.append("voices audio/voice_a.ini")
+    L.append("play %s 0 0 %s %s 1" % (v("pilot_a", "gcs_hello"), vec([0.0, 0.0, 0.0]), f(-3.0)))
+    L.append("play %s - 0 - 0 1" % v("plain_b", "early_line"))
+    L.append("play %s 1 20 %s %s 0" % (v("pilot_a", "gcs_bye"), vec([0.0, 0.0, 0.0]), f(0.0)))
+    L.append("play %s - 0 - 0 1" % v("pilot_a", "gcs_no_leaf"))
+    tick(100)
+    L.append("vol 4 %s" % f(0.25))
+    L.append("duck push")
+    tick(150, 0.05)
+    L.append("src 0 type 5")
+    tick(200, 0.05)
+    L.append("duck pop")
+    L.append("src 1 release")
+    tick(300)
+    tick(5000)
+    L.append("acquire %s" % v("pilot_a", "gcs_hello"))
+    write("voice.list", [line for line in voice_cases.__doc__.strip().splitlines()], L)
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     apply_cases()
@@ -722,6 +945,7 @@ def main():
     reverb_cases()
     arch_cases()
     client_cases()
+    voice_cases()
 
 
 if __name__ == "__main__":

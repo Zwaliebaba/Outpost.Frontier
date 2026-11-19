@@ -180,6 +180,19 @@ fn audio_client() {
     );
 }
 
+/// P4.10, the client wiring: the voice profiles (`LoadClientVoicesIni`:
+/// `[Voice]` and `[Sound]` lines, `extend =`), each line's wav read out of
+/// its profile's `audio\<nickname>.utf` as the leaf `0x%X` of its id, and
+/// the lines played through the sound tick.
+#[test]
+fn audio_voice() {
+    check_suite_within(
+        "audio_voice.jsonl",
+        &audio::voice_lines(),
+        audio::client_bound,
+    );
+}
+
 /// P4.14: the engine calls of the parser's second pass for each buffer of
 /// a case, one fresh module state per case, with or without a COM context
 /// (`tests/fixtures/oracle/scene_script_build.list`).
