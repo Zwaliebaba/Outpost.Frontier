@@ -1,7 +1,7 @@
 //! The shipped interface files (`outdir/data`, decision O15) through the UI
 //! toolkit of work package P4.13: every page descriptor loads and becomes a
 //! page whose widgets sit inside the 4:3 interface on a 4:3 and on a wide
-//! surface (66 of the 72 widgets with the toolkit's own controls), the
+//! surface (70 of the 72 widgets with the toolkit's own controls), the
 //! `[BaseFrame]` file builds its buttons through the factory, and
 //! `mouse.ini` gives its shapes and cursors. Nothing is written
 //! or compared with the oracle; the page descriptor loader and the
@@ -126,6 +126,8 @@ fn shipped_pages_load_and_place_their_widgets() {
         "UIWinObject",
         "UIRichTextWin",
         "UITextMsgButton",
+        "UITextEdit",
+        "UIFastTable",
     ];
     let (mut built, mut immediate_calls, mut meshes) = (0, 0, 0);
     for path in &files {

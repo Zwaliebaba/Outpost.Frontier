@@ -7,12 +7,16 @@
 //! `RichTextButtonControl` ([`button`]), the wire controls ([`wire`]),
 //! `ScrollControl` ([`scroll_control`]), `UITable` ([`table`]), `ToolTip`
 //! and `Rollover` ([`tooltip`]), `UIRichTextWin` and `UITextMsgButton`
-//! ([`ui_rich_text`]). The other classes of [`super::factory::CLASSES`]
-//! (the editable and table rich-text windows and the game's) are not
-//! ported yet.
+//! ([`ui_rich_text`]), `RichTextEditWin` and `UITextEdit`
+//! ([`rich_text_edit`]), `MsgWin` ([`msg_win`]), `UIFastTable` and
+//! `UIScrollTable` ([`fast_table`]). The other classes of
+//! [`super::factory::CLASSES`] are the game's.
 
 pub mod button;
+pub mod fast_table;
 pub mod list_box;
+pub mod msg_win;
+pub mod rich_text_edit;
 pub mod rich_text_win;
 pub mod scroll;
 pub mod scroll_control;
@@ -35,6 +39,13 @@ pub fn register(factory: &mut Factory) {
     factory.register("RichTextWin", || {
         Box::new(rich_text_win::RichTextWin::default())
     });
+    factory.register("RichTextEditWin", || {
+        Box::new(rich_text_edit::RichTextEditWin::default())
+    });
+    factory.register("UITextEdit", || {
+        Box::new(rich_text_edit::UiTextEdit::default())
+    });
+    factory.register("MsgWin", || Box::new(msg_win::MsgWin::default()));
     factory.register("UIListBox", || Box::new(list_box::UiListBox::default()));
     factory.register("UIScroll", || Box::new(scroll::UiScroll::new(false)));
     factory.register("UICycle", || Box::new(scroll::UiScroll::new(true)));
@@ -72,6 +83,12 @@ pub fn register(factory: &mut Factory) {
         Box::new(scroll_control::ScrollControlWidget::default())
     });
     factory.register("UITable", || Box::new(table::UiTable::default()));
+    factory.register("UIFastTable", || {
+        Box::new(fast_table::UiFastTable::default())
+    });
+    factory.register("UIScrollTable", || {
+        Box::new(fast_table::UiScrollTable::default())
+    });
     factory.register("UIRichTextWin", || {
         Box::new(ui_rich_text::UiRichTextWin::default())
     });

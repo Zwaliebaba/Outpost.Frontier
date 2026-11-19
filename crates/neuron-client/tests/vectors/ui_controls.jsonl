@@ -2242,3 +2242,597 @@
 {"case":"23","ev":"hit","r":"1"}
 {"case":"23","ev":"hit","r":"0"}
 {"case":"23","ev":"btn","r":"0"}
+{"case":"24","ev":"new","ok":"1"}
+{"case":"24","ev":"edit","flags":"b","caret":"0 0 0","blink":"1 3f000000","attrs":"ffffff00","cells":"","content":"","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"edit","flags":"b","caret":"3 0 0","blink":"1 3f000000","attrs":"ffffff00","cells":"0041:ffffff00 0062:ffffff00 0063:ffffff00","content":"r() r(a:ffffff00:ffffffff:00000000 t:004100620063)","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"edit","flags":"b","caret":"3 0 0","blink":"1 3f000000","attrs":"ffffff00","cells":"0041:ffffff00 0062:ffffff00 0058:ffffff00 0063:ffffff00","content":"r() r(a:ffffff00:ffffffff:00000000 t:0041006200580063)","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"edit","flags":"b","caret":"0 0 0","blink":"1 3f000000","attrs":"ffffff00","cells":"0062:ffffff00 0058:ffffff00 0063:ffffff00","content":"r() r(a:ffffff00:ffffffff:00000000 t:006200580063)","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"edit","flags":"b","caret":"2 0 0","blink":"1 3f000000","attrs":"ffffff00","cells":"0062:ffffff00 0058:ffffff00","content":"r() r(a:ffffff00:ffffffff:00000000 t:00620058)","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"24","ev":"r","v":"0"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"edit","flags":"b","caret":"2 0 0","blink":"1 3f000000","attrs":"ffffff00","cells":"0062:ffffff00 0058:ffffff00","content":"r() r(a:ffffff00:ffffffff:00000000 t:00620058)","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"edit","flags":"b","caret":"3 0 0","blink":"1 3f000000","attrs":"ffffff01","cells":"0062:ffffff00 0058:ffffff00 007a:ffffff01","content":"r() r(a:ffffff00:ffffffff:00000000 t:00620058 a:ffffff01:ffffffff:00000000 t:007a)","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"24","ev":"r","v":"0"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"edit","flags":"b","caret":"4 0 0","blink":"1 3f000000","attrs":"ffffff07","cells":"0062:ffffff00 0058:ffffff00 007a:ffffff01 0071:ffffff07","content":"r() r(a:ffffff00:ffffffff:00000000 t:00620058 a:ffffff01:ffffffff:00000000 t:007a a:ffffff07:ffffffff:00000000 t:0071)","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"edit","flags":"b","caret":"6 0 0","blink":"1 3f000000","attrs":"ffffff0f","cells":"0062:ffffff00 0058:ffffff00 007a:ffffff01 0071:ffffff07 0072:ffffff17 0073:ffffff0f","content":"r() r(a:ffffff00:ffffffff:00000000 t:00620058 a:ffffff01:ffffffff:00000000 t:007a a:ffffff07:ffffffff:00000000 t:0071 a:ffffff17:ffffffff:00000000 t:0072 a:ffffff0f:ffffffff:00000000 t:0073)","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"edit","flags":"b","caret":"6 0 0","blink":"1 3f000000","attrs":"fffffff9","cells":"0062:ffffff00 0058:ffffff00 007a:ffffff01 0071:ffffff07 0072:ffffff17 0073:ffffff0f","content":"r() r(a:ffffff00:ffffffff:00000000 t:00620058 a:ffffff01:ffffffff:00000000 t:007a a:ffffff07:ffffffff:00000000 t:0071 a:ffffff17:ffffffff:00000000 t:0072 a:ffffff0f:ffffffff:00000000 t:0073)","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"edit","flags":"b","caret":"6 0 0","blink":"1 3f000000","attrs":"ffffff01","cells":"0062:ffffff00 0058:ffffff00 007a:ffffff01 0071:ffffff07 0072:ffffff17 0073:ffffff0f","content":"r() r(a:ffffff00:ffffffff:00000000 t:00620058 a:ffffff01:ffffffff:00000000 t:007a a:ffffff07:ffffffff:00000000 t:0071 a:ffffff17:ffffffff:00000000 t:0072 a:ffffff0f:ffffffff:00000000 t:0073)","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"24","ev":"r","v":"0"}
+{"case":"24","ev":"r","v":"0"}
+{"case":"24","ev":"edit","flags":"b","caret":"6 0 0","blink":"1 3f000000","attrs":"ffffff01","cells":"0062:ffffff00 0058:ffffff00 007a:ffffff01 0071:ffffff07 0072:ffffff17 0073:ffffff0f","content":"r() r(a:ffffff00:ffffffff:00000000 t:00620058 a:ffffff01:ffffffff:00000000 t:007a a:ffffff07:ffffffff:00000000 t:0071 a:ffffff17:ffffffff:00000000 t:0072 a:ffffff0f:ffffffff:00000000 t:0073)","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"24","ev":"msg","m":"f004","a":"self","b":"0"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"msg","m":"f003","a":"self","b":"0"}
+{"case":"24","ev":"r","v":"1"}
+{"case":"24","ev":"r","v":"0"}
+{"case":"24","ev":"r","v":"0"}
+{"case":"24","ev":"r","v":"0"}
+{"case":"24","ev":"edit","flags":"b","caret":"2 0 0","blink":"1 3f000000","attrs":"ffffff00","cells":"0062:ffffff00 0058:ffffff00 007a:ffffff01 0071:ffffff07 0072:ffffff17 0073:ffffff0f","content":"r() r(a:ffffff00:ffffffff:00000000 t:00620058 a:ffffff01:ffffffff:00000000 t:007a a:ffffff07:ffffffff:00000000 t:0071 a:ffffff17:ffffffff:00000000 t:0072 a:ffffff0f:ffffffff:00000000 t:0073)","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"24","ev":"edit","flags":"b","caret":"0 0 0","blink":"1 3f000000","attrs":"ffffff00","cells":"0062:ffffff00 0058:ffffff00 007a:ffffff01 0071:ffffff07 0072:ffffff17 0073:ffffff0f","content":"r() r(a:ffffff00:ffffffff:00000000 t:00620058 a:ffffff01:ffffffff:00000000 t:007a a:ffffff07:ffffffff:00000000 t:0071 a:ffffff17:ffffffff:00000000 t:0072 a:ffffff0f:ffffffff:00000000 t:0073)","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"24","ev":"edit","flags":"b","caret":"0 0 0","blink":"1 3f000000","attrs":"ffffff00","cells":"0062:ffffff00 0058:ffffff00 007a:ffffff01 0071:ffffff07 0072:ffffff17 0073:ffffff0f","content":"r() r(a:ffffff00:ffffffff:00000000 t:00620058 a:ffffff01:ffffffff:00000000 t:007a a:ffffff07:ffffffff:00000000 t:0071 a:ffffff17:ffffffff:00000000 t:0072 a:ffffff0f:ffffffff:00000000 t:0073)","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"24","ev":"edit","flags":"b","caret":"6 0 0","blink":"1 3f000000","attrs":"ffffff0f","cells":"0062:ffffff00 0058:ffffff00 007a:ffffff01 0071:ffffff07 0072:ffffff17 0073:ffffff0f","content":"r() r(a:ffffff00:ffffffff:00000000 t:00620058 a:ffffff01:ffffffff:00000000 t:007a a:ffffff07:ffffffff:00000000 t:0071 a:ffffff17:ffffffff:00000000 t:0072 a:ffffff0f:ffffffff:00000000 t:0073)","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"24","ev":"text","r":"6","t":""}
+{"case":"24","ev":"text","r":"1","t":""}
+{"case":"24","ev":"text","r":"3","t":"00620058"}
+{"case":"24","ev":"text","r":"7","t":"00620058007a007100720073"}
+{"case":"24","ev":"hit","r":"1"}
+{"case":"24","ev":"btn","r":"0"}
+{"case":"25","ev":"new","ok":"1"}
+{"case":"25","ev":"edit","flags":"b","caret":"3 3 3","blink":"1 3f000000","attrs":"ffffff00","cells":"0068:ffffff00 0065:ffffff00 006c:ffffff00","content":"r() r(a:ffffff00:ffffffff:00000000 t:00680065006c)","dirty":"11","modes":"100 0 3 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"25","ev":"r","v":"1"}
+{"case":"25","ev":"edit","flags":"b","caret":"3 3 3","blink":"1 3f000000","attrs":"ffffff00","cells":"0068:ffffff00 0065:ffffff00 006c:ffffff00","content":"r() r(a:ffffff00:ffffffff:00000000 t:00680065006c)","dirty":"11","modes":"100 0 3 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"25","ev":"r","v":"1"}
+{"case":"25","ev":"edit","flags":"b","caret":"5 5 5","blink":"1 3f000000","attrs":"ffffff00","cells":"004d:ffffff00 0049:ffffff00 0058:ffffff00 0045:ffffff00 0044:ffffff00","content":"r() r(a:ffffff00:ffffffff:00000000 t:004d0049005800450044)","dirty":"11","modes":"100 1 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"25","ev":"r","v":"1"}
+{"case":"25","ev":"edit","flags":"b","caret":"5 5 5","blink":"1 3f000000","attrs":"ffffff00","cells":"006d:ffffff00 0069:ffffff00 0078:ffffff00 0065:ffffff00 0064:ffffff00","content":"r() r(a:ffffff00:ffffffff:00000000 t:006d0069007800650064)","dirty":"11","modes":"100 2 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"25","ev":"edit","flags":"b","caret":"5 5 5","blink":"1 3f000000","attrs":"ffffff00","cells":"006d:ffffff00 0069:ffffff00 0078:ffffff00 0065:ffffff00 0064:ffffff00","content":"r() r(a:ffffff00:ffffffff:00000000 t:006d0069007800650064)","dirty":"11","modes":"100 7 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"25","ev":"r","v":"1"}
+{"case":"25","ev":"edit","flags":"b","caret":"3 3 3","blink":"1 3f000000","attrs":"ffffff00","cells":"006f:ffffff00 005f:ffffff00 006f:ffffff00","content":"r() r(a:ffffff00:ffffffff:00000000 t:006f005f006f)","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"25","ev":"r","v":"1"}
+{"case":"25","ev":"r","v":"1"}
+{"case":"25","ev":"r","v":"1"}
+{"case":"25","ev":"edit","flags":"b","caret":"6 3 3","blink":"1 3f000000","attrs":"ffffff00","cells":"006f:ffffff00 005f:ffffff00 006f:ffffff00 007a:ffffff00 005f:ffffff00 002a:ffffff00","content":"r() r(a:ffffff00:ffffffff:00000000 t:006f005f006f007a005f002a)","dirty":"11","modes":"100 0 0 1 002a","size":"3ecccccd 3e99999a"}
+{"case":"25","ev":"edit","flags":"b","caret":"6 3 3","blink":"1 3f000000","attrs":"ffffff00","cells":"006f:ffffff00 005f:ffffff00 006f:ffffff00 007a:ffffff00 005f:ffffff00 002a:ffffff00","content":"r() r(a:ffffff00:ffffffff:00000000 t:002a002a002a002a002a002a)","dirty":"11","modes":"101 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"25","ev":"edit","flags":"b","caret":"6 3 3","blink":"1 3f000000","attrs":"ffffff00","cells":"006f:ffffff00 005f:ffffff00 006f:ffffff00 007a:ffffff00 005f:ffffff00 002a:ffffff00","content":"r() r(a:ffffff00:ffffffff:00000000 t:006f005f006f007a005f002a)","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"25","ev":"edit","flags":"b","caret":"6 3 3","blink":"1 3f000000","attrs":"ffffff00","cells":"006f:ffffff00 005f:ffffff00 006f:ffffff00 007a:ffffff00 005f:ffffff00 002a:ffffff00","content":"r() r(r(a:ffff0008:ffffffff:00000000) t:006f005f006f007a005f002a)","dirty":"11","modes":"110 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"25","ev":"edit","flags":"b","caret":"6 3 3","blink":"1 3f000000","attrs":"ffffff00","cells":"006f:ffffff00 005f:ffffff00 006f:ffffff00 007a:ffffff00 005f:ffffff00 002a:ffffff00","content":"r() r(a:ffffff00:ffffffff:00000000 t:006f005f006f007a005f002a)","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"25","ev":"edit","flags":"b","caret":"6 3 3","blink":"1 3f000000","attrs":"ffffff00","cells":"006f:ffffff00 005f:ffffff00 006f:ffffff00 007a:ffffff00 005f:ffffff00 002a:ffffff00","content":"r(t:003e0020) r(a:ffffff00:ffffffff:00000000 t:006f005f006f007a005f002a)","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"25","ev":"edit","flags":"b","caret":"3 3 3","blink":"1 3f000000","attrs":"ffffff00","cells":"0061:00ff0004 0062:00ff0004 0063:00ff0004","content":"r(t:003e0020) r(a:00ff0004:ffffffff:00000000 t:006100620063)","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"25","ev":"r","v":"1"}
+{"case":"25","ev":"edit","flags":"b","caret":"2 3 3","blink":"1 3f000000","attrs":"00ff0004","cells":"0061:00ff0004 0064:00ff0004 0062:00ff0004 0063:00ff0004","content":"r(t:003e0020) r(a:00ff0004:ffffffff:00000000 t:0061006400620063)","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"25","ev":"edit","flags":"b","caret":"0 0 0","blink":"1 3f000000","attrs":"00ff0004","cells":"","content":"r(t:003e0020) r()","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"26","ev":"new","ok":"1"}
+{"case":"26","ev":"edit","flags":"b","caret":"0 0 0","blink":"1 3f000000","attrs":"ffffff00","cells":"","content":"","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"26","ev":"focus","op":"push","h":"self"}
+{"case":"26","ev":"evreg","m":"1"}
+{"case":"26","ev":"evreg","m":"2"}
+{"case":"26","ev":"evunreg","m":"f"}
+{"case":"26","ev":"edit","flags":"b","caret":"0 0 0","blink":"1 3f000000","attrs":"ffffff00","cells":"","content":"","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"26","ev":"evreg","m":"f"}
+{"case":"26","ev":"r","v":"0"}
+{"case":"26","ev":"post","c":"15"}
+{"case":"26","ev":"r","v":"1"}
+{"case":"26","ev":"evunreg","m":"f"}
+{"case":"26","ev":"post","c":"15"}
+{"case":"26","ev":"r","v":"1"}
+{"case":"26","ev":"edit","flags":"b","caret":"0 0 0","blink":"1 3e99999a","attrs":"ffffff00","cells":"","content":"","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"26","ev":"edit","flags":"b","caret":"0 0 0","blink":"0 3ee66667","attrs":"ffffff00","cells":"","content":"","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"26","ev":"edit","flags":"b","caret":"0 0 0","blink":"1 3e7ffffe","attrs":"ffffff00","cells":"","content":"","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"26","ev":"dw","v":"0"}
+{"case":"26","ev":"dis","cap":"b71"}
+{"case":"26","ev":"dis","cap":"b44"}
+{"case":"26","ev":"dis","cap":"be2"}
+{"case":"26","ev":"push"}
+{"case":"26","ev":"ortho"}
+{"case":"26","ev":"pop"}
+{"case":"26","ev":"en","cap":"b71"}
+{"case":"26","ev":"dw","v":"1"}
+{"case":"26","ev":"edit","flags":"b","caret":"0 0 0","blink":"0 3effffff","attrs":"ffffff00","cells":"","content":"","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"26","ev":"evunreg","m":"1"}
+{"case":"26","ev":"evunreg","m":"2"}
+{"case":"26","ev":"evunreg","m":"f"}
+{"case":"26","ev":"focus","op":"pop","h":"self"}
+{"case":"26","ev":"edit","flags":"b","caret":"0 0 0","blink":"0 3e7ffffe","attrs":"ffffff00","cells":"","content":"","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"26","ev":"focus","op":"push","h":"self"}
+{"case":"26","ev":"evreg","m":"1"}
+{"case":"26","ev":"evreg","m":"2"}
+{"case":"26","ev":"evunreg","m":"f"}
+{"case":"26","ev":"evunreg","m":"1"}
+{"case":"26","ev":"evunreg","m":"2"}
+{"case":"26","ev":"evunreg","m":"f"}
+{"case":"26","ev":"focus","op":"pop","h":"self"}
+{"case":"26","ev":"edit","flags":"8","caret":"0 0 0","blink":"0 3e7ffffe","attrs":"ffffff00","cells":"","content":"","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"26","ev":"r","v":"0"}
+{"case":"26","ev":"r","v":"0"}
+{"case":"26","ev":"edit","flags":"8","caret":"0 0 0","blink":"0 3e7ffffe","attrs":"ffffff00","cells":"","content":"","dirty":"11","modes":"100 0 0 0 005f","size":"3ecccccd 3e99999a"}
+{"case":"27","ev":"new","ok":"1"}
+{"case":"27","ev":"edit","flags":"b","caret":"6 6 6","blink":"1 3f000000","attrs":"ffffff00","cells":"0050:ffffff00 006c:ffffff00 0061:ffffff00 0079:ffffff00 0065:ffffff00 0072:ffffff00","content":"r() r(a:ffffff00:ffffffff:00000000 t:0050006c0061007900650072)","dirty":"11","modes":"000 0 0 0 005f","size":"3f000000 3d23d70a"}
+{"case":"27","ev":"r","v":"1"}
+{"case":"27","ev":"edit","flags":"b","caret":"7 6 6","blink":"1 3f000000","attrs":"ffffff00","cells":"0050:ffffff00 006c:ffffff00 0061:ffffff00 0079:ffffff00 0065:ffffff00 0072:ffffff00 0021:ffffff00","content":"r() r(a:ffffff00:ffffffff:00000000 t:0050006c00610079006500720021)","dirty":"11","modes":"000 0 0 0 005f","size":"3f000000 3d23d70a"}
+{"case":"27","ev":"focus","op":"push","h":"self"}
+{"case":"27","ev":"evreg","m":"1"}
+{"case":"27","ev":"evreg","m":"2"}
+{"case":"27","ev":"evreg","m":"f"}
+{"case":"27","ev":"evunreg","m":"1"}
+{"case":"27","ev":"evunreg","m":"2"}
+{"case":"27","ev":"evunreg","m":"f"}
+{"case":"27","ev":"focus","op":"pop","h":"self"}
+{"case":"28","ev":"new","ok":"1"}
+{"case":"28","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"80000000 bdcccccd be4ccccd be99999a","ce":"00000000 3e4ccccd 3ecccccd","rows":"111:0 111:0 111:0 111:0","cells":"12","sel":"0 0","cell":"4294967295 4294967295","hov":"0 0","drag":"000 0","do":"00000000","inv":"3f800000 00000000 00000000 00000000 3f800000 00000000 00000000 00000000 3f800000 00000000 00000000 00000000","tips":"0 0","hdr":"0","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"28","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"80000000 bdcccccd be4ccccd be99999a","ce":"00000000 3e4ccccd 3ecccccd","rows":"111:0 111:0 111:0 111:0","cells":"12","sel":"0 0","cell":"4294967295 4294967295","hov":"0 0","drag":"000 0","do":"00000000","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"0","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"28","ev":"mv","m":"3f800000 00000000 00000000 00000000 3f800000 00000000 00000000 00000000 3f800000 be99999a 3e4ccccd bf800000"}
+{"case":"28","ev":"rs","s":"7","v":"0"}
+{"case":"28","ev":"rs","s":"14","v":"0"}
+{"case":"28","ev":"rs","s":"22","v":"1"}
+{"case":"28","ev":"rs","s":"137","v":"0"}
+{"case":"28","ev":"rs","s":"19","v":"5"}
+{"case":"28","ev":"rs","s":"20","v":"6"}
+{"case":"28","ev":"rs","s":"27","v":"1"}
+{"case":"28","ev":"mv","m":"3f800000 00000000 00000000 00000000 3f800000 00000000 00000000 00000000 3f800000 be99999a 3e4ccccd bf800000"}
+{"case":"28","ev":"rs","s":"7","v":"0"}
+{"case":"28","ev":"rs","s":"14","v":"0"}
+{"case":"28","ev":"rs","s":"22","v":"1"}
+{"case":"28","ev":"rs","s":"137","v":"0"}
+{"case":"28","ev":"rs","s":"19","v":"5"}
+{"case":"28","ev":"rs","s":"20","v":"6"}
+{"case":"28","ev":"rs","s":"27","v":"1"}
+{"case":"28","ev":"c4","c":"00ff00ff"}
+{"case":"28","ev":"begin","p":"2"}
+{"case":"28","ev":"v","x":"00000000","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"end"}
+{"case":"28","ev":"begin","p":"2"}
+{"case":"28","ev":"v","x":"00000000","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"be99999a","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"be99999a","z":"00000000"}
+{"case":"28","ev":"v","x":"3e4ccccd","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"3e4ccccd","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3ecccccd","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"3ecccccd","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"end"}
+{"case":"28","ev":"mcursor","n":"Arrow"}
+{"case":"28","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"80000000 bdcccccd be4ccccd be99999a","ce":"00000000 3e4ccccd 3ecccccd","rows":"111:0 111:7 110:7 011:0","cells":"12","sel":"0 0","cell":"1 1","hov":"1 1","drag":"000 0","do":"00000000","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"0","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"28","ev":"msg","m":"300d","a":"self","b":"1"}
+{"case":"28","ev":"btn","r":"1"}
+{"case":"28","ev":"mv","m":"3f800000 00000000 00000000 00000000 3f800000 00000000 00000000 00000000 3f800000 be99999a 3e4ccccd bf800000"}
+{"case":"28","ev":"rs","s":"7","v":"0"}
+{"case":"28","ev":"rs","s":"14","v":"0"}
+{"case":"28","ev":"rs","s":"22","v":"1"}
+{"case":"28","ev":"rs","s":"137","v":"0"}
+{"case":"28","ev":"rs","s":"19","v":"5"}
+{"case":"28","ev":"rs","s":"20","v":"6"}
+{"case":"28","ev":"rs","s":"27","v":"1"}
+{"case":"28","ev":"c4","c":"a00000a0"}
+{"case":"28","ev":"begin","p":"8"}
+{"case":"28","ev":"v","x":"00000000","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"be4ccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"be4ccccd","z":"00000000"}
+{"case":"28","ev":"end"}
+{"case":"28","ev":"c4","c":"80808080"}
+{"case":"28","ev":"begin","p":"8"}
+{"case":"28","ev":"v","x":"00000000","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"be4ccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"be4ccccd","z":"00000000"}
+{"case":"28","ev":"end"}
+{"case":"28","ev":"mv","m":"3f800000 00000000 00000000 00000000 3f800000 00000000 00000000 00000000 3f800000 be99999a 3e4ccccd bf800000"}
+{"case":"28","ev":"rs","s":"7","v":"0"}
+{"case":"28","ev":"rs","s":"14","v":"0"}
+{"case":"28","ev":"rs","s":"22","v":"1"}
+{"case":"28","ev":"rs","s":"137","v":"0"}
+{"case":"28","ev":"rs","s":"19","v":"5"}
+{"case":"28","ev":"rs","s":"20","v":"6"}
+{"case":"28","ev":"rs","s":"27","v":"1"}
+{"case":"28","ev":"c4","c":"00ff00ff"}
+{"case":"28","ev":"begin","p":"2"}
+{"case":"28","ev":"v","x":"00000000","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"end"}
+{"case":"28","ev":"begin","p":"2"}
+{"case":"28","ev":"v","x":"00000000","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"be99999a","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"be99999a","z":"00000000"}
+{"case":"28","ev":"v","x":"3e4ccccd","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"3e4ccccd","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3ecccccd","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"3ecccccd","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"end"}
+{"case":"28","ev":"msg","m":"f002","a":"self","b":"1"}
+{"case":"28","ev":"btn","r":"1"}
+{"case":"28","ev":"btn","r":"1"}
+{"case":"28","ev":"msg","m":"300d","a":"self","b":"2"}
+{"case":"28","ev":"r","v":"1"}
+{"case":"28","ev":"r","v":"0"}
+{"case":"28","ev":"r","v":"0"}
+{"case":"28","ev":"r","v":"1 2"}
+{"case":"28","ev":"r","v":"0 0"}
+{"case":"28","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"80000000 bdcccccd be4ccccd be99999a","ce":"00000000 3e4ccccd 3ecccccd","rows":"111:0 111:7 110:7 011:0","cells":"12","sel":"0 2","cell":"1 1","hov":"1 1","drag":"000 0","do":"00000000","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"0","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"28","ev":"mcursor","n":"Arrow"}
+{"case":"28","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"80000000 bdcccccd be4ccccd be99999a","ce":"00000000 3e4ccccd 3ecccccd","rows":"111:0 111:7 110:7 011:0","cells":"12","sel":"0 2","cell":"3 1","hov":"0 1","drag":"000 0","do":"00000000","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"0","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"28","ev":"msg","m":"f001","a":"self","b":"196609"}
+{"case":"28","ev":"btn","r":"1"}
+{"case":"28","ev":"mcursor","n":"Stretch"}
+{"case":"28","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"80000000 bdcccccd be4ccccd be99999a","ce":"00000000 3e4ccccd 3ecccccd","rows":"111:0 111:7 110:7 011:0","cells":"12","sel":"0 2","cell":"1 1","hov":"0 1","drag":"101 1","do":"bac49c00","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"0","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"28","ev":"btn","r":"1"}
+{"case":"28","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"80000000 bdcccccd be4ccccd be99999a","ce":"00000000 3e4ccccd 3ecccccd","rows":"111:0 111:7 110:7 011:0","cells":"12","sel":"0 2","cell":"1 1","hov":"0 1","drag":"111 1","do":"bac49c00","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"0","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"28","ev":"mcursor","n":"Stretch"}
+{"case":"28","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"80000000 bdcccccd be4ccccd be99999a","ce":"00000000 3e98d4fe 3ecccccd","rows":"111:0 111:7 110:7 011:0","cells":"12","sel":"0 2","cell":"1 1","hov":"0 1","drag":"111 1","do":"bac49c00","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"0","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"28","ev":"btn","r":"1"}
+{"case":"28","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"80000000 bdcccccd be4ccccd be99999a","ce":"00000000 3e98d4fe 3ecccccd","rows":"111:0 111:7 110:7 011:0","cells":"12","sel":"0 2","cell":"1 1","hov":"0 1","drag":"101 1","do":"bac49c00","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"0","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"28","ev":"mcursor","n":"Stretch"}
+{"case":"28","ev":"mcursor","n":"Stretch"}
+{"case":"28","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"80000000 bdcccccd be4ccccd be99999a","ce":"00000000 3e98d4fe 3ecccccd","rows":"111:0 111:7 110:7 011:0","cells":"12","sel":"0 2","cell":"2 0","hov":"0 1","drag":"100 2","do":"3ac49b80","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"0","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"28","ev":"mcursor","n":"Stretch"}
+{"case":"28","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"80000000 bdcccccd be4ccccd be99999a","ce":"00000000 3e98d4fe 3ecccccd","rows":"111:0 111:7 110:7 011:0","cells":"12","sel":"0 2","cell":"1 0","hov":"0 1","drag":"100 2","do":"3ac49b80","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"0","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"28","ev":"btn","r":"1"}
+{"case":"28","ev":"mcursor","n":"Arrow"}
+{"case":"28","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"80000000 bdcccccd be7e76c9 be99999a","ce":"00000000 3e98d4fe 3ecccccd","rows":"111:0 111:7 110:7 011:0","cells":"12","sel":"0 2","cell":"1 0","hov":"0 1","drag":"110 2","do":"3ac49b80","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"0","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"28","ev":"btn","r":"1"}
+{"case":"28","ev":"mcursor","n":"Arrow"}
+{"case":"28","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"80000000 bdcccccd be7e76c9 be99999a","ce":"00000000 3e98d4fe 3ecccccd","rows":"111:0 111:7 110:7 011:0","cells":"12","sel":"0 2","cell":"1 0","hov":"1 1","drag":"000 2","do":"3ac49b80","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"0","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"28","ev":"mcursor","n":"Arrow"}
+{"case":"28","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"80000000 bdcccccd be7e76c9 be99999a","ce":"00000000 3e98d4fe 3ecccccd","rows":"111:0 111:7 110:7 011:0","cells":"12","sel":"0 2","cell":"0 0","hov":"1 0","drag":"000 2","do":"3ac49b80","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"1","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"28","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"80000000 bdcccccd be7e76c9 be99999a","ce":"00000000 3e98d4fe 3ecccccd","rows":"111:0 111:7 110:7 011:0","cells":"12","sel":"0 2","cell":"0 0","hov":"1 0","drag":"000 2","do":"3ac49b80","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"1","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"28","ev":"r","v":"0"}
+{"case":"28","ev":"r","v":"1"}
+{"case":"28","ev":"r","v":"1"}
+{"case":"28","ev":"r","v":"0"}
+{"case":"28","ev":"r","v":"0"}
+{"case":"28","ev":"r","v":"1"}
+{"case":"28","ev":"r","v":"1"}
+{"case":"28","ev":"r","v":"0"}
+{"case":"28","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"80000000 bd4ccccd be7e76c9 3ed0e560","ce":"00000000 3c03126f 3f178d50","rows":"111:0 111:7 110:7 011:0","cells":"12","sel":"0 2","cell":"0 0","hov":"1 0","drag":"000 2","do":"3ac49b80","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"1","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"28","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"00000000 bdcccccd be4ccccd be99999a","ce":"00000000 3e4ccccd 3ecccccd","rows":"111:0 111:7 110:7 011:0","cells":"12","sel":"0 2","cell":"0 0","hov":"1 0","drag":"000 2","do":"3ac49b80","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"1","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"28","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"00000000 bdcccccd be4ccccd be99999a","ce":"00000000 3e4ccccd 3ecccccd","rows":"111:0 111:7 110:7 011:0","cells":"12","sel":"0 2","cell":"0 0","hov":"1 0","drag":"000 2","do":"3ac49b80","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"1","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"28","ev":"mcursor","n":"Arrow"}
+{"case":"28","ev":"mv","m":"3f800000 00000000 00000000 00000000 3f800000 00000000 00000000 00000000 3f800000 be99999a 3e4ccccd bf800000"}
+{"case":"28","ev":"rs","s":"7","v":"0"}
+{"case":"28","ev":"rs","s":"14","v":"0"}
+{"case":"28","ev":"rs","s":"22","v":"1"}
+{"case":"28","ev":"rs","s":"137","v":"0"}
+{"case":"28","ev":"rs","s":"19","v":"5"}
+{"case":"28","ev":"rs","s":"20","v":"6"}
+{"case":"28","ev":"rs","s":"27","v":"1"}
+{"case":"28","ev":"mv","m":"3f800000 00000000 00000000 00000000 3f800000 00000000 00000000 00000000 3f800000 be99999a 3e4ccccd bf800000"}
+{"case":"28","ev":"rs","s":"7","v":"0"}
+{"case":"28","ev":"rs","s":"14","v":"0"}
+{"case":"28","ev":"rs","s":"22","v":"1"}
+{"case":"28","ev":"rs","s":"137","v":"0"}
+{"case":"28","ev":"rs","s":"19","v":"5"}
+{"case":"28","ev":"rs","s":"20","v":"6"}
+{"case":"28","ev":"rs","s":"27","v":"1"}
+{"case":"28","ev":"c4","c":"00ff00ff"}
+{"case":"28","ev":"begin","p":"2"}
+{"case":"28","ev":"v","x":"00000000","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"end"}
+{"case":"28","ev":"begin","p":"2"}
+{"case":"28","ev":"v","x":"00000000","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"be99999a","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"be99999a","z":"00000000"}
+{"case":"28","ev":"v","x":"3e4ccccd","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3e4ccccd","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3ecccccd","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3ecccccd","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"end"}
+{"case":"28","ev":"c4","c":"bbbbbbff"}
+{"case":"28","ev":"begin","p":"7"}
+{"case":"28","ev":"v","x":"00000000","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"be99999a","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"be99999a","z":"00000000"}
+{"case":"28","ev":"end"}
+{"case":"28","ev":"mv","m":"3f800000 00000000 00000000 00000000 3f800000 00000000 00000000 00000000 3f800000 be99999a 3e4ccccd bf800000"}
+{"case":"28","ev":"rs","s":"7","v":"0"}
+{"case":"28","ev":"rs","s":"14","v":"0"}
+{"case":"28","ev":"rs","s":"22","v":"1"}
+{"case":"28","ev":"rs","s":"137","v":"0"}
+{"case":"28","ev":"rs","s":"19","v":"5"}
+{"case":"28","ev":"rs","s":"20","v":"6"}
+{"case":"28","ev":"rs","s":"27","v":"1"}
+{"case":"28","ev":"mv","m":"3f800000 00000000 00000000 00000000 3f800000 00000000 00000000 00000000 3f800000 be99999a 3e4ccccd bf800000"}
+{"case":"28","ev":"rs","s":"7","v":"0"}
+{"case":"28","ev":"rs","s":"14","v":"0"}
+{"case":"28","ev":"rs","s":"22","v":"1"}
+{"case":"28","ev":"rs","s":"137","v":"0"}
+{"case":"28","ev":"rs","s":"19","v":"5"}
+{"case":"28","ev":"rs","s":"20","v":"6"}
+{"case":"28","ev":"rs","s":"27","v":"1"}
+{"case":"28","ev":"c4","c":"00ff00ff"}
+{"case":"28","ev":"begin","p":"2"}
+{"case":"28","ev":"v","x":"00000000","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"end"}
+{"case":"28","ev":"begin","p":"2"}
+{"case":"28","ev":"v","x":"00000000","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"be99999a","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"be99999a","z":"00000000"}
+{"case":"28","ev":"end"}
+{"case":"28","ev":"c4","c":"bbbbbbff"}
+{"case":"28","ev":"begin","p":"7"}
+{"case":"28","ev":"v","x":"00000000","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"be99999a","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"be99999a","z":"00000000"}
+{"case":"28","ev":"end"}
+{"case":"28","ev":"mv","m":"3f800000 00000000 00000000 00000000 3f800000 00000000 00000000 00000000 3f800000 be99999a 3e4ccccd bf800000"}
+{"case":"28","ev":"rs","s":"7","v":"0"}
+{"case":"28","ev":"rs","s":"14","v":"0"}
+{"case":"28","ev":"rs","s":"22","v":"1"}
+{"case":"28","ev":"rs","s":"137","v":"0"}
+{"case":"28","ev":"rs","s":"19","v":"5"}
+{"case":"28","ev":"rs","s":"20","v":"6"}
+{"case":"28","ev":"rs","s":"27","v":"1"}
+{"case":"28","ev":"mv","m":"3f800000 00000000 00000000 00000000 3f800000 00000000 00000000 00000000 3f800000 be99999a 3e4ccccd bf800000"}
+{"case":"28","ev":"rs","s":"7","v":"0"}
+{"case":"28","ev":"rs","s":"14","v":"0"}
+{"case":"28","ev":"rs","s":"22","v":"1"}
+{"case":"28","ev":"rs","s":"137","v":"0"}
+{"case":"28","ev":"rs","s":"19","v":"5"}
+{"case":"28","ev":"rs","s":"20","v":"6"}
+{"case":"28","ev":"rs","s":"27","v":"1"}
+{"case":"28","ev":"c4","c":"00ff00ff"}
+{"case":"28","ev":"begin","p":"2"}
+{"case":"28","ev":"v","x":"00000000","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"00000000","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"end"}
+{"case":"28","ev":"begin","p":"2"}
+{"case":"28","ev":"v","x":"00000000","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"be99999a","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"be99999a","z":"00000000"}
+{"case":"28","ev":"v","x":"3e4ccccd","y":"be4ccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3e4ccccd","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3ecccccd","y":"be4ccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3ecccccd","y":"becccccd","z":"00000000"}
+{"case":"28","ev":"end"}
+{"case":"28","ev":"c4","c":"bbbbbbff"}
+{"case":"28","ev":"begin","p":"7"}
+{"case":"28","ev":"v","x":"00000000","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"bdcccccd","z":"00000000"}
+{"case":"28","ev":"v","x":"3f19999a","y":"be99999a","z":"00000000"}
+{"case":"28","ev":"v","x":"00000000","y":"be99999a","z":"00000000"}
+{"case":"28","ev":"end"}
+{"case":"28","ev":"mcursor","n":"Arrow"}
+{"case":"28","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"00000000 bdcccccd be4ccccd be99999a","ce":"00000000 3e4ccccd 3ecccccd","rows":"111:0 111:7 110:7 011:0","cells":"12","sel":"0 2","cell":"1 1","hov":"1 1","drag":"000 2","do":"3ac49b80","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"2","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"28","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"00000000 bdcccccd be4ccccd be99999a","ce":"00000000 3e4ccccd 3ecccccd","rows":"111:0 111:7 110:7 011:0","cells":"12","sel":"0 2","cell":"1 1","hov":"1 1","drag":"000 2","do":"3ac49b80","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"2","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"28","ev":"r","v":"1"}
+{"case":"28","ev":"r","v":"0"}
+{"case":"28","ev":"r","v":"0"}
+{"case":"28","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"00000000 bdcccccd be4ccccd be99999a","ce":"00000000 3e4ccccd 3ecccccd","rows":"111:0 111:7 110:7 011:0","cells":"12","sel":"0 2","cell":"1 1","hov":"1 1","drag":"000 2","do":"3ac49b80","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"2","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"28","ev":"mcursor","n":"Arrow"}
+{"case":"28","ev":"hit","r":"1"}
+{"case":"28","ev":"hit","r":"0"}
+{"case":"28","ev":"hit","r":"0"}
+{"case":"29","ev":"new","ok":"1"}
+{"case":"29","ev":"hover","k":"self","a":"0","x":"0","p":"00000000 00000000 00000000","e":"00000000 00000000 00000000","l":"0"}
+{"case":"29","ev":"mcursor","n":"Arrow"}
+{"case":"29","ev":"hover","k":"self","a":"21","x":"0","p":"00000000 00000000 00000000","e":"00000000 00000000 00000000","l":"0"}
+{"case":"29","ev":"hover","k":"self","a":"21","x":"0","p":"00000000 00000000 00000000","e":"00000000 00000000 00000000","l":"0"}
+{"case":"29","ev":"mcursor","n":"Arrow"}
+{"case":"29","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"80000000 be4ccccd","ce":"00000000 3e99999a","rows":"111:0 111:0","cells":"4","sel":"0 0","cell":"1 1","hov":"1 1","drag":"000 0","do":"00000000","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"1 2","hdr":"0","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"29","ev":"hover","k":"self+2","a":"55","x":"0","p":"00000000 00000000 00000000","e":"00000000 00000000 00000000","l":"0"}
+{"case":"29","ev":"mcursor","n":"Arrow"}
+{"case":"29","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"80000000 be4ccccd","ce":"00000000 3e99999a","rows":"111:0 111:0","cells":"4","sel":"0 0","cell":"1 1","hov":"1 1","drag":"000 0","do":"00000000","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"2 2","hdr":"0","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"29","ev":"hover","k":"self+2","a":"33","x":"0","p":"00000000 00000000 00000000","e":"00000000 00000000 00000000","l":"0"}
+{"case":"29","ev":"mcursor","n":"Arrow"}
+{"case":"29","ev":"mcursor","n":"Arrow"}
+{"case":"29","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"80000000 be4ccccd","ce":"00000000 3e99999a","rows":"111:0 111:0","cells":"4","sel":"0 0","cell":"0 1","hov":"1 0","drag":"000 0","do":"00000000","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"3 4","hdr":"0","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"29","ev":"hover","k":"self+4","a":"44","x":"0","p":"00000000 00000000 00000000","e":"00000000 00000000 00000000","l":"0"}
+{"case":"29","ev":"mcursor","n":"Arrow"}
+{"case":"29","ev":"ftable","w":"3f19999a","h":"3ecccccd","re":"80000000 be4ccccd","ce":"00000000 3e99999a","rows":"111:0 111:0","cells":"4","sel":"0 0","cell":"1 1","hov":"1 1","drag":"000 0","do":"00000000","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"0","dirty":"11","size":"3f19999a 3ecccccd"}
+{"case":"29","ev":"hover","k":"self","a":"21","x":"0","p":"00000000 00000000 00000000","e":"00000000 00000000 00000000","l":"0"}
+{"case":"29","ev":"hover","k":"self","a":"21","x":"0","p":"00000000 00000000 00000000","e":"00000000 00000000 00000000","l":"0"}
+{"case":"29","ev":"mcursor","n":"Arrow"}
+{"case":"29","ev":"mcursor","n":"Arrow"}
+{"case":"30","ev":"new","ok":"1"}
+{"case":"30","ev":"ftable","w":"3f000000","h":"3e99999a","re":"80000000 bdcccccd be4ccccd","ce":"00000000 3e800000","rows":"111:0 111:0 111:0","cells":"6","sel":"0 0","cell":"4294967295 4294967295","hov":"0 0","drag":"000 0","do":"00000000","inv":"3f800000 00000000 00000000 00000000 3f800000 00000000 00000000 00000000 3f800000 00000000 00000000 00000000","tips":"0 0","hdr":"0","dirty":"11","size":"3f000000 3e99999a"}
+{"case":"30","ev":"stable","items":"3","fixed":"0"}
+{"case":"30","ev":"scroll","flags":"08","pos":"3f008312 00000000 00000000","v":"00000000 00000000 00000000 00000000 00000000","rect":"00000000 00000000 3ca3d70a bca3d70a 0 00000000 be8f5c29 3ca3d70a be99999a 0 00000000 bcc49ba6 3ca3d70a bcc49ba6 0 00000000 be8d4fdf 3ca3d70a be8d4fe0 0 00000000 bcc49ba6 3ca3d70a be8d4fdf 0","arrow":"3b83126e","drag":"-1","rt":"00000000","dragging":"0","doff":"00000000","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 bf008312 00000000 80000000","colors":"ffe0c387 ffe0c387 ffe0c387 ffe0c387","soff":"00000000 00000000 00000000","dpage":"00000000"}
+{"case":"30","ev":"ftable","w":"3f000000","h":"3e99999a","re":"80000000 bdcccccd be4ccccd","ce":"00000000 3e800000","rows":"111:0 111:0 111:0","cells":"6","sel":"0 0","cell":"4294967295 4294967295","hov":"0 0","drag":"000 0","do":"00000000","inv":"3f800000 00000000 00000000 00000000 3f800000 00000000 00000000 00000000 3f800000 00000000 00000000 00000000","tips":"0 0","hdr":"0","dirty":"11","size":"3f000000 3e99999a"}
+{"case":"30","ev":"stable","items":"10","fixed":"0"}
+{"case":"30","ev":"scroll","flags":"0b","pos":"3f008312 00000000 00000000","v":"00000000 00000000 41200000 40400000 3f800000","rect":"00000000 00000000 3ca3d70a bca3d70a 0 00000000 be8f5c29 3ca3d70a be99999a 0 00000000 bcc49ba6 3ca3d70a bcc49ba6 0 00000000 bdcbfb16 3ca3d70a be8d4fe0 0 00000000 bcc49ba6 3ca3d70a bdcbfb16 0","arrow":"3b83126e","drag":"-1","rt":"00000000","dragging":"0","doff":"00000000","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 bf008312 00000000 80000000","colors":"ffe0c387 ffe0c387 ffe0c387 ffe0c387","soff":"00000000 00000000 00000000","dpage":"40400000"}
+{"case":"30","ev":"cb","first":"0","rows":"3"}
+{"case":"30","ev":"r","v":"4"}
+{"case":"30","ev":"cb","first":"4","rows":"3"}
+{"case":"30","ev":"r","v":"1"}
+{"case":"30","ev":"scroll","flags":"0b","pos":"3f008312 00000000 00000000","v":"40933333 00000000 41200000 40000000 3f800000","rect":"00000000 00000000 3ca3d70a bca3d70a 0 00000000 be8f5c29 3ca3d70a be99999a 0 00000000 bcc49ba6 3ca3d70a be0f4730 0 00000000 be42e33f 3ca3d70a be8d4fe0 0 00000000 be0f4730 3ca3d70a be42e33f 0","arrow":"3b83126e","drag":"-1","rt":"00000000","dragging":"0","doff":"00000000","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 bf008312 00000000 80000000","colors":"ffe0c387 ffe0c387 ffe0c387 ffe0c387","soff":"00000000 00000000 00000000","dpage":"40000000"}
+{"case":"30","ev":"cb","first":"4","rows":"2"}
+{"case":"30","ev":"r","v":"1"}
+{"case":"30","ev":"r","v":"8"}
+{"case":"30","ev":"scroll","flags":"0b","pos":"3f028f5c 00000000 00000000","v":"41000000 00000000 41200000 40000000 3f800000","rect":"00000000 00000000 3ca3d70a bca3d70a 0 00000000 be8f5c29 3ca3d70a be99999a 0 00000000 bcc49ba6 3ca3d70a be6703b0 0 00000000 be8d4fdf 3ca3d70a be8d4fe0 0 00000000 be6703b0 3ca3d70a be8d4fdf 0","arrow":"3b83126e","drag":"-1","rt":"00000000","dragging":"0","doff":"00000000","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 bf028f5c 00000000 80000000","colors":"ffe0c387 ffe0c387 ffe0c387 ffe0c387","soff":"00000000 00000000 00000000","dpage":"40000000"}
+{"case":"30","ev":"scroll","flags":"0b","pos":"3e570a3c 3e4ccccd bf800000","v":"41000000 00000000 41200000 40000000 3f800000","rect":"00000000 00000000 3ca3d70a bca3d70a 0 00000000 be8f5c29 3ca3d70a be99999a 0 00000000 bcc49ba6 3ca3d70a be6703b0 0 00000000 be8d4fdf 3ca3d70a be8d4fe0 0 00000000 be6703b0 3ca3d70a be8d4fdf 0","arrow":"3b83126e","drag":"-1","rt":"00000000","dragging":"0","doff":"00000000","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 be570a3c be4ccccd 3f800000","colors":"ffe0c387 ffe0c387 ffe0c387 ffe0c387","soff":"00000000 00000000 00000000","dpage":"40000000"}
+{"case":"30","ev":"mv","m":"3f800000 00000000 00000000 00000000 3f800000 00000000 00000000 00000000 3f800000 be99999a 3e4ccccd bf800000"}
+{"case":"30","ev":"rs","s":"7","v":"0"}
+{"case":"30","ev":"rs","s":"14","v":"0"}
+{"case":"30","ev":"rs","s":"22","v":"1"}
+{"case":"30","ev":"rs","s":"137","v":"0"}
+{"case":"30","ev":"rs","s":"19","v":"5"}
+{"case":"30","ev":"rs","s":"20","v":"6"}
+{"case":"30","ev":"rs","s":"27","v":"1"}
+{"case":"30","ev":"mv","m":"3f800000 00000000 00000000 00000000 3f800000 00000000 00000000 00000000 3f800000 3e570a3c 3e4ccccd bf800000"}
+{"case":"30","ev":"rs","s":"7","v":"0"}
+{"case":"30","ev":"rs","s":"14","v":"0"}
+{"case":"30","ev":"rs","s":"22","v":"1"}
+{"case":"30","ev":"rs","s":"137","v":"0"}
+{"case":"30","ev":"rs","s":"19","v":"5"}
+{"case":"30","ev":"rs","s":"20","v":"6"}
+{"case":"30","ev":"rs","s":"27","v":"1"}
+{"case":"30","ev":"tex","h":"101"}
+{"case":"30","ev":"c4","c":"87c3e0ff"}
+{"case":"30","ev":"begin","p":"4"}
+{"case":"30","ev":"tc","u":"00000000","v":"3f800000"}
+{"case":"30","ev":"v","x":"00000000","y":"be8f5c29","z":"00000000"}
+{"case":"30","ev":"tc","u":"3f800000","v":"00000000"}
+{"case":"30","ev":"v","x":"3ca3d70a","y":"be8f5c29","z":"00000000"}
+{"case":"30","ev":"tc","u":"3f800000","v":"3f800000"}
+{"case":"30","ev":"v","x":"3c23d70a","y":"be99999a","z":"00000000"}
+{"case":"30","ev":"end"}
+{"case":"30","ev":"c4","c":"87c3e0ff"}
+{"case":"30","ev":"tex","h":"101"}
+{"case":"30","ev":"c4","c":"87c3e0ff"}
+{"case":"30","ev":"begin","p":"4"}
+{"case":"30","ev":"tc","u":"3f800000","v":"3f800000"}
+{"case":"30","ev":"v","x":"3ca3d70a","y":"bca3d70a","z":"00000000"}
+{"case":"30","ev":"tc","u":"00000000","v":"3f800000"}
+{"case":"30","ev":"v","x":"00000000","y":"bca3d70a","z":"00000000"}
+{"case":"30","ev":"tc","u":"3f800000","v":"00000000"}
+{"case":"30","ev":"v","x":"3c23d70a","y":"00000000","z":"00000000"}
+{"case":"30","ev":"end"}
+{"case":"30","ev":"c4","c":"87c3e0ff"}
+{"case":"30","ev":"c4","c":"87c3e0ff"}
+{"case":"30","ev":"begin","p":"7"}
+{"case":"30","ev":"v","x":"00000000","y":"bcc49ba6","z":"00000000"}
+{"case":"30","ev":"v","x":"3ca3d70a","y":"bcc49ba6","z":"00000000"}
+{"case":"30","ev":"v","x":"3ca3d70a","y":"be8d4fe0","z":"00000000"}
+{"case":"30","ev":"v","x":"00000000","y":"be8d4fe0","z":"00000000"}
+{"case":"30","ev":"end"}
+{"case":"30","ev":"c4","c":"87c3e0ff"}
+{"case":"30","ev":"tex","h":"103"}
+{"case":"30","ev":"begin","p":"8"}
+{"case":"30","ev":"tc","u":"00000000","v":"00000000"}
+{"case":"30","ev":"v","x":"00000000","y":"be690ffa","z":"00000000"}
+{"case":"30","ev":"tc","u":"3f800000","v":"00000000"}
+{"case":"30","ev":"v","x":"3ca3d70a","y":"be690ffa","z":"00000000"}
+{"case":"30","ev":"tc","u":"3f800000","v":"3f800000"}
+{"case":"30","ev":"v","x":"3ca3d70a","y":"be8c49ba","z":"00000000"}
+{"case":"30","ev":"tc","u":"00000000","v":"3f800000"}
+{"case":"30","ev":"v","x":"00000000","y":"be8c49ba","z":"00000000"}
+{"case":"30","ev":"end"}
+{"case":"30","ev":"tex","h":"102"}
+{"case":"30","ev":"begin","p":"8"}
+{"case":"30","ev":"tc","u":"3f800000","v":"3f800000"}
+{"case":"30","ev":"v","x":"00000000","y":"be690ffa","z":"00000000"}
+{"case":"30","ev":"tc","u":"3f800000","v":"3f800000"}
+{"case":"30","ev":"v","x":"3ca3d70a","y":"be690ffa","z":"00000000"}
+{"case":"30","ev":"tc","u":"3f800000","v":"3f400000"}
+{"case":"30","ev":"v","x":"3ca3d70a","y":"be6703b0","z":"00000000"}
+{"case":"30","ev":"tc","u":"3f800000","v":"3f400000"}
+{"case":"30","ev":"v","x":"00000000","y":"be6703b0","z":"00000000"}
+{"case":"30","ev":"end"}
+{"case":"30","ev":"tex","h":"102"}
+{"case":"30","ev":"begin","p":"8"}
+{"case":"30","ev":"tc","u":"00000000","v":"3e800000"}
+{"case":"30","ev":"v","x":"00000000","y":"be8d4fdf","z":"00000000"}
+{"case":"30","ev":"tc","u":"3f800000","v":"3e800000"}
+{"case":"30","ev":"v","x":"3ca3d70a","y":"be8d4fdf","z":"00000000"}
+{"case":"30","ev":"tc","u":"3f800000","v":"00000000"}
+{"case":"30","ev":"v","x":"3ca3d70a","y":"be8c49ba","z":"00000000"}
+{"case":"30","ev":"tc","u":"00000000","v":"00000000"}
+{"case":"30","ev":"v","x":"00000000","y":"be8c49ba","z":"00000000"}
+{"case":"30","ev":"end"}
+{"case":"30","ev":"mv","m":"3f800000 00000000 00000000 00000000 3f800000 00000000 00000000 00000000 3f800000 be99999a 3e4ccccd bf800000"}
+{"case":"30","ev":"rs","s":"7","v":"0"}
+{"case":"30","ev":"rs","s":"14","v":"0"}
+{"case":"30","ev":"rs","s":"22","v":"1"}
+{"case":"30","ev":"rs","s":"137","v":"0"}
+{"case":"30","ev":"rs","s":"19","v":"5"}
+{"case":"30","ev":"rs","s":"20","v":"6"}
+{"case":"30","ev":"rs","s":"27","v":"1"}
+{"case":"30","ev":"c4","c":"00ff00ff"}
+{"case":"30","ev":"begin","p":"2"}
+{"case":"30","ev":"v","x":"00000000","y":"00000000","z":"00000000"}
+{"case":"30","ev":"v","x":"3f000000","y":"00000000","z":"00000000"}
+{"case":"30","ev":"v","x":"00000000","y":"be99999a","z":"00000000"}
+{"case":"30","ev":"v","x":"3f000000","y":"be99999a","z":"00000000"}
+{"case":"30","ev":"v","x":"00000000","y":"00000000","z":"00000000"}
+{"case":"30","ev":"v","x":"00000000","y":"be99999a","z":"00000000"}
+{"case":"30","ev":"v","x":"3f000000","y":"00000000","z":"00000000"}
+{"case":"30","ev":"v","x":"3f000000","y":"be99999a","z":"00000000"}
+{"case":"30","ev":"end"}
+{"case":"30","ev":"begin","p":"2"}
+{"case":"30","ev":"v","x":"00000000","y":"bdcccccd","z":"00000000"}
+{"case":"30","ev":"v","x":"3f000000","y":"bdcccccd","z":"00000000"}
+{"case":"30","ev":"v","x":"00000000","y":"be4ccccd","z":"00000000"}
+{"case":"30","ev":"v","x":"3f000000","y":"be4ccccd","z":"00000000"}
+{"case":"30","ev":"v","x":"3e800000","y":"00000000","z":"00000000"}
+{"case":"30","ev":"v","x":"3e800000","y":"be99999a","z":"00000000"}
+{"case":"30","ev":"end"}
+{"case":"30","ev":"ftable","w":"3f000000","h":"3e99999a","re":"80000000 bdcccccd be4ccccd","ce":"00000000 3e800000","rows":"111:0 111:0 111:0","cells":"6","sel":"0 0","cell":"4294967295 4294967295","hov":"0 0","drag":"000 0","do":"00000000","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 3e99999a be4ccccd 3f800000","tips":"0 0","hdr":"0","dirty":"11","size":"3f000000 3e99999a"}
+{"case":"30","ev":"stable","items":"2","fixed":"0"}
+{"case":"30","ev":"scroll","flags":"08","pos":"3e570a3c 3e4ccccd bf800000","v":"00000000 00000000 41200000 40000000 3f800000","rect":"00000000 00000000 3ca3d70a bca3d70a 0 00000000 be8f5c29 3ca3d70a be99999a 0 00000000 bcc49ba6 3ca3d70a bcc49ba6 0 00000000 bd985f07 3ca3d70a be8d4fe0 0 00000000 bcc49ba6 3ca3d70a bd985f07 0","arrow":"3b83126e","drag":"-1","rt":"00000000","dragging":"0","doff":"00000000","inv":"3f800000 80000000 00000000 80000000 3f800000 80000000 00000000 80000000 3f800000 be570a3c be4ccccd 3f800000","colors":"ffe0c387 ffe0c387 ffe0c387 ffe0c387","soff":"00000000 00000000 00000000","dpage":"40000000"}
+{"case":"30","ev":"r","v":"0"}
+{"case":"30","ev":"mv","m":"3f800000 00000000 00000000 00000000 3f800000 00000000 00000000 00000000 3f800000 be99999a 3e4ccccd bf800000"}
+{"case":"30","ev":"rs","s":"7","v":"0"}
+{"case":"30","ev":"rs","s":"14","v":"0"}
+{"case":"30","ev":"rs","s":"22","v":"1"}
+{"case":"30","ev":"rs","s":"137","v":"0"}
+{"case":"30","ev":"rs","s":"19","v":"5"}
+{"case":"30","ev":"rs","s":"20","v":"6"}
+{"case":"30","ev":"rs","s":"27","v":"1"}
+{"case":"30","ev":"mv","m":"3f800000 00000000 00000000 00000000 3f800000 00000000 00000000 00000000 3f800000 be99999a 3e4ccccd bf800000"}
+{"case":"30","ev":"rs","s":"7","v":"0"}
+{"case":"30","ev":"rs","s":"14","v":"0"}
+{"case":"30","ev":"rs","s":"22","v":"1"}
+{"case":"30","ev":"rs","s":"137","v":"0"}
+{"case":"30","ev":"rs","s":"19","v":"5"}
+{"case":"30","ev":"rs","s":"20","v":"6"}
+{"case":"30","ev":"rs","s":"27","v":"1"}
+{"case":"30","ev":"c4","c":"00ff00ff"}
+{"case":"30","ev":"begin","p":"2"}
+{"case":"30","ev":"v","x":"00000000","y":"00000000","z":"00000000"}
+{"case":"30","ev":"v","x":"3f000000","y":"00000000","z":"00000000"}
+{"case":"30","ev":"v","x":"00000000","y":"be99999a","z":"00000000"}
+{"case":"30","ev":"v","x":"3f000000","y":"be99999a","z":"00000000"}
+{"case":"30","ev":"v","x":"00000000","y":"00000000","z":"00000000"}
+{"case":"30","ev":"v","x":"00000000","y":"be99999a","z":"00000000"}
+{"case":"30","ev":"v","x":"3f000000","y":"00000000","z":"00000000"}
+{"case":"30","ev":"v","x":"3f000000","y":"be99999a","z":"00000000"}
+{"case":"30","ev":"end"}
+{"case":"30","ev":"begin","p":"2"}
+{"case":"30","ev":"v","x":"00000000","y":"bdcccccd","z":"00000000"}
+{"case":"30","ev":"v","x":"3f000000","y":"bdcccccd","z":"00000000"}
+{"case":"30","ev":"v","x":"00000000","y":"be4ccccd","z":"00000000"}
+{"case":"30","ev":"v","x":"3f000000","y":"be4ccccd","z":"00000000"}
+{"case":"30","ev":"v","x":"3e800000","y":"00000000","z":"00000000"}
+{"case":"30","ev":"v","x":"3e800000","y":"be99999a","z":"00000000"}
+{"case":"30","ev":"end"}

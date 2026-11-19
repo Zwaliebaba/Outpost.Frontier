@@ -35,11 +35,15 @@ pub enum SystemCursor {
 
 /// The key of a tooltip hover record (`+0x00`): a string id, or the
 /// control itself when `WinControl::ShowToolTip` builds the record (the
-/// reference stores the object's address; divergence D436).
+/// reference stores the object's address; divergence D436), or one of a
+/// control's own records (`UIFastTable`'s per column, row or cell records,
+/// keyed by the table's address plus one plus their index; divergence
+/// D476).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HoverKey {
     Ids(i32),
     Object(NodeId),
+    Part(NodeId, u32),
 }
 
 impl Default for HoverKey {
@@ -89,6 +93,44 @@ impl ToolTipHover {
         r.ids_alt = ids;
         r
     }
+}
+
+/// `FHudCmdRecord`: the record the HUD command dispatcher hands the
+/// handler of an event (`HudCommandRecord`): event 1 is a key, event 2 a
+/// character.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HudRecord {
+    /// `+0x04`: the key code of event 1.
+    pub key: u32,
+    /// `+0x08`: Shift 1, Ctrl 4, Alt 0x10.
+    pub modifiers: u32,
+    /// `+0x0C`: the raw window message, 0 for a posted command.
+    pub message: u32,
+    /// `+0x10`: the window message's `wParam` (event 2's character).
+    pub wparam: u32,
+    /// `+0x14`: its `lParam`.
+    pub lparam: u32,
+    /// `+0x18`: the key went down (event 1) or the command was posted.
+    pub down: bool,
+    /// `+0x19`: an auto-repeated key.
+    pub repeat: bool,
+}
+
+/// What a rich-text edit box asks of its IME box (`FLImeInputBox`): the
+/// game makes one while the IME focus exists
+/// ([`UiServices::create_ime_box`]). A key or character the box takes may
+/// change its composed text, which it hands back for the owner's
+/// `SetText` (the box's `UpdatedText`).
+pub trait ImeBox {
+    /// `HandleKey` (slot 4).
+    fn handle_key(&mut self, key: u32) -> Option<Vec<u16>>;
+    /// `HandleMultiByteChar`: the character's low byte.
+    fn handle_char(&mut self, byte: u8) -> Option<Vec<u16>>;
+    /// `SetInputBufferSize` and `Resize` (slot 3) with the window's screen
+    /// rectangle (left, top, right, bottom).
+    fn resize(&mut self, buffer_size: u32, rect: [i32; 4]);
+    /// `IMEFocus::SetFocus(box, false)`.
+    fn take_focus(&mut self);
 }
 
 /// The client's services the controls call. Every default is the answer
@@ -155,6 +197,28 @@ pub trait UiServices {
     fn elapsed_time(&mut self) -> f64 {
         0.0
     }
+    /// `MouseSetCursor(name, false)`: one of `mouse.ini`'s cursors.
+    fn mouse_set_cursor(&mut self, name: &[u8]) {}
+    /// `HudGetInputFocus`: the handler that alone receives the HUD's
+    /// events, `None` when every registered handler does.
+    fn input_focus(&mut self) -> Option<NodeId> {
+        None
+    }
+    /// `HudPushInputFocus`.
+    fn push_input_focus(&mut self, node: NodeId) {}
+    /// `HudPopInputFocus`.
+    fn pop_input_focus(&mut self, node: NodeId) {}
+    /// `Event::Handler::RegisterEvent`: the node receives HUD event `msg`.
+    fn register_event(&mut self, node: NodeId, msg: u32) {}
+    /// `Event::Handler::UnregisterEvent`.
+    fn unregister_event(&mut self, node: NodeId, msg: u32) {}
+    /// `new FLImeInputBox(owner)` while `IMEFocus::GetSingleton()` is set:
+    /// `None` without an IME focus.
+    fn create_ime_box(&mut self, owner: NodeId) -> Option<Box<dyn ImeBox>> {
+        None
+    }
+    /// `IMEFocus::SetFocus(nullptr, false)`, when there is an IME focus.
+    fn clear_ime_focus(&mut self) {}
 }
 
 /// [`UiServices`] with every default.

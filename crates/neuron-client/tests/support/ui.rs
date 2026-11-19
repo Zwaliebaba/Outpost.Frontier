@@ -267,11 +267,16 @@ mod controls {
 
     use neuron_client::text::font::FontId;
     use neuron_client::text::font::string::DrawOrigin;
+    use neuron_client::text::rdl::{RdlNode, RenderDisplayList, TextAttributes};
     use neuron_client::ui::control::{ControlMesh, MeshLoader, WinControl, base};
     use neuron_client::ui::controls::button::{
         ButtonControl, ButtonWidget, RichTextButtonWidget, ToggleButtonWidget,
     };
+    use neuron_client::ui::controls::fast_table::{
+        ScrollTableCallback, TableEdges, UiFastTable, UiScrollTable,
+    };
     use neuron_client::ui::controls::list_box::{ListMetrics, ScreenBox, UiListBox};
+    use neuron_client::ui::controls::rich_text_edit::{RichTextEditWin, UiTextEdit};
     use neuron_client::ui::controls::scroll::{HitRect, ScrollShapes, UiScroll};
     use neuron_client::ui::controls::scroll_control::{PartId, ScrollControlWidget};
     use neuron_client::ui::controls::static_control::StaticControlWidget;
@@ -286,7 +291,7 @@ mod controls {
     use neuron_client::ui::message::{ButtonAction, KeyMods, MouseButton};
     use neuron_client::ui::page::EntryPayload;
     use neuron_client::ui::quad_batch::QuadBatcher;
-    use neuron_client::ui::services::{HoverKey, ToolTipHover, UiServices};
+    use neuron_client::ui::services::{HoverKey, HudRecord, ToolTipHover, UiServices};
     use neuron_client::ui::shape::{ShapeTextures, TexShape};
     use neuron_client::ui::tree::{
         ChildMessage, DrawHost, MeshPass, NodeId, Payload, Property, Ui, Widget,
@@ -409,6 +414,12 @@ mod controls {
                     "\"ev\":\"rs\",\"s\":\"{state}\",\"v\":\"{}\"",
                     value.cast_signed()
                 ),
+            );
+        }
+        fn set_depth_write(&mut self, on: bool) {
+            ev(
+                &self.0,
+                &format!("\"ev\":\"dw\",\"v\":\"{}\"", u8::from(on)),
             );
         }
         fn batch_line(&mut self, from: Vector, to: Vector, argb: u32, _rgb: u32, width: f32) {
@@ -653,6 +664,17 @@ mod controls {
     struct RecServices {
         log: Shared,
         elapsed: Rc<Cell<f64>>,
+        /// The object under test: the HUD stand-ins record its calls.
+        child: Rc<RefCell<Option<NodeId>>>,
+        /// The input focus and the ones it replaced, as the HUD keeps them.
+        focus: Option<NodeId>,
+        focus_stack: Vec<NodeId>,
+    }
+
+    impl RecServices {
+        fn is_child(&self, node: NodeId) -> bool {
+            *self.child.borrow() == Some(node)
+        }
     }
 
     impl UiServices for RecServices {
@@ -677,6 +699,44 @@ mod controls {
         }
         fn elapsed_time(&mut self) -> f64 {
             self.elapsed.get()
+        }
+        fn mouse_set_cursor(&mut self, name: &[u8]) {
+            let name = String::from_utf8_lossy(name).into_owned();
+            ev(&self.log, &format!("\"ev\":\"mcursor\",\"n\":\"{name}\""));
+        }
+        fn input_focus(&mut self) -> Option<NodeId> {
+            self.focus
+        }
+        fn push_input_focus(&mut self, node: NodeId) {
+            if self.is_child(node) {
+                ev(&self.log, "\"ev\":\"focus\",\"op\":\"push\",\"h\":\"self\"");
+            }
+            if let Some(current) = self.focus {
+                self.focus_stack.push(current);
+            }
+            self.focus = Some(node);
+        }
+        fn pop_input_focus(&mut self, node: NodeId) {
+            if self.is_child(node) {
+                ev(&self.log, "\"ev\":\"focus\",\"op\":\"pop\",\"h\":\"self\"");
+            }
+            if self.focus == Some(node) {
+                self.focus = self.focus_stack.pop();
+                return;
+            }
+            if let Some(at) = self.focus_stack.iter().position(|&n| n == node) {
+                self.focus_stack.remove(at);
+            }
+        }
+        fn register_event(&mut self, node: NodeId, msg: u32) {
+            if self.is_child(node) {
+                ev(&self.log, &format!("\"ev\":\"evreg\",\"m\":\"{msg:x}\""));
+            }
+        }
+        fn unregister_event(&mut self, node: NodeId, msg: u32) {
+            if self.is_child(node) {
+                ev(&self.log, &format!("\"ev\":\"evunreg\",\"m\":\"{msg:x}\""));
+            }
         }
     }
 
@@ -884,6 +944,19 @@ mod controls {
                     let a = self.arg(*from);
                     self.record("msg", 0xF005, &a, 0);
                 }
+                ChildMessage::EditEnter { from } => self.record("msg", 0xF004, &self.arg(*from), 0),
+                ChildMessage::EditEscape { from } => {
+                    self.record("msg", 0xF003, &self.arg(*from), 0)
+                }
+                ChildMessage::TableSelect { from, row } => {
+                    self.record("msg", 0x300D, &self.arg(*from), row.cast_signed());
+                }
+                ChildMessage::TableDoubleClick { from, row } => {
+                    self.record("msg", 0xF002, &self.arg(*from), row.cast_signed());
+                }
+                ChildMessage::TableCellPress { from, cell } => {
+                    self.record("msg", 0xF001, &self.arg(*from), cell.cast_signed());
+                }
             }
             true
         }
@@ -933,6 +1006,10 @@ mod controls {
                 HoverKey::Ids(v) => v.to_string(),
                 HoverKey::Object(id) if *self.child.borrow() == Some(id) => "self".to_owned(),
                 HoverKey::Object(_) => "other".to_owned(),
+                HoverKey::Part(id, n) if *self.child.borrow() == Some(id) => {
+                    format!("self+{}", n + 1)
+                }
+                HoverKey::Part(..) => "other".to_owned(),
             };
             ev(
                 &self.log,
@@ -1742,6 +1819,426 @@ mod controls {
         }
     }
 
+    // ---- the rich-text windows (the fifth increment) ------------------------
+
+    const RICH: [&str; 4] = [
+        "RichTextEditWin",
+        "UITextEdit",
+        "UIFastTable",
+        "UIScrollTable",
+    ];
+
+    /// A node as `rich_text.jsonl` prints it; a reference as r(its list).
+    fn rich_node(node: &RdlNode) -> String {
+        match node {
+            RdlNode::Attributes(a) => {
+                format!("a:{:08x}:{:08x}:{:08x}", a.attrs, a.mask, a.default_mask)
+            }
+            RdlNode::Text(text) => format!("t:{}", units(text)),
+            RdlNode::Paragraph => "n".to_owned(),
+            RdlNode::Clip(r) => format!("c:{}:{}:{}:{}", r.left, r.top, r.right, r.bottom),
+            RdlNode::Ref(list) => format!("r({})", rich_list(list)),
+            _ => "other".to_owned(),
+        }
+    }
+
+    fn rich_list(list: &RenderDisplayList) -> String {
+        list.nodes
+            .iter()
+            .map(rich_node)
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    fn edit_of(ui: &Ui, id: NodeId) -> &RichTextEditWin {
+        let w = ui.node(id).unwrap().widget().unwrap().as_any();
+        w.downcast_ref::<RichTextEditWin>()
+            .unwrap_or_else(|| &w.downcast_ref::<UiTextEdit>().unwrap().edit)
+    }
+
+    fn with_edit<R>(
+        ui: &mut Ui,
+        id: NodeId,
+        f: impl FnOnce(&mut RichTextEditWin, &mut Ui) -> R,
+    ) -> R {
+        let mut out = None;
+        ui.with_widget(id, (), |w, ui| {
+            let any = w.as_any_mut();
+            let edit = if any.is::<RichTextEditWin>() {
+                any.downcast_mut::<RichTextEditWin>().unwrap()
+            } else {
+                &mut any.downcast_mut::<UiTextEdit>().unwrap().edit
+            };
+            out = Some(f(edit, ui));
+        });
+        out.unwrap()
+    }
+
+    fn table_of(ui: &Ui, id: NodeId) -> &UiFastTable {
+        let w = ui.node(id).unwrap().widget().unwrap().as_any();
+        w.downcast_ref::<UiFastTable>()
+            .unwrap_or_else(|| &w.downcast_ref::<UiScrollTable>().unwrap().table)
+    }
+
+    fn with_table<R>(ui: &mut Ui, id: NodeId, f: impl FnOnce(&mut UiFastTable, &mut Ui) -> R) -> R {
+        let mut out = None;
+        ui.with_widget(id, (), |w, ui| {
+            let any = w.as_any_mut();
+            let table = if any.is::<UiFastTable>() {
+                any.downcast_mut::<UiFastTable>().unwrap()
+            } else {
+                &mut any.downcast_mut::<UiScrollTable>().unwrap().table
+            };
+            out = Some(f(table, ui));
+        });
+        out.unwrap()
+    }
+
+    fn edit_state(ui: &Ui, id: NodeId) -> String {
+        let e = edit_of(ui, id);
+        let b = &e.win.base;
+        let cells = e
+            .cells
+            .iter()
+            .map(|c| format!("{:04x}:{:08x}", c.ch, c.attrs))
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!(
+            "\"ev\":\"edit\",\"flags\":\"{:x}\",\"caret\":\"{} {} {}\",\"blink\":\"{} {}\",\"attrs\":\"{:08x}\",\"cells\":\"{cells}\",\"content\":\"{}\",\"dirty\":\"{}{}\",\"modes\":\"{}{}{} {} {} {} {:04x}\",\"size\":\"{} {}\"",
+            ui.node(id).unwrap().flags & 0xF,
+            e.caret,
+            e.field_4a0,
+            e.field_4a4,
+            u8::from(e.caret_visible),
+            bits(e.caret_timer),
+            e.current_attrs,
+            rich_list(&e.win.content),
+            u8::from(b.layout_dirty),
+            u8::from(b.surface_dirty),
+            u8::from(e.editable),
+            u8::from(e.fixed_style),
+            u8::from(e.password_mode),
+            e.case_mode,
+            e.max_length,
+            u8::from(e.filter_is_allow_list),
+            e.replacement,
+            bits(b.norm_width),
+            bits(b.norm_height),
+        )
+    }
+
+    fn fast_table_state(ui: &Ui, id: NodeId) -> String {
+        let t = table_of(ui, id);
+        let b = &t.base;
+        let rows = t
+            .rows
+            .iter()
+            .map(|r| {
+                format!(
+                    "{}{}{}:{}",
+                    u8::from(r.hoverable),
+                    u8::from(r.selectable),
+                    u8::from(r.row_line),
+                    r.group_id
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mut inv = t.inverse.rotation.to_words().to_vec();
+        inv.extend_from_slice(&t.inverse.translation.to_words());
+        format!(
+            "\"ev\":\"ftable\",\"w\":\"{}\",\"h\":\"{}\",\"re\":\"{}\",\"ce\":\"{}\",\"rows\":\"{rows}\",\"cells\":\"{}\",\"sel\":\"{} {}\",\"cell\":\"{} {}\",\"hov\":\"{} {}\",\"drag\":\"{}{}{} {}\",\"do\":\"{}\",\"inv\":\"{}\",\"tips\":\"{} {}\",\"hdr\":\"{}\",\"dirty\":\"{}{}\",\"size\":\"{} {}\"",
+            bits(t.width),
+            bits(t.height),
+            bits_n(&t.row_edges),
+            bits_n(&t.column_edges),
+            t.cells.len(),
+            u8::from(t.selected),
+            t.selected_row,
+            t.hover_row,
+            t.hover_column,
+            u8::from(t.hovered),
+            t.hovered_row,
+            u8::from(t.drag_armed),
+            u8::from(t.dragging),
+            u8::from(t.drag_column),
+            t.drag_edge,
+            bits(t.drag_offset),
+            bits_n(&inv),
+            t.tip_mode,
+            t.tips.len(),
+            t.header_rows,
+            u8::from(b.layout_dirty),
+            u8::from(b.surface_dirty),
+            bits(b.norm_width),
+            bits(b.norm_height),
+        )
+    }
+
+    fn rich_payload(t: &[&str]) -> Option<EntryPayload> {
+        match t[1] {
+            "UITextEdit" => Some(EntryPayload::Text {
+                right: f(t[2]),
+                bottom: f(t[3]),
+                caption: t.get(4).map_or_else(Vec::new, |h| wide(h)),
+            }),
+            "UIFastTable" | "UIScrollTable" => Some(EntryPayload::Table {
+                right: f(t[2]),
+                bottom: f(t[3]),
+                int5: i(t[4]),
+                int6: i(t[5]),
+            }),
+            _ => None,
+        }
+    }
+
+    /// The operations of the rich-text windows; false when the operation
+    /// is not one of them.
+    fn rich_op(ui: &mut Ui, id: NodeId, class: &str, log: &Shared, t: &[&str]) -> bool {
+        let edit = class == "RichTextEditWin" || class == "UITextEdit";
+        if edit {
+            let record = |t: &[&str]| -> (u32, HudRecord) {
+                let mut r = HudRecord::default();
+                let msg = match t[0] {
+                    "ekey" => {
+                        r.key = i(t[1]).cast_unsigned();
+                        r.modifiers = i(t[2]).cast_unsigned();
+                        r.down = i(t[3]) != 0;
+                        1
+                    }
+                    "echar" => {
+                        r.wparam = i(t[1]).cast_unsigned();
+                        2
+                    }
+                    _ => {
+                        r.message = i(t[1]).cast_unsigned();
+                        0xF
+                    }
+                };
+                (msg, r)
+            };
+            match t[0] {
+                "ekey" | "echar" | "ecancel" => {
+                    let (msg, r) = record(t);
+                    let v = with_edit(ui, id, |e, ui| e.on_event(ui, id, msg, &r));
+                    result(log, u8::from(v));
+                }
+                "settext" => with_edit(ui, id, |e, _| e.set_text(&wide(t[1]), None)),
+                "settexta" => {
+                    let attrs = u32::from_str_radix(t[2], 16).unwrap();
+                    with_edit(ui, id, |e, _| e.set_text(&wide(t[1]), Some(attrs)));
+                }
+                "cleartext" => with_edit(ui, id, |e, ui| e.clear_text(ui, id)),
+                "gettext" => {
+                    let (text, r) = edit_of(ui, id).get_text(i(t[1]));
+                    ev(
+                        log,
+                        &format!("\"ev\":\"text\",\"r\":\"{r}\",\"t\":\"{}\"", units(&text)),
+                    );
+                }
+                "caret" => with_edit(ui, id, |e, _| e.set_caret(i(t[1]))),
+                "maxlen" => with_edit(ui, id, |e, _| e.set_max_length(i(t[1]))),
+                "fixed" => with_edit(ui, id, |e, _| e.set_fixed_style(i(t[1]) != 0)),
+                "password" => with_edit(ui, id, |e, _| e.set_password_mode(i(t[1]) != 0)),
+                "case" => with_edit(ui, id, |e, _| e.set_case_mode(i(t[1]))),
+                "allow" => with_edit(ui, id, |e, _| e.set_filter_is_allow_list(i(t[1]) != 0)),
+                "filter" => with_edit(ui, id, |e, _| e.add_filter_chars(&wide(t[1]))),
+                "repl" => {
+                    let ch = u16::from_str_radix(t[1], 16).unwrap();
+                    with_edit(ui, id, |e, _| e.set_replacement_char(ch));
+                }
+                "editable" => with_edit(ui, id, |e, ui| e.set_editable(ui, id, i(t[1]) != 0)),
+                "activate" => with_edit(ui, id, |e, ui| e.activate(ui, id)),
+                "deactivate" => with_edit(ui, id, |e, ui| e.deactivate(ui, id, i(t[1]) != 0)),
+                "attrs" => {
+                    let attrs = u32::from_str_radix(t[1], 16).unwrap();
+                    with_edit(ui, id, |e, _| e.current_attrs = attrs);
+                }
+                "fmask" => {
+                    let mask = i32::from_str_radix(t[1], 16).unwrap();
+                    with_edit(ui, id, |e, _| e.format_mask = mask);
+                }
+                "prefix" => {
+                    let mut list = RenderDisplayList::new();
+                    list.push(RdlNode::Text(wide(t[1])));
+                    with_edit(ui, id, |e, _| {
+                        e.prefix = Rc::new(list);
+                        e.rebuild_display();
+                    });
+                }
+                "fixedlist" => {
+                    let attrs = u32::from_str_radix(t[1], 16).unwrap();
+                    let mut list = RenderDisplayList::new();
+                    list.push(RdlNode::Attributes(TextAttributes::new(
+                        attrs,
+                        0xFFFF_FFFF,
+                        0,
+                    )));
+                    with_edit(ui, id, |e, _| {
+                        e.fixed_style_list = Rc::new(list);
+                        e.rebuild_display();
+                    });
+                }
+                "state" => {
+                    let line = edit_state(ui, id);
+                    ev(log, &line);
+                }
+                _ => return false,
+            }
+            return true;
+        }
+        let scroll = class == "UIScrollTable";
+        match t[0] {
+            "cedge" => {
+                let r = with_table(ui, id, |w, _| {
+                    w.set_column_edge(i(t[1]).cast_unsigned(), f(t[2]))
+                });
+                result(log, u8::from(r));
+            }
+            "redge" => {
+                let r = with_table(ui, id, |w, _| {
+                    w.set_row_edge(i(t[1]).cast_unsigned(), f(t[2]))
+                });
+                result(log, u8::from(r));
+            }
+            "frows" => with_table(ui, id, |w, _| {
+                for (index, row) in w.rows.iter_mut().enumerate() {
+                    let k = 1 + index * 4;
+                    if k + 3 >= t.len() {
+                        break;
+                    }
+                    row.hoverable = i(t[k]) != 0;
+                    row.selectable = i(t[k + 1]) != 0;
+                    row.row_line = i(t[k + 2]) != 0;
+                    row.group_id = i(t[k + 3]).cast_unsigned();
+                }
+            }),
+            "selrow" => {
+                let r = with_table(ui, id, |w, ui| {
+                    w.select_row(ui, id, i(t[1]).cast_unsigned())
+                });
+                result(log, u8::from(r));
+            }
+            "clearsel" => with_table(ui, id, |w, _| w.clear_selection()),
+            "getsel" => {
+                let r = table_of(ui, id).selected_row();
+                result(log, format!("{} {}", u8::from(r.is_some()), r.unwrap_or(0)));
+            }
+            "hdr" => with_table(ui, id, |w, _| w.set_header_rows(i(t[1]).cast_unsigned())),
+            "borders" => with_table(ui, id, |w, _| {
+                w.set_borders(i(t[1]) != 0, i(t[2]) != 0, i(t[3]) != 0, i(t[4]) != 0);
+            }),
+            "collines" => with_table(ui, id, |w, _| w.set_draw_column_lines(i(t[1]) != 0)),
+            "highlights" => with_table(ui, id, |w, _| w.set_row_highlights(i(t[1]) != 0)),
+            "resizable" => with_table(ui, id, |w, _| w.set_resizable(i(t[1]) != 0, i(t[2]) != 0)),
+            "grab" => with_table(ui, id, |w, _| w.set_grab_distance(f(t[1]))),
+            "margins" => with_table(ui, id, |w, _| w.set_cell_margins(i(t[1]), i(t[2]))),
+            "tipmode" => with_table(ui, id, |w, _| w.set_tip_mode(id, i(t[1]))),
+            "wtip" => with_table(ui, id, |w, _| w.base.hover.ids_alt = i(t[1])),
+            "coltip" => with_table(ui, id, |w, _| w.tips[i(t[1]) as usize].ids_alt = i(t[2])),
+            "rtip" => with_table(ui, id, |w, _| {
+                w.row_tip_mut(i(t[1]).cast_unsigned()).unwrap().ids_alt = i(t[2]);
+            }),
+            "ctip" => with_table(ui, id, |w, _| {
+                w.cell_tip_mut(i(t[1]).cast_unsigned(), i(t[2]).cast_unsigned())
+                    .unwrap()
+                    .ids_alt = i(t[3]);
+            }),
+            "tooltip" => with_table(ui, id, |w, _| w.base.tooltip_enabled = i(t[1]) != 0),
+            "clearcell" => {
+                let r = with_table(ui, id, |w, _| {
+                    w.clear_cell(i(t[1]).cast_unsigned(), i(t[2]).cast_unsigned())
+                });
+                result(log, u8::from(r));
+            }
+            "span" => with_table(ui, id, |w, _| {
+                w.set_cell_span_to_end(
+                    i(t[1]).cast_unsigned(),
+                    i(t[2]).cast_unsigned(),
+                    i(t[3]) != 0,
+                );
+            }),
+            "invalidate" => with_table(ui, id, |w, _| {
+                w.invalidate_cell(i(t[1]).cast_unsigned(), i(t[2]).cast_unsigned());
+            }),
+            "setedges" => {
+                let mut at = 1;
+                let mut edges = TableEdges::default();
+                let rows = i(t[at]);
+                at += 1;
+                for _ in 0..rows {
+                    edges.rows.push(f(t[at]));
+                    at += 1;
+                }
+                let cols = i(t[at]);
+                at += 1;
+                for _ in 0..cols {
+                    edges.cols.push(f(t[at]));
+                    at += 1;
+                }
+                with_table(ui, id, |w, _| {
+                    w.set_edges(&edges);
+                });
+            }
+            "items" if scroll => {
+                with::<UiScrollTable, _>(ui, id, |w, ui| {
+                    w.set_item_count(ui, i(t[1]).cast_unsigned(), i(t[2]).cast_unsigned());
+                });
+            }
+            "first" if scroll => {
+                let r = ui.widget::<UiScrollTable>(id).unwrap().first_item(ui);
+                result(log, r);
+            }
+            "callback" if scroll => {
+                let cb_log = log.clone();
+                let callback: ScrollTableCallback = Box::new(move |first, rows| {
+                    ev(
+                        &cb_log,
+                        &format!("\"ev\":\"cb\",\"first\":\"{first}\",\"rows\":\"{rows}\""),
+                    );
+                });
+                with::<UiScrollTable, _>(ui, id, |w, ui| w.set_callback(ui, Some(callback)));
+            }
+            "barvalue" if scroll => {
+                let bar = ui.widget::<UiScrollTable>(id).unwrap().scroll_bar.unwrap();
+                ui.widget_mut::<UiScroll>(bar).unwrap().set_value(f(t[1]));
+            }
+            "scrolled" if scroll => {
+                let bar = ui.widget::<UiScrollTable>(id).unwrap().scroll_bar.unwrap();
+                let r = ui.send_child_message(id, &ChildMessage::ScrollChanged { from: bar });
+                result(log, u8::from(r));
+            }
+            "gap" if scroll => {
+                with::<UiScrollTable, _>(ui, id, |w, ui| w.set_scroll_bar_gap(ui, id, f(t[1])));
+            }
+            "bstate" if scroll => {
+                // The bar's flags as the other states print them: the low four bits.
+                let bar = ui.widget::<UiScrollTable>(id).unwrap().scroll_bar.unwrap();
+                let saved = ui.node(bar).unwrap().flags;
+                ui.node_mut(bar).unwrap().flags = saved & 0xF;
+                let line = scroll_state(ui, bar, ui.widget::<UiScroll>(bar).unwrap());
+                ui.node_mut(bar).unwrap().flags = saved;
+                ev(log, &line);
+            }
+            "state" => {
+                let line = fast_table_state(ui, id);
+                ev(log, &line);
+                if scroll {
+                    let s = ui.widget::<UiScrollTable>(id).unwrap();
+                    ev(
+                        log,
+                        &format!(
+                            "\"ev\":\"stable\",\"items\":\"{}\",\"fixed\":\"{}\"",
+                            s.item_count, s.fixed_rows
+                        ),
+                    );
+                }
+            }
+            _ => return false,
+        }
+        true
+    }
+
     pub fn lines(case: usize, line: &str) -> Vec<String> {
         let log: Shared = Rc::new(RefCell::new(Log {
             case,
@@ -1755,9 +2252,13 @@ mod controls {
             elapsed: Rc::new(Cell::new(0.0)),
             options: Rc::new(RefCell::new([1; 0x20])),
         };
+        let child = Rc::new(RefCell::new(None));
         ui.services = Box::new(RecServices {
             log: log.clone(),
             elapsed: ctx.elapsed.clone(),
+            child: child.clone(),
+            focus: None,
+            focus_stack: Vec::new(),
         });
         ui.text_projection = Some(Box::new(Fixed));
         let shape = |record| {
@@ -1780,7 +2281,6 @@ mod controls {
             options: [1; 0x20],
             log: log.clone(),
         };
-        let child = Rc::new(RefCell::new(None));
         let parent = ui
             .create(
                 Box::new(RecParent {
@@ -1805,8 +2305,15 @@ mod controls {
             host.options = *ctx.options.borrow();
             if t[0] == "new" {
                 class = t[1].to_owned();
-                let later = LATER.contains(&class.as_str());
-                object = if later && class != "UITable" {
+                let later = LATER.contains(&class.as_str()) || class == "RichTextEditWin";
+                object = if let Some(payload) = rich_payload(&t) {
+                    ui.create_by_class(
+                        Some(b"C"),
+                        class.as_bytes(),
+                        Some(parent),
+                        &mut Payload::Page(&payload),
+                    )
+                } else if later && class != "UITable" {
                     ui.create_by_class(
                         Some(b"C"),
                         class.as_bytes(),
@@ -1842,6 +2349,9 @@ mod controls {
             }
             let Some(id) = object else { continue };
             if LATER.contains(&class.as_str()) && later_op(&mut ui, id, &class, &log, &t, &ctx) {
+                continue;
+            }
+            if RICH.contains(&class.as_str()) && rich_op(&mut ui, id, &class, &log, &t) {
                 continue;
             }
             let list = class == "UIListBox";

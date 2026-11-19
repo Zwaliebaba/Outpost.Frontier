@@ -51,6 +51,20 @@
 //   | getcmd (0x2e) | gettoggle (0x2f) | sounds S0 S1 (0x31) | tset HEX (SetText) | ids N
 //   (SetIds) | width W (SetWidth) | cached C I (SetCachedDraw) | number HEX (SetNumberText) |
 //   cedge I X / redge I Y (SetColumnEdge / SetRowEdge) | rows H S... (the rows' flags)
+// The rich-text windows: RichTextEditWin (new RichTextEditWin), UITextEdit (new UITextEdit R B
+// TEXT), UIFastTable and UIScrollTable (new UIFastTable R B ROWS COLS), with the operations
+//   edit boxes: ekey K M D (event 1 with the record's key, modifiers and down byte) | echar W
+//   (event 2 with the character) | ecancel MSG (event 0xf with the raw message) | settext TEXT |
+//   settexta TEXT ATTRS | cleartext | gettext N | caret P | maxlen N | fixed V | password V |
+//   case M | allow V | filter TEXT | repl U | editable V | activate | deactivate H | attrs X |
+//   fmask X | prefix TEXT (one text node) | fixedlist ATTRS (one attribute node), each list
+//   change followed by RebuildDisplay
+//   tables: cedge I X | redge I Y | frows H S L G... (the rows' flags and groups) | selrow R |
+//   clearsel | getsel | hdr N | borders L R T B | collines V | highlights V | resizable R C |
+//   grab X | margins X Y | tipmode M | wtip IDS | coltip C IDS | rtip R IDS | ctip R C IDS |
+//   tooltip V | clearcell R C | span R C V | invalidate R C | setedges NR R.. NC C..
+//   scroll tables: items N F | first | callback | barvalue V | scrolled (slot 23 0xf005 from the
+//   bar) | gap X | bstate (the bar's state)
 //
 // Line formats, each prefixed with "case": the stand-ins' calls --
 //   {"ev":"begin","p"} {"ev":"end"} {"ev":"v","x","y","z"} {"ev":"c3","c"} {"ev":"c4","c"}
@@ -77,6 +91,10 @@
 //   {"ev":"text",...} {"ev":"static",...} {"ev":"button",...} {"ev":"wire",...}
 //   {"ev":"sctl",...} {"ev":"table",...} (the fields in the order the state functions print;
 //   their flags are the low four bits, the Win3D constructor keeps the others as allocated)
+//   {"ev":"edit",...} {"ev":"ftable",...} {"ev":"stable",...} {"ev":"text","r","t"}, and the HUD's
+//   {"ev":"focus","op","h"} {"ev":"evreg","m"} {"ev":"evunreg","m"} for the edit box's handler,
+//   {"ev":"mcursor","n"} (MouseSetCursor) and {"ev":"cb","first","rows"} (the scroll callback).
+//   Lists print as rich_text.jsonl's nodes, a reference as r(its list).
 
 #include "oracle_support.h"
 
@@ -125,6 +143,30 @@
 #include "../OutpostFrontier/Client/scroll_control.cpp"
 #undef SetIdentityTransform
 #include "../OutpostFrontier/Client/ui_table.cpp"
+// The rich-text windows (rich_text_win.cpp, ui_text_edit.cpp, ui_fast_table.cpp). The IME box and
+// the IME focus (fl_ime_input_box.h over imeui.h) are declared under other names and stand-ins take
+// theirs: no case has an IME focus, so no box is ever made.
+#define FLImeInputBox OracleDeclaredImeInputBox
+#define IMEFocus OracleDeclaredImeFocus
+#include "../OutpostFrontier/Client/fl_ime_input_box.h"
+#undef FLImeInputBox
+#undef IMEFocus
+struct FLImeInputBox
+{
+    explicit FLImeInputBox(RichTextEditWin*) {}
+    void SetInputBufferSize(DWORD) {}
+    void Resize(RECT const*) {}
+    bool HandleKey(UINT) { return false; }
+    bool HandleMultiByteChar(char) { return false; }
+};
+struct IMEFocus
+{
+    static IMEFocus* GetSingleton() { return nullptr; }
+    void SetFocus(FLImeInputBox*, bool) {}
+};
+#include "../OutpostFrontier/Client/rich_text_win.cpp"
+#include "../OutpostFrontier/Client/ui_text_edit.cpp"
+#include "../OutpostFrontier/Client/ui_fast_table.cpp"
 
 namespace
 {
@@ -246,7 +288,14 @@ namespace
         GENRESULT NEURONCOMPONENTS_API SetViewportRect(
             int X, int Y, int W, int H) override { return GR_GENERIC; }
         GENRESULT NEURONCOMPONENTS_API GetViewportRect(
-            int* OutX, int* OutY, int* OutW, int* OutH) override { return GR_GENERIC; }
+            int* OutX, int* OutY, int* OutW, int* OutH) override
+        {
+            *OutX = 0;
+            *OutY = 0;
+            *OutW = 0;
+            *OutH = 0;
+            return GR_GENERIC;
+        }
         GENRESULT NEURONCOMPONENTS_API SetDepthRange(float MinZ, float MaxZ) override { return GR_GENERIC; }
         GENRESULT NEURONCOMPONENTS_API GetDepthRange(
             float* OutMinZ, float* OutMaxZ) override { return GR_GENERIC; }
@@ -261,7 +310,12 @@ namespace
         GENRESULT NEURONCOMPONENTS_API SetModelview(const float* M12) override { return GR_GENERIC; }
         GENRESULT NEURONCOMPONENTS_API GetModelview(float* Out12) override { return GR_GENERIC; }
         GENRESULT NEURONCOMPONENTS_API SetProjection(const float* M16) override { return GR_GENERIC; }
-        GENRESULT NEURONCOMPONENTS_API GetProjection(float* Out16) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetProjection(float* Out16) override
+        {
+            for (int Index = 0; Index < 16; ++Index)
+                Out16[Index] = 0.0f;
+            return GR_GENERIC;
+        }
         GENRESULT NEURONCOMPONENTS_API SetLookat(
             float EyeX, float EyeY, float EyeZ, float AtX, float AtY, float AtZ, float UpX, float UpY,
             float UpZ) override { return GR_GENERIC; }
@@ -344,7 +398,7 @@ namespace
         bool Slot23(unsigned Msg, unsigned A, unsigned B) override
         {
             std::string Text;
-            if (Msg == 0xf001u || Msg == 0xf002u)
+            if ((Msg == 0xf001u || Msg == 0xf002u) && A != reinterpret_cast<uintptr_t>(GCtlObject))
                 Text = Units(reinterpret_cast<wchar_t const*>(static_cast<uintptr_t>(A)));
             else
                 Text = Arg(A);
@@ -967,6 +1021,339 @@ namespace
                Class == "UITable";
     }
 
+    // ---- the rich-text windows: the HUD's record and input focus, the edit box under test (its
+    // handler face is the one the HUD stand-ins record), the list and state printers, the
+    // operations.
+    FHudCmdRecord GCtlRecord;
+    FHudCmdHandler* GCtlInputFocus = nullptr;
+    std::vector<FHudCmdHandler*> GCtlFocusStack;
+    RichTextEditWin* GCtlEdit = nullptr;
+
+    void FocusEvent(char const* Op, FHudCmdHandler* Handler)
+    {
+        std::string const Who =
+            Handler == nullptr ? "null"
+                               : (GCtlEdit != nullptr && Handler == GCtlEdit->AsHudCmdHandler() ? "self" : "other");
+        CtlEvent(oracle::Format("\"ev\":\"focus\",\"op\":\"%s\",\"h\":\"%s\"", Op, Who.c_str()));
+    }
+
+    std::string RichUnits(wchar_t const* Text, int Count)
+    {
+        std::string Out;
+        for (int Index = 0; Index < Count; ++Index)
+            Out += oracle::Format("%04x", (unsigned int)(unsigned short)Text[Index]);
+        return Out;
+    }
+
+    std::string RichListText(const RenderDisplayList& Rdl);
+
+    // A node as rich_text.jsonl prints it; a reference as r(its list).
+    std::string RichNodeText(RDLNode* Node)
+    {
+        if (TRANode* Tra = Node->operator TRANode*())
+            return oracle::Format("a:%08lx:%08x:%08x", (unsigned long)Tra->get_attributes().Packed,
+                                  (unsigned)Tra->get_mask(), (unsigned)Tra->get_default_mask());
+        if (TextNode* Text = Node->operator TextNode*())
+            return "t:" + RichUnits(Text->get_text().c_str(), (int)Text->get_text().size());
+        if (Node->operator ParagraphNode*() != nullptr)
+            return "n";
+        if (ClipNode* Clip = Node->operator ClipNode*())
+        {
+            const tagRECT& R = Clip->get_rect();
+            return oracle::Format("c:%ld:%ld:%ld:%ld", (long)R.left, (long)R.top, (long)R.right, (long)R.bottom);
+        }
+        if (RDLRefNode* Ref = Node->operator RDLRefNode*())
+            return "r(" + RichListText(Ref->get_list()) + ")";
+        return "other";
+    }
+
+    std::string RichListText(const RenderDisplayList& Rdl)
+    {
+        std::string Out;
+        for (FRdlListNode* Cell = Rdl.NodeList->Next; Cell != Rdl.NodeList; Cell = Cell->Next)
+        {
+            if (!Out.empty())
+                Out += " ";
+            Out += RichNodeText(Cell->Node);
+        }
+        return Out;
+    }
+
+    void EditState(RichTextEditWin* E)
+    {
+        std::string Cells;
+        for (size_t Index = 0; Index < E->Cells.size(); ++Index)
+            Cells += (Index == 0 ? "" : " ") +
+                     oracle::Format("%04x:%08lx", (unsigned)(unsigned short)E->Cells[Index].Ch,
+                                    (unsigned long)E->Cells[Index].Attr.Packed);
+        CtlEvent(oracle::Format("\"ev\":\"edit\",\"flags\":\"%x\",\"caret\":\"%d %d %d\",\"blink\":\"%d ",
+                                E->Flags & 0xf, E->Caret, E->Field_0x4a0, E->Field_0x4a4, E->bCaretVisible) +
+                 Bits(E->CaretTimer) + oracle::Format("\",\"attrs\":\"%08lx\",\"cells\":\"",
+                                                      (unsigned long)E->CurrentAttr.Packed) +
+                 Cells + "\",\"content\":\"" + RichListText(E->Content) +
+                 oracle::Format("\",\"dirty\":\"%d%d\",\"modes\":\"%d%d%d %d %d %d %04x\",\"size\":\"",
+                                E->bLayoutDirty, E->bSurfaceDirty, E->bEditable, E->bFixedStyle, E->bPasswordMode,
+                                E->CaseMode, E->MaxLength, E->bFilterIsAllowList,
+                                (unsigned)(unsigned short)E->ReplacementChar) +
+                 Bits(E->NormWidth) + " " + Bits(E->NormHeight) + "\"");
+    }
+
+    void FastTableState(UiFastTable* T)
+    {
+        std::string Rows;
+        for (size_t Index = 0; Index < T->RowEdges.size(); ++Index)
+            Rows += (Index == 0 ? "" : " ") + Bits(T->RowEdges[Index]);
+        std::string Columns;
+        for (size_t Index = 0; Index < T->ColEdges.size(); ++Index)
+            Columns += (Index == 0 ? "" : " ") + Bits(T->ColEdges[Index]);
+        std::string Flags;
+        for (size_t Index = 0; Index < T->Rows.size(); ++Index)
+            Flags += (Index == 0 ? "" : " ") +
+                     oracle::Format("%d%d%d:%u", T->Rows[Index].bHoverable, T->Rows[Index].bSelectable,
+                                    T->Rows[Index].bRowLine, T->Rows[Index].GroupId);
+        CtlEvent("\"ev\":\"ftable\",\"w\":\"" + Bits(T->Width) + "\",\"h\":\"" + Bits(T->Height) + "\",\"re\":\"" +
+                 Rows + "\",\"ce\":\"" + Columns + "\",\"rows\":\"" + Flags +
+                 oracle::Format("\",\"cells\":\"%u\",\"sel\":\"%d %u\",\"cell\":\"%u %u\",\"hov\":\"%d %u\","
+                                "\"drag\":\"%d%d%d %u\",\"do\":\"",
+                                (unsigned)T->Cells.size(), T->bSelected, T->SelectedRow, T->HoverRow, T->HoverColumn,
+                                T->bHovered, T->HoveredRow, T->bDragArmed, T->bDragging, T->bDragColumn,
+                                T->DragEdge) +
+                 Bits(T->DragOffset) + "\",\"inv\":\"" + Bits12(T->InverseTransform) +
+                 oracle::Format("\",\"tips\":\"%d %u\",\"hdr\":\"%u\",\"dirty\":\"%d%d\",\"size\":\"", T->TipMode,
+                                (unsigned)T->Tips.size(), T->HeaderRows, T->bLayoutDirty, T->bSurfaceDirty) +
+                 Bits(T->NormWidth) + " " + Bits(T->NormHeight) + "\"");
+    }
+
+    void OracleScrollCallback(void* /*Context*/, int FirstItem, unsigned VisibleRows)
+    {
+        CtlEvent(oracle::Format("\"ev\":\"cb\",\"first\":\"%d\",\"rows\":\"%u\"", FirstItem, VisibleRows));
+    }
+
+    bool IsRichClass(const std::string& Class)
+    {
+        return Class == "RichTextEditWin" || Class == "UITextEdit" || Class == "UIFastTable" ||
+               Class == "UIScrollTable";
+    }
+
+    void RichResult(int Value)
+    {
+        CtlEvent(oracle::Format("\"ev\":\"r\",\"v\":\"%d\"", Value));
+    }
+
+    // The operations of the rich-text windows; false when the operation is not one of them.
+    bool RichOp(Win3D* O, const std::string& Class, const std::vector<std::string>& T)
+    {
+        const std::string& Name = T[0];
+        RichTextEditWin* const E = GCtlEdit;
+        bool const bTable = Class == "UIFastTable" || Class == "UIScrollTable";
+        UiFastTable* const Table = bTable ? static_cast<UiFastTable*>(static_cast<WinControl*>(O)) : nullptr;
+        UiScrollTable* const Scroll =
+            Class == "UIScrollTable" ? static_cast<UiScrollTable*>(static_cast<WinControl*>(O)) : nullptr;
+        if (E != nullptr)
+        {
+            if (Name == "ekey" || Name == "echar" || Name == "ecancel")
+            {
+                memset(&GCtlRecord, 0, sizeof(GCtlRecord));
+                unsigned Msg = 1;
+                if (Name == "ekey")
+                {
+                    GCtlRecord.Key = (unsigned)I(T[1]);
+                    GCtlRecord.Modifiers = (unsigned)I(T[2]);
+                    GCtlRecord.Byte18 = (unsigned char)I(T[3]);
+                }
+                else if (Name == "echar")
+                {
+                    Msg = 2;
+                    GCtlRecord.Arg10 = (unsigned)I(T[1]);
+                }
+                else
+                {
+                    Msg = 0xf;
+                    GCtlRecord.Field0C = (unsigned)I(T[1]);
+                }
+                RichResult(E->OnEvent(Msg) ? 1 : 0);
+            }
+            else if (Name == "settext")
+            {
+                std::vector<wchar_t> Text = WideFromHex(T[1]);
+                E->SetText(Text.data(), nullptr);
+            }
+            else if (Name == "settexta")
+            {
+                std::vector<wchar_t> Text = WideFromHex(T[1]);
+                TextRenderAttributes Attr;
+                Attr.Packed = strtoul(T[2].c_str(), nullptr, 16);
+                E->SetText(Text.data(), &Attr);
+            }
+            else if (Name == "cleartext")
+                E->ClearText();
+            else if (Name == "gettext")
+            {
+                wchar_t Buffer[64];
+                for (int Index = 0; Index < 64; ++Index)
+                    Buffer[Index] = 0;
+                int const Count = I(T[1]);
+                int const Result = E->GetText(Buffer, Count);
+                std::string Text;
+                for (int Index = 0; Index < 64 && Buffer[Index] != 0; ++Index)
+                    Text += oracle::Format("%04x", (unsigned)(unsigned short)Buffer[Index]);
+                CtlEvent(oracle::Format("\"ev\":\"text\",\"r\":\"%d\",\"t\":\"", Result) + Text + "\"");
+            }
+            else if (Name == "caret")
+                E->SetCaret(I(T[1]));
+            else if (Name == "maxlen")
+                E->SetMaxLength(I(T[1]));
+            else if (Name == "fixed")
+                E->SetFixedStyle(I(T[1]) != 0);
+            else if (Name == "password")
+                E->SetPasswordMode(I(T[1]) != 0);
+            else if (Name == "case")
+                E->SetCaseMode(I(T[1]));
+            else if (Name == "allow")
+                E->SetFilterIsAllowList(I(T[1]) != 0);
+            else if (Name == "filter")
+            {
+                std::vector<wchar_t> Chars = WideFromHex(T[1]);
+                E->AddFilterChars(Chars.data(), (int)Chars.size() - 1);
+            }
+            else if (Name == "repl")
+                E->SetReplacementChar((wchar_t)strtoul(T[1].c_str(), nullptr, 16));
+            else if (Name == "editable")
+                E->SetEditable(I(T[1]) != 0);
+            else if (Name == "activate")
+                E->Activate();
+            else if (Name == "deactivate")
+                E->Deactivate(I(T[1]) != 0);
+            else if (Name == "attrs")
+                E->CurrentAttr.Packed = strtoul(T[1].c_str(), nullptr, 16);
+            else if (Name == "fmask")
+                E->FormatMask = (int)strtol(T[1].c_str(), nullptr, 16);
+            else if (Name == "prefix")
+            {
+                std::vector<wchar_t> Text = WideFromHex(T[1]);
+                RdlClear(E->Prefix);
+                TextNode const Node(Text.data(), -1);
+                RdlAppendNode(E->Prefix, Node.Clone());
+                E->RebuildDisplay();
+            }
+            else if (Name == "fixedlist")
+            {
+                TextRenderAttributes Attr;
+                Attr.Packed = strtoul(T[1].c_str(), nullptr, 16);
+                RdlClear(E->FixedStyle);
+                TRANode const Node(Attr, 0xffffffffu, 0u);
+                RdlAppendNode(E->FixedStyle, Node.Clone());
+                E->RebuildDisplay();
+            }
+            else if (Name == "state")
+                EditState(E);
+            else
+                return false;
+            return true;
+        }
+        if (Table == nullptr)
+            return false;
+        if (Name == "cedge")
+            RichResult(Table->SetColumnEdge((unsigned)I(T[1]), F(T[2])) ? 1 : 0);
+        else if (Name == "redge")
+            RichResult(Table->SetRowEdge((unsigned)I(T[1]), F(T[2])) ? 1 : 0);
+        else if (Name == "frows")
+        {
+            for (size_t Index = 0; Index < Table->Rows.size() && 4 + Index * 4 < T.size(); ++Index)
+            {
+                Table->Rows[Index].bHoverable = (unsigned char)I(T[1 + Index * 4]);
+                Table->Rows[Index].bSelectable = (unsigned char)I(T[2 + Index * 4]);
+                Table->Rows[Index].bRowLine = (unsigned char)I(T[3 + Index * 4]);
+                Table->Rows[Index].GroupId = (unsigned)I(T[4 + Index * 4]);
+            }
+        }
+        else if (Name == "selrow")
+            RichResult(Table->SelectRow((unsigned)I(T[1])) ? 1 : 0);
+        else if (Name == "clearsel")
+            Table->ClearSelection();
+        else if (Name == "getsel")
+        {
+            unsigned Row = 0xdead;
+            bool const bResult = Table->GetSelectedRow(&Row);
+            CtlEvent(oracle::Format("\"ev\":\"r\",\"v\":\"%d %u\"", bResult ? 1 : 0, bResult ? Row : 0u));
+        }
+        else if (Name == "hdr")
+            Table->SetHeaderRows((unsigned)I(T[1]));
+        else if (Name == "borders")
+            Table->SetBorders(I(T[1]) != 0, I(T[2]) != 0, I(T[3]) != 0, I(T[4]) != 0);
+        else if (Name == "collines")
+            Table->SetDrawColumnLines(I(T[1]) != 0);
+        else if (Name == "highlights")
+            Table->SetRowHighlights(I(T[1]) != 0);
+        else if (Name == "resizable")
+            Table->SetResizable(I(T[1]) != 0, I(T[2]) != 0);
+        else if (Name == "grab")
+            Table->SetGrabDistance(F(T[1]));
+        else if (Name == "margins")
+            Table->SetCellMargins(I(T[1]), I(T[2]));
+        else if (Name == "tipmode")
+            Table->SetTipMode(I(T[1]));
+        else if (Name == "wtip")
+            Table->HoverInfo.IdsAlt = I(T[1]);
+        else if (Name == "coltip")
+            Table->Tips[(unsigned)I(T[1])].Info.IdsAlt = I(T[2]);
+        else if (Name == "rtip")
+            Table->GetRowTip((unsigned)I(T[1]))->IdsAlt = I(T[2]);
+        else if (Name == "ctip")
+            Table->GetCellTip((unsigned)I(T[1]), (unsigned)I(T[2]))->IdsAlt = I(T[3]);
+        else if (Name == "tooltip")
+            Table->SetToolTipEnabled(I(T[1]) != 0);
+        else if (Name == "clearcell")
+            RichResult(Table->ClearCell((unsigned)I(T[1]), (unsigned)I(T[2])) ? 1 : 0);
+        else if (Name == "span")
+            Table->SetCellSpanToEnd((unsigned)I(T[1]), (unsigned)I(T[2]), I(T[3]) != 0);
+        else if (Name == "invalidate")
+            Table->InvalidateCell((unsigned)I(T[1]), (unsigned)I(T[2]));
+        else if (Name == "setedges")
+        {
+            FUiFastTableEdges Edges;
+            size_t At = 1;
+            int const RowCount = I(T[At++]);
+            for (int Index = 0; Index < RowCount; ++Index)
+                Edges.Rows.push_back(F(T[At++]));
+            int const ColCount = I(T[At++]);
+            for (int Index = 0; Index < ColCount; ++Index)
+                Edges.Cols.push_back(F(T[At++]));
+            Table->SetEdges(&Edges);
+        }
+        else if (Scroll != nullptr && Name == "items")
+            Scroll->SetItemCount((unsigned)I(T[1]), (unsigned)I(T[2]));
+        else if (Scroll != nullptr && Name == "first")
+            RichResult(Scroll->GetFirstItem());
+        else if (Scroll != nullptr && Name == "callback")
+            Scroll->SetCallback(OracleScrollCallback, nullptr);
+        else if (Scroll != nullptr && Name == "barvalue")
+            Scroll->ScrollBar->SetValue(F(T[1]));
+        else if (Scroll != nullptr && Name == "scrolled")
+            RichResult(Scroll->Slot23(0xf005u, static_cast<unsigned>(reinterpret_cast<uintptr_t>(Scroll->ScrollBar)),
+                                      0u) ? 1 : 0);
+        else if (Scroll != nullptr && Name == "gap")
+            Scroll->SetScrollBarGap(F(T[1]));
+        else if (Scroll != nullptr && Name == "bstate")
+        {
+            // The bar's flags as the other states print them: the low four bits.
+            unsigned char const Saved = Scroll->ScrollBar->Flags;
+            Scroll->ScrollBar->Flags = static_cast<unsigned char>(Saved & 0xf);
+            CtlEvent(FUiScrollPeek::Of(Scroll->ScrollBar)->State());
+            Scroll->ScrollBar->Flags = Saved;
+        }
+        else if (Name == "state")
+        {
+            FastTableState(Table);
+            if (Scroll != nullptr)
+                CtlEvent(oracle::Format("\"ev\":\"stable\",\"items\":\"%u\",\"fixed\":\"%u\"", Scroll->ItemCount,
+                                        Scroll->FixedRows));
+        }
+        else
+            return false;
+        return true;
+    }
+
     void RunCase(const std::string& Line, FOracleCtlParent* Parent, std::string& Class)
     {
         for (const std::string& Op : Split(Line, " ; "))
@@ -1005,8 +1392,19 @@ namespace
                     FUiPayloadTable P = {F(T[2]), F(T[3]), I(T[4]), I(T[5])};
                     Created = WinFactoryCreate("C", Class.c_str(), Parent, &P);
                 }
-                else if (IsLaterClass(Class))
+                else if (IsLaterClass(Class) || Class == "RichTextEditWin")
                     Created = WinFactoryCreate("C", Class.c_str(), Parent, nullptr);
+                else if (Class == "UITextEdit")
+                {
+                    std::vector<wchar_t> Caption = WideFromHex(T.size() > 4 ? T[4] : "");
+                    FUiPayloadText P = {F(T[2]), F(T[3]), Caption.data()};
+                    Created = WinFactoryCreate("C", Class.c_str(), Parent, &P);
+                }
+                else if (Class == "UIFastTable" || Class == "UIScrollTable")
+                {
+                    FUiPayloadTable P = {F(T[2]), F(T[3]), I(T[4]), I(T[5])};
+                    Created = WinFactoryCreate("C", Class.c_str(), Parent, &P);
+                }
                 else if (Class == "UIWinObject")
                 {
                     std::string Path = BytesFromHex(T.size() > 5 ? T[5] : "");
@@ -1016,11 +1414,16 @@ namespace
                     Created = WinFactoryCreate("C", Class.c_str(), Parent, &P);
                 }
                 GCtlObject = Created;
+                GCtlEdit = (Created != nullptr && (Class == "RichTextEditWin" || Class == "UITextEdit"))
+                               ? static_cast<RichTextEditWin*>(static_cast<WinControl*>(Created))
+                               : nullptr;
                 CtlEvent(oracle::Format("\"ev\":\"new\",\"ok\":\"%d\"", Created != nullptr ? 1 : 0));
             }
             else if (O == nullptr)
                 continue;
             else if (IsLaterClass(Class) && LaterOp(O, Class, T))
+                continue;
+            else if (IsRichClass(Class) && RichOp(O, Class, T))
                 continue;
             else if (Name == "xform")
             {
@@ -1188,6 +1591,9 @@ namespace
             GCtlElapsed = 0.0;
             GCtlInstances = 0;
             G_TextControlTypingCount = 0;
+            GCtlEdit = nullptr;
+            GCtlInputFocus = nullptr;
+            GCtlFocusStack.clear();
             NnUiPulseReset();
             float* const Ray = Win3DMouseRayStorage();
             Ray[0] = 0.0f;
@@ -1206,6 +1612,9 @@ namespace
                 delete GCtlObject;
             }
             GCtlObject = nullptr;
+            GCtlEdit = nullptr;
+            GCtlInputFocus = nullptr;
+            GCtlFocusStack.clear();
             Parent->Destroy();
             delete Parent;
             GCtlOut = &Out;
@@ -1259,6 +1668,11 @@ void Win3DPopProjection()
 {
     CtlEvent("\"ev\":\"pop\"");
 }
+void Win3DSetDepthWrite(int bEnable)
+{
+    CtlEvent(oracle::Format("\"ev\":\"dw\",\"v\":\"%d\"", bEnable));
+}
+
 void Win3DSetOrtho2D()
 {
     CtlEvent("\"ev\":\"ortho\"");
@@ -1681,13 +2095,62 @@ FSpaceCamera* GetWin3DSceneCamera()
 }
 FHudCmdRecord* HudCommandRecord()
 {
-    return nullptr;
+    return &GCtlRecord;
+}
+// The input focus as hud_command_dispatch.cpp keeps it (the filter and the stack of the ones it
+// replaced); the edit box's pushes and pops are recorded.
+void HudPushInputFocus(FHudCmdHandler* Handler)
+{
+    if (GCtlEdit != nullptr && Handler == GCtlEdit->AsHudCmdHandler())
+        FocusEvent("push", Handler);
+    if (GCtlInputFocus != nullptr)
+        GCtlFocusStack.push_back(GCtlInputFocus);
+    GCtlInputFocus = Handler;
+}
+void HudPopInputFocus(FHudCmdHandler* Handler)
+{
+    if (GCtlEdit != nullptr && Handler == GCtlEdit->AsHudCmdHandler())
+        FocusEvent("pop", Handler);
+    if (GCtlInputFocus == Handler)
+    {
+        if (GCtlFocusStack.empty())
+        {
+            GCtlInputFocus = nullptr;
+            return;
+        }
+        GCtlInputFocus = GCtlFocusStack.back();
+        GCtlFocusStack.pop_back();
+        return;
+    }
+    for (size_t Index = 0; Index < GCtlFocusStack.size(); ++Index)
+    {
+        if (GCtlFocusStack[Index] == Handler)
+        {
+            GCtlFocusStack.erase(GCtlFocusStack.begin() + (long)Index);
+            break;
+        }
+    }
+}
+FHudCmdHandler* HudGetInputFocus()
+{
+    return GCtlInputFocus;
+}
+void HudUnregisterCommand(FHudCmdHandler* Handler, unsigned MsgId)
+{
+    if (GCtlEdit != nullptr && Handler == GCtlEdit->AsHudCmdHandler())
+        CtlEvent(oracle::Format("\"ev\":\"evunreg\",\"m\":\"%x\"", MsgId));
+}
+void MouseSetCursor(char const* Name, bool)
+{
+    CtlEvent(std::string("\"ev\":\"mcursor\",\"n\":\"") + Name + "\"");
 }
 void HudDestroyEventHandler(FHudCmdHandler*)
 {
 }
-void HudRegisterCommandHandler(FHudCmdHandler*, unsigned)
+void HudRegisterCommandHandler(FHudCmdHandler* Handler, unsigned MsgId)
 {
+    if (GCtlEdit != nullptr && Handler == GCtlEdit->AsHudCmdHandler())
+        CtlEvent(oracle::Format("\"ev\":\"evreg\",\"m\":\"%x\"", MsgId));
 }
 void HudUnregisterCommandHandler(FHudCmdHandler*)
 {
@@ -1713,6 +2176,11 @@ void NnToolTipFeedHover(FToolTipHoverInfo const* Info)
     if (GCtlObject != nullptr && (Info->Ids == static_cast<int>(reinterpret_cast<intptr_t>(GCtlObject)) ||
                                   Info->Ids == static_cast<int>(reinterpret_cast<intptr_t>(GCtlObject->AsWinControl()))))
         Key = "self";
+    else if (GCtlObject != nullptr &&
+             static_cast<unsigned>(Info->Ids - static_cast<int>(reinterpret_cast<intptr_t>(GCtlObject))) - 1u <
+                 0x10000u)
+        // A fast table's own records: the table plus one plus their index.
+        Key = oracle::Format("self+%d", Info->Ids - static_cast<int>(reinterpret_cast<intptr_t>(GCtlObject)));
     else
         Key = oracle::Format("%d", Info->Ids);
     CtlEvent("\"ev\":\"hover\",\"k\":\"" + Key +
@@ -2096,34 +2564,40 @@ bool NnMontageDrawTileAt(FButtonMontageTile const*, float const*, unsigned char 
 // handle (ui_fast_table.cpp), and the helpers the reference bodies name (star_sphere.cpp,
 // hud_element_list.cpp, the latter as the reference writes it). No case reaches the first four.
 
-void BaseRichTextWin::SetNeverHit(bool)
-{
-}
-void BaseRichTextWin::SetAutoScrollbar(bool)
-{
-}
-void BaseRichTextWin::SetAlignMode(int)
-{
-}
-void BaseRichTextWin::SetAttachOffset(float const*)
-{
-}
-void BaseRichTextWin::SetNormSize(float, float)
-{
-}
-void BaseRichTextWin::EnsureSurface()
-{
-}
-void RichTextWin::AppendContent(RenderDisplayList const&)
-{
-}
 bool LoadIdsIntoRdl(unsigned int, RenderDisplayList&)
 {
     return false;
 }
-void RdlAppendNode(RenderDisplayList&, RDLNode* Node)
+// The reference's bodies (ids_rdl.cpp): a cell before the sentinel, every cell unlinked.
+void RdlAppendNode(RenderDisplayList& Rdl, RDLNode* Node)
 {
-    delete Node;
+    void** const Sentinel = (void**)Rdl.NodeList;
+    void** const Tail = static_cast<void**>(Sentinel[1]);
+    void** const Cell = static_cast<void**>(malloc(3 * sizeof(void*)));
+    Cell[0] = Sentinel;
+    Cell[1] = Tail != nullptr ? Tail : Cell;
+    Sentinel[1] = Cell;
+    static_cast<void**>(Cell[1])[0] = Cell;
+    Cell[2] = Node;
+    Rdl.Count += 1;
+}
+void RdlClear(RenderDisplayList& Rdl)
+{
+    void** const Sentinel = (void**)Rdl.NodeList;
+    void** Cur = static_cast<void**>(Sentinel[0]);
+    while (Cur != Sentinel)
+    {
+        void** const Cell = Cur;
+        Cur = static_cast<void**>(Cur[0]);
+        static_cast<void**>(Cell[1])[0] = Cell[0];
+        static_cast<void**>(Cell[0])[1] = Cell[1];
+        RDLNode* const Node = static_cast<RDLNode*>(Cell[2]);
+        if (Node != nullptr)
+            delete Node;
+        Cell[2] = nullptr;
+        free(Cell);
+        Rdl.Count -= 1;
+    }
 }
 
 void SpaceCameraConstruct(FSpaceCamera*)
@@ -2235,18 +2709,6 @@ int FSpaceCamera::SetProperty(char const*, char const*)
     return 0;
 }
 
-UiFastTableRefPtr::UiFastTableRefPtr(UiFastTableRefPtr const& Other)
-    : Object(Other.Object)
-{
-}
-UiFastTableRefPtr::~UiFastTableRefPtr()
-{
-}
-UiFastTableRefPtr& UiFastTableRefPtr::operator=(UiFastTableRefPtr const& Other)
-{
-    Object = Other.Object;
-    return *this;
-}
 
 void Win3DIdentityRotation3x3(float* Out9)
 {
@@ -2272,6 +2734,32 @@ void HudVec3ScaleByInverse(float* Out, float const* In, float Length)
     Out[0] = X;
     Out[1] = Y;
     Out[2] = Z;
+}
+
+// The rich-text windows' other names (pixel_format.cpp, reg_key_stack.cpp, nn_tooltip.cpp): no
+// case makes a surface or reaches the registry; the hover reset is the reference's body.
+int PixelFormatFromD3D(unsigned long)
+{
+    return 0;
+}
+bool PixelFormatFind(unsigned long* OutId, unsigned long, unsigned long, unsigned long, unsigned long,
+                     unsigned long)
+{
+    *OutId = 0;
+    return false;
+}
+HKEY FRegKeyStack::Top() const
+{
+    return nullptr;
+}
+void ToolTipHoverReset(FToolTipHoverInfo* Info)
+{
+    Info->IdsAlt = 0;
+    Info->Ids = -1;
+    Info->AuxField = 0;
+    if (Info->CaptionW != nullptr && Info->CaptionW[0] != L'\0')
+        Info->CaptionW[0] = L'\0';
+    Info->bLive = 0;
 }
 
 void RunUiControlSuites()
