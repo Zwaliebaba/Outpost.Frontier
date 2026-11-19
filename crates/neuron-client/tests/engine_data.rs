@@ -9,7 +9,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use neuron_client::engine::{Engine, EngineConfig, FrameInput, Phase, TEARDOWN_ORDER};
+use neuron_client::engine::{Engine, EngineConfig, FrameInput, FrameMouse, Phase, TEARDOWN_ORDER};
 use neuron_client::render::appearance::Camera;
 use neuron_client::render::deformable::AimDesc;
 use neuron_client::render::ff::device::RecordingBackend;
@@ -71,6 +71,21 @@ fn frame_packets(engine: &mut Engine<RecordingBackend>) -> usize {
     engine.device().backend.draws.len() - before
 }
 
+/// A game mouse that records its frame updates.
+#[derive(Default)]
+struct GameMouse {
+    updates: Vec<u32>,
+}
+
+impl FrameMouse for GameMouse {
+    fn frame_update(&mut self, frame_ms: u32) {
+        self.updates.push(frame_ms);
+    }
+    fn cursor(&self) -> (i32, i32) {
+        (512, 384)
+    }
+}
+
 fn outdir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../outdir")
 }
@@ -119,6 +134,17 @@ fn the_engine_draws_frames_of_the_original_data() {
     );
     assert!(engine.appearance().is_some(), "FLAppearance initialised");
     let construction_notices = engine.notices.clone();
+
+    // P4.11: with the game's mouse the frame reads it once, after the
+    // interface's draw, and draws the cursor as an ordinary frame does.
+    let plain = engine.frame(FrameInput::idle(1.0 / 30.0), &mut Viewer);
+    let mut mouse = GameMouse::default();
+    let mut input = FrameInput::idle(1.0 / 30.0);
+    input.frame_ms = 77;
+    let routed = engine.frame_with_mouse(input, &mut Viewer, &mut mouse);
+    assert_eq!(mouse.updates, [77]);
+    assert_eq!(routed.cursor, plain.cursor);
+    assert_eq!(routed.ui_draws, plain.ui_draws);
 
     // A ship through the scene engine (its materials and textures from
     // the class's library), a character, an engine effect, a scene script.
@@ -223,7 +249,8 @@ fn the_engine_draws_frames_of_the_original_data() {
         String::from_utf8_lossy(&played),
         events.len()
     );
-    assert_eq!(presents, 5);
+    // The two frames of the mouse check and the five of the scene.
+    assert_eq!(presents, 7);
     assert!(ship_packets > 0, "the ship draws");
     assert!(character_packets > 0, "the character draws");
     for report in &reports {

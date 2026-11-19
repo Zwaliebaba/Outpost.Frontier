@@ -36,7 +36,8 @@ toml = "0.9"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 # Direct3D 12, DXGI, the window, known-folder, registry and DPAPI FFI of
 # neuron-client::platform (P4.1, P4.2); XAudio2, X3DAudio and COM
-# initialisation (P4.10); the DirectWrite font backend (P4.12).
+# initialisation (P4.10); the DirectWrite font backend (P4.12); the machine
+# queries of a new install's account and the memory figures (P4.1).
 windows = { version = "0.62.2", features = [
     "Win32_Foundation",
     "Win32_Graphics_Direct3D",
@@ -53,7 +54,9 @@ windows = { version = "0.62.2", features = [
     "Win32_System_Com",
     "Win32_System_LibraryLoader",
     "Win32_System_Registry",
+    "Win32_System_SystemInformation",
     "Win32_System_Threading",
+    "Win32_System_WindowsProgramming",
     "Win32_UI_HiDpi",
     "Win32_UI_Input",
     "Win32_UI_Input_Ime",

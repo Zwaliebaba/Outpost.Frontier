@@ -157,6 +157,7 @@ extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
             push(WindowEvent::FocusGained);
         }
         WM_KILLFOCUS => {
+            ime::hold_on_kill_focus(hwnd);
             with_mouse(|m, p| m.on_focus_lost(p));
             push(WindowEvent::FocusLost);
         }
@@ -506,6 +507,61 @@ impl Window {
     /// Destroys the window; the next pump sees `WM_QUIT`.
     pub fn destroy(self) {
         drop(self);
+    }
+}
+
+/// A warning the player answers with Yes or No before the game goes on
+/// (the low-machine warning of `InitializeEngine`, P4.1): a system
+/// message box with the system cursor showing. Whether the answer was
+/// Yes.
+#[must_use]
+pub fn ask_yes_no(owner: Option<HWND>, caption: &[u16], text: &[u16]) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        IDYES, MB_ICONWARNING, MB_YESNO, MessageBoxW, ShowCursor,
+    };
+    let terminated = |units: &[u16]| -> Vec<u16> {
+        let mut out: Vec<u16> = units.iter().copied().take_while(|&u| u != 0).collect();
+        out.push(0);
+        out
+    };
+    let caption = terminated(caption);
+    let text = terminated(text);
+    // The C++ shows the cursor until its count is not negative, and puts
+    // the count back afterwards.
+    let mut extra = 0;
+    // SAFETY: plain calls on this thread's cursor count.
+    while unsafe { ShowCursor(true) } < 0 {
+        extra += 1;
+    }
+    // SAFETY: two NUL-terminated strings that outlive the call.
+    let answer = unsafe {
+        MessageBoxW(
+            owner,
+            PCWSTR(text.as_ptr()),
+            PCWSTR(caption.as_ptr()),
+            MB_YESNO | MB_ICONWARNING,
+        )
+    };
+    for _ in 0..=extra {
+        // SAFETY: as above.
+        unsafe { ShowCursor(false) };
+    }
+    answer == IDYES
+}
+
+/// The window's mouse model as the engine frame's mouse: the input half of
+/// `MouseFrameUpdate` after the interface's draw, and the cursor there.
+impl crate::engine::FrameMouse for Window {
+    fn frame_update(&mut self, frame_ms: u32) {
+        self.mouse_frame(frame_ms);
+    }
+
+    fn cursor(&self) -> (i32, i32) {
+        with_state(|s| {
+            let (x, y, _) = s.mouse.cursor();
+            (x, y)
+        })
+        .unwrap_or_default()
     }
 }
 
