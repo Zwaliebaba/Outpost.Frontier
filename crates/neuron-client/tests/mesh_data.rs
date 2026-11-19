@@ -162,6 +162,9 @@ impl MeshServices for Counting {
     fn material_flags(&mut self, _: MaterialId) -> u32 {
         8
     }
+    fn material_name(&mut self, _: MaterialId) -> Option<Vec<u8>> {
+        None
+    }
     fn material_class(&mut self, _: MaterialId) -> Vec<u8> {
         b"Shading".to_vec()
     }

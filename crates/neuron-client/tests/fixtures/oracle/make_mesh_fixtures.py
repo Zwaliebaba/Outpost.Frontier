@@ -1,11 +1,11 @@
-"""Writes the oracle inputs of the mesh render suite (work package P4.6).
+"""Writes the oracle inputs of the mesh render suites (work package P4.6).
 
     python make_mesh_fixtures.py [--check]
 
 Everything here is synthetic: small UTF archives in mesh/ holding the nodes RendComp reads
-(VMeshLibrary, MultiLevel, VMeshPart, VMeshWire, Mesh, Sphere) and mesh_render.list, the
-operations CppSource/Oracle/oracle_mesh_render.cpp and tests/support/mesh_render.rs run on
-them. The name CRCs the archives hold are the engine's (NEURONCOMPONENTS_CRC::GetCRC32), whose
+(VMeshLibrary, MultiLevel, VMeshPart, VMeshWire, Mesh, Sphere), mesh_render.list and
+mesh_faces.list (the IMesh and IRenderableMesh faces, second increment), the operations
+CppSource/Oracle/oracle_mesh_render.cpp and tests/support/mesh_render.rs run on them. The name CRCs the archives hold are the engine's (NEURONCOMPONENTS_CRC::GetCRC32), whose
 table this script reads from crates/neuron-core/src/hash.rs. With --check nothing is written;
 the script fails when a file differs from what it would write.
 """
@@ -208,11 +208,13 @@ def tube_3db(name, points, interpolate, frames, fps, groups, lookup):
         File('UV0_interpolate', u32s([interpolate])),
     ])
     nodes = [File('Count', u32s([len(groups)]))]
-    for index, (material, kind, indices) in enumerate(groups):
+    for index, group in enumerate(groups):
+        material, kind, indices = group[:3]
         children = []
         if material is not None:
             children.append(File('Material_name', material.encode() + b'\0'))
         children.append(File(kind, u16s(indices)))
+        children += list(group[3]) if len(group) > 3 else []
         nodes.append(Dir('Group%d' % index, children))
     return build([Dir('Mesh', [geometry, Dir('Face_groups', nodes)])])
 
@@ -240,6 +242,20 @@ def tube2():
     ], [1, 3])
 
 
+def edges():
+    """A TriMesh whose groups have edges: the first with angles, the second with indices only,
+    the third with angles only (a longer leaf than the edges need), the fourth none."""
+    return tube_3db('edges', TUBE_POINTS, 1, 3, 12.0, [
+        ('TubeOuter', 'Face_indices', [0, 1, 2, 2, 3, 0],
+         [File('Edge_indices', u16s([0, 1, 1, 2, 2, 0, 0, 3])), File('Edge_angles', f32s([0.75, 0.25, 1.5, 0.0625]))]),
+        ('tube_glass', 'Face_indices', [3, 4, 5],
+         [File('Edge_indices', u16s([3, 4, 4, 5]))]),
+        (None, 'Face_indices', [6, 7, 8],
+         [File('Edge_angles', f32s([0.5, 2.0, 3.0]))]),
+        ('tube_plain', 'Face_indices', [5, 6, 7, 1, 2, 3]),
+    ], [0, -1, 2, 5])
+
+
 def planet_sph():
     names = ['planet_side%d' % i for i in range(6)] + ['planet_atmo']
     return build([Dir('Sphere', [File('Radius', f32s([1000.0])), File('Sides', u32s([7]))]
@@ -254,6 +270,7 @@ ARCHIVES = {
     'mesh/ship.cmp': ship_cmp,
     'mesh/tube.3db': tube,
     'mesh/tube2.3db': tube2,
+    'mesh/edges.3db': edges,
     'mesh/planet.sph': planet_sph,
     'mesh/bare.sph': bare_sph,
 }
@@ -358,6 +375,75 @@ CASES = [
 ]
 
 
+SHIP_MATS = ['mat hull #a0000001 8 Shading', 'mat trim #a0000002 1 Shading',
+             'mat glow #a0000003 0 Shading', 'mat over #a0000099 18 Shading']
+TUBE_MATS = ['mat outer tubeouter 8 Shading', 'mat glass tube_glass 1 Shading',
+             'mat plain tube_plain 0 Shading', 'mat over #a0000099 0 Shading']
+
+
+def faces(target, *slots):
+    return ['face %s %s' % (target, slot) for slot in slots]
+
+
+# The IMesh and IRenderableMesh faces (second increment): "face a <archetype> <slot ...>" asks
+# QueryArchetype, "face i <instance> <slot ...>" QueryInstance.
+FACE_CASES = [
+    # A VMesh part of three face groups over a mesh of three groups (position, normal, tex0).
+    ['fs mesh/ship.cmp'] + SHIP_MATS + ['lib a', 'arch 1 .', 'arch 2 Part2.3db', 'arch 3 Glow.3db']
+    + faces('a 1', 'count', 'prim', 'getmat', 'close', 'chopen 1', 'chclose', 'data 1', 'idx 1',
+            'idxcount 1', 'getctx', 'setctx 7', 'open 3 0', 'open -1 0', 'open 1 5', 'open 0 0',
+            'count', 'prim', 'getmat', 'chopen 1', 'chopen 10', 'chopen 180', 'chopen 3',
+            'chlock 8', 'chlock 800', 'chunlock', 'chclose', 'data 1', 'data 8', 'data 2',
+            'data 4', 'data 10', 'data 180', 'idx 1', 'idx 80', 'idxcount 1', 'idxcount 2',
+            'getctx', 'setctx 7', 'close', 'open 2 1', 'getmat', 'idx 1', 'idxcount 1',
+            'close', 'close', 'add 4', 'remove 0', 'setmat over', 'setdata 1', 'setidx 1',
+            'setidxcount', 'addch 1', 'rmch 1', 'reset', 'noop', 'refresh', 'reject',
+            'reject1', 'vcount', 'icount', 'copyidx 12', 'copyidx 3', 'copyvd 112 0 9',
+            'copyvd 42 2 4')
+    + faces('a 2', 'count', 'open 0 0', 'data 1', 'data 2', 'idx 1', 'getmat', 'vcount',
+            'icount', 'copyidx 3', 'copyvd 112 0 2', 'close')
+    + faces('a 3', 'open 0 0', 'data 10', 'data 1', 'idx 1', 'getmat', 'close')
+    + ['setlod 1 1'] + faces('a 1', 'count', 'open 0 0', 'getmat', 'data 1', 'close')
+    + ['setlod 1 2'] + faces('a 1', 'count')
+    + faces('a 9', 'count')
+    + ['instarch 10 1', 'instarch 11 2', 'ext 11 40400000 00000000,00000000,00000000', 'inst 11 2']
+    + faces('i 11', 'count', 'open 0 0', 'getmat', 'data 1', 'vcount', 'copyidx 3', 'close')
+    + faces('i 13', 'count')
+    + ['unlib a', 'end'],
+    # A TriMesh archetype and its instance; the archetype's cursor starts at the group count.
+    ['fs mesh/tube.3db'] + TUBE_MATS + ['arch 1 .']
+    + faces('a 1', 'count', 'prim', 'getmat', 'close', 'open 6 1', 'open 1 1',
+            'open 0 1', 'prim', 'getmat', 'getctx', 'setctx 2a', 'getctx', 'chopen 1b',
+            'chopen 4', 'chopen 80', 'chopen 4000', 'data 1', 'data 8', 'data 2', 'data 4',
+            'data 10', 'data 80', 'data 100', 'data 4000', 'data 3', 'idx 1', 'idx 80',
+            'idxcount 1', 'idxcount 2', 'idxcount 3', 'chlock 1b', 'idx 1', 'idx 8', 'idx 2',
+            'idx 10', 'idx 4', 'idx 100', 'idx 40', 'chlock 4', 'chlock 1', 'chunlock', 'idx 1',
+            'setdata 1', 'setidx 1', 'setidxcount', 'addch 1', 'rmch 1', 'close', 'open 2 1',
+            'getmat', 'close', 'open 0 1', 'chlock 1', 'close', 'idx 1', 'vcount', 'icount',
+            'copyidx 6', 'copyidx 5', 'copyvd 152 0 9', 'noop', 'reject', 'reject1')
+    + ['instarch 40 1', 'inst 40 1']
+    + faces('i 40', 'count', 'reject', 'reject1', 'open 0 1', 'prim', 'getmat', 'close', 'vcount')
+    + ['dup 2 1'] + faces('a 2', 'count', 'open 0 1', 'getmat', 'close')
+    + faces('a 1', 'open 0 1', 'setmat over', 'getmat', 'setmat -', 'getmat', 'setmat glass',
+            'getmat', 'close', 'refresh', 'open 0 1', 'getmat', 'close', 'add 5', 'count',
+            'open 6 1', 'prim', 'getmat', 'idxcount 1', 'add 4', 'close', 'add 4',
+            'remove 7', 'count', 'reset', 'count', 'add 4', 'close',
+            'add 4', 'count', 'open 0 1', 'prim', 'close', 'remove 0', 'count', 'vcount')
+    + ['uninst 40', 'destroy 2', 'end'],
+    # TriMesh groups with edges and edge angles.
+    ['fs mesh/edges.3db'] + TUBE_MATS + ['arch 1 .', 'dup 2 1']
+    + faces('a 1', 'open 0 1', 'chopen 80', 'chopen 100', 'chopen 180', 'data 80', 'data 100',
+            'data 180', 'idx 80', 'idx 100', 'idxcount 2', 'chlock 180', 'idx 100', 'idx 80',
+            'chunlock', 'idx 100', 'close', 'open 1 1', 'chopen 180', 'chopen 80', 'data 100',
+            'idx 80', 'idxcount 2', 'chlock 80', 'chlock 100', 'close', 'open 3 1',
+            'chopen 100', 'data 100', 'idx 100', 'chlock 100', 'idx 100', 'idxcount 2',
+            'chunlock', 'close', 'open 2 1', 'chopen 80', 'idx 80', 'idxcount 2', 'close')
+    + faces('a 2', 'open 0 1', 'data 100', 'idx 80', 'close', 'open 3 1', 'chopen 100',
+            'data 100', 'close')
+    + ['destroy 2', 'end'],
+]
+
+
 def write(name, data, check):
     path = os.path.join(HERE, name)
     if check:
@@ -377,6 +463,9 @@ def main():
     text = '# P4.6 mesh render oracle inputs, written by make_mesh_fixtures.py.\n' + ''.join(
         ' ; '.join(case) + '\n' for case in CASES)
     write('mesh_render.list', text.encode('latin-1'), check)
+    text = '# P4.6 mesh face oracle inputs, written by make_mesh_fixtures.py.\n' + ''.join(
+        ' ; '.join(case) + '\n' for case in FACE_CASES)
+    write('mesh_faces.list', text.encode('latin-1'), check)
 
 
 if __name__ == '__main__':

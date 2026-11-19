@@ -156,6 +156,16 @@ pub trait Material<S: ?Sized> {
         Err(GR_GENERIC)
     }
 
+    /// `IMaterial::GetParameterDescriptor(index)`: the record's leaf name
+    /// (`None` for a null one).
+    ///
+    /// # Errors
+    ///
+    /// `GR_GENERIC` past the schema.
+    fn parameter_tag(&self, index: u32) -> Result<Option<Vec<u8>>, i32> {
+        let _ = index;
+        Err(GR_GENERIC)
+    }
     /// `IMaterial::SetParameterValue(index, value)`: stored when it has the
     /// property's type and lies in its declared range.
     fn set_parameter(&mut self, services: &mut S, index: u32, value: &PropertyValue) -> i32 {
@@ -244,7 +254,8 @@ pub trait MaterialFactory<S: ?Sized> {
 
 struct Entry<S: ?Sized> {
     refs: u32,
-    object: Box<dyn Material<S>>,
+    /// `None` while [`Materials::take`] has it out.
+    object: Option<Box<dyn Material<S>>>,
 }
 
 struct Slot<S: ?Sized> {
@@ -285,7 +296,10 @@ impl<S: ?Sized> Materials<S> {
     /// Takes `object` with `refs` references (the reference's object
     /// starts with one, held by whoever created it).
     pub fn insert(&mut self, object: Box<dyn Material<S>>, refs: u32) -> MaterialId {
-        let entry = Some(Entry { refs, object });
+        let entry = Some(Entry {
+            refs,
+            object: Some(object),
+        });
         if let Some(index) = self.free.pop() {
             let slot = &mut self.slots[index as usize];
             slot.entry = entry;
@@ -334,12 +348,38 @@ impl<S: ?Sized> Materials<S> {
     /// The material.
     #[must_use]
     pub fn get(&self, id: MaterialId) -> Option<&dyn Material<S>> {
-        self.entry(id).map(|e| &*e.object)
+        self.entry(id).and_then(|e| e.object.as_deref())
     }
 
     /// The material, mutably.
     pub fn get_mut(&mut self, id: MaterialId) -> Option<&mut (dyn Material<S> + 'static)> {
-        self.entry_mut(id).map(|e| &mut *e.object)
+        self.entry_mut(id).and_then(|e| e.object.as_deref_mut())
+    }
+
+    /// Takes a live material out of its slot while a call into it runs
+    /// with services that hold the arena; the handle stays live and keeps
+    /// its count, and [`Materials::get`] finds nothing until
+    /// [`Materials::restore`]. `None` for a freed handle or one already
+    /// out.
+    pub fn take(&mut self, id: MaterialId) -> Option<Box<dyn Material<S>>> {
+        self.entry_mut(id).and_then(|e| e.object.take())
+    }
+
+    /// Puts a taken material back. When its last reference went while it
+    /// was out, the slot is gone and the material is handed back for its
+    /// destruction.
+    pub fn restore(
+        &mut self,
+        id: MaterialId,
+        object: Box<dyn Material<S>>,
+    ) -> Option<Box<dyn Material<S>>> {
+        match self.entry_mut(id) {
+            Some(entry) if entry.object.is_none() => {
+                entry.object = Some(object);
+                None
+            }
+            _ => Some(object),
+        }
     }
 
     /// `AddRef`; the new count, 0 for a freed handle.
@@ -365,8 +405,8 @@ impl<S: ?Sized> Materials<S> {
             return entry.refs;
         }
         let slot = &mut self.slots[id.index as usize];
-        if let Some(mut entry) = slot.entry.take() {
-            entry.object.destroy(services);
+        if let Some(mut object) = slot.entry.take().and_then(|e| e.object) {
+            object.destroy(services);
         }
         slot.generation = slot.generation.wrapping_add(1);
         self.free.push(id.index);

@@ -299,6 +299,15 @@ fn mesh_render() {
     check_suite("mesh_render.jsonl", &mesh_render::lines());
 }
 
+/// P4.6, second increment: the `IMesh` and `IRenderableMesh` faces of the
+/// VMesh part and of the TriMesh archetype and instance, reached through
+/// the render manager's `QueryArchetype` and `QueryInstance`
+/// (`tests/fixtures/oracle/mesh_faces.list`).
+#[test]
+fn mesh_faces() {
+    check_suite("mesh_faces.jsonl", &mesh_render::face_lines());
+}
+
 /// P4.8: every ramp and transform property of a node library evaluated at a
 /// list of times (`tests/fixtures/oracle/particle_ramp.list`).
 #[test]
