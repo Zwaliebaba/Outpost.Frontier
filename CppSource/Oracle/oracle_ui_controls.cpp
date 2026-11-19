@@ -74,6 +74,15 @@
 //   tooltip V | clearcell R C | span R C V | invalidate R C | setedges NR R.. NC C..
 //   scroll tables: items N F | first | callback | barvalue V | scrolled (slot 23 0xf005 from the
 //   bar) | gap X | bstate (the bar's state)
+// and, for every rich-text window, rtview X Y W H M0..M15 (the pipeline's viewport and projection
+// for the rest of the case, zero until then: the window projects, makes its surface and lays out)
+// | rtmetrics (the window's text context measures as the port's deterministic font backend, see
+// FOracleCtlMetricsTrc) | rtnorm W H (SetNormSize) | rtrect (its screen and world rectangles,
+// surface, pitch and image) | rtlist (its laid-out list); a RichTextWin also takes rtpos H V RH
+// RV (a PositionNode appended) | rtclear (ClearContent) | rtkeep V (SetKeepScrolledToEnd) |
+// rtalign M (SetAlignMode), a table celltext R C TEXT (a text node appended to the cell's
+// source) | laid R C (the cell's laid-out list). MsgWin (new MsgWin, chat_init.cpp) takes the
+// operations of MsgWinOp below and a RichTextWin's.
 //
 // Line formats, each prefixed with "case": the stand-ins' calls --
 //   {"ev":"begin","p"} {"ev":"end"} {"ev":"v","x","y","z"} {"ev":"c3","c"} {"ev":"c4","c"}
@@ -103,6 +112,9 @@
 //   {"ev":"sctl",...} {"ev":"table",...} (the fields in the order the state functions print;
 //   their flags are the low four bits, the Win3D constructor keeps the others as allocated)
 //   {"ev":"edit",...} {"ev":"ftable",...} {"ev":"stable",...} {"ev":"rtwin",...} {"ev":"nobar"}
+//   {"ev":"rtrect","screen","world","surface","pitch","image"} {"ev":"rtlist","l"}
+//   {"ev":"laid","l"} {"ev":"nocell"} {"ev":"msgwin","bound","gen","content"} (laid-out lists
+//   print a position node as p:<rel h><rel v>:<h>:<v>, nested ones as "other")
 //   {"ev":"text","r","t"}, and the HUD's
 //   {"ev":"focus","op","h"} {"ev":"evreg","m"} {"ev":"evunreg","m"} for the edit box's handler,
 //   {"ev":"mcursor","n"} (MouseSetCursor) and {"ev":"cb","first","rows"} (the scroll callback).
@@ -186,10 +198,150 @@ struct OracleCtlImeFocus
     void SetFocus(FLImeInputBox*, bool) {}
 };
 #define IMEFocus OracleCtlImeFocus
+// The window's surface (EnsureSurface, Draw, ReleaseRichTextSurface): GDI's calls are stand-ins
+// under names of their own that hand out fixed handles, read back a cleared bitmap and change
+// nothing, and NeuronRuntime::NeuronComponents is, for these files, a maker of the silent big
+// image below (OracleCtlSurfaceImage). A case without a viewport never reaches them.
+static IBigImage2* OracleCtlSurfaceImage();
+namespace
+{
+    // The screen DC, the memory DC, the bitmap, the brush and the object a selection gives back.
+    char GCtlGdiObjects[5];
+}
+static HDC OracleCtlGetDC(HWND)
+{
+    return reinterpret_cast<HDC>(&GCtlGdiObjects[0]);
+}
+static int OracleCtlReleaseDC(HWND, HDC)
+{
+    return 1;
+}
+static HDC OracleCtlCreateCompatibleDC(HDC)
+{
+    return reinterpret_cast<HDC>(&GCtlGdiObjects[1]);
+}
+static HBITMAP OracleCtlCreateCompatibleBitmap(HDC, int, int)
+{
+    return reinterpret_cast<HBITMAP>(&GCtlGdiObjects[2]);
+}
+static HGDIOBJ OracleCtlSelectObject(HDC, HGDIOBJ)
+{
+    return reinterpret_cast<HGDIOBJ>(&GCtlGdiObjects[4]);
+}
+static BOOL OracleCtlDeleteObject(HGDIOBJ)
+{
+    return 1;
+}
+static BOOL OracleCtlDeleteDC(HDC)
+{
+    return 1;
+}
+static int OracleCtlSelectClipRgn(HDC, HRGN)
+{
+    return 1;
+}
+static HBRUSH OracleCtlCreateSolidBrush(COLORREF)
+{
+    return reinterpret_cast<HBRUSH>(&GCtlGdiObjects[3]);
+}
+static int OracleCtlFillRect(HDC, const RECT*, HBRUSH)
+{
+    return 1;
+}
+static int OracleCtlGetDIBits(HDC, HBITMAP, UINT, UINT Lines, LPVOID Bits, BITMAPINFO* Info, UINT)
+{
+    memset(Bits, 0, Info->bmiHeader.biSizeImage);
+    return static_cast<int>(Lines);
+}
+namespace
+{
+    // The component the maker hands out: its IBigImage2 is the silent image.
+    class FOracleCtlBigImageInstance final : public INeuronComponent
+    {
+    public:
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char*, void** Out) override
+        {
+            *Out = OracleCtlSurfaceImage();
+            return GR_OK;
+        }
+        unsigned long NEURONCOMPONENTS_API AddRef() override { return 1; }
+        unsigned long NEURONCOMPONENTS_API Release() override { return 1; }
+    };
+
+    struct FOracleCtlBigImageMaker
+    {
+        FOracleCtlBigImageInstance Instance;
+
+        GENRESULT CreateInstance(AGGDESC*, void** Out)
+        {
+            *Out = static_cast<INeuronComponent*>(&Instance);
+            return GR_OK;
+        }
+    };
+
+    FOracleCtlBigImageMaker GCtlBigImageMaker;
+}
+namespace NeuronRuntime
+{
+    static FOracleCtlBigImageMaker* const OracleCtlNeuronComponents = &GCtlBigImageMaker;
+}
+#define NeuronComponents OracleCtlNeuronComponents
+#define GetDC OracleCtlGetDC
+#define ReleaseDC OracleCtlReleaseDC
+#define CreateCompatibleDC OracleCtlCreateCompatibleDC
+#define CreateCompatibleBitmap OracleCtlCreateCompatibleBitmap
+#define SelectObject OracleCtlSelectObject
+#define DeleteObject OracleCtlDeleteObject
+#define DeleteDC OracleCtlDeleteDC
+#define SelectClipRgn OracleCtlSelectClipRgn
+#define CreateSolidBrush OracleCtlCreateSolidBrush
+#define FillRect OracleCtlFillRect
+#define GetDIBits OracleCtlGetDIBits
 #include "../OutpostFrontier/Client/rich_text_win.cpp"
 #include "../OutpostFrontier/Client/ui_text_edit.cpp"
 #include "../OutpostFrontier/Client/ui_fast_table.cpp"
+#undef GetDIBits
+#undef FillRect
+#undef CreateSolidBrush
+#undef SelectClipRgn
+#undef DeleteDC
+#undef DeleteObject
+#undef SelectObject
+#undef CreateCompatibleBitmap
+#undef CreateCompatibleDC
+#undef ReleaseDC
+#undef GetDC
+#undef NeuronComponents
 #undef IMEFocus
+// MsgWin, the chat's message window (chat_msg_win.h), is compiled in with the chat file it is
+// defined in (chat_init.cpp). The chat's other calls are stand-ins no case reaches: ids_rdl.cpp's
+// two text loaders and the spawn system's id under names of their own, and the methods of the
+// chat input line and the group control (chat_text_input.cpp, nn_group_control.cpp, which no
+// other file of Oracle.exe compiles) below. GetPlayerConnectionId is oracle_audio_client.cpp's
+// (it answers 0). No case runs ChatInit: the message store stays null, so MsgWin::Update skips
+// its ageing, and a case binds the window to a snapshot of its own (msgbind).
+#include "../OutpostFrontier/Client/ids_rdl.h"
+#include "../OutpostFrontier/Client/character_select_equip.h"
+static void OracleCtlAppendTextAsRdl(const wchar_t*, unsigned int, RenderDisplayList&, bool) {}
+static bool OracleCtlLoadIdsTextIntoRdl(unsigned int, RenderDisplayList&, const wchar_t*)
+{
+    return false;
+}
+static int OracleCtlPlayerSpawnSystemId()
+{
+    return 0;
+}
+#define AppendTextAsRdl OracleCtlAppendTextAsRdl
+#define LoadIdsTextIntoRdl OracleCtlLoadIdsTextIntoRdl
+#define GetPlayerSpawnSystemIdbaseline OracleCtlPlayerSpawnSystemId
+#include "../OutpostFrontier/Client/chat_init.cpp"
+#undef GetPlayerSpawnSystemIdbaseline
+#undef LoadIdsTextIntoRdl
+#undef AppendTextAsRdl
+void ChatTextInputDisplay::SetTarget(CHAT_ID const&) {}
+void NnGroupControl::RefreshRequestDisplay() {}
+void NnGroupControl::AddTradeRequest(unsigned) {}
+void NnGroupControl::HandleInviteMessage(void const*, unsigned) {}
 
 namespace
 {
@@ -200,6 +352,10 @@ namespace
     int GCtlCursor[2] = {0, 0};
     int GCtlOption = 1;
     int GCtlOptions[0x20];
+    // The pipeline's viewport and projection (GetViewportRect, GetProjection): zero unless the
+    // case sets them (rtview).
+    int GCtlViewport[4];
+    float GCtlProjection[16];
     double GCtlElapsed = 0.0;
     int GCtlInstances = 0;
     float GCtlXforms[8][12];
@@ -313,10 +469,10 @@ namespace
         GENRESULT NEURONCOMPONENTS_API GetViewportRect(
             int* OutX, int* OutY, int* OutW, int* OutH) override
         {
-            *OutX = 0;
-            *OutY = 0;
-            *OutW = 0;
-            *OutH = 0;
+            *OutX = GCtlViewport[0];
+            *OutY = GCtlViewport[1];
+            *OutW = GCtlViewport[2];
+            *OutH = GCtlViewport[3];
             return GR_GENERIC;
         }
         GENRESULT NEURONCOMPONENTS_API SetDepthRange(float MinZ, float MaxZ) override { return GR_GENERIC; }
@@ -336,7 +492,7 @@ namespace
         GENRESULT NEURONCOMPONENTS_API GetProjection(float* Out16) override
         {
             for (int Index = 0; Index < 16; ++Index)
-                Out16[Index] = 0.0f;
+                Out16[Index] = GCtlProjection[Index];
             return GR_GENERIC;
         }
         GENRESULT NEURONCOMPONENTS_API SetLookat(
@@ -1160,8 +1316,11 @@ namespace
     bool IsRichClass(const std::string& Class)
     {
         return Class == "RichTextWin" || Class == "RichTextEditWin" || Class == "UITextEdit" ||
-               Class == "UIFastTable" || Class == "UIScrollTable";
+               Class == "UIFastTable" || Class == "UIScrollTable" || Class == "MsgWin";
     }
+
+    // The snapshot a MsgWin case binds its window to (FChatDisplaySnapshot), made for each case.
+    FChatDisplaySnapshot* GCtlSnapshot = nullptr;
 
     // A big image that does nothing: a rich-text window draws its debug frame only with an image.
     class FOracleCtlSilentImage final : public IBigImage2
@@ -1193,6 +1352,36 @@ namespace
 
     FOracleCtlSilentImage GCtlSilentImage;
 
+    // A position node as "p:<rel h><rel v>:<h>:<v>", any other as RichNodeText prints it.
+    std::string RichLaidNodeText(RDLNode* Node)
+    {
+        if (PositionNode* Pos = Node->operator PositionNode*())
+            return oracle::Format("p:%d%d:", Pos->is_rel_h() ? 1 : 0, Pos->is_rel_v() ? 1 : 0) +
+                   Bits(Pos->get_pos_h()) + ":" + Bits(Pos->get_pos_v());
+        return RichNodeText(Node);
+    }
+
+    std::string RichLaidListText(const RenderDisplayList& Rdl)
+    {
+        std::string Out;
+        for (FRdlListNode* Cell = Rdl.NodeList->Next; Cell != Rdl.NodeList; Cell = Cell->Next)
+            Out += (Out.empty() ? "" : " ") + RichLaidNodeText(Cell->Node);
+        return Out;
+    }
+
+    // The projection of the window: its screen and world rectangles, the surface (its size, "-"
+    // without one), the DIB pitch and whether it has an image.
+    void RichRect(BaseRichTextWin* W)
+    {
+        std::string Surface = "-";
+        if (W->Surface.Dc != nullptr)
+            Surface = oracle::Format("%d %d", W->Surface.Width, W->Surface.Height);
+        CtlEvent(oracle::Format("\"ev\":\"rtrect\",\"screen\":\"%d %d %d %d\",\"world\":\"", W->ScreenRect[0],
+                                W->ScreenRect[1], W->ScreenRect[2], W->ScreenRect[3]) +
+                 BitsN(W->WorldRect, 4) + "\",\"surface\":\"" + Surface +
+                 oracle::Format("\",\"pitch\":\"%d\",\"image\":\"%d\"", W->Pitch, W->Image != nullptr ? 1 : 0));
+    }
+
     void RichWinState(RichTextWin* W)
     {
         UiScroll* const Bar = W->ScrollBarV;
@@ -1208,7 +1397,137 @@ namespace
     }
 
     void RichResult(int Value);
+}
 
+static IBigImage2* OracleCtlSurfaceImage()
+{
+    return &GCtlSilentImage;
+}
+
+namespace
+{
+    // The text metrics of the cases that ask for them (rtmetrics): the window's DeviceTRC becomes,
+    // in place and copied from itself, this subclass of it, whose faces measure as the port's
+    // deterministic backend (neuron-client::text::font::fake) does at a height of 16 for every
+    // font of the table: a cell of 16 pixels, ascent 12, descent 4, the widest character 16;
+    // advances of 4 for "il.,'|" and space, 16 for M and W, 0 for NUL and 8 for the rest. As
+    // DeviceTRC's GDI calls do, a context bound to no DC measures nothing (extents 0, nothing
+    // fits); the text draws nothing here. The layout (Common's LayoutRichText), the lists' and
+    // nodes' functions and the clip calls stay DeviceTRC's and Common's.
+    class FOracleCtlMetricsTrc final : public DeviceTRC
+    {
+    public:
+        explicit FOracleCtlMetricsTrc(const DeviceTRC& Other) : DeviceTRC(Other) {}
+
+        static int Advance(wchar_t Ch)
+        {
+            switch (Ch)
+            {
+            case 0:
+                return 0;
+            case L' ':
+            case L'i':
+            case L'l':
+            case L'.':
+            case L',':
+            case L'\'':
+            case L'|':
+                return 4;
+            case L'M':
+            case L'W':
+                return 16;
+            default:
+                return 8;
+            }
+        }
+
+        // wcslen, counted here (a local build's wchar_t is not its C library's).
+        static int Length(const wchar_t* Text)
+        {
+            int Count = 0;
+            while (Text[Count] != 0)
+                ++Count;
+            return Count;
+        }
+
+        // DeviceTRC's DC, its member at +0x3C (static_assert(sizeof(DeviceTRC) == 0x50)).
+        bool Bound() const
+        {
+            HDC Dc;
+            memcpy(&Dc, reinterpret_cast<const char*>(static_cast<const DeviceTRC*>(this)) + 0x3C, sizeof(Dc));
+            return Dc != nullptr;
+        }
+
+        int Extent(const wchar_t* Text, int Len) const
+        {
+            if (!Bound())
+                return 0;
+            int Width = 0;
+            for (int Index = 0; Index < Len; ++Index)
+                Width += Advance(Text[Index]);
+            return Width;
+        }
+
+        int get_cell_width() const override { return 16; }
+        int get_cell_height() const override { return 16; }
+        void get_text_visual_size(const wchar_t* Text, VisualSize& Size, int Len) const override
+        {
+            if (Text == nullptr)
+            {
+                Size.Ascent = 0;
+                Size.Descent = 0;
+                return;
+            }
+            if (Len == -1)
+                Len = Length(Text);
+            Size.Width = Extent(Text, Len);
+            Size.Height = Bound() ? 16 : 0;
+            Size.Ascent = 12;
+            Size.Descent = 4;
+        }
+        void get_font_metrics(int& Ascent, int& Descent) const override
+        {
+            Ascent = 12;
+            Descent = 4;
+        }
+        void get_text_fit(const wchar_t* Text, int MaxWidth, int& FitCount, int*, VisualSize&, int Len) const override
+        {
+            FitCount = 0;
+            if (Text == nullptr || Len == 0 || !Bound())
+                return;
+            if (Len == -1)
+                Len = Length(Text);
+            int Width = 0;
+            for (int Index = 0; Index < Len; ++Index)
+            {
+                Width += Advance(Text[Index]);
+                if (Width > MaxWidth)
+                    break;
+                ++FitCount;
+            }
+        }
+        void execute_text(const wchar_t* Text, bool, int Len) override
+        {
+            if (Text == nullptr)
+                return;
+            if (Len == -1)
+                Len = Length(Text);
+            set_pos_h(get_pos_h() + Extent(Text, Len));
+        }
+    };
+
+    // The window's context measured with the metrics above.
+    void UseOracleMetrics(BaseRichTextWin* W)
+    {
+        DeviceTRC* const Trc = &W->Trc;
+        DeviceTRC Saved(*Trc);
+        Trc->~DeviceTRC();
+        new (Trc) FOracleCtlMetricsTrc(Saved);
+    }
+}
+
+namespace
+{
     // The operations of a plain RichTextWin; false when the operation is not one of them.
     bool RichWinOp(RichTextWin* W, const std::vector<std::string>& T)
     {
@@ -1242,6 +1561,21 @@ namespace
         }
         else if (Name == "rtimage")
             W->Image = &GCtlSilentImage;
+        else if (Name == "rtpos")
+        {
+            PositionNode Pos;
+            Pos.set_pos(F(T[1]), F(T[2]));
+            Pos.set_rel_h(I(T[3]) != 0);
+            Pos.set_rel_v(I(T[4]) != 0);
+            W->AppendNode(Pos);
+        }
+        else if (Name == "rtclear")
+            W->ClearContent();
+        else if (Name == "rtkeep")
+            W->SetKeepScrolledToEnd(I(T[1]) != 0);
+        else if (Name == "rtalign")
+            W->SetAlignMode(I(T[1]));
+
         else if (Name == "rtmesh")
         {
             std::string const Path = BytesFromHex(T[1]);
@@ -1284,12 +1618,64 @@ namespace
         CtlEvent(oracle::Format("\"ev\":\"r\",\"v\":\"%d\"", Value));
     }
 
+    // The operations of a MsgWin; false when the operation is not one of them.
+    //   msgsetup (ChatCreateMsgWin's settings: shown, no frame, align mode 3, no automatic bar) |
+    //   msgbind | msgunbind (Snapshot and SnapshotGeneration 0, or no snapshot) | msggen G |
+    //   msgtext TEXT | msgpara | msgclear (the snapshot's generation and display list) |
+    //   msgstate (the window's state and {"ev":"msgwin","bound","gen","content"})
+    bool MsgWinOp(MsgWin* W, const std::vector<std::string>& T)
+    {
+        const std::string& Name = T[0];
+        if (Name == "msgsetup")
+        {
+            W->Flags = static_cast<unsigned char>(W->Flags | 0x03);
+            W->SetDrawFrame(false);
+            W->SetAlignMode(3);
+            W->SetAutoScrollbar(false);
+        }
+        else if (Name == "msgbind")
+        {
+            W->Snapshot = GCtlSnapshot;
+            W->SnapshotGeneration = 0;
+        }
+        else if (Name == "msgunbind")
+            W->Snapshot = nullptr;
+        else if (Name == "msggen")
+            GCtlSnapshot->Generation = I(T[1]);
+        else if (Name == "msgtext")
+        {
+            std::vector<wchar_t> Text = WideFromHex(T[1]);
+            TextNode Node;
+            Node.set_text(Text.data(), -1);
+            RdlAppendNode(GCtlSnapshot->Display, Node.Clone());
+        }
+        else if (Name == "msgpara")
+        {
+            ParagraphNode Node;
+            RdlAppendNode(GCtlSnapshot->Display, Node.Clone());
+        }
+        else if (Name == "msgclear")
+            RdlClear(GCtlSnapshot->Display);
+        else if (Name == "msgstate")
+        {
+            RichWinState(W);
+            CtlEvent(oracle::Format("\"ev\":\"msgwin\",\"bound\":\"%d\",\"gen\":\"%d\",\"content\":\"",
+                                    W->Snapshot != nullptr ? 1 : 0, W->SnapshotGeneration) +
+                     RichListText(W->Content) + "\"");
+        }
+        else
+            return RichWinOp(W, T);
+        return true;
+    }
+
     // The operations of the rich-text windows; false when the operation is not one of them.
     bool RichOp(Win3D* O, const std::string& Class, const std::vector<std::string>& T)
     {
         const std::string& Name = T[0];
         if (Class == "RichTextWin")
             return RichWinOp(static_cast<RichTextWin*>(static_cast<WinControl*>(O)), T);
+        if (Class == "MsgWin")
+            return MsgWinOp(static_cast<MsgWin*>(static_cast<WinControl*>(O)), T);
         RichTextEditWin* const E = GCtlEdit;
         bool const bTable = Class == "UIFastTable" || Class == "UIScrollTable";
         UiFastTable* const Table = bTable ? static_cast<UiFastTable*>(static_cast<WinControl*>(O)) : nullptr;
@@ -1458,6 +1844,21 @@ namespace
             Table->SetCellSpanToEnd((unsigned)I(T[1]), (unsigned)I(T[2]), I(T[3]) != 0);
         else if (Name == "invalidate")
             Table->InvalidateCell((unsigned)I(T[1]), (unsigned)I(T[2]));
+        else if (Name == "celltext" || Name == "laid")
+        {
+            FUiFastTableCell* Cell = nullptr;
+            if (!Table->GetCell((unsigned)I(T[1]), (unsigned)I(T[2]), &Cell))
+                CtlEvent("\"ev\":\"nocell\"");
+            else if (Name == "laid")
+                CtlEvent("\"ev\":\"laid\",\"l\":\"" + RichLaidListText(Cell->Laid) + "\"");
+            else
+            {
+                std::vector<wchar_t> Text = WideFromHex(T[3]);
+                TextNode Node;
+                Node.set_text(Text.data(), -1);
+                RdlAppendNode(Cell->Source, Node.Clone());
+            }
+        }
         else if (Name == "setedges")
         {
             FUiFastTableEdges Edges;
@@ -1541,7 +1942,8 @@ namespace
                     FUiPayloadTable P = {F(T[2]), F(T[3]), I(T[4]), I(T[5])};
                     Created = WinFactoryCreate("C", Class.c_str(), Parent, &P);
                 }
-                else if (IsLaterClass(Class) || Class == "RichTextEditWin" || Class == "RichTextWin")
+                else if (IsLaterClass(Class) || Class == "RichTextEditWin" || Class == "RichTextWin" ||
+                         Class == "MsgWin")
                     Created = WinFactoryCreate("C", Class.c_str(), Parent, nullptr);
                 else if (Class == "UITextEdit")
                 {
@@ -1575,6 +1977,26 @@ namespace
             }
             else if (O == nullptr)
                 continue;
+            else if (Name == "rtview")
+            {
+                for (int Index = 0; Index < 4; ++Index)
+                    GCtlViewport[Index] = I(T[1 + Index]);
+                for (int Index = 0; Index < 16; ++Index)
+                    GCtlProjection[Index] = F(T[5 + Index]);
+            }
+            else if (IsRichClass(Class) &&
+                     (Name == "rtmetrics" || Name == "rtrect" || Name == "rtlist" || Name == "rtnorm"))
+            {
+                BaseRichTextWin* const W = static_cast<BaseRichTextWin*>(static_cast<WinControl*>(O));
+                if (Name == "rtmetrics")
+                    UseOracleMetrics(W);
+                else if (Name == "rtnorm")
+                    W->SetNormSize(F(T[1]), F(T[2]));
+                else if (Name == "rtrect")
+                    RichRect(W);
+                else
+                    CtlEvent("\"ev\":\"rtlist\",\"l\":\"" + RichLaidListText(W->LayoutList) + "\"");
+            }
             else if (IsLaterClass(Class) && LaterOp(O, Class, T))
                 continue;
             else if (IsRichClass(Class) && RichOp(O, Class, T))
@@ -1742,6 +2164,10 @@ namespace
             GCtlOption = 1;
             for (int Index = 0; Index < 0x20; ++Index)
                 GCtlOptions[Index] = 1;
+            for (int Index = 0; Index < 4; ++Index)
+                GCtlViewport[Index] = 0;
+            for (int Index = 0; Index < 16; ++Index)
+                GCtlProjection[Index] = 0.0f;
             GCtlElapsed = 0.0;
             GCtlInstances = 0;
             G_TextControlTypingCount = 0;
@@ -1755,6 +2181,7 @@ namespace
             Ray[2] = -1.0f;
             FOracleCtlParent* const Parent = new FOracleCtlParent();
             Parent->Create(nullptr, nullptr);
+            GCtlSnapshot = new FChatDisplaySnapshot();
             std::string Class;
             RunCase(Line, Parent, Class);
             GCtlOut = nullptr;
@@ -1771,6 +2198,9 @@ namespace
             GCtlFocusStack.clear();
             Parent->Destroy();
             delete Parent;
+            RdlClear(GCtlSnapshot->Display);
+            delete GCtlSnapshot;
+            GCtlSnapshot = nullptr;
             GCtlOut = &Out;
             ++GCtlCase;
         }

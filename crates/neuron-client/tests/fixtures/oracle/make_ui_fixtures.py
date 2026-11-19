@@ -627,6 +627,114 @@ EDIT_BAR_CASES = [
 
 CONTROL_CASES += EDIT_BAR_CASES
 
+# Phase 4 oracle coverage: a rich-text window that projects. The pipeline gets a viewport and a
+# projection (rtview), so EnsureSurface makes the screen rectangle, the pixel size and the
+# surface (GDI and the big image are stand-ins), and Draw lays the content out: position nodes,
+# whose heights need no font metrics. The automatic bar is made when the text overflows and
+# deleted when it fits, its range follows the layout, the view follows the end when kept there,
+# and the alignment modes move the origin.
+VIEW_PROJECTION = (-1.2, 0.0, 0.0, 0.05,
+                   0.0, -1.5, 0.0, 0.0,
+                   0.0, 0.0, 1.0, 0.0,
+                   0.0, 0.0, 0.5, 1.25)
+
+
+def rtview(x=0, y=0, w=640, h=480, m=VIEW_PROJECTION):
+    return "rtview %d %d %d %d %s" % (x, y, w, h, fbs(*m))
+
+
+def rtpos(h, v, rel_h=0, rel_v=1):
+    return "rtpos %s %s %d %d" % (fb(h), fb(v), rel_h, rel_v)
+
+
+RICH_VIEW_CASES = [
+    " ; ".join([
+        "new RichTextWin", xform(-0.3, 0.2, -1.0), "rtsize " + fbs(0.5, 0.25), "rtauto 1",
+        "draw", "rtrect", "rtstate", rtview(), "rtrect", "rtstate",
+        rtpos(0.0, 50.0), "draw", "rtrect", "rtstate", "rbstate", "rtlist",
+        rtpos(12.5, 180.75), "draw", "rtstate", "rbstate", "rtlist",
+        "rtbar " + fb(20.0), "rtscrolled", "draw", "rtstate", "rbstate",
+        "rtclear", rtpos(0.0, 60.0), "draw", "rtstate", "rbstate", "rtlist",
+        "rtsize " + fbs(0.5, 0.1), "draw", "rtrect", "rtstate", "rbstate",
+        "rtauto 0", "rtsize " + fbs(0.5, 0.4), "draw", "rtrect", "rtstate", "rbstate",
+        "rtclear", "draw", "rtstate", "rbstate", "rtlist",
+    ]),
+    " ; ".join([
+        "new RichTextWin", xform(-0.45, 0.35, -1.25), "rtsize " + fbs(0.6, 0.3),
+        rtview(10, 20, 600, 400), "rtkeep 1", "rtauto 1",
+        rtpos(10.0, 30.0, 1, 1), rtpos(5.0, 200.0, 0, 1), rtpos(-3.0, 7.0, 1, 0),
+        "draw", "rtrect", "rtstate", "rbstate", "rtlist",
+        "rtalign 3", "draw", "rtstate", "rtalign 2", "draw", "rtstate",
+        "rtalign 1", "draw", "rtstate", "rtalign 0",
+        "rtorigin 0 0", rtpos(0.0, 30.0), "draw", "rtstate", "rbstate",
+        rtpos(0.0, 400.0), "draw", "rtstate", "rbstate",
+        "rtkeep 0", rtpos(0.0, 20.0), "draw", "rtstate", "rbstate",
+        "rtframe 1 11223344", "draw", "rtshow 0", "rtstate", "rbstate", "draw", "rtstate", "rbstate",
+    ]),
+    " ; ".join([
+        # A projection whose w is zero at the window: nothing projects.
+        "new RichTextWin", xform(0.0, 0.0, -2.5), "rtauto 1", rtpos(0.0, 500.0),
+        rtview(), "draw", "rtrect", "rtstate", "rbstate",
+        xform(0.1, 0.0, -1.0), "draw", "rtrect", "rtstate", "rbstate",
+    ]),
+]
+
+CONTROL_CASES += RICH_VIEW_CASES
+
+# The edit box's caret at its laid-out position and the fast table's cells laid out by its slot
+# 45, over text metrics (rtmetrics: the window's text context measures as the port's
+# deterministic font backend does at height 16) and a projecting window (rtview).
+METRICS_CASES = [
+    # (A text node of the edit box or a cell holds at most nine characters here: a local i386 g++
+    # build of the harness cannot copy longer wide strings.)
+    " ; ".join([
+        "new RichTextEditWin", xform(-0.3, 0.2, -1.0), rtview(), "rtmetrics", "rtnorm " + fbs(0.2, 0.1),
+        "settext " + text("Hi, World"), "activate", "draw", "state", "rtrect", "rtlist",
+        "caret 0", "draw", "caret 3", "draw", "caret 9", "draw",
+        "settext " + text("MMMMM WWW"), "caret 7", "draw", "rtlist",
+        "ekey 36 0 1", "draw", "ekey 35 0 1", "draw", "rtstate",
+        "settext " + text("MMMMMMMMM"), "caret 8", "draw", "rtlist",
+        "rtlayout 300 90", "rtshow 1", "rtbar " + fb(30.0), "rtscrolled", "draw", "rtstate",
+        "password 1", "draw", "rtlist", "password 0",
+        "prefix " + text("> "), "caret 3", "draw", "rtlist", "state",
+    ]),
+    " ; ".join([
+        "new UIFastTable " + fbs(0.6, 0.4) + " 3 2", xform(-0.3, 0.2, -1.0), rtview(), "rtmetrics",
+        "celltext 0 0 " + text("Name"), "celltext 0 1 " + text("Value"),
+        "celltext 1 0 " + text("MMMMMMMMM"), "celltext 1 0 " + text(" wraps"),
+        "celltext 1 0 " + text(" in cell"), "celltext 1 1 " + text("il"),
+        "celltext 2 0 " + text("spans to"), "celltext 2 0 " + text(" the end"), "span 2 0 1",
+        "celltext 9 9 " + text("x"),
+        "margins 3 1", "draw", "rtrect",
+        "laid 0 0", "laid 0 1", "laid 1 0", "laid 1 1", "laid 2 0", "laid 2 1", "laid 5 5", "rtlist",
+        "cedge 1 " + fb(0.45), "draw", "laid 1 0", "laid 1 1",
+        "redge 1 " + fb(-0.05), "draw", "laid 0 0", "laid 1 0", "state",
+    ]),
+]
+
+CONTROL_CASES += METRICS_CASES
+
+# MsgWin, the chat's message window (chat_init.cpp): never hit; bound to a snapshot (a case's
+# own; the oracle runs no chat), it shows the snapshot's list again when its generation moves
+# on; laid out from the bottom with ChatCreateMsgWin's settings over the text metrics. Every
+# change of the snapshot's list moves its generation, as the chat's store does (D473).
+MSG_WIN_CASES = [
+    " ; ".join([
+        "new MsgWin", xform(-0.3, 0.2, -1.0), "msgstate", "msgsetup", "msgstate",
+        ray(-0.2, 0.15), "hit", "update", "msgstate",
+        "msgbind", "update", "msgstate",
+        "msgtext " + text("[Trader] "), "msgtext " + text("hello"), "msggen 1", "update", "msgstate",
+        "update", "msgstate",
+        rtview(), "rtmetrics", "draw", "rtrect", "msgstate", "rtlist",
+        "msgpara", "msgtext " + text("second"), "msggen 2", "update", "draw", "msgstate", "rtlist",
+        "rtalign 0", "draw", "msgstate",
+        "msgclear", "msggen 3", "update", "draw", "msgstate", "rtlist",
+        "msgunbind", "msggen 4", "update", "msgstate", "hit",
+    ]),
+]
+
+CONTROL_CASES += MSG_WIN_CASES
+
 CASES = [
     # A front-end page of every class, in the shipped files' style.
     "#Automatically generated. Do not edit!\n"

@@ -265,11 +265,13 @@ mod controls {
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
-    use neuron_client::render::texture::big_image::{BigImage, BigImageDesc};
+    use neuron_client::render::texture::big_image::{BigImage, BigImageDesc, TileDraw};
     use neuron_client::render::texture::pipeline::{Abilities, ContractPipeline};
-    use neuron_client::text::font::FontId;
+    use neuron_client::text::font::config::StandardFont;
+    use neuron_client::text::font::fake::FakeBackend;
     use neuron_client::text::font::string::DrawOrigin;
-    use neuron_client::text::rdl::{RdlNode, RenderDisplayList, TextAttributes};
+    use neuron_client::text::font::{FontEnv, FontId, FontSystem};
+    use neuron_client::text::rdl::{Position, RdlNode, RenderDisplayList, TextAttributes};
     use neuron_client::ui::control::{ControlMesh, MeshLoader, WinControl, base};
     use neuron_client::ui::controls::button::{
         ButtonControl, ButtonWidget, RichTextButtonWidget, ToggleButtonWidget,
@@ -278,8 +280,9 @@ mod controls {
         ScrollTableCallback, TableEdges, UiFastTable, UiScrollTable,
     };
     use neuron_client::ui::controls::list_box::{ListMetrics, ScreenBox, UiListBox};
+    use neuron_client::ui::controls::msg_win::{ChatSnapshot, MsgWin, MsgWinFeed};
     use neuron_client::ui::controls::rich_text_edit::{RichTextEditWin, UiTextEdit};
-    use neuron_client::ui::controls::rich_text_win::RichTextWin;
+    use neuron_client::ui::controls::rich_text_win::{BaseRichTextWin, RichTextCx, RichTextWin};
     use neuron_client::ui::controls::scroll::{HitRect, ScrollShapes, UiScroll};
     use neuron_client::ui::controls::scroll_control::{PartId, ScrollControlWidget};
     use neuron_client::ui::controls::static_control::StaticControlWidget;
@@ -471,6 +474,19 @@ mod controls {
         option: i32,
         options: [i32; 0x20],
         log: Shared,
+        rich: Option<RichView>,
+    }
+
+    /// What a rich-text window projects and draws with once a case gives
+    /// the pipeline a viewport and a projection (`rtview`): the oracle's
+    /// big image is silent, so the port's draws through a contract
+    /// pipeline and its tiles go nowhere.
+    struct RichView {
+        viewport: [i32; 4],
+        projection: [f32; 16],
+        pipeline: ContractPipeline,
+        formats: FormatMaps,
+        tiles: Vec<TileDraw>,
     }
 
     /// The holder's tint floats of a body pass (`SetHolderTint`).
@@ -482,6 +498,16 @@ mod controls {
     impl DrawHost for Host {
         fn quads(&mut self) -> &mut QuadBatcher {
             &mut self.quads
+        }
+        fn rich_text_cx(&mut self) -> Option<RichTextCx<'_>> {
+            let r = self.rich.as_mut()?;
+            Some(RichTextCx {
+                viewport: r.viewport,
+                projection: r.projection,
+                pipeline: &mut r.pipeline,
+                formats: &r.formats,
+                tiles: &mut r.tiles,
+            })
         }
         fn immediate(&mut self) -> Option<&mut dyn Immediate> {
             Some(&mut self.imm)
@@ -1849,13 +1875,78 @@ mod controls {
 
     // ---- the rich-text windows (the fifth increment) ------------------------
 
-    const RICH: [&str; 5] = [
+    const RICH: [&str; 6] = [
         "RichTextWin",
         "RichTextEditWin",
         "UITextEdit",
         "UIFastTable",
         "UIScrollTable",
+        "MsgWin",
     ];
+
+    /// The snapshot a `MsgWin` case binds its window to: the game's side
+    /// of the window (`MsgWinFeed`) does nothing else, as the oracle's
+    /// window has no message store.
+    struct CaseFeed(Rc<RefCell<ChatSnapshot>>);
+
+    impl MsgWinFeed for CaseFeed {
+        fn snapshot(&self) -> Option<ChatSnapshot> {
+            Some(self.0.borrow().clone())
+        }
+    }
+
+    /// The operations of a `MsgWin` (`oracle_ui_controls.cpp`'s
+    /// `MsgWinOp`); false when the operation is not one of them.
+    fn msg_win_op(
+        ui: &mut Ui,
+        id: NodeId,
+        log: &Shared,
+        t: &[&str],
+        snapshot: &Rc<RefCell<ChatSnapshot>>,
+    ) -> bool {
+        match t[0] {
+            "msgsetup" => {
+                ui.node_mut(id).unwrap().flags |= 3;
+                let w = ui.widget_mut::<MsgWin>(id).unwrap();
+                w.win.base.draw_frame = false;
+                w.win.base.set_align_mode(3);
+                w.win.base.set_auto_scrollbar(false);
+            }
+            "msgbind" => ui
+                .widget_mut::<MsgWin>(id)
+                .unwrap()
+                .bind(Box::new(CaseFeed(snapshot.clone()))),
+            "msgunbind" => ui.widget_mut::<MsgWin>(id).unwrap().feed = None,
+            "msggen" => snapshot.borrow_mut().generation = i(t[1]),
+            "msgtext" => {
+                Rc::make_mut(&mut snapshot.borrow_mut().display).push(RdlNode::Text(wide(t[1])));
+            }
+            "msgpara" => Rc::make_mut(&mut snapshot.borrow_mut().display).push(RdlNode::Paragraph),
+            "msgclear" => Rc::make_mut(&mut snapshot.borrow_mut().display)
+                .nodes
+                .clear(),
+            "msgstate" => {
+                let w = ui.widget::<MsgWin>(id).unwrap();
+                let line = rich_win_state_of(ui, id, &w.win);
+                ev(log, &line);
+                let line = format!(
+                    "\"ev\":\"msgwin\",\"bound\":\"{}\",\"gen\":\"{}\",\"content\":\"{}\"",
+                    u8::from(w.feed.is_some()),
+                    w.snapshot_generation,
+                    rich_list(&w.win.content)
+                );
+                ev(log, &line);
+            }
+            "rtalign" => ui
+                .widget_mut::<MsgWin>(id)
+                .unwrap()
+                .win
+                .base
+                .set_align_mode(i(t[1])),
+            _ => return false,
+        }
+        true
+    }
 
     /// A plain rich-text window's state (`RichWinState`).
     fn rich_win_state(ui: &Ui, id: NodeId) -> String {
@@ -1910,6 +2001,68 @@ mod controls {
         BigImage::create(&desc, &FormatMaps::defaults(), &mut pipeline).unwrap()
     }
 
+    /// The fonts a projected rich-text window lays out with.
+    fn rich_fonts() -> FontSystem {
+        FontSystem::new(Box::new(FakeBackend::default()), FontEnv::new(640, 480))
+    }
+
+    /// The fonts of the cases that ask for text metrics (`rtmetrics`): every
+    /// rich-text font a face of height 16 on the deterministic backend, the
+    /// oracle's metrics context (a cell of 16, ascent 12, descent 4).
+    fn metrics_fonts() -> FontSystem {
+        let mut fonts = rich_fonts();
+        for index in 0..32 {
+            fonts.rich.set_standard_font(
+                index,
+                StandardFont {
+                    name: b"Arial".to_vec(),
+                    size: 16,
+                    bold: false,
+                    italic: false,
+                    underline: false,
+                },
+            );
+        }
+        fonts.rich.initialize(fonts.backend.as_mut(), 768);
+        fonts.rich.reinitialize_fonts(fonts.backend.as_mut());
+        fonts
+    }
+
+    /// [`base_of`], to change.
+    fn base_of_mut(w: &mut dyn Any) -> &mut BaseRichTextWin {
+        if w.is::<RichTextWin>() {
+            &mut w.downcast_mut::<RichTextWin>().unwrap().base
+        } else if w.is::<RichTextEditWin>() {
+            &mut w.downcast_mut::<RichTextEditWin>().unwrap().win.base
+        } else if w.is::<UiTextEdit>() {
+            &mut w.downcast_mut::<UiTextEdit>().unwrap().edit.win.base
+        } else if w.is::<UiFastTable>() {
+            &mut w.downcast_mut::<UiFastTable>().unwrap().base
+        } else if w.is::<MsgWin>() {
+            &mut w.downcast_mut::<MsgWin>().unwrap().win.base
+        } else {
+            &mut w.downcast_mut::<UiScrollTable>().unwrap().table.base
+        }
+    }
+
+    /// The rich-text window part of any of the rich-text classes.
+    fn base_of(ui: &Ui, id: NodeId) -> &BaseRichTextWin {
+        let w = ui.node(id).unwrap().widget().unwrap().as_any();
+        if let Some(w) = w.downcast_ref::<RichTextWin>() {
+            &w.base
+        } else if let Some(w) = w.downcast_ref::<RichTextEditWin>() {
+            &w.win.base
+        } else if let Some(w) = w.downcast_ref::<UiTextEdit>() {
+            &w.edit.win.base
+        } else if let Some(w) = w.downcast_ref::<UiFastTable>() {
+            &w.base
+        } else if let Some(w) = w.downcast_ref::<MsgWin>() {
+            &w.win.base
+        } else {
+            &w.downcast_ref::<UiScrollTable>().unwrap().table.base
+        }
+    }
+
     /// The operations of a plain `RichTextWin`; false when the operation
     /// is not one of them.
     fn rich_win_op(ui: &mut Ui, id: NodeId, log: &Shared, t: &[&str], ctx: &Ctx) -> bool {
@@ -1950,6 +2103,28 @@ mod controls {
             "rtimage" => {
                 ui.widget_mut::<RichTextWin>(id).unwrap().base.image = Some(silent_image())
             }
+            "rtpos" => {
+                let w = ui.widget_mut::<RichTextWin>(id).unwrap();
+                w.append_node(&RdlNode::Position(Position {
+                    rel_h: i(t[3]) != 0,
+                    rel_v: i(t[4]) != 0,
+                    pos_v: f(t[2]),
+                    pos_h: f(t[1]),
+                }));
+            }
+            "rtclear" => ui.widget_mut::<RichTextWin>(id).unwrap().clear_content(),
+            "rtkeep" => {
+                ui.widget_mut::<RichTextWin>(id)
+                    .unwrap()
+                    .base
+                    .keep_scrolled_to_end = i(t[1]) != 0
+            }
+            "rtalign" => ui
+                .widget_mut::<RichTextWin>(id)
+                .unwrap()
+                .base
+                .set_align_mode(i(t[1])),
+
             "rtmesh" => with::<RichTextWin, _>(ui, id, |w, ui| {
                 base::set_mesh(ui, id, &mut w.base.control, &unhex(t[1]), b"");
                 // The parent's slot 5 reaching the window again (D347).
@@ -1994,6 +2169,47 @@ mod controls {
             _ => return false,
         }
         true
+    }
+
+    /// The projection of a window: its screen and world rectangles, the
+    /// surface's size ("-" without one), the DIB pitch and whether it has
+    /// an image.
+    fn rich_rect(b: &BaseRichTextWin) -> String {
+        let surface = b
+            .surface
+            .as_ref()
+            .map_or_else(|| "-".to_owned(), |s| format!("{} {}", s.width, s.height));
+        let r = b.screen_rect;
+        format!(
+            "\"ev\":\"rtrect\",\"screen\":\"{} {} {} {}\",\"world\":\"{}\",\"surface\":\"{surface}\",\
+             \"pitch\":\"{}\",\"image\":\"{}\"",
+            r[0],
+            r[1],
+            r[2],
+            r[3],
+            bits_n(&b.world_rect),
+            b.pitch,
+            u8::from(b.image.is_some())
+        )
+    }
+
+    /// A laid-out list: a position as "p:<rel h><rel v>:<h>:<v>", any other
+    /// node as [`rich_node`] prints it.
+    fn rich_laid_list(list: &RenderDisplayList) -> String {
+        list.nodes
+            .iter()
+            .map(|n| match n {
+                RdlNode::Position(p) => format!(
+                    "p:{}{}:{}:{}",
+                    u8::from(p.rel_h),
+                    u8::from(p.rel_v),
+                    bits(p.pos_h),
+                    bits(p.pos_v)
+                ),
+                other => rich_node(other),
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     /// A node as `rich_text.jsonl` prints it; a reference as r(its list).
@@ -2355,6 +2571,24 @@ mod controls {
                 });
                 result(log, u8::from(r));
             }
+            "celltext" | "laid" => {
+                let (r, c) = (i(t[1]).cast_unsigned(), i(t[2]).cast_unsigned());
+                let line = with_table(ui, id, |w, _| match w.cell_mut(r, c) {
+                    None => Some("\"ev\":\"nocell\"".to_owned()),
+                    Some(cell) if t[0] == "laid" => Some(format!(
+                        "\"ev\":\"laid\",\"l\":\"{}\"",
+                        rich_laid_list(&cell.laid)
+                    )),
+                    Some(cell) => {
+                        let text = wide(t[3]);
+                        cell.source.push(RdlNode::Text(text));
+                        None
+                    }
+                });
+                if let Some(line) = line {
+                    ev(log, &line);
+                }
+            }
             "span" => with_table(ui, id, |w, _| {
                 w.set_cell_span_to_end(
                     i(t[1]).cast_unsigned(),
@@ -2486,6 +2720,7 @@ mod controls {
             option: 1,
             options: [1; 0x20],
             log: log.clone(),
+            rich: None,
         };
         let parent = ui
             .create(
@@ -2506,6 +2741,7 @@ mod controls {
         ui.tooltip = Some(tip);
         let mut object: Option<NodeId> = None;
         let mut class = String::new();
+        let snapshot = Rc::new(RefCell::new(ChatSnapshot::default()));
         for op in line.split(" ; ") {
             let t: Vec<&str> = op.split(' ').collect();
             host.options = *ctx.options.borrow();
@@ -2513,7 +2749,8 @@ mod controls {
                 class = t[1].to_owned();
                 let later = LATER.contains(&class.as_str())
                     || class == "RichTextEditWin"
-                    || class == "RichTextWin";
+                    || class == "RichTextWin"
+                    || class == "MsgWin";
                 object = if let Some(payload) = rich_payload(&t) {
                     ui.create_by_class(
                         Some(b"C"),
@@ -2556,13 +2793,66 @@ mod controls {
                 continue;
             }
             let Some(id) = object else { continue };
+            if t[0] == "rtview" {
+                // The pipeline's viewport and projection: rich-text windows
+                // project and lay out from here on, over the fonts.
+                let v: Vec<i32> = (1..5).map(|k| i(t[k])).collect();
+                let m: Vec<f32> = (5..21).map(|k| f(t[k])).collect();
+                host.rich = Some(RichView {
+                    viewport: v.try_into().unwrap(),
+                    projection: m.try_into().unwrap(),
+                    pipeline: ContractPipeline::new(Abilities {
+                        square_only: 0,
+                        max_width: 4096,
+                        max_height: 4096,
+                    }),
+                    formats: FormatMaps::defaults(),
+                    tiles: Vec::new(),
+                });
+                if ui.fonts.is_none() {
+                    ui.fonts = Some(rich_fonts());
+                }
+                continue;
+            }
+            if RICH.contains(&class.as_str()) {
+                match t[0] {
+                    "rtmetrics" => {
+                        ui.fonts = Some(metrics_fonts());
+                        continue;
+                    }
+                    "rtnorm" => {
+                        let (w, h) = (f(t[1]), f(t[2]));
+                        ui.with_widget(id, (), |widget, ui| {
+                            base_of_mut(widget.as_any_mut()).set_norm_size_in(ui, id, w, h);
+                        });
+                        continue;
+                    }
+                    "rtrect" => {
+                        let line = rich_rect(base_of(&ui, id));
+                        ev(&log, &line);
+                        continue;
+                    }
+                    "rtlist" => {
+                        let list = rich_laid_list(&base_of(&ui, id).layout_list);
+                        ev(&log, &format!("\"ev\":\"rtlist\",\"l\":\"{list}\""));
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
             if LATER.contains(&class.as_str()) && later_op(&mut ui, id, &class, &log, &t, &ctx) {
                 continue;
             }
             if class == "RichTextWin" && rich_win_op(&mut ui, id, &log, &t, &ctx) {
                 continue;
             }
-            if RICH.contains(&class.as_str()) && rich_op(&mut ui, id, &class, &log, &t) {
+            if class == "MsgWin" && msg_win_op(&mut ui, id, &log, &t, &snapshot) {
+                continue;
+            }
+            if RICH.contains(&class.as_str())
+                && class != "MsgWin"
+                && rich_op(&mut ui, id, &class, &log, &t)
+            {
                 continue;
             }
             let list = class == "UIListBox";
