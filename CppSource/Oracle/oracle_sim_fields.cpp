@@ -24,6 +24,9 @@
 
 #include "common_casteroid.h"  // CmnAsteroid::Find, CAsteroidField, CAsteroidCube
 #include "common_cobject.h"    // CObject, CSimple, CAsteroid
+#include "common_ini.h"        // INI_Reader (the probe)
+#include "common_misc.h"       // GetFileSysPath (the probe)
+#include "common_universe.h"   // Universe::get_system, get_filename (the probe)
 #include "oracle_sim_hooks.h"
 
 namespace
@@ -177,6 +180,33 @@ namespace oracle
             P.Str("rec", "probe");
             P.Uint("tick", Tick);
             P.Bool("system", System != nullptr);
+            if (Tick == 0)
+            {
+                // The system file as StarSystem::load names it (get_filename) and as
+                // SrvAsteroidSystem::load opens it (GetFileSysPath), and its [Asteroids] sections.
+                Universe::ISystem const* const Info = Universe::get_system(GFieldSystemId);
+                char Named[0x104] = {};
+                char Opened[0x104] = {};
+                unsigned int Sections = 0;
+                bool bOpen = false;
+                if (Info != nullptr && Info->File != nullptr)
+                {
+                    Universe::get_filename(Named, Info->File);
+                    GetFileSysPath(Opened, Named, nullptr);
+                    INI_Reader Reader;
+                    bOpen = Reader.open(Opened, false);
+                    while (bOpen && Reader.read_header())
+                    {
+                        if (Reader.is_header("Asteroids"))
+                            ++Sections;
+                    }
+                }
+                P.Str("file", Info != nullptr ? Info->File : nullptr);
+                P.Str("named", Named);
+                P.Str("opened", Opened);
+                P.Bool("open", bOpen);
+                P.Uint("asteroids_sections", Sections);
+            }
             std::vector<Vector> const Ships = GFieldShips != nullptr ? GFieldShips() : std::vector<Vector>();
             P.BeginArray("ships");
             for (Vector const& Ship : Ships)

@@ -129,6 +129,13 @@ jobs:
                 $file = Join-Path $run.FullName $rec
                 if (Test-Path $file) { "$($dir.Name)/$($run.Name) ${rec}: $(@(Get-Content $file).Count) records" }
               }
+              if ($run.Name -eq 'run_01') {
+                Get-Content (Join-Path $run.FullName 'asteroids.jsonl') -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Contains('"probe"') -and $_.Contains('"tick":0,') } |
+                  ForEach-Object { "$($dir.Name)/$($run.Name) $_" }
+                Select-String -Path (Join-Path $run.FullName 'fdump.txt') -Pattern 'steroid' -ErrorAction SilentlyContinue |
+                  Select-Object -First 10 | ForEach-Object { "$($dir.Name)/$($run.Name) fdump: $($_.Line)" }
+              }
               $events = Join-Path $run.FullName 'events.jsonl'
               if (Test-Path $events) {
                 Get-Content $events | ForEach-Object { $_ | ConvertFrom-Json } |
