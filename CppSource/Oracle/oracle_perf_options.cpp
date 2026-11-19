@@ -15,6 +15,19 @@
 // Output lines: {"in","loads" (1 or 0 per file),"display","skip","values","applied" (the 36
 // options' float bits),"save" (the saved file's bytes)}.
 
+// Oracle.exe also links oracle_audio_client.cpp, which compiles the real sound setters
+// (menu_sound_arch.cpp) and stands in for perf_options.cpp's getters. This translation unit
+// renames both sets, so perf_options.cpp's getters and the callback stand-ins below are its
+// own and no symbol is defined twice.
+#define GetMaxSubmittedSounds OraclePerfGetMaxSubmittedSounds
+#define GetPerfOptionSlot OraclePerfGetPerfOptionSlot
+#define SetClientAudioAmbientVolume OraclePerfSetClientAudioAmbientVolume
+#define SetClientAudioInterfaceVolume OraclePerfSetClientAudioInterfaceVolume
+#define SetClientAudioMusicVolume OraclePerfSetClientAudioMusicVolume
+#define SetClientAudioSfxVolume OraclePerfSetClientAudioSfxVolume
+#define SetClientAudioVoiceVolume OraclePerfSetClientAudioVoiceVolume
+#define SetClientSoundLod OraclePerfSetClientSoundLod
+
 #include <windows.h>
 
 #include <stdio.h>
