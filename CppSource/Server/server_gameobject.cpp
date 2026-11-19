@@ -2104,6 +2104,8 @@ int EqObj::slot_44(unsigned short const* EquipId, IObjRW* Target, unsigned short
 
     // BL, "the gun's target changed".
     bool bChanged = false;
+    // Oracle instrumentation (P2.5 ai): what the call did to the gun (OracleAiAnswerGunTarget).
+    int OracleGun = 0;
     if (!SinglePlayer() || SourceClient == 0)
     {
         // FindByID on ceqobj().
@@ -2131,7 +2133,27 @@ int EqObj::slot_44(unsigned short const* EquipId, IObjRW* Target, unsigned short
                         Simple = const_cast<CSimple*>(static_cast<CSimple const*>(Raw));
                 }
                 bChanged = Gun->SetTarget(Simple, SubTarget);
+                OracleGun = 1;
+                if (GOracleAiHooks.OnAnswer != nullptr)   // Oracle instrumentation (P2.5 ai)
+                {
+                    CSimple* Lock = nullptr;
+                    unsigned short LockSub = 0;
+                    Gun->GetTarget(Lock, LockSub);
+                    int const Ints[6] = {static_cast<int>(*EquipId),
+                                         static_cast<int>(Target != nullptr ? Target->get_id() : 0u),
+                                         static_cast<int>(SubTarget), bChanged ? 1 : 0,
+                                         static_cast<int>(Lock != nullptr ? Lock->get_id() : 0u),
+                                         static_cast<int>(Simple != nullptr ? Simple->get_id() : 0u)};
+                    GOracleAiHooks.OnAnswer(OracleAiAnswerGunTarget, get_id(), Ints, 6, nullptr, 0);
+                }
             }
+        }
+        if (OracleGun == 0 && GOracleAiHooks.OnAnswer != nullptr)   // Oracle instrumentation (P2.5 ai)
+        {
+            int const Ints[6] = {static_cast<int>(*EquipId),
+                                 static_cast<int>(Target != nullptr ? Target->get_id() : 0u),
+                                 static_cast<int>(SubTarget), -1, Result, 0};
+            GOracleAiHooks.OnAnswer(OracleAiAnswerGunTarget, get_id(), Ints, 6, nullptr, 0);
         }
 
         // the server's own request is only told

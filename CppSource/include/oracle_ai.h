@@ -228,7 +228,12 @@ enum EOracleAiAnswer
     OracleAiAnswerLaneStart = 2,
     // Ship::go_tradelane(Entrance, Exit, bFastExit, Speed): Ints = the entrance's id, the
     // exit's id, bFastExit, the result; Floats = Speed.
-    OracleAiAnswerGoTradeLane = 3
+    OracleAiAnswerGoTradeLane = 3,
+    // EqObj::slot_44(EquipId, Target, SubTarget) (the AI's gun lock): Ints = the equipment id,
+    // the target's id, the sub-target, CEGun::SetTarget's answer (-1 when it was not called),
+    // the gun's lock target id after the call (the result when SetTarget was not called), the
+    // CSimple id SetTarget was given.
+    OracleAiAnswerGunTarget = 4
 };
 
 struct FOracleAiHooks
