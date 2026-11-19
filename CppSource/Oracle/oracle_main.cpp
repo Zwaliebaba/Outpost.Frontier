@@ -482,6 +482,7 @@ namespace
         GuardedDataDump("game", RunGameDataDump, AllFiles);
         GuardedDataDump("thn", RunSceneScriptDataDump, AllFiles);
         GuardedDataDump("thn_build", RunSceneScriptBuildDataDump, AllFiles);
+        GuardedDataDump("thn_save", RunSceneScriptSaveDataDump, AllFiles);
     }
 }
 

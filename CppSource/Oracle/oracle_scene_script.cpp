@@ -320,6 +320,7 @@ void RunNeuronClientSuites()
     SceneScriptBuildSuite();
     RunTextureSuites();
     SceneScriptRuntimeSuites();
+    SceneScriptSaveSuite();
     RunUiSuites();
     RunParticleSuites();
     RunMaterialSuites();

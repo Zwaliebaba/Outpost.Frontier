@@ -296,3 +296,13 @@ void RunSceneScriptBuildDataDump(const std::vector<std::string>& Files);
 void RunGameAppSuites();
 void RunAccountSuite();
 void RunPerfOptionsSuite();
+
+// P4.14 (oracle_scene_script_save.cpp): the script engine of SceneScript.cpp (compiled in) with
+// its COM context, its file-system paths and SaveToFileSystem through the default save parser,
+// over crates/neuron-client/tests/fixtures/oracle/scene_script_save.list; called from
+// RunNeuronClientSuites after SceneScriptRuntimeSuites.
+void SceneScriptSaveSuite();
+
+// P4.14 (oracle_scene_script_save.cpp): every .thn under DATA loaded into a fresh script engine
+// and saved, each write of the save; kind "thn_save".
+void RunSceneScriptSaveDataDump(const std::vector<std::string>& Files);
