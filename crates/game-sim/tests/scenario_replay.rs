@@ -2797,9 +2797,10 @@ fn first_event_of(run: &Run, guided: &BTreeMap<u32, Vec<GuidedState>>) -> Option
     [contact, hit, spent].into_iter().flatten().min()
 }
 
-/// The escort scenarios of P2.5 without contact (formation flight, a
-/// follow directive, a guide directive), judged exactly as recorded.
-const EXACT_SCENARIOS: [&str; 3] = ["formation", "follow", "guide"];
+/// The escort scenarios of P2.5, none with a contact or a munition impact
+/// (formation flight, a follow directive, a guide directive, a cruiser's
+/// goto and large-ship manoeuvre), judged exactly as recorded.
+const EXACT_SCENARIOS: [&str; 4] = ["formation", "follow", "guide", "large_ship"];
 
 /// A scenario without contact judged exactly: every object equals the
 /// oracle bit for bit at every recorded tick (position, velocity,

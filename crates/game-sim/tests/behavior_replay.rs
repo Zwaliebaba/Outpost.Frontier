@@ -1139,7 +1139,13 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
     let mut first_seen: BTreeMap<u32, ()> = BTreeMap::new();
     // The scenario directives submitted so far, and each ship's last
     // recorded exit (the state a directive between ticks finds).
-    let mut submitted = 0usize;
+    // Each command once, by its index (another ship's tick in the same
+    // frame must not consume it).
+    let mut submitted: Vec<bool> = motion
+        .as_ref()
+        .map_or_else(Vec::new, |m| vec![false; m.commands.len()]);
+    // Mismatches reported per ship.
+    let mut reported: BTreeMap<u32, usize> = BTreeMap::new();
     let mut last_out: BTreeMap<u32, ManagerRecord> = BTreeMap::new();
     let mut face_point: Option<Vector> = None;
     let mut personalities: BTreeMap<u32, Personality> = BTreeMap::new();
@@ -1220,9 +1226,12 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             .as_ref()
             .map(|m| {
                 let mut ops = Vec::new();
-                while submitted < m.commands.len() && m.commands[submitted].0 <= t.tick {
-                    let (_, name, args) = &m.commands[submitted];
-                    submitted += 1;
+                for (index, (tick, name, args)) in m.commands.iter().enumerate() {
+                    if *tick > t.tick || submitted[index] || t.obj.as_deref() != Some(name.as_str())
+                    {
+                        continue;
+                    }
+                    submitted[index] = true;
                     // The objects a follow or guide names, by the
                     // snapshot's scenario names.
                     let id_of = |n: &str| {
@@ -1375,7 +1384,9 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         if !rand_ok {
             totals.rand_mismatch += 1;
         }
-        if totals.reports.len() < MAX_REPORTED {
+        let per_ship = reported.entry(t.id).or_default();
+        *per_ship += 1;
+        if totals.reports.len() < MAX_REPORTED && *per_ship <= 3 {
             let mut r = report(
                 path,
                 t,
