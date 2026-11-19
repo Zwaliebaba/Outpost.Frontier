@@ -19,7 +19,11 @@
 #include "common_misc.h"           // RandomVector
 #include "common_idea.h"           // MoveIdea
 #include "common_facebehavior.h"   // FaceBehavior (OracleAiReadManager)
+#include "common_dockbehavior.h"   // DockBehavior (OracleAiReadManager, P2.5 dock)
+#include "common_launchbehavior.h" // LaunchBehavior
+#include "common_itlbehavior.h"    // InstantTradeLaneBehavior
 #include "common_cequip.h"         // CELauncher (OracleAiLauncherBarrel)
+#include "common_cequip_internal.h" // CmnCequip::InstanceRelative (OracleAiTurretGeometry)
 
 #include <cstring>
 #include <new>
@@ -542,6 +546,141 @@ namespace
     }
 }
 
+namespace
+{
+    // The fields of the behaviours of P2.5 dock (oracle_ai.h FOracleAiBehaviorFields).
+    struct FFieldWriter
+    {
+        FOracleAiBehaviorFields& Out;
+
+        void Int(int Value)
+        {
+            if (Out.IntCount < 32)
+                Out.Ints[Out.IntCount++] = Value;
+        }
+        void Float(float Value)
+        {
+            if (Out.FloatCount < 96)
+                Out.Floats[Out.FloatCount++] = Value;
+        }
+        void Vec(Vector const& V)
+        {
+            Float(V.x);
+            Float(V.y);
+            Float(V.z);
+        }
+        void Mat(Matrix const& M)
+        {
+            for (int Row = 0; Row < 3; ++Row)
+            {
+                for (int Column = 0; Column < 3; ++Column)
+                    Float(M.E[Row][Column]);
+            }
+        }
+    };
+
+    unsigned int IdOfRw(void const* Rw)
+    {
+        return Rw != nullptr ? static_cast<IObjRW const*>(Rw)->get_id() : 0u;
+    }
+
+    void OracleAiReadDock(DockBehavior const& D, FOracleAiBehaviorFields& Out)
+    {
+        FFieldWriter W{Out};
+        W.Int(D.ModeSelector0xc);
+        W.Int(D.UpdateResult10);
+        W.Int(D.Flags28);
+        W.Int(D.Flag29);
+        W.Int(D.ModeState320);
+        W.Int(static_cast<int>(D.StateFlags32c));
+        W.Int(D.Field330);
+        W.Int(D.ApproachClearedFlag334);
+        W.Int(D.Field43c);
+        W.Int(D.SubStateValue440);
+        W.Int(D.AbortFlag398);
+        W.Int(D.Flag399);
+        W.Int(D.Flag39a);
+        W.Int(D.Flag39b);
+        W.Int(D.CombatFlag344);
+        W.Int(static_cast<int>(D.Watcher324.get_watched_id()));
+        W.Int(static_cast<int>(IdOfRw(D.TargetShipPtr388)));
+        W.Int(static_cast<int>(D.ProxWatcher450.Watcher.get_watched_id()));
+        W.Int(static_cast<int>(D.ProxWatcher450.Flags14));
+        W.Int(static_cast<int>(D.ProxWatcher450.SavedFlags18));
+        W.Int(D.GotoDirective.NavPilotPtr != nullptr ? 1 : 0);
+        W.Float(D.Field338);
+        W.Float(D.Field33c);
+        W.Float(D.StateTimer340);
+        W.Float(D.Field408);
+        W.Float(D.MaxApproachSpeed46c);
+        W.Float(D.ProxWatcher450.Unknown08);
+        W.Float(D.ProxWatcher450.Unknown0c);
+        W.Float(D.ProxWatcher450.Unknown10);
+        W.Vec(D.Facing38c);
+        W.Vec(D.InterceptPoint39c);
+        W.Vec(D.DestPoint3cc);
+        W.Vec(D.SavedPosition3fc);
+        Vector Offset;
+        std::memcpy(&Offset, D.Opaque430, sizeof(Offset));
+        W.Vec(Offset);
+        W.Vec(D.Field444);
+        W.Mat(D.Orient3a8);
+        W.Mat(D.OrientMatrix3d8);
+        W.Mat(D.Orient40c);
+    }
+
+    void OracleAiReadLaunch(LaunchBehavior const& L, FOracleAiBehaviorFields& Out)
+    {
+        FFieldWriter W{Out};
+        W.Int(L.ModeSelector0xc);
+        W.Int(L.UpdateResult10);
+        W.Int(L.Flags28);
+        W.Int(L.Flag29);
+        W.Int(L.ModeState164);
+        W.Int(static_cast<int>(L.Watcher168.get_watched_id()));
+        W.Int(static_cast<int>(L.CachedSystemId170));
+        W.Int(static_cast<int>(L.TargetType174));
+        W.Int(L.DirectiveField178);
+        W.Int(L.Flag17c);
+        W.Int(L.Flag230);
+        W.Int(L.Flag231);
+        W.Float(L.DeltaTime1c);
+        W.Float(L.Field180);
+        W.Float(L.Field184);
+        W.Float(L.Field188);
+        W.Float(L.Field18c);
+        W.Float(L.Field22c);
+        W.Vec(L.Field190);
+        W.Vec(L.Field19c);
+        W.Vec(L.Field1cc);
+        W.Vec(L.Field1fc);
+        for (int Row = 0; Row < 3; ++Row)
+            W.Vec(L.LaunchBasis[Row]);
+        for (int Row = 0; Row < 3; ++Row)
+            W.Vec(L.ApproachBasis2[Row]);
+        for (int Row = 0; Row < 3; ++Row)
+            W.Vec(L.ApproachBasis3[Row]);
+    }
+
+    void OracleAiReadItl(InstantTradeLaneBehavior const& T, FOracleAiBehaviorFields& Out)
+    {
+        FFieldWriter W{Out};
+        W.Int(T.ModeSelector0xc);
+        W.Int(T.UpdateResult10);
+        W.Int(T.Flags28);
+        W.Int(T.Flag29);
+        W.Int(T.State30);
+        W.Int(static_cast<int>(T.SubObjPtr34 != nullptr ? T.SubObjPtr34->get_id() : 0u));
+        W.Int(static_cast<int>(T.LanePtr38 != nullptr ? T.LanePtr38->get_id() : 0u));
+        W.Int(T.Flags54);
+        W.Int(T.Flag55);
+        W.Int(T.Flag56);
+        W.Float(T.Field58);
+        W.Vec(T.LaneStart3c);
+        W.Vec(T.LaneEnd48);
+    }
+}
+
 bool __cdecl OracleAiReadManager(IBehaviorManager const* Manager, FOracleAiManager& Out)
 {
     std::memset(&Out, 0, sizeof(Out));
@@ -612,6 +751,9 @@ bool __cdecl OracleAiReadManager(IBehaviorManager const* Manager, FOracleAiManag
         Out.PathfindReaction = Pathfind->Reaction.State;
         Out.bProbeActive = Pathfind->Avoidance.Active != 0 ? 1 : 0;
         Out.bProbeContact = Pathfind->Avoidance.HasContact != 0 ? 1 : 0;
+        Out.PathfindLocks[0] = Pathfind->Flag245;
+        Out.PathfindLocks[1] = Pathfind->Field_24C;
+        Out.PathfindLocks[2] = Pathfind->Field_254;
     }
     Out.Flags1c8 = Manager->Flags1c8;
     if (Sys != nullptr)
@@ -623,6 +765,19 @@ bool __cdecl OracleAiReadManager(IBehaviorManager const* Manager, FOracleAiManag
     {
         Out.bFace = 1;
         OracleAiReadFace(*static_cast<FaceBehavior const*>(Manager->BehaviorDispatchTable[15]), Out.Face);
+    }
+    int const Current = Manager->CurrentBehaviorIndex;
+    if ((Current == 7 || Current == 8 || Current == 9) && Manager->BehaviorDispatchTable[Current] != nullptr)
+    {
+        Out.BehaviorKind = Current;
+        void const* const B = Manager->BehaviorDispatchTable[Current];
+        if (Current == 7)
+            OracleAiReadDock(*static_cast<DockBehavior const*>(static_cast<Behavior const*>(B)), Out.Behavior);
+        else if (Current == 8)
+            OracleAiReadLaunch(*static_cast<LaunchBehavior const*>(static_cast<Behavior const*>(B)), Out.Behavior);
+        else
+            OracleAiReadItl(*static_cast<InstantTradeLaneBehavior const*>(static_cast<Behavior const*>(B)),
+                            Out.Behavior);
     }
     return true;
 }
@@ -639,6 +794,42 @@ int __cdecl OracleAiLauncherBarrel(IObjInspect const* Object, unsigned short Id,
         return 0;
     FromVector(OutPos, Launcher->GetBarrelPosWS(0));
     FromVector(OutDir, Launcher->GetBarrelDirWS(0));
+    return 1;
+}
+
+int __cdecl OracleAiTurretGeometry(IObjInspect const* Object, unsigned short Id, float* Out)
+{
+    if (Object == nullptr)
+        return 0;
+    CObject* const Obj = const_cast<CObject*>(Object->cobject());
+    if (Obj == nullptr || (static_cast<unsigned>(Obj->ObjectClass) & 0x103) != 0x103)
+        return 0;
+    CEGun* const Gun = CEGun::cast(static_cast<CEqObj*>(Obj)->EquipManager.FindByID(Id));
+    if (Gun == nullptr)
+        return 0;
+    auto Joint = [](CEGun::JointChannel const& J, float* To) {
+        To[0] = To[1] = To[2] = To[3] = 0.0f;
+        if (J.EngineIndex == CmnCequip::kInvalidEngineInstance)
+            return;
+        To[0] = 1.0f;
+        To[1] = J.bLimited != 0 ? 1.0f : 0.0f;
+        CmnCequip::FJointRelative const* const Rel = CmnCequip::InstanceRelative(J.EngineIndex);
+        if (Rel != nullptr)
+        {
+            To[2] = Rel->Min;
+            To[3] = Rel->Max;
+        }
+    };
+    Joint(Gun->Yaw, Out);
+    Joint(Gun->Pitch, Out + 4);
+    FromVector(Out + 8, Gun->GetTurretOrigin());
+    for (int R = 0; R < 3; ++R)
+        for (int C = 0; C < 3; ++C)
+            Out[11 + R * 3 + C] = Gun->TurretFrame.E[R][C];
+    float const* const Ori =
+        NeuronRuntime::Engine->GetInstanceOrientation((void*)(Gun->GetParentConnector(false)));
+    for (int K = 0; K < 9; ++K)
+        Out[20 + K] = Ori != nullptr ? Ori[K] : 0.0f;
     return 1;
 }
 

@@ -1080,3 +1080,27 @@ fn wingmen_hold_their_slots_and_a_follower_follows() {
     assert!(near(fp, 60.0, 120.0), "follower at {fp:?}, leader {lp:?}");
     assert_eq!(world.ai_view(follower).unwrap().follow_leader, Some(lv.id));
 }
+
+#[test]
+fn a_turret_joint_takes_the_narrower_hardpoint_limits() {
+    let Some(mut world) = support::world::world(WorldConfig::default()) else {
+        println!("outdir/ is missing: no cruiser");
+        return;
+    };
+    let system = create_id(b"he01");
+    world.load_system(system);
+    let spawn = ShipSpawn::new(
+        create_id(b"li_cruiser"),
+        create_id(b"li_n_li_cruiser"),
+        Vector::new(15000.0, 3000.0, -25000.0),
+        Matrix::IDENTITY,
+    );
+    let cruiser = world.spawn_ship(system, &spawn).expect("li_cruiser spawns");
+    // `ConnectAttachedHardpoints`: the ship's turret hardpoint turns 160
+    // degrees either way, the turret's own connector a full turn; the
+    // joint keeps the narrower range (the oracle's engine limits).
+    let turret = world.turret_geometry(cruiser, 40).expect("a turret");
+    println!("yaw {:?} pitch {:?}", turret.yaw, turret.pitch);
+    assert_eq!(turret.yaw, Some((-2.792_529_8, 2.792_52)));
+    assert_eq!(turret.pitch, Some((0.0, 1.570_779_9)));
+}

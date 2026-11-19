@@ -10,20 +10,22 @@
 //! motion queries), `SetCruiseLock`, `IsCruiseUnobstructed`, `Update`,
 //! `RefreshAvoidance`, `SelectAvoidancePoint`, `SelectObstacleDirection`
 //! with `FindClosestObstacleToAvoid` over the scanner's scan list, the
-//! user-zone probe of modes 0 and 2 (`GetUserZoneApproachDirection`) and
-//! `UpdateHeadingBlend`.
+//! user-zone probe (`GetUserZoneApproachDirection`, the sphere of modes
+//! 0 and 2 and the box of mode 1) and `UpdateHeadingBlend`.
 //!
-//! Not ported (P2.5 gap, `design/library-ledger.md`): the box user zone
-//! (mode 1) and `ClassifyObstaclePhase`'s walk (it walks the scan list and
-//! the system's spatial partition for planets, which the AI world does not
-//! expose yet; the port answers phase 4, "nothing to react to", which is
-//! the reference's answer when the scan list holds no obstacle within its
-//! capsules).
+//! `ClassifyObstaclePhase` walks the scan list (mask 0xfd58) and the
+//! planets, moons and suns within 20 km; the reference reads the latter
+//! from the object database's spatial bucket 7, the port from the
+//! system's objects with the same sphere test (their order only moves
+//! the deflection slot the next candidate refills).
 
 use neuron_core::math::Quaternion;
-use neuron_core::math::{Matrix, Vector, quaternion_to_matrix, transform_matrix};
+use neuron_core::math::{Matrix, Transform, Vector, quaternion_to_matrix, transform_matrix};
 
-use super::avoidance::{AvoidIndexTable, ObstacleAvoidance};
+use super::avoidance::{
+    AvoidIndexTable, AvoidSlot, Nudge, ObstacleAvoidance, nudge_obstacle_path_point,
+    resolve_obstacle_candidate_slot,
+};
 use super::behavior::AiEnv;
 use super::fp::{add, column2, inline_fast_length, neg, scale, sub};
 use super::fp::{e, r};
@@ -32,9 +34,14 @@ use super::intercept::{
     shape_biased_avoid_direction,
 };
 use super::nav::max_scalar_attribute;
-use super::raycast::{swept_sphere_collision_time, transformed_boxes_intersect};
+use super::raycast::{
+    point_in_capsule, ray_sphere_intersect, swept_sphere_collision_time,
+    transformed_boxes_intersect,
+};
 use super::thrust::ThrustManager;
-use super::world::{AVOID_SCAN_MASK, AiWorld, EQUIP_DESTROYED, MotionModel, ThrustEquipType};
+use super::world::{
+    AVOID_SCAN_MASK, AiWorld, EQUIP_DESTROYED, MotionModel, ObjectView, ThrustEquipType,
+};
 
 /// What the obstacle search reads of the system manager: the scanner's
 /// id in the timer table and the target list's `bKeepCache`.
@@ -164,6 +171,14 @@ pub struct PathfindManager {
     pub blend_start: Vector,
     /// +0x1B0.
     pub blend_enabled: bool,
+    /// `RecentObstacleIds` (eight ids `ClassifyObstaclePhase` looks its
+    /// candidates up in; nothing in the reference writes them, so they
+    /// stay 0).
+    pub recent_obstacle_ids: [u32; 8],
+    /// `DeflectionSlots`: the candidates' capsules, refilled in turn.
+    pub deflection_slots: [AvoidSlot; 8],
+    /// `NextDeflectionSlot`: the slot the next candidate refills.
+    pub next_deflection_slot: u32,
     /// +0x1B4 (`ClassifyObstaclePhase` copies the cached target here).
     pub target_position: Vector,
     /// +0x1C4 the owner's `get_type`.
@@ -246,6 +261,9 @@ impl Default for PathfindManager {
             blend_timer: 0.0,
             blend_start: Vector::new(0.0, 1.0, 0.0),
             blend_enabled: false,
+            recent_obstacle_ids: [0; 8],
+            deflection_slots: [AvoidSlot::default(); 8],
+            next_deflection_slot: 0,
             target_position: Vector::ZERO,
             owner_type: 0,
             timer_1e0: 0.0,
@@ -434,7 +452,7 @@ impl PathfindManager {
             return;
         }
 
-        self.update_heading_blend(world, ship, behavior, dt);
+        self.update_heading_blend(world, ship, behavior, dt, scan);
 
         let avoid_clock = e(dt) + e(self.timer_1e8);
         self.timer_1e8 = r(avoid_clock);
@@ -747,8 +765,9 @@ impl PathfindManager {
         result
     }
 
-    /// `GetUserZoneApproachDirection`: modes 0 and 2 (a sphere; the box of
-    /// mode 1 is not ported and answers nothing).
+    /// `GetUserZoneApproachDirection`: the direction toward the user zone
+    /// (a sphere for modes 0 and 2, a box for mode 1) while the ship is
+    /// outside it, or away from it while inside when the zone is inverted.
     pub fn user_zone_approach_direction<W: AiWorld + ?Sized>(
         &mut self,
         world: &W,
@@ -761,6 +780,14 @@ impl PathfindManager {
                 .handle_of(zone.target_key)
                 .and_then(|h| world.inspect(h))?;
             zone.target_point = found.position;
+        }
+        if zone.mode == 1 {
+            let (gate, dir) = box_zone_gate(zone, own);
+            return if zone.invert == 0 {
+                (gate > 0.0).then_some(dir)
+            } else {
+                (gate < 0.0).then(|| Vector::new(-dir.x, -dir.y, -dir.z))
+            };
         }
         if zone.mode != 0 && zone.mode != 2 {
             return None;
@@ -787,25 +814,32 @@ impl PathfindManager {
         Some(Vector::new(-dir.x, -dir.y, -dir.z))
     }
 
-    /// `ClassifyObstaclePhase`: the reaction reset, the cached target
-    /// copied; the scan-list and spatial-partition walk is not ported, so
-    /// the phase is 4 (no obstacle) on every path the reference reaches
-    /// before it, and 4 after it too.
-    fn classify_obstacle_phase<W: AiWorld + ?Sized>(
+    /// `ClassifyObstaclePhase` (`common_obstacleavoidance.cpp:1062`): of
+    /// the scan list (mask 0xfd58) and the planets, moons and suns within
+    /// 20 km, the obstacle whose inflated capsule holds the ship and lies
+    /// nearest the target; its reaction heading committed (0), or 4 for
+    /// nothing to react to (or `NudgeObstaclePathPoint`'s refusal).
+    #[allow(clippy::too_many_lines)]
+    fn classify_obstacle_phase<W: AiEnv + ?Sized>(
         &mut self,
-        world: &W,
+        world: &mut W,
         ship: W::Handle,
         behavior: i32,
+        scan: ScanContext,
     ) -> i32 {
         self.reaction.reset();
         self.cached_obstacle_id = 0;
         self.has_cached_obstacle = false;
-        let target = self.cached_target_position;
+        let mut target = self.cached_target_position;
         self.target_position = target;
         if behavior == 10 {
             return 4;
         }
         let look_ahead = matches!(behavior, 1 | 3 | 5 | 0xb | 0xd | 0x12);
+        let Some(own) = world.inspect(ship) else {
+            return 4;
+        };
+        let ship_xform = own.transform();
         let len_sq =
             (e(target.x) * e(target.x) + e(target.y) * e(target.y)) + e(target.z) * e(target.z);
         if len_sq < 1.0 {
@@ -814,29 +848,212 @@ impl PathfindManager {
                 return 4;
             }
             self.blend_enabled = true;
+            target =
+                neuron_core::math::transform_xform(&ship_xform, Vector::new(0.0, 0.0, -2000.0));
         } else {
             self.blend_enabled = true;
         }
-        let throttle = world.inspect(ship).and_then(|v| v.throttle).unwrap_or(1.0);
+        let throttle = own.throttle.unwrap_or(1.0);
         if e(throttle) < 0.1 {
             return 4;
         }
-        // The scan list (`GetOwnScanList(0xfd58)`) and the planets of the
-        // spatial partition within 20 km: not ported.
-        4
+        let Some(list) = world.scan_list(ship, 0xfd58, scan.keep) else {
+            return 4;
+        };
+        // `ObjectDb->GetBucket(7)->QuerySphere`: the planets, moons and
+        // suns whose sphere meets 20 km around the ship.
+        let origin = ship_xform.translation;
+        let nearby: Vec<W::Handle> = world
+            .system_of(ship)
+            .map(|system| world.system_objects(system, 0))
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|&h| {
+                world.inspect(h).is_some_and(|v| {
+                    let d = sub(v.position, origin);
+                    v.type_flags & 7 != 0
+                        && ((e(d.x) * e(d.x) + e(d.y) * e(d.y)) + e(d.z) * e(d.z)).sqrt()
+                            <= 20000.0 + e(v.radius)
+                })
+            })
+            .collect();
+
+        let mut best_distance = f32::MAX;
+        let mut best: Option<(ObjectView, AvoidSlot)> = None;
+        for (pass, candidates) in [(0, list), (1, nearby)] {
+            let type_mask = if pass == 0 { 0xfd58 } else { 7 };
+            for h in candidates {
+                let Some(c) = world.inspect(h) else {
+                    continue;
+                };
+                if c.type_flags & type_mask == 0 {
+                    continue;
+                }
+                let close = c.type_flags & 7 != 0;
+                let cached = self.recent_obstacle_ids.iter().position(|&id| id == c.id);
+                let index = cached.unwrap_or_else(|| {
+                    let next = (self.next_deflection_slot + 1) % 8;
+                    self.next_deflection_slot = next;
+                    let k = usize::try_from(next).unwrap_or(0);
+                    self.deflection_slots[k] = resolve_obstacle_candidate_slot(&c);
+                    k
+                });
+                let slot = &mut self.deflection_slots[index];
+                if slot.timer < 100.0 || slot.timer > 20000.0 {
+                    continue;
+                }
+                let scaled = e(slot.timer) * e(0.15f32);
+                let floor: f32 = if close && look_ahead { 750.0 } else { 250.0 };
+                let margin = if e(floor) > scaled { floor } else { r(scaled) };
+                slot.timer = r((e(margin) + e(slot.timer)) + e(self.field_1fc) * 0.5);
+                if point_in_capsule(origin, &slot.capsule()) {
+                    let mid = Vector::new(
+                        r(e(slot.direction.x) * 0.5 + e(slot.point.x)),
+                        r(e(slot.direction.y) * 0.5 + e(slot.point.y)),
+                        r(e(slot.direction.z) * 0.5 + e(slot.point.z)),
+                    );
+                    let dx = e(mid.x) - e(target.x);
+                    let dy = e(mid.y) - e(target.y);
+                    let dz = e(mid.z) - e(target.z);
+                    let distance = inline_fast_length((dx * dx + dz * dz) + dy * dy);
+                    if distance < e(best_distance) {
+                        best_distance = r(distance);
+                        best = Some((c.clone(), *slot));
+                    }
+                }
+                slot.timer = r(e(slot.timer) - e(margin));
+            }
+        }
+
+        let Some((winner, best_slot)) = best else {
+            return 4;
+        };
+        if behavior == 2 {
+            let p = winner.position;
+            let dx = e(p.x) - e(target.x);
+            let dy = e(p.y) - e(target.y);
+            let dz = e(p.z) - e(target.z);
+            if inline_fast_length((dx * dx + dz * dz) + dy * dy) <= 1.0 {
+                return 4;
+            }
+        }
+        self.cached_obstacle_id = winner.id;
+        self.has_cached_obstacle = true;
+        let has_close_flags = winner.type_flags & 7 != 0;
+        if has_close_flags {
+            let p = winner.position;
+            let dx = e(p.x) - e(origin.x);
+            let dy = e(p.y) - e(origin.y);
+            let dz = e(p.z) - e(origin.z);
+            let len_sq_f = r((dz * dz + dy * dy) + dx * dx);
+            if inline_fast_length(e(len_sq_f)) <= e(winner.atmosphere_range) {
+                self.reaction.close_encounter = true;
+            }
+            if look_ahead
+                && let Some(t) = own
+                    .target
+                    .and_then(|id| world.handle_of(id))
+                    .and_then(|h| world.inspect(h))
+            {
+                let tp = t.position;
+                let tx = e(tp.x) - e(origin.x);
+                let ty = e(tp.y) - e(origin.y);
+                let tz = e(tp.z) - e(origin.z);
+                if inline_fast_length((tz * tz + ty * ty) + tx * tx) > 500.0 {
+                    target = tp;
+                } else {
+                    self.reaction.state = 1;
+                    self.reaction.last_obstacle_tag = winner.id;
+                    self.reaction.in_reaction = true;
+                    let mid = Vector::new(
+                        r(e(best_slot.direction.x) * 0.5 + e(best_slot.point.x)),
+                        r(e(best_slot.direction.y) * 0.5 + e(best_slot.point.y)),
+                        r(e(best_slot.direction.z) * 0.5 + e(best_slot.point.z)),
+                    );
+                    let mx = e(mid.x) - e(origin.x);
+                    let my = e(mid.y) - e(origin.y);
+                    let mz = e(mid.z) - e(origin.z);
+                    let mzf = r(mz);
+                    let inv = r(1.0 / ((mz * e(mzf) + my * my) + mx * mx).sqrt());
+                    self.reaction.heading =
+                        Vector::new(-r(mx * e(inv)), -r(my * e(inv)), -r(e(mzf) * e(inv)));
+                    return 0;
+                }
+            }
+        }
+
+        if point_in_capsule(target, &best_slot.capsule()) {
+            return match nudge_obstacle_path_point(
+                &best_slot,
+                target,
+                &ship_xform,
+                self.reaction.close_encounter,
+            ) {
+                Nudge::Point(out) => self.commit_reaction(&ship_xform, winner.id, out),
+                other => other.code(),
+            };
+        }
+
+        if has_close_flags {
+            let mut radius = winner.radius;
+            if winner.atmosphere_range > radius {
+                radius = winner.atmosphere_range;
+            }
+            let sphere_radius = r(e(radius) + 200.0);
+            let rx = e(target.x) - e(origin.x);
+            let ry = e(target.y) - e(origin.y);
+            let rz = e(target.z) - e(origin.z);
+            let rzf = r(rz);
+            let inv = r(1.0 / ((rz * e(rzf) + ry * ry) + rx * rx).sqrt());
+            let dir = Vector::new(r(rx * e(inv)), r(ry * e(inv)), r(e(rzf) * e(inv)));
+            if ray_sphere_intersect(origin, dir, winner.center, sphere_radius).is_none() {
+                return 4;
+            }
+        } else {
+            // `PhySys::FindRayIntersect` against the winner's own body.
+            let system = world.system_of(ship).unwrap_or(0);
+            let hits = world.find_ray_intersect(system, winner.id, origin, target, 1);
+            if hits.is_empty() {
+                return 4;
+            }
+        }
+        match nudge_obstacle_path_point(&best_slot, target, &ship_xform, false) {
+            Nudge::Point(out) => self.commit_reaction(&ship_xform, winner.id, out),
+            other => other.code(),
+        }
+    }
+
+    /// `ClassifyObstaclePhase`'s commit: the reaction heading toward the
+    /// path point, in reaction when it is more than about 60 degrees off
+    /// the nose.
+    fn commit_reaction(&mut self, ship: &Transform, winner: u32, out: Vector) -> i32 {
+        self.reaction.state = 0;
+        self.reaction.last_obstacle_tag = winner;
+        self.reaction.in_reaction = false;
+        let h = sub(out, ship.translation);
+        let inv = 1.0 / ((e(h.x) * e(h.x) + e(h.y) * e(h.y)) + e(h.z) * e(h.z)).sqrt();
+        let h = Vector::new(r(inv * e(h.x)), r(inv * e(h.y)), r(inv * e(h.z)));
+        self.reaction.heading = h;
+        let m = &ship.rotation.m;
+        let facing = (-e(m[2][2]) * e(h.z) + -e(m[1][2]) * e(h.y)) + -e(m[0][2]) * e(h.x);
+        if facing < 0.5 {
+            self.reaction.in_reaction = true;
+        }
+        0
     }
 
     /// `UpdateHeadingBlend(Dt)`: phase 0 starts a blend from the reaction
     /// heading; another phase but 1 turns the heading toward the target
     /// while the blend timer runs; otherwise the reaction is dropped.
-    fn update_heading_blend<W: AiWorld + ?Sized>(
+    fn update_heading_blend<W: AiEnv + ?Sized>(
         &mut self,
-        world: &W,
+        world: &mut W,
         ship: W::Handle,
         behavior: i32,
         dt: f32,
+        scan: ScanContext,
     ) {
-        let phase = self.classify_obstacle_phase(world, ship, behavior);
+        let phase = self.classify_obstacle_phase(world, ship, behavior, scan);
         let translation = world.inspect(ship).map_or(Vector::ZERO, |v| v.position);
         if phase == 0 {
             self.blend_start = self.reaction.heading;
@@ -895,9 +1112,84 @@ impl PathfindManager {
     }
 }
 
+/// `ClampPointToBoxSurface(Box, Src, Dst)` (`common_pathfind.cpp:700`):
+/// the point on the box's surface nearest `local` (box space) and whether
+/// `local` was outside; a point inside goes to the face its smallest
+/// overshoot points at.
+fn clamp_point_to_box_surface(half: Vector, local: Vector) -> (bool, Vector) {
+    let half = [half.x, half.y, half.z];
+    let input = [local.x, local.y, local.z];
+    let mut out = input;
+    let mut overshoot = [0.0f32; 3];
+    let mut outside = false;
+    for axis in 0..3 {
+        overshoot[axis] = r(e(input[axis]).abs() - e(half[axis]));
+        if overshoot[axis] >= 0.0 {
+            out[axis] = half[axis].copysign(input[axis]);
+            outside = true;
+        }
+    }
+    if !outside {
+        let nearest = if overshoot[0] >= overshoot[1] {
+            if overshoot[0] >= overshoot[2] { 0 } else { 2 }
+        } else if overshoot[1] >= overshoot[2] {
+            1
+        } else {
+            2
+        };
+        out[nearest] = half[nearest].copysign(input[nearest]);
+    }
+    (outside, Vector::new(out[0], out[1], out[2]))
+}
+
+/// Mode 1 of `GetUserZoneApproachDirection`: the signed distance from the
+/// box's surface (negative inside) and the unit direction to its centre.
+fn box_zone_gate(zone: &UserZone, own: Vector) -> (f64, Vector) {
+    let delta = sub(own, zone.box_center);
+    let local = neuron_core::math::transpose_transform(&zone.box_rotation, delta);
+    let (outside, clamped) = clamp_point_to_box_surface(zone.box_half_extent, local);
+    let d = sub(local, clamped);
+    let mut signed_sq = (e(d.y) * e(d.y) + e(d.z) * e(d.z)) + e(d.x) * e(d.x);
+    if !outside {
+        signed_sq = -signed_sq;
+    }
+    let gate = if signed_sq > 0.0 {
+        e(r(signed_sq.sqrt()))
+    } else {
+        0.0
+    };
+    let to = sub(zone.box_center, own);
+    let inv = 1.0 / ((e(to.x) * e(to.x) + e(to.y) * e(to.y)) + e(to.z) * e(to.z)).sqrt();
+    let dir = Vector::new(r(e(to.x) * inv), r(e(to.y) * inv), r(e(to.z) * inv));
+    (gate, dir)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_box_zone_points_inward_from_outside_and_out_from_inside() {
+        let zone = UserZone {
+            mode: 1,
+            invert: 0,
+            target_point: Vector::ZERO,
+            radius: 0.0,
+            box_rotation: Matrix::IDENTITY,
+            box_center: Vector::new(100.0, 0.0, 0.0),
+            box_half_extent: Vector::new(10.0, 10.0, 10.0),
+            target_key: 0,
+        };
+        let (gate, dir) = box_zone_gate(&zone, Vector::ZERO);
+        assert_eq!(gate, 90.0);
+        assert_eq!((dir.x, dir.y, dir.z), (1.0, 0.0, 0.0));
+        let (inside, _) = box_zone_gate(&zone, Vector::new(98.0, 0.0, 0.0));
+        assert_eq!(inside, 0.0);
+        let (out, p) =
+            clamp_point_to_box_surface(Vector::new(10.0, 10.0, 10.0), Vector::new(-2.0, 9.0, 1.0));
+        assert!(!out);
+        assert_eq!((p.x, p.y, p.z), (-2.0, 10.0, 1.0));
+    }
 
     #[test]
     fn cruise_is_blocked_by_a_contact_or_a_reaction() {

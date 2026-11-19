@@ -14,15 +14,16 @@
 //! keeps the ship at its slot in the leader's frame; the follow behaviour
 //! keeps it at the follow directive's offset.
 //!
-//! The dock delegate takes the order as a `DirectiveDockOp` the port does
-//! not carry yet (`DirectiveOp::Other(13)`), and the slot-28 offset it
-//! would be given (`DockBehavior::SetDestPointOffset`) is not passed on:
-//! the dock behaviour is not part of this module. No recorded scenario
-//! has a trade-lane order.
+//! The dock delegate takes the order as a `DirectiveDockOp` (the order's
+//! two objects) and the slot-28 offset (`DockBehavior::
+//! SetDestPointOffset`). No recorded scenario has a trade-lane order.
 
 use neuron_core::math::{Matrix, Vector, transform_matrix};
 
-use super::behavior::{AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, EvaluateResult, GotoOp};
+use super::behavior::{
+    AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, DockOp, EvaluateResult, GotoOp,
+};
+use super::dock::DockBehavior;
 use super::dodge::BreakAwayIdea;
 use super::face_idea::FaceIdea;
 use super::fp::{add, column2, e, len_sq_xyz, neg, r, sub};
@@ -367,23 +368,43 @@ fn follower_update_inner<W: AiEnv + ?Sized, B: FollowerWork<W>>(
             commit = distance < e(radius);
         }
         if commit {
+            // `go_tradelane(Candidate, Secondary, Field09 != 0, Field0C)`.
             let entrance = cx.world.handle_of(order.object);
             let exit = cx.world.handle_of(order.second_object);
-            let committed = match (entrance, exit) {
-                (Some(entrance), Some(exit)) => cx
-                    .world
-                    .command(cx.ship, AiCommand::GoTradeLane { entrance, exit }),
-                _ => -2,
-            };
+            let committed = cx.world.command(
+                cx.ship,
+                AiCommand::GoTradeLane {
+                    entrance,
+                    exit,
+                    fast_exit: order.commit_directly,
+                    speed: f32::from_bits(order.lane_param),
+                },
+            );
             if committed != 0 {
                 return 1;
             }
             b.follower_mut().lane_order = 1;
             return 0;
         }
-        let _offset = b.dock_offset(cx);
+        // A `DirectiveDockOp` with the order's two objects, then the
+        // slot-28 offset (`DockBehavior::SetDestPointOffset`) and the
+        // engage.
+        let op = DirectiveOp::Dock(DockOp {
+            dock_object: order.object,
+            field_10: order.second_object,
+            ..DockOp::default()
+        });
         cx.with_peer(super::behavior::ids::DOCK, |d, cx| {
-            d.accept_directive(cx, &DirectiveOp::Other(13));
+            d.accept_directive(cx, &op);
+        });
+        let offset = b.dock_offset(cx);
+        cx.with_peer(super::behavior::ids::DOCK, |d, cx| {
+            if let Some(dock) = d
+                .as_any_mut()
+                .and_then(|a| a.downcast_mut::<DockBehavior>())
+            {
+                dock.set_dest_point_offset(offset);
+            }
             d.engage(cx);
         });
         b.follower_mut().dock_running = 1;

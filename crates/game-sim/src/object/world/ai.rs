@@ -5,15 +5,15 @@
 //! predictions, slots 50 to 63) and the CRT `rand()` the AI shares with
 //! the world.
 
-use neuron_core::math::{Matrix, Vector};
+use neuron_core::math::{Matrix, Transform, Vector};
 
 use crate::ai::behavior::DirectiveOp;
 use crate::ai::fp::{e, r};
 use crate::ai::manager::{BehaviorManager, NotificationOut};
 use crate::ai::personality::Personality;
 use crate::ai::world::{
-    AiCommand, AiRand, AiWorld, EngineStatus, LootView, MotionModel, ObjectView, RayContact,
-    SpatialQueries, StrafeDir as AiStrafe, ThrustEquipType,
+    AiCommand, AiRand, AiWorld, DockHardpoints, EngineStatus, LootView, MotionModel, ObjectView,
+    RayContact, SpatialQueries, StrafeDir as AiStrafe, ThrustEquipType,
 };
 use crate::equip::flight::StrafeDir;
 use crate::equip::{EquipKind, types};
@@ -484,10 +484,83 @@ impl AiWorld for World {
         Some((self.attitude(from, to)?, self.attitude(to, from)?))
     }
 
+    /// `get_hardpoint` (`HardpointPosition`, `common_hierarchy.cpp:55`):
+    /// the hardpoint in world space, through the world transform of the
+    /// instance it sits on.
     fn hardpoint(&self, h: ObjHandle, name: &[u8]) -> Option<(Vector, Matrix)> {
         let o = self.get(h)?;
-        let (_, data) = self.find_hardpoint(o.engine.instance, name)?;
-        Some((data.position(), data.orientation()))
+        let (found, data) = self.find_hardpoint(o.engine.instance, name)?;
+        let instance = self.scene.instance_transform(Some(found));
+        let rotated = neuron_core::math::transform_matrix(&instance.rotation, data.position());
+        let t = instance.translation;
+        let position = Vector::new(
+            r(e(rotated.x) + e(t.x)),
+            r(e(rotated.y) + e(t.y)),
+            r(e(rotated.z) + e(t.z)),
+        );
+        let orientation = neuron_core::math::mul_matrix(&instance.rotation, &data.orientation());
+        Some((position, orientation))
+    }
+
+    /// `IObjInspectImpl::has_dock_hardpoints` (`common_iobjinspectimpl.cpp:1227`).
+    fn has_dock_hardpoints(&self, h: ObjHandle) -> bool {
+        self.get(h).and_then(|o| o.as_equipped()).is_some_and(|eq| {
+            eq.docking_points
+                .iter()
+                .any(|d| matches!(d.dock_type, 1 | 6 | 7))
+        })
+    }
+
+    /// `IObjInspectImpl::get_dock_hardpoints` (`common_iobjinspectimpl.cpp:1252`):
+    /// the docking sphere's type and radius, its mount (`hpdockmount<c>`)
+    /// and the two dock points (`hpdockpoint<c>01`, `02`; a missing one
+    /// copies the mount and makes the result -2).
+    fn dock_hardpoints(&mut self, h: ObjHandle, index: i32) -> DockHardpoints {
+        let Some(sphere) = self.get(h).and_then(|o| o.as_equipped()).map(|eq| {
+            usize::try_from(index)
+                .ok()
+                .filter(|_| index != -1)
+                .and_then(|i| eq.docking_points.get(i).cloned())
+        }) else {
+            return DockHardpoints::failed(-5);
+        };
+        let Some(sphere) = sphere else {
+            return DockHardpoints::failed(-4);
+        };
+        let mut out = DockHardpoints {
+            result: -5,
+            terminal: i32::try_from(sphere.dock_type).ok(),
+            mount: None,
+            point1: None,
+            point2: None,
+            radius: Some(sphere.radius),
+        };
+        let name = &sphere.hardpoint;
+        let Some((pos, orient)) = self.hardpoint(h, name) else {
+            return out;
+        };
+        let mount = Transform::new(orient, pos);
+        out.mount = Some(mount);
+        if !name.windows(11).any(|w| w == b"hpdockmount") {
+            return out;
+        }
+        let suffix = name.last().copied().unwrap_or(0);
+        out.result = 0;
+        let point = |n: u8, out: &mut DockHardpoints| {
+            let mut point_name = b"hpdockpoint".to_vec();
+            point_name.push(suffix);
+            point_name.extend_from_slice(if n == 1 { b"01" } else { b"02" });
+            match self.hardpoint(h, &point_name) {
+                Some((p, o)) => Some(Transform::new(o, p)),
+                None => {
+                    out.result = -2;
+                    Some(mount)
+                }
+            }
+        };
+        out.point1 = point(1, &mut out);
+        out.point2 = point(2, &mut out);
+        out
     }
 
     fn motion(&self, h: ObjHandle) -> Option<Box<dyn MotionModel + '_>> {
@@ -687,6 +760,19 @@ impl AiWorld for World {
             .as_any()?
             .downcast_ref::<crate::ai::loot::LootBehavior>()?
             .target
+    }
+
+    /// `Universe::ISystem::GetSphereProperties` over the system's zones
+    /// (P2.1's zone tree and `SphereCull`).
+    fn sphere_zone_properties(&self, system: u32, center: Vector, radius: f32) -> u32 {
+        self.data
+            .universe
+            .sphere_properties(system, &crate::data::zone::query::Sphere { center, radius })
+    }
+
+    /// `SinglePlayer()`.
+    fn single_player(&self) -> bool {
+        self.config.single_player
     }
 
     fn command(&mut self, h: ObjHandle, command: AiCommand<ObjHandle>) -> i32 {

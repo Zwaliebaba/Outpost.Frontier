@@ -1,0 +1,14 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): launch from a station.
+# A fighter with the FIGHTER state graph is spawned beside station he01_11 (6173, 0, -50515)
+# and given a launch directive from the station's first docking sphere (a berth, terminal
+# type 1), as Content's LaunchQueuedShips gives a ship it places at a dock (LaunchBehavior,
+# behaviour 8). Multiplayer stepping.
+
+system he01
+ticks 1200
+stepping mp
+
+solar station he01_11
+ship pilot he_fighter li_p_he_fighter_loadout01 6173 0 -50315 ai FIGHTER psi
+
+at 1 pilot launch station 0 1

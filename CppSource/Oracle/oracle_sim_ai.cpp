@@ -158,6 +158,8 @@ namespace
         float Lead[3];
         bool Pointing[3];           // is_pointing_at at the gun angle, the wide and the missile
                                     // cone angles
+        int TurretResult;           // OracleAiTurretGeometry for an auto turret
+        float Turret[29];
         int CanPointCount;          // can_point_at(candidate position, 0.3) for an auto turret
         unsigned int CanPointIds[kMaxCandidates];
         bool CanPoint[kMaxCandidates];
@@ -246,6 +248,10 @@ namespace
         int TargetedEnemies;
         // The own ship only: what the fire control reads of its items, and the ship's lead.
         int bOwn;
+        // P2.5 dock and launch: get_hardpoint("hpmount") of the own ship.
+        int MountResult;
+        Vector MountPos;
+        Matrix MountOrient;
         int LeadResult;
         float Lead[3];
         int EquipCount;
@@ -260,6 +266,7 @@ namespace
     void ReadOwnEquipment(IObjInspect const* O, FAiObject& Out)
     {
         Out.bOwn = 1;
+        Out.MountResult = O->get_hardpoint("hpmount", &Out.MountPos, &Out.MountOrient);
         Out.LeadResult = OracleAiShipLeadFirePos(O, Out.Lead);
         static const EquipmentValType kVals[5] = {EquipValMunitionKind, EquipValAutoTurret, EquipValSeeker,
                                                   EquipValRange, EquipValTargetId};
@@ -302,8 +309,10 @@ namespace
                     E.Pointing[A] = bPointing;
                 }
                 // EquipValAutoTurret's byte.
+                E.TurretResult = 0;
                 if (Type == 0x80u && E.ValResult[1] == 0 && (E.Val[1] & 0xffu) != 0)
                 {
+                    E.TurretResult = OracleAiTurretGeometry(O, Ids[Index], E.Turret);
                     for (int C = 0; C < GCandidateCount; ++C)
                     {
                         if (GCandidates[C] == nullptr)
@@ -468,6 +477,8 @@ namespace
         for (int A = 0; A < 3; ++A)
             J.Bool(nullptr, E.Pointing[A]);
         J.EndArray();
+        if (E.TurretResult == 1)
+            J.FloatArray("turret", E.Turret, 29);
         J.BeginArray("can_point");
         for (int C = 0; C < E.CanPointCount; ++C)
         {
@@ -607,6 +618,19 @@ namespace
             for (int Index = 0; Index < Obj.EquipCount; ++Index)
                 WriteEquip(J, Obj.Equip[Index]);
             J.EndArray();
+            if (Obj.MountResult == 0)
+            {
+                float Mount[12];
+                Mount[0] = Obj.MountPos.x;
+                Mount[1] = Obj.MountPos.y;
+                Mount[2] = Obj.MountPos.z;
+                memcpy(&Mount[3], &Obj.MountOrient.E[0][0], 9 * sizeof(float));
+                J.FloatArray("hpmount", Mount, 12);
+            }
+            else
+            {
+                J.Null("hpmount");
+            }
         }
         if (Obj.AttitudeResult == 0)
         {
@@ -821,6 +845,10 @@ namespace
             J.Int("reaction", M.PathfindReaction);
             J.Bool("probe_active", M.bProbeActive != 0);
             J.Bool("probe_contact", M.bProbeContact != 0);
+            J.BeginArray("locks");
+            for (int Lock : M.PathfindLocks)
+                J.Int(nullptr, Lock);
+            J.EndArray();
             J.EndObject();
         }
         else
@@ -837,6 +865,18 @@ namespace
             FaceFields(J, M.Face);
         else
             J.Null("face");
+        // P2.5 dock, launch and trade lanes: the current behaviour's own fields.
+        if (M.BehaviorKind != 0)
+        {
+            const char* const Name = M.BehaviorKind == 7 ? "beh7" : (M.BehaviorKind == 8 ? "beh8" : "beh9");
+            J.BeginObject(Name);
+            J.BeginArray("i");
+            for (int Index = 0; Index < M.Behavior.IntCount; ++Index)
+                J.Int(nullptr, M.Behavior.Ints[Index]);
+            J.EndArray();
+            J.FloatArray("v", M.Behavior.Floats, (unsigned)M.Behavior.FloatCount);
+            J.EndObject();
+        }
     }
 
     void BeginTick(IBehaviorManager const* Manager, float Dt)
@@ -951,6 +991,23 @@ namespace
         if (Self->get_dock_target(DockId) == 0)
             Add(FindById(DockId), "dock_target");
         Add(FindById(M.InSightsTargetId), "in_sights");
+        // P2.5 dock, launch and trade lanes: the objects the current behaviour holds (the
+        // dock's object, lane ring and watched object; the launch's base; the trade lane's
+        // two rings), which can lie beyond the near radius.
+        if (M.BehaviorKind == 7 && M.Behavior.IntCount > 17)
+        {
+            for (int Index = 15; Index <= 17; ++Index)
+                Add(FindById(static_cast<unsigned int>(M.Behavior.Ints[Index])), "behavior");
+        }
+        else if (M.BehaviorKind == 8 && M.Behavior.IntCount > 5)
+        {
+            Add(FindById(static_cast<unsigned int>(M.Behavior.Ints[5])), "behavior");
+        }
+        else if (M.BehaviorKind == 9 && M.Behavior.IntCount > 6)
+        {
+            Add(FindById(static_cast<unsigned int>(M.Behavior.Ints[5])), "behavior");
+            Add(FindById(static_cast<unsigned int>(M.Behavior.Ints[6])), "behavior");
+        }
         for (int Index = 0; Index < M.TargetCount && Index < 64; ++Index)
             Add(Live[Index], "candidate");
         // P2.5 combat: the incoming missiles of the timer table (the near walk's mask leaves
@@ -982,11 +1039,14 @@ namespace
                     Add(O, "near");
             }
         }
+        // The auto-turret scan asks can_point_at for the list it builds during the tick
+        // (BuildAiTargetList), which the entry list need not hold yet: every object of the
+        // snapshot but the ship is a candidate.
         GCandidateCount = 0;
-        for (int Index = 0; Index < M.TargetCount && Index < kMaxCandidates && Index < 64; ++Index)
+        for (IObjInspect const* O : Order)
         {
-            if (Live[Index] != nullptr)
-                GCandidates[GCandidateCount++] = Live[Index];
+            if (O != Self && GCandidateCount < kMaxCandidates)
+                GCandidates[GCandidateCount++] = O;
         }
         GWideConeAngle = M.Guns.WideConeAngle;
         GMissileConeAngle = M.Guns.Params[11];  // +0x1068 MissileLaunchConeAngle
@@ -1045,6 +1105,30 @@ namespace
             if (GPreviousTick != nullptr)
                 GPreviousTick(Manager, Dt, Phase);
         }
+    }
+
+    // P2.5 dock, launch and trade lanes: a world answer (oracle_ai.h EOracleAiAnswer), with
+    // the behaviour tick it came in (seq 0 outside one).
+    void __cdecl OnAiAnswer(int Kind, unsigned int ObjectId, int const* Ints, int IntCount, float const* Floats,
+                            int FloatCount)
+    {
+        static const char* const kNames[6] = {"request",      "dock_hardpoints", "lane_start",
+                                              "go_tradelane", "gun_target",      "zone_props"};
+        FOracleJson J;
+        J.Str("rec", "ai_answer");
+        J.Uint("tick", Tick());
+        J.Uint("seq", GOpen);
+        J.Str("kind", Kind >= 0 && Kind < 6 ? kNames[Kind] : "unknown");
+        IdAndName(J, ObjectId);
+        J.BeginArray("i");
+        for (int Index = 0; Index < IntCount; ++Index)
+            J.Int(nullptr, Ints[Index]);
+        J.EndArray();
+        if (Floats != nullptr)
+            J.FloatArray("v", Floats, (unsigned)FloatCount);
+        else
+            J.Null("v");
+        Write(J);
     }
 
     const char* QueryName(int Kind)
@@ -1125,6 +1209,7 @@ namespace oracle
         GPreviousTick = GOracleSimHooks.OnBehaviorTick;
         GOracleSimHooks.OnBehaviorTick = OnAiBehaviorTick;
         GOracleAiHooks.OnQuery = OnAiQuery;
+        GOracleAiHooks.OnAnswer = OnAiAnswer;
 
         FOracleJson J;
         J.Str("rec", "ai_start");

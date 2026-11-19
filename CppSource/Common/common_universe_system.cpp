@@ -12,6 +12,7 @@
 #include "common_net.h"  // CommReferrable (SYSTEM's second base)
 #include "common_reputation.h" // Reputation::Vibe static store (FreeStatic / Begin / EndStaticLoad)
 #include "common_zone.h"   // ZONE, the concrete IZone
+#include "oracle_ai.h"     // Oracle instrumentation (P2.5 ai): GOracleAiHooks.OnAnswer
 
 #include "NeuronRuntime.h"
 #include "neuroncomponents.h"
@@ -170,6 +171,13 @@ namespace CmnUniverse
                 ExclusiveFlags = Flags;
                 ExclusiveRadius = Zone->GetRadius();
             }
+        }
+        // Oracle instrumentation (P2.5 ai): the answer (OracleAiAnswerZoneProperties).
+        if (GOracleAiHooks.OnAnswer != nullptr)
+        {
+            int const Ints[1] = {static_cast<int>(Combined | ExclusiveFlags)};
+            float const Floats[4] = {Query->Center.x, Query->Center.y, Query->Center.z, Query->Radius};
+            GOracleAiHooks.OnAnswer(OracleAiAnswerZoneProperties, NicknameId, Ints, 1, Floats, 4);
         }
         return Combined | ExclusiveFlags;
     }

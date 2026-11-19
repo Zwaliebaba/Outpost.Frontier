@@ -197,7 +197,7 @@ pub struct ProxWatcher {
 
 impl ProxWatcher {
     /// `ProxWatcherInit`.
-    fn init<C: NavCx + ?Sized>(
+    pub(crate) fn init<C: NavCx + ?Sized>(
         &mut self,
         cx: &C,
         target: Option<u32>,
@@ -227,7 +227,7 @@ impl ProxWatcher {
     }
 
     /// `ProxWatcherRecomputeZoneFlags`.
-    fn recompute_zone_flags<C: NavCx + ?Sized>(&mut self, cx: &C, ref_point: Vector) {
+    pub(crate) fn recompute_zone_flags<C: NavCx + ?Sized>(&mut self, cx: &C, ref_point: Vector) {
         let Some(obj) = super::nav::watched(cx, self.watched) else {
             return;
         };
@@ -268,7 +268,7 @@ impl ProxWatcher {
     }
 
     /// `ProxWatcherComputeSpeedCap(Owner, Sys, Selector, Value)`.
-    fn speed_cap<C: NavCx + ?Sized>(&self, cx: &C, selector: i32, value: f32) -> f64 {
+    pub(crate) fn speed_cap<C: NavCx + ?Sized>(&self, cx: &C, selector: i32, value: f32) -> f64 {
         let Some(obj) = super::nav::watched(cx, self.watched) else {
             return 0.0;
         };
@@ -301,7 +301,7 @@ impl ProxWatcher {
 
     /// `ProxWatcherNotifyZoneChange`: the tether event code (1 entered the
     /// near zone, 2 entered the far zone, 3 left it), or none.
-    fn zone_change(&self) -> Option<i32> {
+    pub(crate) fn zone_change(&self) -> Option<i32> {
         self.watched?;
         let (saved, now) = (self.saved_flags, self.zone_flags);
         if saved & 4 != 0 && saved & 2 == 0 && now & 2 != 0 {
@@ -862,6 +862,10 @@ impl<W: AiEnv + ?Sized> Behavior<W> for GotoBehavior {
     }
 
     fn as_any(&self) -> Option<&dyn core::any::Any> {
+        Some(self)
+    }
+
+    fn as_any_mut(&mut self) -> Option<&mut dyn core::any::Any> {
         Some(self)
     }
 

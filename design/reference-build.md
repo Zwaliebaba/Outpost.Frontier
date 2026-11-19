@@ -678,6 +678,9 @@ is zero, which only `Oracle.exe sim` changes:
 | `IVP\ivp_physics\ivp_environment.cpp` | `IVP_Environment_Simulate_Psi` reports before the simulation units and after the next-PSI matrices |
 | `IVP\ivp_physics\ivp_simulation_unit.cpp` | `IVP_Simulation_Unit_Process_One_Psi_Step` reports its entry and its end with the movement check |
 | `IVP\ivp_physics\ivp_core.cpp` | `IVP_Core::push_core_linear`, `push_core_angular_ws` and `push_core_angular_cs` report the push |
+| `Common\common_iobjinspectimpl.cpp` | `get_dock_hardpoints` and `get_lane_start` report their answers (`GOracleAiHooks.OnAnswer`, P2.5 dock) |
+| `Common\common_universe_system.cpp` | `SYSTEM::GetSphereProperties` reports its answer (the AI's zone probes, P2.5) |
+| `Server\server_gameobject.cpp` (P2.5) | `Ship::slot_5c`, `slot_60`, `go_tradelane`, `stop_tradelane` and `EqObj::slot_44` report the `IObjAffect` call; `Ship::request_returned`, `go_tradelane` and `slot_44` report their answers; `request_returned` runs the pending callback at affect depth 0 |
 | `Content\PilotPersonalities.cpp` | `OracleSimPilotPersonality`, a new export (P2.5) that only the `pilot` option calls: `GetPilotPersonality` of a pilot nickname |
 
 `srand`, the frame time and the control words need no hook: the harness
@@ -732,7 +735,10 @@ record 0003) are in `CppSource\Oracle\scenarios\`: `free_flight`,
 `turn_to_heading`, `fly_to_point`, `dock_at_station`, `fire_at_target`,
 `ram_asteroid`, `dogfight`, `skirmish`, `strafe`, and `ram_ship`, Gate G2's collide scenario in
 place of `ram_asteroid` (owner, 2026-11-18); the escort scenarios of P2.5,
-`formation`, `follow`, `guide` and `large_ship`.
+`formation`, `follow`, `guide` and `large_ship`; and the dock scenarios of P2.5,
+`dock_trade_lane`, `launch_from_station` and `trade_lane`. A line
+`# rust: skip <reason>` tells `scenario_replay` that the Rust world cannot
+run the scenario yet.
 
 | Line | Meaning |
 | --- | --- |
@@ -763,6 +769,8 @@ ship with `ai`:
 | `goto <x> <y> <z> [range <r>] [cruise]` | `DirectiveGotoOp` to a point (`Field_0C` 1), arrival range default 100, no cruise unless asked |
 | `face <x> <y> <z>` | `DirectiveFaceOp` mode 2 (a point) |
 | `dock <target>` | `DirectiveDockOp` |
+| `launch <target> <index> <terminal>` | `DirectiveLaunchOp` {the base, the docking sphere, its terminal type}, as Content's `LaunchQueuedShips` gives a ship it places at a dock (P2.5) |
+| `tradelane <entrance> <exit>\|none [speed]` | `DirectiveInstantTradelaneOp` {the entrance ring, the exit ring (0 for none), the speed as a float in the third word, default 0} (P2.5) |
 | `ram <target>` | `DirectiveRamOp` |
 | `follow <target> [distance <d>] [offset <x> <y> <z>] [range <r>]` | `DirectiveFollowOp` (P2.5 escort): the target, the follow distance (default 150), the offset in the target's frame (default 0), the range (`Field_20`, default 400) |
 | `guide <ship> <x> <y> <z> [range <r>] [distance <d>] [offset <x> <y> <z>]` | `DirectiveGuideOp` (P2.5 escort): its goto part as `goto`'s (a point, arrival range default 100, no cruise) with the guided ship in `GotoParams.Field_5C`; its follow part on the guided ship (distance default 150, offset default 0); the other fields keep their defaults |
@@ -803,6 +811,22 @@ stops at tick 1500, before the police destroys the transport at tick 1536.
 A gunboat (`GUNBOAT` graph) against the same transport and the fighter
 against a `li_cruiser` strafe as well (1799 and 1775 of 1800 ticks in a
 trial run).
+
+The dock scenarios (P2.5). In `dock_at_station` the fighter's dock
+behaviour (7) flies the approach through the goto behaviour to within
+1000 m of `he01_11` (ticks 1 to 349), asks for a port at tick 354
+(`slot_5c` type 0) and is refused (response 5, port -1: the ship has no
+reputation), so the directive ends with result 2 and the ship idles; no
+docking point is reached. `dock_trade_lane` has the fighter dock with
+trade lane ring 16 as NPC traffic enters a lane: the lane start
+(`get_lane_start`), the approach, the lane request at tick 222 (type 2,
+granted at once), the ring's spline, the lane at tick 588 and the lane's
+end at tick 1188. `launch_from_station` launches the fighter from the
+station's first berth (behaviour 8, ticks 1 to 277). `trade_lane` puts the
+fighter into the lane from ring 16 to ring 18 with the instant trade lane
+(behaviour 9, `go_tradelane` at tick 12). The lane scenarios record no
+PSIs: in the lane the ship moves by `CShip`'s `LaneAction`, which the port
+does not have yet.
 
 The escort scenarios (P2.5) reach the behaviours no fight does.
 `formation` is a leader and two wingmen of `formations.ini`'s

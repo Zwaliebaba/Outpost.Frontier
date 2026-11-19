@@ -42,6 +42,22 @@ struct Mount {
     connector: Option<InstanceId>,
 }
 
+/// A gun's turret as `CEGun::CanPointAt` reads it
+/// ([`World::turret_geometry`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TurretGeometry {
+    /// The bound yaw joint's limits (`None` unbound).
+    pub yaw: Option<(f32, f32)>,
+    /// The bound pitch joint's limits.
+    pub pitch: Option<(f32, f32)>,
+    /// `GetTurretOrigin`.
+    pub origin: Vector,
+    /// `TurretFrame`.
+    pub frame: Matrix,
+    /// The parent connector's orientation.
+    pub connector: Matrix,
+}
+
 impl World {
     fn joint_limits(&self, joint: &JointChannel) -> Option<(f32, f32)> {
         let instance = joint.instance?;
@@ -517,6 +533,22 @@ impl World {
             self.joint_limits(&gun.yaw),
             self.joint_limits(&gun.pitch),
         )
+    }
+
+    /// What `CEGun::CanPointAt` reads of a gun (the oracle's turret
+    /// records compare it): each bound joint's limits, the turret origin,
+    /// the turret frame and the parent connector's orientation.
+    #[must_use]
+    pub fn turret_geometry(&self, h: ObjHandle, id: SubObjId) -> Option<TurretGeometry> {
+        let gun = self.gun(h, id)?;
+        let mount = self.gun_mount(h, id)?;
+        Some(TurretGeometry {
+            yaw: self.joint_limits(&gun.yaw),
+            pitch: self.joint_limits(&gun.pitch),
+            origin: self.turret_origin_of(gun, &mount),
+            frame: gun.turret_frame,
+            connector: self.scene.instance_orientation(mount.connector),
+        })
     }
 
     /// `CEGun::CanSeeTargetPoint`: the point lies within `angle` of the

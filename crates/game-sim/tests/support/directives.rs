@@ -4,7 +4,9 @@
 //! them to its managers between the recorded behaviour ticks, as the
 //! harness does before the frame's step).
 
-use game_sim::ai::behavior::{DirectiveOp, FaceOp, FollowOp, GotoOp, GuideOp};
+use game_sim::ai::behavior::{
+    DirectiveOp, DockOp, FaceOp, FollowOp, GotoOp, GuideOp, InstantTradeLaneOp, LaunchOp,
+};
 use neuron_core::math::Vector;
 
 fn num(t: &str) -> Option<f64> {
@@ -59,7 +61,9 @@ fn follow_options(a: &[String], at: usize, op: &mut FollowOp) -> Option<Option<f
 /// d] [offset x y z] [range r]`, `guide <ship> x y z [range r] [distance
 /// d] [offset x y z]` (`oracle_sim.cpp`'s ops: the guide's goto part as
 /// `goto`'s, the guided ship in its `field_5c` and as the follow target),
-/// `idle`, `cancel`; `None` for any other command. `id` names the objects.
+/// `dock <target>` (`DirectiveDockOp` with its defaults), `launch <target>
+/// <index> <terminal>`, `tradelane <entrance> <exit|none> [speed]`, `idle`,
+/// `cancel`; `None` for any other command. `id` names the objects.
 #[must_use]
 pub fn directive_with(a: &[String], id: &dyn Fn(&str) -> Option<u32>) -> Option<DirectiveOp> {
     match a.first()?.as_str() {
@@ -129,6 +133,22 @@ pub fn directive_with(a: &[String], id: &dyn Fn(&str) -> Option<u32>) -> Option<
             point: vec3(a, 1)?,
             ..FaceOp::default()
         })),
+        "dock" if a.len() == 2 => Some(DirectiveOp::Dock(DockOp {
+            dock_object: id(&a[1])?,
+            ..DockOp::default()
+        })),
+        "launch" if a.len() == 4 => Some(DirectiveOp::Launch(LaunchOp {
+            launch_object: id(&a[1])?,
+            index: num(&a[2])? as i32,
+            terminal: num(&a[3])? as i32,
+        })),
+        "tradelane" if a.len() == 3 || a.len() == 4 => {
+            Some(DirectiveOp::InstantTradeLane(InstantTradeLaneOp {
+                entrance: id(&a[1])?,
+                exit: if a[2] == "none" { 0 } else { id(&a[2])? },
+                speed: a.get(3).and_then(|t| num(t)).map_or(0.0, |v| v as f32),
+            }))
+        }
         "idle" if a.len() == 1 => Some(DirectiveOp::Idle),
         "cancel" if a.len() == 1 => Some(DirectiveOp::Cancel),
         _ => None,

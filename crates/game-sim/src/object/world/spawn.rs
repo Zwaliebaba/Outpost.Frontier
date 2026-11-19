@@ -10,7 +10,7 @@ use neuron_core::math::{Matrix, Vector, matrix_to_quaternion};
 use neuron_core::physics::{
     BodyDesc, CONTROLLER_PRIORITY, CreateParms, Geometry, GolemParms, PhantomDesc,
 };
-use neuron_core::scene::{InstanceId, connect_hardpoints};
+use neuron_core::scene::{Engine, Hardpoints, InstanceId, connect_hardpoints, connect_payload};
 
 use crate::data::archetype::equipment::{Equipment, EquipmentKind};
 use crate::data::archetype::root::Root;
@@ -497,15 +497,13 @@ impl World {
             // reads as unconnected.
             return false;
         };
-        // `ConnectAttachedHardpoints(parent, parent hp, model, HP_child)`.
-        if connect_hardpoints(
+        if !connect_attached_hardpoints(
             &mut self.scene,
-            Some(instance),
+            instance,
             hp_crc,
-            Some(model),
+            model,
             name_crc32(&child_hp),
-        ) != 0
-        {
+        ) {
             self.scene.destroy_instance(model);
             return false;
         }
@@ -1831,4 +1829,68 @@ pub(crate) fn shield_status(e: &Equip) -> ShieldStatus {
         destroyed: e.is_destroyed(),
         attached: e.attached.as_ref().is_some_and(|a| a.attachment.is_some()),
     }
+}
+
+/// `WrapLimitRange`: a joint's limit range moved into `[0, 360)` by whole
+/// turns (the reference's bounds, kept in `f64` as on its x87 stack).
+fn wrap_limit_range(mut range: f64) -> f64 {
+    const TWO_PI: f64 = 6.283_185_482_025_146_5;
+    while range < 0.0 {
+        range += TWO_PI;
+    }
+    while range >= 360.0 {
+        range -= TWO_PI;
+    }
+    range
+}
+
+/// `ConnectAttachedHardpoints(parent, parent hp, child, child hp)`
+/// (`common_cattachment.cpp`): two revolute hardpoints make a revolute
+/// joint (`IHardpoint::ConnectHardpoints`' payload) with the narrower of
+/// their two limit ranges, a range of a full turn or more read as
+/// `[-pi, pi]`; any other pair goes through `ConnectHardpoints`. False
+/// when a hardpoint is missing or the joint is refused.
+fn connect_attached_hardpoints(
+    engine: &mut Engine,
+    parent: InstanceId,
+    parent_crc: u32,
+    child: InstanceId,
+    child_crc: u32,
+) -> bool {
+    let lookup = |engine: &Engine, instance: InstanceId, crc| {
+        let archetype = engine.instance_archetype(instance)?;
+        engine.component::<Hardpoints>()?.get(archetype, crc)
+    };
+    let (Some(a), Some(b)) = (
+        lookup(engine, parent, parent_crc),
+        lookup(engine, child, child_crc),
+    ) else {
+        return false;
+    };
+    if a.kind() != 2 || b.kind() != 2 {
+        return connect_hardpoints(engine, Some(parent), parent_crc, Some(child), child_crc) == 0;
+    }
+    // A range of 2 pi or more (the float 2 pi, compared in `f64`) opens the
+    // limits to [-pi, pi] and keeps its range; any other range (NaN too) is
+    // wrapped.
+    let full = |range: f64| range >= f64::from(6.283_185_5_f32);
+    let limits = |d: &neuron_core::scene::HardpointData| {
+        let range = f64::from(d.max()) - f64::from(d.min());
+        if full(range) {
+            (range, -core::f32::consts::PI, core::f32::consts::PI)
+        } else {
+            (wrap_limit_range(range), d.min(), d.max())
+        }
+    };
+    let (parent_range, parent_min, parent_max) = limits(&a);
+    let (child_range, child_min, child_max) = limits(&b);
+    let (min, max) = if parent_range < child_range {
+        (parent_min, parent_max)
+    } else {
+        (child_min, child_max)
+    };
+    let mut payload = connect_payload(&a, &b);
+    payload.0[19] = min.to_bits();
+    payload.0[20] = max.to_bits();
+    engine.create_joint(Some(parent), Some(child), &payload)
 }
