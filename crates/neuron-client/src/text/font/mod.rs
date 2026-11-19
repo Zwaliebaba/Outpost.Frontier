@@ -346,8 +346,7 @@ pub fn wide_c_str(text: &[u16]) -> &[u16] {
     &text[..end]
 }
 
-#[cfg(test)]
-pub(crate) mod fake;
+pub mod fake;
 
 #[cfg(test)]
 mod tests;
