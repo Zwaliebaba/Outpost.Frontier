@@ -234,6 +234,10 @@ void RunNeuronClientSuites();
 // msvcrt_numeric_format.h and XMLReader::read_buffer (RDLX markup through MSXML), over
 // crates/neuron-client/tests/fixtures/oracle/{number_text,rdl_markup}.list.
 void RunTextSuites();
+// P4.12 (oracle_rich_text.cpp), called by RunTextSuites: Common.dll's LayoutRichText, the list
+// functions, StyleCollection and lex_compare on a recording TextRenderContext, over
+// crates/neuron-client/tests/fixtures/oracle/rich_text.list.
+void RunRichTextSuites();
 // P4.10 (oracle_audio.cpp): the software mixer of SoundManager.dll, compiled in, over
 // crates/neuron-client/tests/fixtures/oracle/audio; called by RunNeuronClientSuites.
 void RunAudioSuites();

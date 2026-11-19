@@ -5,10 +5,9 @@
 //! per-frame update: age, the texture frame, the fields on every particle
 //! (`ApplyFieldsToPool`) and the integration (`IntegratePool`).
 //!
-//! Drawing (vertices, the draw contexts, bounds) is the second increment
-//! of P4.8. `FxParticleAppearance` and `FxMeshAppearance` spawn child
-//! effects and meshes; they come with it and are not simulated here: they
-//! only age and finish.
+//! Drawing is in [`super::draw`]. `FxParticleAppearance` and
+//! `FxMeshAppearance` spawn child effects and meshes; they are not
+//! simulated yet: they only age and finish.
 
 use std::rc::Rc;
 
@@ -247,7 +246,7 @@ impl ParticleFx {
             return;
         };
         if matches!(kind, PoolKind::Particle | PoolKind::Mesh) {
-            // Child effects and meshes: the second increment.
+            // Child effects and meshes: not ported yet.
             return;
         }
         if self.pools.get(kind).capacity() == 0 {

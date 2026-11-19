@@ -153,7 +153,7 @@
     <ClCompile Include="..\surfacematerials\surfacematerials.cpp">
       <PreprocessorDefinitions>DllMain=SurfaceMaterialsDllMain;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
-    <!-- P4.8: particlefx.dll's sources for oracle_particles.cpp (particle_ramp, particle_sim), but
+    <!-- P4.8: particlefx.dll's sources for oracle_particles.cpp (particle_ramp, particle_sim, particle_draw), but
          particlefx.cpp (DllMain): the suite registers the components itself. The two numeric
          files keep the settings particlefx.vcxproj gives them. -->
     <ClCompile Include="oracle_particles.cpp" />
@@ -370,6 +370,8 @@
     <!-- P4.12-P4.14: the client's number texts (msvcrt_numeric_format.h) and RDLX markup
          through Common.dll's XMLReader (MSXML SAX2). -->
     <ClCompile Include="oracle_text.cpp" />
+    <!-- P4.12: LayoutRichText and the list functions of Common.dll on a recording context. -->
+    <ClCompile Include="oracle_rich_text.cpp" />
     <!-- P4.12: Oracle.exe gdi-fonts, GDI's text metrics for the DirectWrite font backend. -->
     <ClCompile Include="oracle_gdi_fonts.cpp" />
     <!-- P4.10: SoundManager.dll exports nothing but its factory; oracle_audio.cpp includes

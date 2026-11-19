@@ -153,8 +153,8 @@ pub enum PropsData {
     Field(FieldProps),
     /// The six billboard appearances.
     Billboard(Box<BillboardProps>),
-    /// `FxParticleAppearance` and `FxMeshAppearance` (simulated in the
-    /// second increment of P4.8): only the LOD curve is kept.
+    /// `FxParticleAppearance` and `FxMeshAppearance` (their child effects
+    /// and meshes are not ported yet): only the LOD curve is kept.
     OtherAppearance(SingleRampRamp),
 }
 

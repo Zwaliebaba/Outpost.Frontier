@@ -9,13 +9,16 @@
 //! order ([`super::VMeshPlugin`], [`super::TriMeshPlugin`],
 //! [`super::SpherePlugin`]).
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use neuron_core::math::{
     Transform, Vector, mul_transform, rotate, transform_xform, transpose_transform,
 };
 use neuron_core::vfs::FileSystem;
 
+use super::face::{FaceSource, MeshFace};
 use super::lod::{LodEntry, LodSet};
 use super::services::{MeshCamera, MeshServices};
 use super::{
@@ -158,16 +161,88 @@ pub fn plugin_names(lines: &[&[u8]]) -> Vec<Vec<u8>> {
         .collect()
 }
 
-/// The render manager: archetypes and plugins.
+/// The archetypes' levels by engine handle, shared with the
+/// [`MeshDirectory`].
+pub type SharedLodSets = Rc<RefCell<BTreeMap<Archetype, LodSet>>>;
+
+/// The render manager: archetypes and plugins, and the plugins' faces.
+///
+/// The levels are shared with the [`MeshDirectory`] the services use to
+/// answer `QueryArchetype` and `QueryInstance` for `IID_IMesh` while a
+/// mesh draws; no borrow of them is held across a plugin's draw
+/// (divergence D356).
 pub struct RenderManager<S: ?Sized> {
-    archetypes: BTreeMap<Archetype, LodSet>,
+    archetypes: SharedLodSets,
     plugins: Vec<Box<dyn RenderComponent<S>>>,
+    faces: Vec<Option<Rc<dyn FaceSource>>>,
 }
+
+/// What `QueryArchetype` and `QueryInstance` reach for `IID_IMesh`: the
+/// current level of an archetype and its plugin's face (the reference
+/// hands out the interface pointer of the part or archetype).
+#[derive(Clone)]
+pub struct MeshDirectory {
+    archetypes: SharedLodSets,
+    faces: Vec<Option<Rc<dyn FaceSource>>>,
+}
+
+impl std::fmt::Debug for MeshDirectory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MeshDirectory")
+            .field("archetypes", &self.archetypes.borrow().len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl MeshDirectory {
+    /// The current level's entry and its face source.
+    fn current(&self, archetype: Archetype) -> Result<(LodEntry, &dyn FaceSource), i32> {
+        let archetypes = self.archetypes.borrow();
+        let set = archetypes.get(&archetype).ok_or(GR_FAIL)?;
+        let entry = usize::try_from(set.current)
+            .ok()
+            .and_then(|index| set.entries.get(index))
+            .copied()
+            .ok_or(-8)?;
+        let plugin = entry.plugin.ok_or(-8)?;
+        let source = self
+            .faces
+            .get(plugin)
+            .and_then(Option::as_deref)
+            .ok_or(GR_FAIL)?;
+        Ok((entry, source))
+    }
+
+    /// `QueryArchetype(archetype, IID_IMesh)`: the current level's face.
+    ///
+    /// # Errors
+    ///
+    /// As the reference: -1 for an unknown archetype or a level without
+    /// the face, -8 without a current level.
+    pub fn archetype_face(&self, archetype: Archetype) -> Result<MeshFace, i32> {
+        let (entry, source) = self.current(archetype)?;
+        source.face(entry.handle).ok_or(GR_FAIL)
+    }
+
+    /// `QueryInstance(instance, IID_IMesh)` once the engine has named the
+    /// instance's archetype: the current level's instance face.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::archetype_face`].
+    pub fn instance_face(&self, archetype: Archetype, instance: Instance) -> Result<MeshFace, i32> {
+        let (entry, source) = self.current(archetype)?;
+        source.instance_face(instance, entry.handle).ok_or(GR_FAIL)
+    }
+}
+
+/// `GR_GENERIC`.
+const GR_FAIL: i32 = -1;
 
 impl<S: ?Sized> std::fmt::Debug for RenderManager<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RenderManager")
-            .field("archetypes", &self.archetypes)
+            .field("archetypes", &self.archetypes.borrow())
             .field("plugins", &self.plugins.len())
             .finish()
     }
@@ -177,9 +252,27 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
     /// A manager with the plugins `LoadPlugins` made, in list order.
     #[must_use]
     pub fn new(plugins: Vec<Box<dyn RenderComponent<S>>>) -> RenderManager<S> {
+        let faces = plugins.iter().map(|_| None).collect();
         RenderManager {
-            archetypes: BTreeMap::new(),
+            archetypes: Rc::new(RefCell::new(BTreeMap::new())),
             plugins,
+            faces,
+        }
+    }
+
+    /// Gives plugin `plugin`'s faces to the directory.
+    pub fn set_faces(&mut self, plugin: usize, source: Rc<dyn FaceSource>) {
+        if let Some(slot) = self.faces.get_mut(plugin) {
+            *slot = Some(source);
+        }
+    }
+
+    /// The directory of the archetypes' faces, sharing the levels.
+    #[must_use]
+    pub fn directory(&self) -> MeshDirectory {
+        MeshDirectory {
+            archetypes: Rc::clone(&self.archetypes),
+            faces: self.faces.clone(),
         }
     }
 
@@ -190,13 +283,18 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
 
     /// The levels of an archetype.
     #[must_use]
-    pub fn lod_set(&self, archetype: Archetype) -> Option<&LodSet> {
-        self.archetypes.get(&archetype)
+    pub fn lod_set(&self, archetype: Archetype) -> Option<LodSet> {
+        self.archetypes.borrow().get(&archetype).cloned()
     }
 
     /// The archetypes, ascending.
-    pub fn archetypes(&self) -> impl Iterator<Item = (Archetype, &LodSet)> {
-        self.archetypes.iter().map(|(&id, set)| (id, set))
+    #[must_use]
+    pub fn archetypes(&self) -> Vec<(Archetype, LodSet)> {
+        self.archetypes
+            .borrow()
+            .iter()
+            .map(|(&id, set)| (id, set.clone()))
+            .collect()
     }
 
     /// `FRenderManager::MultiLevel`: 0, or -1 when the node has no
@@ -205,7 +303,9 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
         let Self {
             archetypes,
             plugins,
+            ..
         } = self;
+        let mut archetypes = archetypes.borrow_mut();
         let Some(set) = archetypes.get_mut(&id) else {
             return -1;
         };
@@ -274,7 +374,9 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
         let Self {
             archetypes,
             plugins,
+            ..
         } = self;
+        let mut archetypes = archetypes.borrow_mut();
         let Some(set) = archetypes.get_mut(&id) else {
             return -1;
         };
@@ -304,27 +406,27 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
         id: Archetype,
         fs: &mut dyn FileSystem,
     ) -> i32 {
-        if self.archetypes.contains_key(&id) {
+        if self.archetypes.borrow().contains_key(&id) {
             return 0;
         }
-        self.archetypes.insert(id, LodSet::default());
+        self.archetypes.borrow_mut().insert(id, LodSet::default());
         if self.multi_level(services, id, fs) >= 0 {
             return 1;
         }
         if self.walk_plugins(services, id, fs) >= 0 {
             return 1;
         }
-        self.archetypes.remove(&id);
+        self.archetypes.borrow_mut().remove(&id);
         0
     }
 
     /// `DuplicateArchetype(new, old)`: the old archetype's levels, each
     /// handle cloned by its plugin. Always 0.
     pub fn duplicate_archetype(&mut self, services: &mut S, new: Archetype, old: Archetype) -> i32 {
-        let Some(source) = self.archetypes.get(&old).cloned() else {
+        let Some(source) = self.archetypes.borrow().get(&old).cloned() else {
             return 0;
         };
-        if self.archetypes.contains_key(&new) {
+        if self.archetypes.borrow().contains_key(&new) {
             return 0;
         }
         let mut dest = LodSet::default();
@@ -334,7 +436,7 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
                 entry.handle = plugin.clone_handle(services, from.handle);
             }
         }
-        self.archetypes.insert(new, dest);
+        self.archetypes.borrow_mut().insert(new, dest);
         0
     }
 
@@ -342,7 +444,8 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
     /// archetype dropped. The port returns 0 (the reference returns what
     /// its erase helper leaves).
     pub fn destroy_archetype(&mut self, services: &mut S, id: Archetype) -> i32 {
-        let Some(set) = self.archetypes.remove(&id) else {
+        let removed = self.archetypes.borrow_mut().remove(&id);
+        let Some(set) = removed else {
             return 0;
         };
         for entry in &set.entries {
@@ -364,7 +467,8 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
 
     /// `QueryArchetype(id, iid)`: the current level's `QueryHandle`.
     pub fn query_archetype(&mut self, id: Archetype, iid: MeshIid) -> i32 {
-        let Some(set) = self.archetypes.get(&id) else {
+        let archetypes = self.archetypes.borrow();
+        let Some(set) = archetypes.get(&id) else {
             return -1;
         };
         match Self::current_entry(set) {
@@ -385,10 +489,14 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
         instance: Instance,
         archetype: Archetype,
     ) -> i32 {
-        let Some(set) = self.archetypes.get(&archetype) else {
+        let Some(entries) = self
+            .archetypes
+            .borrow()
+            .get(&archetype)
+            .map(|set| set.entries.clone())
+        else {
             return 0;
         };
-        let entries = set.entries.clone();
         for (index, entry) in entries.iter().enumerate() {
             let Some(plugin) = entry.plugin.and_then(|p| self.plugins.get_mut(p)) else {
                 continue;
@@ -422,10 +530,15 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
         let Some(archetype) = Self::archetype_of(services, instance) else {
             return -1;
         };
-        let Some(set) = self.archetypes.get(&archetype) else {
+        let Some(entries) = self
+            .archetypes
+            .borrow()
+            .get(&archetype)
+            .map(|set| set.entries.clone())
+        else {
             return 0;
         };
-        for entry in set.entries.clone() {
+        for entry in entries {
             if let Some(plugin) = entry.plugin.and_then(|p| self.plugins.get_mut(p)) {
                 plugin.destroy_mesh_instance(services, instance, entry.handle);
             }
@@ -448,7 +561,8 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
         let Some(archetype) = Self::archetype_of(services, instance) else {
             return -1;
         };
-        let Some(set) = self.archetypes.get(&archetype) else {
+        let archetypes = self.archetypes.borrow();
+        let Some(set) = archetypes.get(&archetype) else {
             return -1;
         };
         match Self::current_entry(set) {
@@ -474,8 +588,11 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
         id: Archetype,
         lod: f32,
     ) -> Option<(&mut Box<dyn RenderComponent<S>>, Handle)> {
-        let set = self.archetypes.get(&id)?;
-        let entry = set.entries[set.pick(lod)?];
+        let entry = {
+            let archetypes = self.archetypes.borrow();
+            let set = archetypes.get(&id)?;
+            set.entries[set.pick(lod)?]
+        };
         let plugin = self.plugins.get_mut(entry.plugin?)?;
         Some((plugin, entry.handle))
     }
@@ -601,10 +718,8 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
             extra: request.extra,
         };
         if draw && let Some(archetype) = Self::archetype_of(services, instance) {
-            let Self {
-                archetypes,
-                plugins,
-            } = self;
+            let mut chosen = None;
+            let mut archetypes = self.archetypes.borrow_mut();
             if let Some(set) = archetypes.get_mut(&archetype) {
                 let mut submit_flags = flags;
                 let count = set.entries.len();
@@ -632,22 +747,25 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
                 match entry {
                     Some(index) => {
                         set.current = i32::try_from(index).unwrap_or(i32::MAX);
-                        let LodEntry { handle, plugin } = set.entries[index];
-                        if let Some(plugin) = plugin.and_then(|p| plugins.get_mut(p)) {
-                            plugin.bind_mesh_instance(instance, handle);
-                            let request = DrawRequest {
-                                flags: submit_flags,
-                                matrix: draw_matrix,
-                                extra: request.extra,
-                            };
-                            plugin.render_instance(services, camera, handle, instance, &request);
-                        }
+                        chosen = Some((set.entries[index], submit_flags));
                     }
                     None => {
                         set.current = set.count();
                         rank = 1;
                     }
                 }
+            }
+            drop(archetypes);
+            if let Some((LodEntry { handle, plugin }, submit_flags)) = chosen
+                && let Some(plugin) = plugin.and_then(|p| self.plugins.get_mut(p))
+            {
+                plugin.bind_mesh_instance(instance, handle);
+                let request = DrawRequest {
+                    flags: submit_flags,
+                    matrix: draw_matrix,
+                    extra: request.extra,
+                };
+                plugin.render_instance(services, camera, handle, instance, &request);
             }
         }
         if flags & DRAW_NO_CHILDREN == 0 {
@@ -686,7 +804,8 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
         let Some(archetype) = Self::archetype_of(services, instance) else {
             return -1;
         };
-        let Some(set) = self.archetypes.get_mut(&archetype) else {
+        let mut archetypes = self.archetypes.borrow_mut();
+        let Some(set) = archetypes.get_mut(&archetype) else {
             return -1;
         };
         let count = set.count();
@@ -716,7 +835,11 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
     ///
     /// -1 for an unknown archetype.
     pub fn archetype_lod_count(&self, id: Archetype) -> Result<i32, i32> {
-        self.archetypes.get(&id).map(LodSet::count).ok_or(-1)
+        self.archetypes
+            .borrow()
+            .get(&id)
+            .map(LodSet::count)
+            .ok_or(-1)
     }
 
     /// `IRenderer` slot 12.
@@ -725,12 +848,16 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
     ///
     /// -1 for an unknown archetype.
     pub fn archetype_current_lod(&self, id: Archetype) -> Result<i32, i32> {
-        self.archetypes.get(&id).map(|set| set.current).ok_or(-1)
+        self.archetypes
+            .borrow()
+            .get(&id)
+            .map(|set| set.current)
+            .ok_or(-1)
     }
 
     /// `IRenderer` slot 13: any index up to the level count.
     pub fn set_archetype_lod(&mut self, id: Archetype, index: i32) -> i32 {
-        match self.archetypes.get_mut(&id) {
+        match self.archetypes.borrow_mut().get_mut(&id) {
             Some(set) if index <= set.count() => {
                 set.current = index;
                 0
@@ -745,7 +872,8 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
     ///
     /// -1 for an unknown archetype or an index outside the levels.
     pub fn archetype_lod_range(&self, id: Archetype, index: i32) -> Result<(f32, f32), i32> {
-        let set = self.archetypes.get(&id).ok_or(-1)?;
+        let archetypes = self.archetypes.borrow();
+        let set = archetypes.get(&id).ok_or(-1)?;
         let index = usize::try_from(index)
             .ok()
             .filter(|&i| i < set.entries.len())
@@ -760,7 +888,8 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
         {
             return -1;
         }
-        let Some(set) = self.archetypes.get_mut(&id) else {
+        let mut archetypes = self.archetypes.borrow_mut();
+        let Some(set) = archetypes.get_mut(&id) else {
             return -1;
         };
         let Some(index) = usize::try_from(index)
@@ -811,14 +940,18 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
         lod: i32,
         query: GeometryQuery,
     ) -> (i32, Option<i32>) {
-        let Some(set) = self.archetypes.get(&id) else {
-            return (0, None);
-        };
-        if lod >= set.count() {
-            return (0, None);
-        }
-        let Some(entry) = usize::try_from(lod).ok().map(|i| set.entries[i]) else {
-            return (0, None);
+        let entry = {
+            let archetypes = self.archetypes.borrow();
+            let Some(set) = archetypes.get(&id) else {
+                return (0, None);
+            };
+            if lod >= set.count() {
+                return (0, None);
+            }
+            let Some(entry) = usize::try_from(lod).ok().map(|i| set.entries[i]) else {
+                return (0, None);
+            };
+            entry
         };
         match entry.plugin.and_then(|p| self.plugins.get_mut(p)) {
             Some(plugin) => {
@@ -831,7 +964,7 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
 
     /// `IRenderer` slot 19: the root selection flag from bit 0.
     pub fn set_archetype_root_selection(&mut self, id: Archetype, flags: u32) -> i32 {
-        match self.archetypes.get_mut(&id) {
+        match self.archetypes.borrow_mut().get_mut(&id) {
             Some(set) => {
                 set.root_selection = flags & 1 != 0;
                 0
@@ -856,7 +989,7 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
     /// `IRenderer` slot 21: the result and the flags written (0 first).
     #[must_use]
     pub fn archetype_root_selection(&self, id: Archetype) -> (i32, u32) {
-        match self.archetypes.get(&id) {
+        match self.archetypes.borrow().get(&id) {
             Some(set) => (0, u32::from(set.root_selection)),
             None => (-1, 0),
         }
@@ -892,7 +1025,7 @@ impl<S: MeshServices + ?Sized> RenderManager<S> {
     /// The destructor: a notice for every archetype left, then every
     /// plugin released.
     pub fn destroy(mut self, services: &mut S) {
-        for &id in self.archetypes.keys() {
+        for &id in self.archetypes.borrow().keys() {
             let message = format!("RenderMgr: dtor: Archetype {id} has dangling render data\n");
             services.dump(dump::NOTICE, file::RENDER_MGR, 0xBF, &message);
         }

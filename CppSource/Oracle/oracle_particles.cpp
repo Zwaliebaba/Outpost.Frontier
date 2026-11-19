@@ -1,8 +1,9 @@
-// P4.8 (first increment): the particle simulation of particlefx.dll, compiled in from the
-// reference's own sources (particlefx_*.cpp but particlefx.cpp, whose DllMain is replaced by
-// the registration below), against a recording texture library and an in-memory file system.
-// The Rust side is crates/neuron-client/tests/support/particles.rs with the same contract; the
-// inputs are crates/neuron-client/tests/fixtures/oracle/particle_{ramp,sim}.list from
+// P4.8: the particle simulation (first increment) and drawing (second) of particlefx.dll,
+// compiled in from the reference's own sources (particlefx_*.cpp but particlefx.cpp, whose
+// DllMain is replaced by the registration below), against a recording texture library,
+// recording renderer interfaces and camera, and an in-memory file system. The Rust side is
+// crates/neuron-client/tests/support/particles.rs with the same contract; the inputs are
+// crates/neuron-client/tests/fixtures/oracle/particle_{ramp,sim,draw}.list from
 // make_particle_fixtures.py.
 //
 // The libraries load through FAleChunk from a file system holding the two leaves of an .ale
@@ -11,8 +12,9 @@
 // the leaf of the directory entered, Read copies what is left.
 //
 // The ParticleFx component is made by its factory, aggregated under a stand-in whose
-// QueryInterface hands out the recording texture library for ITextureLibraryA and an inert
-// component for the other pipeline interfaces Initialize asks for (the simulation calls none).
+// QueryInterface hands out the recording texture library for ITextureLibraryA, the recording
+// renderer fakes for IRenderPipeline8B, IRPVertexBuffer, IRPIndexBuffer and IRPDraw, and an
+// inert component for anything else.
 //
 // particle_ramp: per case one ParticleFx loads the node library; every node's property rows
 // (EnumerateProps) and then the probes the row tables miss are asked for their ramp or
@@ -47,6 +49,32 @@
 //   GetFrameCount "frames","rec","n"   ReleaseTextureRecord "trel","rec"
 //   SetWrapMode "wrap","id","m"   GetFrame "frame","id","f","r": handle id*100+f, u0 =
 //   0.125f*f, v0 0, u1 1, v1 0.5   AdvanceTime "adv","id","dt"   DecRefById "decref","id"
+//
+// particle_draw: the operations of particle_sim, each case also starting with no vertex
+// buffer, the batcher off, the draw limits of 1000-item pools (5000 vertices, 24000 indices),
+// cleared counters, contexts and batch lists and an identity camera, and these:
+//   cam <view 12f> <world 12f>  the camera: GetViewTransform's twelve floats; GetOrientation's
+//                           nine and GetPosition's three after them (FSpaceCamera's layout)
+//   batch <0|1>             SetUseMaterialBatcher
+//   limits <vb> <v> <i>     G_MaxVertices, G_DrawMaxVertices, G_DrawMaxIndices
+//   vbdrop                  the fake vertex buffer forgets its buffers
+//   begin | end             BeginDraw / EndDraw: "r"
+//   draw <slot>             Slot9(camera): "r"
+//   bounds <slot>           Slot15 on {1, 2, 3, 4}: "r","s"
+//   spheres <slot>          per record GetBoundingSphere on {1, 2, 3, 4}: "r","res","s"
+//   counters                CopyCounters: "c"
+//   dview <slot>            per dust record its camera transform, last camera position, step
+// The renderer fakes write {"case","ev",...} in call order: GetRenderState "getrs","s","v" (a
+// state never set reads state + 1000)   SetRenderState "setrs","s","v"
+//   SetTextureStageState "tss","st","s","v"   SetTextureStageTexture "tex","st","h"
+//   SetModelview "modelview","m"   SelectVb "selvb","vb","r" (0 for a live buffer, else -1)
+//   CreateVb "createvb","fvf","n","f","vb" (handles from 1)   DestroyVb "destroyvb","vb"
+//   LockVb "lockvb","vb","n","off" (offset 3 per earlier lock)   UnlockVb "unlockvb","vb",
+//   "data" (the requested vertices' bytes, 0xcd where nothing was written)   LockIb "lockib",
+//   "ib","n","off" (offset 5 per earlier lock)   UnlockIb "unlockib","ib","data" (0xcdcd
+//   where nothing was written)   SelectIb "selib","ib","base"
+//   DrawIndexedPrimitive "dip","prim","min","nv","start","n"
+//   the camera's GetViewTransform "camview", GetPosition "campos", GetOrientation "camorient"
 // Floats are the eight hex digits of the f32.
 
 // The dumps below redefine private and protected; see there.
@@ -58,6 +86,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -65,6 +94,7 @@
 #include <list>
 #include <map>
 #include <new>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -75,6 +105,7 @@
 #include "render/IRenderPipeline.h"
 #include "render/shading.h"
 #include "x86math.h"
+#include "common_misc.h"
 
 // The dumps read the nodes' private data members, and nothing else of their private parts:
 // MSVC's names of member functions carry their access, so every particlefx object is made by
@@ -95,6 +126,13 @@
 #include "../particlefx/particlefx_factory.h"
 #undef private
 #undef protected
+
+namespace ParticleFxImpl
+{
+    // particlefx_common.cpp's draw-context limits, which no header declares.
+    extern unsigned long G_DrawMaxVertices;
+    extern unsigned long G_DrawMaxIndices;
+}
 
 using namespace oracle;
 using namespace ParticleFxImpl;
@@ -412,6 +450,338 @@ namespace
         unsigned long NEURONCOMPONENTS_API Release() override { return 1; }
     };
 
+    // --- The recording renderer (the draw cases) --------------------------------------------
+
+    // The draw fakes write {"case","ev",...} lines into the suite being run, in call order,
+    // interleaved with the texture library's.
+    struct FDrawLog
+    {
+        Suite* Out = nullptr;
+        std::string Head;
+        void Event(const std::string& Text)
+        {
+            if (Out != nullptr)
+                Out->Line(Head + Text + "}");
+        }
+    };
+
+    FDrawLog GLog;
+
+    unsigned long HandleId(const void* Handle) { return (unsigned long)(uintptr_t)Handle; }
+
+    class FPfxPipeline final : public IRenderPipeline
+    {
+    public:
+        std::map<int, int> States;
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char*, void** Out) override
+        {
+            *Out = nullptr;
+            return GR_INTERFACE_UNSUPPORTED;
+        }
+        unsigned long NEURONCOMPONENTS_API AddRef() override { return 1; }
+        unsigned long NEURONCOMPONENTS_API Release() override { return 1; }
+        GENRESULT NEURONCOMPONENTS_API GetRenderState(D3DRENDERSTATETYPE State, int* Out) override
+        {
+            const std::map<int, int>::const_iterator Found = States.find((int)State);
+            const int V = Found != States.end() ? Found->second : (int)State + 1000;
+            GLog.Event(Format("\"ev\":\"getrs\",\"s\":\"%d\",\"v\":\"%d\"", (int)State, V));
+            *Out = V;
+            return GR_OK;
+        }
+        GENRESULT NEURONCOMPONENTS_API SetRenderState(D3DRENDERSTATETYPE State, int Value) override
+        {
+            GLog.Event(Format("\"ev\":\"setrs\",\"s\":\"%d\",\"v\":\"%d\"", (int)State, Value));
+            States[(int)State] = Value;
+            return GR_OK;
+        }
+        GENRESULT NEURONCOMPONENTS_API SetTextureStageState(int Stage, int Type, int Value) override
+        {
+            GLog.Event(Format("\"ev\":\"tss\",\"st\":\"%d\",\"s\":\"%d\",\"v\":\"%d\"", Stage, Type, Value));
+            return GR_OK;
+        }
+        GENRESULT NEURONCOMPONENTS_API SetTextureStageTexture(int Stage, void* Handle) override
+        {
+            GLog.Event(Format("\"ev\":\"tex\",\"st\":\"%d\",\"h\":\"%lx\"", Stage, HandleId(Handle)));
+            return GR_OK;
+        }
+        GENRESULT NEURONCOMPONENTS_API SetModelview(const float* M) override
+        {
+            GLog.Event("\"ev\":\"modelview\",\"m\":\"" + Floats(M, 12) + "\"");
+            return GR_OK;
+        }
+        // The slots the particle draws do not call.
+        GENRESULT NEURONCOMPONENTS_API GetPipelineState(int Id, int* Out) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetWorld(const float* M) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetWorldN(int WorldIndex, const float* M12) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetMaterial(const D3DMATERIAL8* Material) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetTextureStageTransform(int Stage, const float* Matrix16) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetTextureFormat(void* Handle, int* OutFormat) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API VerifyState() override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API DrawIndexedPrimitiveVb(unsigned long Prim, void* Vb, unsigned int BaseVertex,
+                                                              unsigned int NumVerts, const void* Indices,
+                                                              unsigned int IndexCount, unsigned long) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API Startup(const char* SectionName) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API ShutdownPipeline() override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetPipelineState(int Id, int Value) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetDeviceInfo(void* Out520) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API QueryDeviceAbility(unsigned int Index, unsigned long* Out) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetDisplayModeCount(unsigned int* Out) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetDisplayModeEnum(unsigned int Index, void* Out) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SelectMode(int* Mode, unsigned int* OutIndex) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API CreateBuffers(HWND Hwnd, int* Mode, int* OutMode) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetModeBlob(void* OutAdapter, void* OutMode10Dwords) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API DestroyGpuResources() override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API ClearBuffers(unsigned long Flags, const void* Rects) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SwapBuffers() override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API LockBuffer(void* Out) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API UnlockBuffer() override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetBufferInterface(void* Out, void* Unused) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetDeviceStats(void* Out) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetViewportRect(int X, int Y, int W, int H) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetViewportRect(int* OutX, int* OutY, int* OutW, int* OutH) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetDepthRange(float MinZ, float MaxZ) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetDepthRange(float* OutMinZ, float* OutMaxZ) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetWindow(HWND Hwnd, int X, int Y, int W, int H) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetWindow(HWND* OutHwnd, int* OutLeft, int* OutRight, int* OutW, int* OutH) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetWorld(float* Out12) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetView(const float* M12) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetView(float* Out12) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetModelview(float* Out12) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetProjection(const float* M16) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetProjection(float* Out16) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetLookat(float EyeX, float EyeY, float EyeZ, float AtX, float AtY, float AtZ, float UpX, float UpY, float UpZ) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetOrtho(float Left, float Right, float Bottom, float Top, float NearPlane, float FarPlane) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetPerspective(float FovDeg, float Aspect, float NearPlane, float FarPlane) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetLight(void* Handle, const D3DLIGHT8* Light) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API DestroyLight(void* Handle) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetLight(void* Handle, D3DLIGHT8* OutLight) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetLightEnable(void* Handle, int Enable) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetLightEnable(void* Handle, int* OutEnable) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetMaterial(D3DMATERIAL8* Material) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API CreateTexture(int Width, int Height, unsigned int* Format, unsigned int Levels, unsigned int Flags, void** OutHandle) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API DestroyTexture(void* Handle) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API IsTexture(void* Handle) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API LockTexture(void* Handle, int Level, void* Out) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API UnlockTexture(void* Handle, int Level) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetTextureDim(void* Handle, unsigned int* OutW, unsigned int* OutH, int* OutLevels) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetTextureInterface(void* Handle, void* UnusedA, void* UnusedB) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetTextureLevelData(void* Handle, int Level, int SrcW, int SrcH, unsigned int Pitch, unsigned int* SrcFormat, const void* Pixels, void* A, void* B) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API BlitTexture(void* DstHandle, int DstLevel, void* SrcHandle, int SrcLevel) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetRenderTarget(void* Handle, void* UnusedA, void* UnusedB) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetRenderTarget(void* Handle) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API BeginScene() override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API EndScene() override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API ResetRenderStatesToDefaults() override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetTextureStageState(int Stage, int Type, int* Out) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetTextureStageTransform(int Stage, float* OutMatrix16) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetTextureStageTexture(int Stage, void** OutHandle) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API DrawPrimitive(unsigned long Prim, unsigned int Fvf, const void* Verts, unsigned int Count, void* Unused) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API DrawIndexedPrimitiveUp(unsigned long Prim, unsigned int Fvf, const void* Verts, unsigned int VertCount, const void* Indices, unsigned int IndexCount, unsigned long Unused) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API DrawPrimitiveVb(unsigned long Prim, void* Vb, unsigned int StartVertex, unsigned int Count, void* Unused) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API AddLight(void* Handle) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API RemoveLight(void* Handle) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API UpdateLight(void* Handle) override { return GR_GENERIC; }
+    };
+
+    // The vertex buffer: handles from 1; a lock hands out the start of a scratch region filled
+    // with 0xcd (room for two vertices past the request), with the offset 3 times the locks
+    // before it; the unlock records the requested count's bytes.
+    const unsigned int kScratchVerts = 0x4000;
+
+    class FPfxVb final : public IRPVertexBuffer
+    {
+    public:
+        std::set<unsigned long> Live;
+        unsigned long NextVb = 1;
+        unsigned int Locks = 0;
+        unsigned int Pending = 0;
+        std::vector<unsigned char> Scratch;
+        FPfxVb() : Scratch((kScratchVerts + 2) * 24, 0xcd) {}
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char*, void** Out) override
+        {
+            *Out = nullptr;
+            return GR_INTERFACE_UNSUPPORTED;
+        }
+        unsigned long NEURONCOMPONENTS_API AddRef() override { return 1; }
+        unsigned long NEURONCOMPONENTS_API Release() override { return 1; }
+        GENRESULT NEURONCOMPONENTS_API SelectVb(void* Handle) override
+        {
+            const int R = Live.count(HandleId(Handle)) != 0 ? 0 : -1;
+            GLog.Event(Format("\"ev\":\"selvb\",\"vb\":\"%lx\",\"r\":\"%d\"", HandleId(Handle), R));
+            return R;
+        }
+        GENRESULT NEURONCOMPONENTS_API CreateVb(unsigned int Fvf, unsigned int Count, unsigned int** Out,
+                                                unsigned int Flags) override
+        {
+            const unsigned long Handle = NextVb++;
+            Live.insert(Handle);
+            GLog.Event(Format("\"ev\":\"createvb\",\"fvf\":\"%x\",\"n\":\"%u\",\"f\":\"%u\",\"vb\":\"%lx\"", Fvf,
+                              Count, Flags, Handle));
+            *Out = (unsigned int*)(uintptr_t)Handle;
+            return GR_OK;
+        }
+        GENRESULT NEURONCOMPONENTS_API DestroyVb(void** Handle) override
+        {
+            const unsigned long H = HandleId(*Handle);
+            GLog.Event(Format("\"ev\":\"destroyvb\",\"vb\":\"%lx\"", H));
+            Live.erase(H);
+            *Handle = nullptr;
+            return GR_OK;
+        }
+        GENRESULT NEURONCOMPONENTS_API LockVb(void* Handle, unsigned int* Offset, void** Out,
+                                              unsigned int Count) override
+        {
+            const unsigned int At = 3 * Locks++;
+            GLog.Event(Format("\"ev\":\"lockvb\",\"vb\":\"%lx\",\"n\":\"%u\",\"off\":\"%u\"", HandleId(Handle),
+                              Count, At));
+            Pending = Count < kScratchVerts ? Count : kScratchVerts;
+            std::fill(Scratch.begin(), Scratch.end(), (unsigned char)0xcd);
+            *Offset = At;
+            *Out = Scratch.data();
+            return GR_OK;
+        }
+        GENRESULT NEURONCOMPONENTS_API UnlockVb(void* Handle) override
+        {
+            GLog.Event(Format("\"ev\":\"unlockvb\",\"vb\":\"%lx\",\"data\":\"", HandleId(Handle)) +
+                       Hex(Scratch.data(), (size_t)Pending * 24) + "\"");
+            return GR_OK;
+        }
+        // The slots the particle draws do not call.
+        GENRESULT NEURONCOMPONENTS_API IsVbValid(void* Handle) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API CopyVertices(void* Handle, unsigned int* Base, const FRpVertexSrcDesc* Src,
+                                                    unsigned int Start, unsigned int Count) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API ResizeVb(void* Handle, unsigned int Fvf, unsigned int Count) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API UnsupportedVertexBufferOperation(void* Handle) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetVbInfo(void* Handle, unsigned int* OutFvf, unsigned int* OutCount) override { return GR_GENERIC; }
+    };
+
+    // The dynamic index buffer (handle -1): the same with 0xcdcd words and offsets 5 times the
+    // locks before.
+    class FPfxIb final : public IRPIndexBuffer
+    {
+    public:
+        unsigned int Locks = 0;
+        unsigned int Pending = 0;
+        std::vector<unsigned short> Scratch;
+        FPfxIb() : Scratch(kScratchVerts * 6 + 8, 0xcdcd) {}
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char*, void** Out) override
+        {
+            *Out = nullptr;
+            return GR_INTERFACE_UNSUPPORTED;
+        }
+        unsigned long NEURONCOMPONENTS_API AddRef() override { return 1; }
+        unsigned long NEURONCOMPONENTS_API Release() override { return 1; }
+        GENRESULT NEURONCOMPONENTS_API LockIb(void* Handle, unsigned int* Offset, void** Out, unsigned int Count) override
+        {
+            const unsigned int At = 5 * Locks++;
+            GLog.Event(Format("\"ev\":\"lockib\",\"ib\":\"%lx\",\"n\":\"%u\",\"off\":\"%u\"", HandleId(Handle), Count,
+                              At));
+            Pending = Count < kScratchVerts * 6 ? Count : kScratchVerts * 6;
+            std::fill(Scratch.begin(), Scratch.end(), (unsigned short)0xcdcd);
+            *Offset = At;
+            *Out = Scratch.data();
+            return GR_OK;
+        }
+        GENRESULT NEURONCOMPONENTS_API UnlockIb(void* Handle) override
+        {
+            std::string Text;
+            for (unsigned int Index = 0; Index < Pending; ++Index)
+                Text += Format(Index ? ",%u" : "%u", (unsigned)Scratch[Index]);
+            GLog.Event(Format("\"ev\":\"unlockib\",\"ib\":\"%lx\",\"data\":\"", HandleId(Handle)) + Text + "\"");
+            return GR_OK;
+        }
+        GENRESULT NEURONCOMPONENTS_API SelectIb(void* Handle, unsigned int Base, unsigned int, unsigned int) override
+        {
+            GLog.Event(Format("\"ev\":\"selib\",\"ib\":\"%lx\",\"base\":\"%u\"", HandleId(Handle), Base));
+            return GR_OK;
+        }
+        // The slots the particle draws do not call.
+        GENRESULT NEURONCOMPONENTS_API IsIbValid(void* Handle) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API CreateIb(unsigned int Count, unsigned int** Out, unsigned int) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API DestroyIb(void** Handle) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API ResizeIb(void* Handle, unsigned int Count) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API CopyIndices(void* Handle, unsigned int* OutOffset, const unsigned short* SrcData, unsigned int Count) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetIbCapacity(void* Handle, unsigned int* OutCapacity) override { return GR_GENERIC; }
+    };
+
+    class FPfxDraw final : public IRPDraw
+    {
+    public:
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char*, void** Out) override
+        {
+            *Out = nullptr;
+            return GR_INTERFACE_UNSUPPORTED;
+        }
+        unsigned long NEURONCOMPONENTS_API AddRef() override { return 1; }
+        unsigned long NEURONCOMPONENTS_API Release() override { return 1; }
+        GENRESULT NEURONCOMPONENTS_API DrawIndexedPrimitive(unsigned long Prim, unsigned int Min, unsigned int NumVertices,
+                                                            unsigned int Start, unsigned int Count) override
+        {
+            GLog.Event(Format("\"ev\":\"dip\",\"prim\":\"%lu\",\"min\":\"%u\",\"nv\":\"%u\",\"start\":\"%u\",\"n\":\"%u\"",
+                              Prim, Min, NumVertices, Start, Count));
+            return GR_OK;
+        }
+    };
+
+    // The camera: the view transform, and the orientation's nine floats followed by the
+    // position (FSpaceCamera's World and WorldPos), which the beam reads as one transform.
+    class FPfxCamera final : public ICamera
+    {
+    public:
+        float View[12];
+        float World[12];
+        FPfxCamera() { Reset(); }
+        void Reset()
+        {
+            const float Identity[12] = {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};
+            memcpy(View, Identity, sizeof(View));
+            memcpy(World, Identity, sizeof(World));
+        }
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char*, void** Out) override
+        {
+            *Out = nullptr;
+            return GR_INTERFACE_UNSUPPORTED;
+        }
+        unsigned long NEURONCOMPONENTS_API AddRef() override { return 1; }
+        unsigned long NEURONCOMPONENTS_API Release() override { return 1; }
+        float const* NEURONCOMPONENTS_API GetViewTransform() override
+        {
+            GLog.Event("\"ev\":\"camview\"");
+            return View;
+        }
+        float const* NEURONCOMPONENTS_API GetPosition() override
+        {
+            GLog.Event("\"ev\":\"campos\"");
+            return World + 9;
+        }
+        float const* NEURONCOMPONENTS_API GetOrientation() override
+        {
+            GLog.Event("\"ev\":\"camorient\"");
+            return World;
+        }
+        // The slots the particle draws do not call.
+        int NEURONCOMPONENTS_API ClassifySphere(float const* C, float R) override { return 0; }
+        int const* NEURONCOMPONENTS_API GetViewport() override { return nullptr; }
+        float NEURONCOMPONENTS_API GetHalfFovXDeg() override { return 0; }
+        float NEURONCOMPONENTS_API GetFovYDeg() override { return 0; }
+        float NEURONCOMPONENTS_API GetZNear() override { return 0; }
+        float NEURONCOMPONENTS_API GetZFar() override { return 0; }
+        float NEURONCOMPONENTS_API GetAspect() override { return 0; }
+        double NEURONCOMPONENTS_API GetXScaleOverNear() override { return 0; }
+        double NEURONCOMPONENTS_API GetYScaleOverNear() override { return 0; }
+        int NEURONCOMPONENTS_API Project(float* OutX, float* OutY, float* OutZ, float const* World3) override { return GR_GENERIC; }
+        void NEURONCOMPONENTS_API Unproject(float* OutWorld3, float ScreenX, float ScreenY) override { }
+        int NEURONCOMPONENTS_API ProjectVec(float* Out3, float const* World3) override { return GR_GENERIC; }
+        void GetVelocity(float* Out3) override { }
+        int SetProperty(char const* Key, char const* Value) override { return GR_GENERIC; }
+    };
+
+    FPfxPipeline GPipe;
+    FPfxVb GVb;
+    FPfxIb GIb;
+    FPfxDraw GDrawFake;
+    FPfxCamera GCamera;
+
     class FPipelineOuter final : public INeuronComponent
     {
     public:
@@ -421,6 +791,14 @@ namespace
         {
             const bool bTextures = strcmp(Iid, Iids::TextureLibraryA) == 0 && Textures != nullptr;
             *Out = bTextures ? Textures : static_cast<INeuronComponent*>(&Inert);
+            if (strcmp(Iid, Iids::RenderPipeline8B) == 0)
+                *Out = static_cast<IRenderPipeline*>(&GPipe);
+            else if (strcmp(Iid, Iids::RPVertexBuffer) == 0)
+                *Out = static_cast<INeuronComponent*>(&GVb);
+            else if (strcmp(Iid, Iids::RPIndexBuffer) == 0)
+                *Out = static_cast<INeuronComponent*>(&GIb);
+            else if (strcmp(Iid, Iids::RPDraw) == 0)
+                *Out = static_cast<INeuronComponent*>(&GDrawFake);
             return GR_OK;
         }
         unsigned long NEURONCOMPONENTS_API AddRef() override { return 1; }
@@ -787,17 +1165,58 @@ namespace
         }
     }
 
-    void SimSuite()
+    // The module's draw globals and the renderer fakes as a case starts: no vertex buffer, the
+    // batcher off, the buffer sizes of 1000-item pools, the counters, contexts and lists
+    // cleared, an identity camera.
+    void ResetDraw()
     {
-        Suite Out("particle_sim.jsonl");
-        const std::vector<std::string> Lines = InputLines("particle_sim.list");
+        G_bInDraw = false;
+        G_VbHandle = nullptr;
+        G_DrawVbHandle = nullptr;
+        G_Defaults.bUseMaterialBatcher = 0;
+        G_MaxVertices = 5000;
+        G_DrawMaxVertices = 5000;
+        G_DrawMaxIndices = 24000;
+        for (unsigned long Index = 0; Index < 9; ++Index)
+            G_DrawCounters[Index] = 0;
+        ClearBatchLists();
+        FAlDrawContext* const Contexts[] = {&G_BasicDrawContext, &G_RectDrawContext, &G_PerpDrawContext,
+                                            &G_OrientedDrawContext, &G_DustDrawContext, &G_BeamDrawContext};
+        for (FAlDrawContext* Context : Contexts)
+            *Context = FAlDrawContext();
+        GPipe.States.clear();
+        GVb.Live.clear();
+        GVb.NextVb = 1;
+        GVb.Locks = 0;
+        GVb.Pending = 0;
+        GIb.Locks = 0;
+        GIb.Pending = 0;
+        GCamera.Reset();
+    }
+
+    void ReadFloats(const std::string& Text, float* Out, int Count)
+    {
+        const std::vector<std::string> Words = SplitText(Text, ",");
+        for (int Index = 0; Index < Count; ++Index)
+            Out[Index] = HexFloat(Words[Index]);
+    }
+
+    // particle_sim and particle_draw run the same operations; particle_draw's cases use the
+    // draw operations too.
+    void ScriptSuite(const char* OutputName, const char* InputName)
+    {
+        Suite Out(OutputName);
+        const std::vector<std::string> Lines = InputLines(InputName);
         FTexLib Textures;
         Textures.Out = &Out;
+        GLog.Out = &Out;
         for (size_t Case = 0; Case < Lines.size(); ++Case)
         {
             ResetModule();
+            ResetDraw();
             const std::string Head = Format("{\"case\":\"%u\",", (unsigned)Case);
             Textures.Head = Head;
+            GLog.Head = Head;
             Textures.Entries.clear();
             Textures.Playbacks.clear();
             Textures.NextId = 1;
@@ -814,7 +1233,8 @@ namespace
             {
                 const std::vector<std::string> P = SplitText(Op, " ");
                 const std::string& Name = P[0];
-                FSlot* S = P.size() > 1 && Name != "ale" && Name != "pool" && Name != "seed" && Name != "tex"
+                FSlot* S = P.size() > 1 && Name != "ale" && Name != "pool" && Name != "seed" && Name != "tex" &&
+                        Name != "cam" && Name != "batch" && Name != "limits"
                     ? &Slots[atoi(P[1].c_str())]
                     : nullptr;
                 IFxEffect* Effect = S != nullptr ? S->Effect : nullptr;
@@ -920,6 +1340,85 @@ namespace
                 else if (Name == "dump")
                     DumpEffect(Out, Head + Format("\"e\":\"%s\",", P[1].c_str()),
                                static_cast<FFxEffectObject*>(Effect), S->Parent);
+                else if (Name == "cam")
+                {
+                    ReadFloats(P[1], GCamera.View, 12);
+                    ReadFloats(P[2], GCamera.World, 12);
+                    Out.Line(Head + "\"op\":\"cam\"}");
+                }
+                else if (Name == "batch")
+                {
+                    Fx->SetUseMaterialBatcher((unsigned char)(atoi(P[1].c_str()) != 0 ? 1 : 0));
+                    Out.Line(Head + "\"op\":\"batch\"}");
+                }
+                else if (Name == "limits")
+                {
+                    G_MaxVertices = strtoul(P[1].c_str(), nullptr, 10);
+                    G_DrawMaxVertices = strtoul(P[2].c_str(), nullptr, 10);
+                    G_DrawMaxIndices = strtoul(P[3].c_str(), nullptr, 10);
+                    Out.Line(Head + "\"op\":\"limits\"}");
+                }
+                else if (Name == "vbdrop")
+                {
+                    GVb.Live.clear();
+                    Out.Line(Head + "\"op\":\"vbdrop\"}");
+                }
+                else if (Name == "begin")
+                {
+                    const GENRESULT Result = Fx->BeginDraw();
+                    Out.Line(Head + Format("\"op\":\"begin\",\"r\":\"%ld\"}", (long)Result));
+                }
+                else if (Name == "end")
+                {
+                    const GENRESULT Result = Fx->EndDraw();
+                    Out.Line(Head + Format("\"op\":\"end\",\"r\":\"%ld\"}", (long)Result));
+                }
+                else if (Name == "draw")
+                {
+                    const GENRESULT Result = Effect->Slot9(static_cast<ICamera*>(&GCamera));
+                    Out.Line(Head + Format("\"op\":\"draw\",\"r\":\"%ld\"}", (long)Result));
+                }
+                else if (Name == "bounds")
+                {
+                    float Sphere[4] = {1.0f, 2.0f, 3.0f, 4.0f};
+                    const GENRESULT Result = Effect->Slot15(Sphere);
+                    Out.Line(Head + Format("\"op\":\"bounds\",\"r\":\"%ld\",\"s\":\"", (long)Result) +
+                             Floats(Sphere, 4) + "\"}");
+                }
+                else if (Name == "spheres")
+                {
+                    FFxEffectObject* Object = static_cast<FFxEffectObject*>(Effect);
+                    for (unsigned long Index = 0; Index < Object->NodeCount_; ++Index)
+                    {
+                        float Sphere[4] = {1.0f, 2.0f, 3.0f, 4.0f};
+                        const GENRESULT Result = AsFxNode(Object->Nodes_[Index].Node)->GetBoundingSphere(Sphere);
+                        Out.Line(Head + Format("\"op\":\"sphere\",\"r\":\"%lu\",\"res\":\"%ld\",\"s\":\"",
+                                               Index, (long)Result) + Floats(Sphere, 4) + "\"}");
+                    }
+                }
+                else if (Name == "counters")
+                {
+                    unsigned long Counters[9];
+                    Fx->CopyCounters(Counters);
+                    std::string Text;
+                    for (int Index = 0; Index < 9; ++Index)
+                        Text += Format(Index ? ",%lu" : "%lu", Counters[Index]);
+                    Out.Line(Head + "\"op\":\"counters\",\"c\":\"" + Text + "\"}");
+                }
+                else if (Name == "dview")
+                {
+                    FFxEffectObject* Object = static_cast<FFxEffectObject*>(Effect);
+                    for (unsigned long Index = 0; Index < Object->NodeCount_; ++Index)
+                    {
+                        FGenericFxObjectBase* Node = Base(Object->Nodes_[Index].Node);
+                        if (std::string(Node->GetFxFactoryName()) != "FLDustAppearance")
+                            continue;
+                        FLDustAppearance* D = static_cast<FLDustAppearance*>(Node);
+                        Out.Line(Head + Format("\"op\":\"dview\",\"r\":\"%lu\",\"view\":\"", Index) +
+                                 Floats(D->ViewXform_, 12) + "\",\"pos\":\"" + Floats(D->LastCameraPos_, 3) +
+                                 "\",\"step\":\"" + F(D->LastCameraStep_) + "\"}");
+                    }
+                }
                 else
                 {
                     fprintf(stderr, "particle_sim: unknown operation %s\n", Name.c_str());
@@ -930,6 +1429,7 @@ namespace
             // The ParticleFx and the library are left alive: their teardown walks state the cases
             // do not set up (the init node).
         }
+        GLog.Out = nullptr;
     }
 }
 
@@ -938,5 +1438,6 @@ void RunParticleSuites()
     if (!Ready())
         return;
     RampSuite();
-    SimSuite();
+    ScriptSuite("particle_sim.jsonl", "particle_sim.list");
+    ScriptSuite("particle_draw.jsonl", "particle_draw.list");
 }

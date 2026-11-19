@@ -37,7 +37,8 @@ use windows::Win32::Graphics::Direct3D12::{
     ID3D12PipelineState, ID3D12RootSignature,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_D24_UNORM_S8_UINT, DXGI_FORMAT_R32_FLOAT,
+    DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_D24_UNORM_S8_UINT,
+    DXGI_FORMAT_R24_UNORM_X8_TYPELESS, DXGI_FORMAT_R24G8_TYPELESS, DXGI_FORMAT_R32_FLOAT,
     DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R32G32B32_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT,
     DXGI_SAMPLE_DESC,
 };
@@ -51,8 +52,14 @@ use crate::render::shader::samplers::{self, Address, Border, FilterClass, Mip};
 
 /// The render-target format of the scene.
 pub const TARGET_FORMAT: DXGI_FORMAT = DXGI_FORMAT_B8G8R8A8_UNORM;
-/// The depth-stencil format of the scene.
+/// The depth-stencil format of the scene's depth view and of the
+/// pipeline states that test against it.
 pub const DEPTH_FORMAT: DXGI_FORMAT = DXGI_FORMAT_D24_UNORM_S8_UINT;
+/// The depth buffer's own format: typeless, so that it can also be
+/// sampled (record 0005, point 5).
+pub const DEPTH_RESOURCE_FORMAT: DXGI_FORMAT = DXGI_FORMAT_R24G8_TYPELESS;
+/// The format the scene depth is sampled through: depth in red.
+pub const DEPTH_SRV_FORMAT: DXGI_FORMAT = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
 
 /// Root parameter 0: the draw's constant buffer.
 pub const ROOT_CONSTANTS: u32 = 0;
@@ -245,7 +252,7 @@ fn alpha_blend(b: D3D12_BLEND) -> D3D12_BLEND {
     }
 }
 
-fn blend_desc(key: &PipelineKey) -> D3D12_BLEND_DESC {
+pub(super) fn blend_desc(key: &PipelineKey) -> D3D12_BLEND_DESC {
     let mut target = D3D12_RENDER_TARGET_BLEND_DESC {
         BlendEnable: false.into(),
         LogicOpEnable: false.into(),
@@ -278,7 +285,7 @@ fn blend_desc(key: &PipelineKey) -> D3D12_BLEND_DESC {
     desc
 }
 
-fn rasterizer_desc(key: &PipelineKey) -> D3D12_RASTERIZER_DESC {
+pub(super) fn rasterizer_desc(key: &PipelineKey) -> D3D12_RASTERIZER_DESC {
     D3D12_RASTERIZER_DESC {
         // Point fill has no Direct3D 12 equivalent: drawn as wireframe.
         FillMode: match key.fill {
@@ -310,7 +317,7 @@ pub(super) const KEEP_ALWAYS: D3D12_DEPTH_STENCILOP_DESC = D3D12_DEPTH_STENCILOP
     StencilFunc: D3D12_COMPARISON_FUNC_ALWAYS,
 };
 
-fn depth_desc(key: &PipelineKey) -> D3D12_DEPTH_STENCIL_DESC {
+pub(super) fn depth_desc(key: &PipelineKey) -> D3D12_DEPTH_STENCIL_DESC {
     let mut desc = D3D12_DEPTH_STENCIL_DESC {
         DepthEnable: key.depth.is_some().into(),
         DepthWriteMask: D3D12_DEPTH_WRITE_MASK_ZERO,
@@ -332,7 +339,7 @@ fn depth_desc(key: &PipelineKey) -> D3D12_DEPTH_STENCIL_DESC {
     desc
 }
 
-fn topology(t: TopologyType) -> D3D12_PRIMITIVE_TOPOLOGY_TYPE {
+pub(super) fn topology(t: TopologyType) -> D3D12_PRIMITIVE_TOPOLOGY_TYPE {
     match t {
         TopologyType::Point => D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT,
         TopologyType::Line => D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE,
@@ -340,7 +347,7 @@ fn topology(t: TopologyType) -> D3D12_PRIMITIVE_TOPOLOGY_TYPE {
     }
 }
 
-fn format(f: Format) -> DXGI_FORMAT {
+pub(super) fn format(f: Format) -> DXGI_FORMAT {
     match f {
         Format::R32Float => DXGI_FORMAT_R32_FLOAT,
         Format::R32G32Float => DXGI_FORMAT_R32G32_FLOAT,
@@ -352,7 +359,7 @@ fn format(f: Format) -> DXGI_FORMAT {
 
 /// A semantic name as the NUL-terminated string the input layout points
 /// at.
-fn semantic(name: &str) -> PCSTR {
+pub(super) fn semantic(name: &str) -> PCSTR {
     let bytes: &'static [u8] = match name {
         "POSITION" => b"POSITION\0",
         "BLENDWEIGHT" => b"BLENDWEIGHT\0",

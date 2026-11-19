@@ -11,6 +11,7 @@ use std::rc::Rc;
 use neuron_core::fx_data::{self as fx, NodeClass};
 use neuron_core::math::{Transform, general_inverse};
 
+use super::draw::DrawState;
 use super::node::{
     Behaviour, FLAG_DEAD, FLAG_DONE, FLAG_LOCAL_SET, FLAG_NO_ANIMATION, FLAG_WORLD_SET, Family,
     Node, NodeId,
@@ -39,6 +40,8 @@ pub struct ParticleFx {
     pub rand: ParticleRand,
     prototypes: BTreeMap<u32, NodeId>,
     effects: fx::EffectLibrary,
+    /// The draw state.
+    pub draw: DrawState,
 }
 
 impl Default for ParticleFx {
@@ -75,6 +78,7 @@ impl ParticleFx {
             rand: ParticleRand::default(),
             prototypes: BTreeMap::new(),
             effects: fx::EffectLibrary::new(),
+            draw: DrawState::default(),
         }
     }
 

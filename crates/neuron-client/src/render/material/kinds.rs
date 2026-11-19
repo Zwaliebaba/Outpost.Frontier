@@ -1583,6 +1583,16 @@ where
         self.data.parameter(index as usize).ok_or(GR_GENERIC)
     }
 
+    fn parameter_tag(&self, index: u32) -> Result<Option<Vec<u8>>, i32> {
+        let record = self
+            .data
+            .kind
+            .schema()
+            .get(index as usize)
+            .ok_or(GR_GENERIC)?;
+        Ok(Some(record.name.to_vec()))
+    }
+
     /// `SetParameterValue`: checked against the schema, stored, then the
     /// alpha flags for `Oc` (with the texture's format once the material
     /// has one).

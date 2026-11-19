@@ -17,6 +17,10 @@ windows.workspace = true
 default = ["render-trace"]
 # The renderer trace reader and model replay (record 0004, point 12).
 render-trace = []
+# Development only (record 0005, point 11): programs compiled from HLSL
+# files at run time through dxcompiler.dll, and reloaded. Release builds
+# use the blobs `cargo xtask shaders` compiles.
+shader-compile = ["windows/Win32_Graphics_Direct3D_Dxc"]
 
 [lints]
 workspace = true

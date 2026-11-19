@@ -224,7 +224,8 @@ pub struct FontCx<'a> {
 pub struct FontId(pub usize);
 
 /// The font subsystem: the backend, the font list (`G_FontList`), the page
-/// pool, the number faces and the generation.
+/// pool, the number faces, the generation, and the rich-text faces and
+/// styles.
 pub struct FontSystem {
     pub backend: Box<dyn FontBackend>,
     pub env: FontEnv,
@@ -233,6 +234,11 @@ pub struct FontSystem {
     pub(crate) number_faces: NumberFaces,
     /// `G_NumberStringPaintDisable` (0 in the reference, never written).
     pub number_paint_disabled: bool,
+    /// The rich-text face table, scales and image root (`DeviceTRC`'s
+    /// statics and the globals of `common_textrender.cpp`).
+    pub rich: rich::RichFonts,
+    /// The rich-text style registry (`StyleCollection`).
+    pub styles: crate::text::layout::StyleCollection,
 }
 
 impl FontSystem {
@@ -245,6 +251,8 @@ impl FontSystem {
             atlas: Atlas::new(),
             number_faces: NumberFaces::default(),
             number_paint_disabled: false,
+            rich: rich::RichFonts::new(),
+            styles: crate::text::layout::StyleCollection::new(),
         }
     }
 
@@ -286,6 +294,17 @@ impl FontSystem {
             self.fonts.push(font);
         }
         count
+    }
+
+    /// `LoadRichFontsFromIni` over the file's contents: the `[TrueType]`
+    /// lines into the standard fonts ([`config::apply_rich_fonts_ini`]) and
+    /// the `[Style]` sections into the styles
+    /// ([`crate::text::layout::style::apply_rich_styles`]). The two kinds of
+    /// section touch nothing in common, so reading them in two passes is
+    /// reading them in file order.
+    pub fn load_rich_fonts(&mut self, contents: &[u8]) {
+        config::apply_rich_fonts_ini(contents, &mut self.rich.standard);
+        crate::text::layout::style::apply_rich_styles(contents, &mut self.styles);
     }
 
     /// `FindMenuFontImp`: the first font whose name equals `nickname`
