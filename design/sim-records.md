@@ -257,7 +257,7 @@ summary to `rust-sim-replay.txt` there.
 | `munition_hit` `state` (P2.4) | after `damage`: `hull_damage` f, `energy_damage` f, `weapon_type` u (the munition archetype); when the target is found (`CObject::Find` as a ship, else a solar): `hp` f, `hp_max` f, `power` f, `power_max` f, `owner` u, `armor` f\|null (the first `CEArmor`'s `hit_pts_scale`), `sub_kind` s (`group`, `equip`, `shield` or `root`); a group adds `sub_hp` f, `sub_hp_max` d, `sub_state` i, `sub_proxy` b (`IsRootHealthProxy`), `sub_linked_type` u; an item adds `sub_hp` f, `sub_hp_max` d, `sub_type` u, `sub_destroyed` b, and a shield `shield_offline_threshold` f and `shield_weapon_mod` d (`GetWeaponModifier` of the munition's weapon type). The target's state before the list is applied, which `crates/game-sim/tests/damage_replay.rs` rebuilds to replay `munition_hit` (summary `rust-damage-replay.txt`) |
 | `behavior_in` | `tick` u, `seq` u (behaviour tick number, from 1), `id` u, `obj`, `dt` f, `behavior` i, `state_graph` i, `directive` u3, `suppressed` b (`TickSuppressedFlag`); when the owner is set: `pos` f3, `orient` f9, `vel` f3, `angvel` f3, `throttle` f, `axis` f3, `nudge` f3, `strafe` i, `cruise` b. Entry of `IBehaviorManager::UpdateBehaviorTick` |
 | `behavior_out` | `tick` u, `seq` u, `id` u, `obj`, `behavior` i, `state_graph` i, `directive` u3. Every exit of the same call |
-| `affect` | `tick` u, `beh` u (the `seq` of the behaviour tick in progress, 0 outside one), `src` s (`behavior`, `scenario` for the harness's own commands, `other`), `id` u, `obj`, `slot` i, `m` s, `i` i, `depth` i, `v` f[]\|null. One `IObjAffect` call on a ship: slot 0 `set_throttle` (`v` the throttle), 1 `set_axis_throttle` (`v` f3), 2 `set_nudge_vec` (`v` f3), 3 `set_strafe_dir` (`i` the `StrafeDir`), 13 `fire` (`EqObj::slot_34`: `i` the number of guns, `v` the target position or `null`), 16 `tractor` (P2.5 loot: `EqObj::slot_40`: `i` the tractor's equipment id, `v` [the target's id as the bits of the float, 0 for none]), 18 `set_target` (`i` the target's id, 0 for none; `v` [the sub-target]), 19 `activate_equip` (`EqObj::slot_4c`: `i` the equipment id, `v` [1 to activate, 0 to deactivate]), 20 `engage_cruise` (`Ship::slot_50`: `i` 1 to engage, 0 to leave; `v` [the second flag, 1 or 0]), 21 `set_thrusters` (`Ship::slot_54`: `i` 1 on, 0 off). `depth` (P2.5) is the number of these calls in progress around this one (`FOracleSimAffectScope`): 0 for a call the caller made, 1 or more for one an `IObjAffect` body makes in turn (`set_strafe_dir` and `slot_54` switch the engine on through `slot_4c`, `slot_50` switches the thrusters off through `slot_54`); records written before the field read as 0 |
+| `affect` | `tick` u, `beh` u (the `seq` of the behaviour tick in progress, 0 outside one), `src` s (`behavior`, `scenario` for the harness's own commands, `other`), `id` u, `obj`, `slot` i, `m` s, `i` i, `depth` i, `v` f[]\|null. One `IObjAffect` call on a ship: slot 0 `set_throttle` (`v` the throttle), 1 `set_axis_throttle` (`v` f3), 2 `set_nudge_vec` (`v` f3), 3 `set_strafe_dir` (`i` the `StrafeDir`), 13 `fire` (`EqObj::slot_34`: `i` the number of guns, `v` the target position or `null`), 16 `tractor` (P2.5 loot: `EqObj::slot_40`: `i` the tractor's equipment id, `v` [the target's id as the bits of the float, 0 for none]), 17 `gun_target` (P2.5 gun lock: `EqObj::slot_44`: `i` the equipment id, `v` [the target's id as the bits of the float, 0 for none; the sub-target]), 18 `set_target` (`i` the target's id, 0 for none; `v` [the sub-target]), 19 `activate_equip` (`EqObj::slot_4c`: `i` the equipment id, `v` [1 to activate, 0 to deactivate]), 20 `engage_cruise` (`Ship::slot_50`: `i` 1 to engage, 0 to leave; `v` [the second flag, 1 or 0]), 21 `set_thrusters` (`Ship::slot_54`: `i` 1 on, 0 off), and (P2.5 dock) 23 `request` (`Ship::slot_5c`: `i` the request type, 0 dock, 1 formation, 2 trade lane; `v` [the target's id, the second id, `bFlag`], each as the bits of a float), 24 `cancel_request` (`Ship::slot_60`: `i` the request type; `v` [the target's id, `Arg3`] as bits), 25 `go_tradelane` (`i` `bFastExit`; `v` [the entrance's id, the exit's id as bits, the speed]), 26 `stop_tradelane`. The answer the server gives during a request runs the requesting behaviour's `OnResult`, whose own calls are recorded at depth 0. `depth` (P2.5) is the number of these calls in progress around this one (`FOracleSimAffectScope`): 0 for a call the caller made, 1 or more for one an `IObjAffect` body makes in turn (`set_strafe_dir` and `slot_54` switch the engine on through `slot_4c`, `slot_50` switches the thrusters off through `slot_54`); records written before the field read as 0 |
 
 The `affect` records between a `behavior_in` and its `behavior_out` with
 the same `seq` are the commands that behaviour tick issued.
@@ -290,6 +290,7 @@ on entry: nothing moves during a behaviour tick (physics steps after it).
 | `ai_obj` | `tick` u, `seq` u, `id` u, `obj`, `roles` [s, …], then either `fault` u (the SEH code; the read faulted) or the object fields below |
 | `ai_query` | `tick` u, `seq` u, `kind` s (`ray` `PhySys::FindRayCollisions`, `ray_object` `FindRayIntersect`, `sphere` `FindSphereCollisions`), `system` u (0 for `ray_object`), `object` u\|null (the body `ray_object` tests), `from` f3, `to` f3 (the centre twice for a sphere), `radius` f (0 for rays), `max` i, `hits` [[`id` u, `point` f3, `normal` f3, `part` u], …] (a sphere hit is [`id`]) |
 | `ai_out` | `tick` u, `seq` u, `id` u, `obj`, the manager fields below, `rand` [i, …] (every `rand()` value the game DLLs drew during the tick, in order), `rand_mod` [s, …] (the DLL that drew each) |
+| `ai_answer` (P2.5 dock) | `tick` u, `seq` u (the behaviour tick in progress, 0 outside one), `kind` s, `id` u (the object asked), `obj`, `i` [i, …], `v` [f, …]\|null: a world answer the snapshot cannot give (`OnAnswer`, `include/oracle_ai.h`). `request`: `Ship::request_returned(RequestType, Response, Arg3)` before the callback runs, `i` [type, response, `Arg3`, a callback was pending]; `dock_hardpoints`: `get_dock_hardpoints(Index, …)` as it returns, `i` [index, result, the terminal type (-1 without the output), whether the mount, the two points and the distance were asked], `v` [the mount, point 1, point 2 (each a rotation row by row, then the translation), the distance], the caller's buffers after the call (an output it did not write keeps the caller's bytes); `lane_start`: `get_lane_start(Ring, OutLane, …)` asked of the ship `id`, `i` [the ring's id, the lane's id in, out, the result], `v` [`OutStart`, `OutDir`]; `go_tradelane`: `i` [the entrance's id, the exit's id, `bFastExit`, the result], `v` [the speed]; `gun_target`: `EqObj::slot_44` on the ship `id`, `i` [the equipment id, the target's id, the sub-target, `CEGun::SetTarget`'s answer (-1 when not called), the gun's lock target id after the call (the result when not called), the `CSimple` id given]; `zone_props`: `Universe::ISystem::GetSphereProperties` of the system `id`, `i` [the properties], `v` [the centre, the radius] |
 
 Manager fields (`IBehaviorManager`, `include/common_iface.h`; read by
 `OracleAiReadManager`): `behavior` i (`CurrentBehaviorIndex`),
@@ -423,8 +424,8 @@ difference or such a query fails the test like a mismatched tick (an
 `is_pointing_at` at another angle, the lead of an item the snapshot has not). It compares the manager fields of `ai_out` bit for
 bit (with `pathfind` and `thrust` where the record has them), the number
 of `rand()` draws, and the commands with the `affect` records whose `beh`
-is the tick's `seq` and whose `depth` is 0 (slots 0 to 3, 13, 16 and 18 to
-21, the slots `affect` records; floats bit for bit). Before each tick it
+is the tick's `seq` and whose `depth` is 0 (slots 0 to 3, 13, 16 to 21 and 23 to
+26, the slots `affect` records; floats bit for bit). Before each tick it
 also sets the `pathfind` and `thrust` fields of `ai_in`. The ship's motion
 model (slots 50 to 64), which no record holds, comes from the scenario's
 ship spawned into a `World` over `outdir/`; the snapshot's own state
@@ -440,6 +441,44 @@ behaviour reads only with a loot preference; Content parses
 `loot_preference` case-sensitively (`LT_ALL`, `LT_COMMODITIES`, ...) and
 the data's values are lower case, so every pilot of the data has none and
 the replay world answers neither.
+
+The own ship's `ai_obj` also has `hpmount` f[12]\|null (P2.5 dock:
+`get_hardpoint("hpmount")`, the position, then the orientation row by
+row). While the current behaviour is the dock (7), launch (8) or
+instant-trade-lane (9) behaviour, the manager fields have `beh7`, `beh8`
+or `beh9` {`i` [i, …], `v` [f, …]}, its own fields in this order, and the
+objects it holds are snapshotted with the role `behavior`:
+
+* `beh7` (`DockBehavior`): `i` [`ModeSelector0xc`, `UpdateResult10`,
+  `Flags28`, `Flag29`, `ModeState320`, `StateFlags32c`, `Field330`,
+  `ApproachClearedFlag334`, `Field43c`, `SubStateValue440`,
+  `AbortFlag398`, `Flag399`, `Flag39a`, `Flag39b`, `CombatFlag344`, the
+  watched object's id, `TargetShipPtr388`'s id, the proximity watcher's
+  id, its `Flags14`, `SavedFlags18`, the pilot is set]; `v` [`Field338`,
+  `Field33c`, `StateTimer340`, `Field408`, `MaxApproachSpeed46c`, the
+  proximity watcher's near, far and ratio, `Facing38c`,
+  `InterceptPoint39c`, `DestPoint3cc`, `SavedPosition3fc`, the
+  `hpmount` offset at +0x430, `Field444` (three floats each),
+  `Orient3a8`, `OrientMatrix3d8`, `Orient40c` (nine each)];
+* `beh8` (`LaunchBehavior`): `i` [`ModeSelector0xc`, `UpdateResult10`,
+  `Flags28`, `Flag29`, `ModeState164`, the base's id,
+  `CachedSystemId170`, `TargetType174`, `DirectiveField178`, `Flag17c`,
+  `Flag230`, `Flag231`]; `v` [`DeltaTime1c`, `Field180`, `Field184`,
+  `Field188`, `Field18c`, `Field22c`, `Field190`, `Field19c`, `Field1cc`,
+  `Field1fc`, `LaunchBasis`, `ApproachBasis2`, `ApproachBasis3`];
+* `beh9` (`InstantTradeLaneBehavior`): `i` [`ModeSelector0xc`,
+  `UpdateResult10`, `Flags28`, `Flag29`, `State30`, the entrance's id,
+  the lane's id, `Flags54`, `Flag55`, `Flag56`]; `v` [`Field58`,
+  `LaneStart3c`, `LaneEnd48`].
+
+`behavior_replay` answers the dock hardpoints, the lane start, the
+request answers, `go_tradelane`'s result, the zone probes and the
+`hpmount` from these records (an answer outside a tick reaches the ship's
+next tick: the directives submitted before it and the request's later
+answer), restores the dock fields before each tick (its constructor leaves
+most of them as the heap held them, D178), compares `beh7`, `beh8` and
+`beh9` on exit (the launch's system id apart) and checks every recorded
+zone probe against the Rust world's zones.
 
 Not recorded: objects a behaviour looks up by an id it keeps in its own
 state and that have none of the roles above (they are outside the near
