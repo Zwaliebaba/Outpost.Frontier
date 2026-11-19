@@ -1093,9 +1093,12 @@ fn report_guns(summary: &mut String, dir: &Path, scenario: &str, ours: &Run) {
         let Some(mine) = ours.guns.get(name) else {
             continue;
         };
+        // The Rust side records the guns after each tick from tick 1 (its
+        // first entry is tick 1's), the oracle from tick 0.
+        let rust_at = |t: u32| t.checked_sub(1).and_then(|k| mine.get(k as usize));
         match list
             .iter()
-            .find(|(t, text)| mine.get(*t as usize).is_some_and(|m| m != text))
+            .find(|(t, text)| rust_at(*t).is_some_and(|m| m != text))
         {
             None => {
                 let _ = writeln!(
@@ -1107,7 +1110,7 @@ fn report_guns(summary: &mut String, dir: &Path, scenario: &str, ours: &Run) {
                 let _ = writeln!(
                     summary,
                     "{scenario}: {name}: turret joints first differ at tick {t}: rust {} | oracle {text}",
-                    mine.get(*t as usize).cloned().unwrap_or_default()
+                    rust_at(*t).cloned().unwrap_or_default()
                 );
             }
         }
