@@ -26,6 +26,8 @@ use crate::render::ff::lights::{LightData, Material};
 use crate::render::ff::state::{PIPELINE_SLOTS, PipelineProperty, RenderStateId};
 use crate::render::ff::textures::TextureHandle;
 use crate::render::ff::vertex_copy::{Source, Stream};
+use crate::render::texture::format_class::{FormatClasses, port_supports};
+use crate::render::texture::pipeline::Abilities;
 use json::Json;
 
 /// The C++ result codes replay compares with.
@@ -361,6 +363,12 @@ pub struct ModelReplay<'a, B: Backend = RecordingBackend> {
     /// Calls whose effect is not modelled yet, by method.
     pub answered: BTreeMap<String, u32>,
     pub calls: u64,
+    /// The format catalog `CreateTexture` resolves a class through: the
+    /// built-in one, or the engine INI's `[TextureFormatClasses]` the
+    /// traced run had.
+    pub classes: FormatClasses,
+    /// The abilities `CreateTexture` asks itself for (square-only).
+    pub abilities: Abilities,
 }
 
 fn hex_word(v: &Json) -> Option<u32> {
@@ -412,6 +420,8 @@ impl<'a, B: Backend> ModelReplay<'a, B> {
             mismatches: Vec::new(),
             answered: BTreeMap::new(),
             calls: 0,
+            classes: FormatClasses::builtin(),
+            abilities: Abilities::default(),
         }
     }
 
@@ -514,6 +524,47 @@ impl<'a, B: Backend> ModelReplay<'a, B> {
         if call.has_ret {
             self.compare(call, "ret", call.ret, got);
         }
+    }
+
+    /// DX8RENDERER's `CreateTexture`: flag 1 refused with `0xFFFFFFFE`;
+    /// a square-only device gets the larger side for both; the format asked
+    /// for, else the first candidate of its class the device supports
+    /// (the format classes of P4.4 with the port's support, D260), else
+    /// `GR_GENERIC`; then the texture of the chosen format.
+    fn create_texture(
+        &mut self,
+        width: u32,
+        height: u32,
+        format: PixelFormat,
+        levels: u32,
+        flags: u32,
+    ) -> Result<TextureHandle, i64> {
+        if flags & 1 != 0 {
+            return Err(i64::from(0xFFFF_FFFE_u32.cast_signed()));
+        }
+        let (mut w, mut h) = (width, height);
+        if w != h && self.abilities.square_only != 0 {
+            let side = if w.cast_signed() > h.cast_signed() {
+                w
+            } else {
+                h
+            };
+            (w, h) = (side, side);
+        }
+        let state = &self.device.state;
+        let gates = (
+            state.pipeline(PipelineProperty::TextureAllow8Bit) != 0,
+            state.pipeline(PipelineProperty::TextureAllow32Bit) != 0,
+            state.pipeline(PipelineProperty::TextureAllowDxt) != 0,
+        );
+        let chosen = self
+            .classes
+            .resolve(format, |f| port_supports(f, gates.0, gates.1, gates.2))
+            .ok_or(GR_GENERIC)?;
+        self.device
+            .textures
+            .create(w, h, chosen, levels, 0)
+            .map_err(|e| i64::from(e.code().cast_signed()))
     }
 
     fn texture(
@@ -860,17 +911,21 @@ impl<'a, B: Backend> ModelReplay<'a, B> {
             }
             "CreateTexture" => {
                 let id = Self::int(call, "OutHandle")?;
-                let r = self.device.textures.create(
+                let r = self.create_texture(
                     Self::u(call, "Width")?,
                     Self::u(call, "Height")?,
                     PixelFormat(Self::u(call, "Format")?),
                     Self::u(call, "Levels")?,
                     Self::u(call, "Flags")?,
                 );
-                if let Ok(h) = r
-                    && id > 0
-                {
-                    self.ids.insert(id, Object::Texture(h));
+                match r {
+                    Ok(h) => {
+                        if id > 0 {
+                            self.ids.insert(id, Object::Texture(h));
+                        }
+                        self.compare_ret(call, GR_OK);
+                    }
+                    Err(code) => self.compare_ret(call, code),
                 }
             }
             "DestroyTexture" => {
@@ -1348,6 +1403,44 @@ mod tests {
             r.replay(r#"{"defaults":{"render":{"138":1}},"seq":9,"frame":0,"synthetic":true}"#),
             Err(TraceError::BadArgument { arg: "render", .. })
         ));
+    }
+
+    #[test]
+    fn create_texture_resolves_format_classes_as_dx8renderer() {
+        // DAA8 (21): A8R8G8B8 first; without 32-bit textures A4R4G4B4. Flag
+        // 1 is refused with 0xFFFFFFFE; P8 with 8-bit textures off has no
+        // class and fails.
+        let trace = r#"{"format":"outpost-render-trace","version":1}
+{"seq":1,"frame":0,"interface":"IRenderPipeline","method":"CreateTexture","args":{"Width":4,"Height":4,"Format":21,"Levels":1,"Flags":1,"OutHandle":0},"ret":-2}
+{"seq":2,"frame":0,"interface":"IRenderPipeline","method":"CreateTexture","args":{"Width":4,"Height":2,"Format":21,"Levels":1,"Flags":0,"OutHandle":1},"ret":0}
+{"seq":3,"frame":0,"interface":"IRenderPipeline","method":"SetPipelineState","args":{"Id":4,"Value":0},"ret":0}
+{"seq":4,"frame":0,"interface":"IRenderPipeline","method":"CreateTexture","args":{"Width":8,"Height":8,"Format":21,"Levels":0,"Flags":0,"OutHandle":2},"ret":0}
+{"seq":5,"frame":0,"interface":"IRenderPipeline","method":"CreateTexture","args":{"Width":8,"Height":8,"Format":1,"Levels":1,"Flags":0,"OutHandle":0},"ret":-1}"#;
+        let mut r = ModelReplay::new(Defaults::builtin(), 64, 64, &NoBlobs);
+        assert_eq!(r.replay(trace).unwrap(), 5);
+        assert!(r.mismatches.is_empty(), "{:?}", r.mismatches);
+        let made = |r: &ModelReplay<'_>, id: i64| match r.ids.get(&id) {
+            Some(Object::Texture(t)) => {
+                let t = r.device.textures.get(*t).unwrap();
+                (t.width, t.height, t.format, t.level_count())
+            }
+            _ => panic!("texture {id}"),
+        };
+        assert_eq!(made(&r, 1), (4, 2, PixelFormat::A8R8G8B8, 1));
+        assert_eq!(made(&r, 2), (8, 8, PixelFormat::A4R4G4B4, 4));
+        assert_eq!(r.ids.len(), 2);
+
+        // A square-only device gets the larger side for both.
+        let mut r = ModelReplay::new(Defaults::builtin(), 64, 64, &NoBlobs);
+        r.abilities.square_only = 1;
+        let line = r#"{"seq":1,"frame":0,"interface":"IRenderPipeline","method":"CreateTexture","args":{"Width":4,"Height":16,"Format":7,"Levels":1,"Flags":0,"OutHandle":1},"ret":0}"#;
+        r.replay(line).unwrap();
+        assert_eq!(made(&r, 1), (16, 16, PixelFormat::A8R8G8B8, 1));
+        // A result other than the recorded one is a mismatch.
+        let line = r#"{"seq":2,"frame":0,"interface":"IRenderPipeline","method":"CreateTexture","args":{"Width":4,"Height":4,"Format":21,"Levels":1,"Flags":1,"OutHandle":0},"ret":0}"#;
+        r.replay(line).unwrap();
+        assert_eq!(r.mismatches.len(), 1);
+        assert_eq!(r.mismatches[0].what, "ret");
     }
 
     #[test]

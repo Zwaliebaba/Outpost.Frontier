@@ -66,7 +66,8 @@
 //   settexta TEXT ATTRS | cleartext | gettext N | caret P | maxlen N | fixed V | password V |
 //   case M | allow V | filter TEXT | repl U | editable V | activate | deactivate H | attrs X |
 //   fmask X | prefix TEXT (one text node) | fixedlist ATTRS (one attribute node), each list
-//   change followed by RebuildDisplay
+//   change followed by RebuildDisplay; and the window's rtlayout, rtshow, rtbar, rtscrolled
+//   (slot 23, which the edit box inherits), rtstate and rbstate
 //   tables: cedge I X | redge I Y | frows H S L G... (the rows' flags and groups) | selrow R |
 //   clearsel | getsel | hdr N | borders L R T B | collines V | highlights V | resizable R C |
 //   grab X | margins X Y | tipmode M | wtip IDS | coltip C IDS | rtip R IDS | ctip R C IDS |
@@ -1392,6 +1393,9 @@ namespace
             }
             else if (Name == "state")
                 EditState(E);
+            else if (Name == "rtlayout" || Name == "rtshow" || Name == "rtbar" || Name == "rtscrolled" ||
+                     Name == "rtstate" || Name == "rbstate")
+                RichWinOp(E, T);
             else
                 return false;
             return true;

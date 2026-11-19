@@ -9,11 +9,14 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use neuron_client::engine::{Engine, EngineConfig, FrameInput, FrameMouse, Phase, TEARDOWN_ORDER};
+use neuron_client::engine::{
+    Engine, EngineConfig, FrameInput, FrameMouse, Phase, SceneHost, TEARDOWN_ORDER,
+};
 use neuron_client::render::appearance::Camera;
 use neuron_client::render::deformable::AimDesc;
 use neuron_client::render::ff::device::RecordingBackend;
 use neuron_client::render::particles::PoolKind;
+use neuron_client::render::stack::StackEngine;
 use neuron_client::text::font::fake::FakeBackend;
 use neuron_client::window::DisplayMode;
 use neuron_core::scene::InstanceId;
@@ -280,6 +283,27 @@ fn the_engine_draws_frames_of_the_original_data() {
     );
 
     assert!(engine.model_bounds(ship).is_some_and(|(r, _)| r > 0.0));
+    // The engine the atmosphere's `Field20` names answers
+    // `GetInstanceExtent(root, 0)`: the sphere around the compound's parts,
+    // as `model_bounds`, not the root part's own sphere (flag 1), which the
+    // render manager asks for.
+    let mut host = SceneHost::new(
+        std::rc::Rc::downgrade(engine.scene()),
+        std::rc::Rc::clone(engine.links()),
+    );
+    let root = engine.model_root(ship).expect("the ship's root").index() as usize;
+    assert_eq!(
+        host.instance_subtree_extent(root),
+        engine.model_bounds(ship)
+    );
+    assert_ne!(
+        host.instance_subtree_extent(root),
+        host.instance_extent(root)
+    );
+    assert_eq!(
+        host.instance_subtree_extent(1 << 30),
+        Some((-1.0, [0.0; 3]))
+    );
 
     // An aim of the bartender's head through its neck (`IDeformable::StartAim`): the frames'
     // walks tick its typed channels, whose owner solves on the scene engine; once stopped, the
@@ -786,4 +810,106 @@ fn the_engine_plays_the_sound_tables_through_the_sound_tick() {
          first line {} ms",
         tables.sounds, tables.voices, info.duration_ms, voice.duration_ms
     );
+}
+
+/// A camera 6000 units out on +z, looking down -z, that sees the planet.
+struct Far;
+
+impl Camera for Far {
+    fn position(&mut self) -> [f32; 3] {
+        [0.0, 0.0, 6000.0]
+    }
+    fn orientation(&mut self) -> [f32; 9] {
+        [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    }
+    fn viewport(&mut self) -> [i32; 4] {
+        [0, 0, 639, 479]
+    }
+    fn half_fov_x_deg(&mut self) -> f32 {
+        35.0
+    }
+    fn fov_y_deg(&mut self) -> f32 {
+        50.0
+    }
+    fn z_near(&mut self) -> f32 {
+        1.0
+    }
+    fn z_far(&mut self) -> f32 {
+        20_000.0
+    }
+    fn aspect(&mut self) -> f32 {
+        4.0 / 3.0
+    }
+    fn x_scale_over_near(&mut self) -> f64 {
+        1.0
+    }
+    fn y_scale_over_near(&mut self) -> f64 {
+        1.0
+    }
+    fn project(&mut self, _: [f32; 3], _: &mut [f32; 3]) -> i32 {
+        0
+    }
+    fn unproject(&mut self, _: &mut [f32; 3], _: f32, _: f32) {}
+    fn classify_sphere(&mut self, _: [f32; 3], _: f32) -> i32 {
+        4
+    }
+    fn view_transform(&mut self) -> [f32; 12] {
+        [
+            1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, -6000.0,
+        ]
+    }
+}
+
+/// A planet through the engine (the render residuals): the `SphereMesh`
+/// archetype draws its faces and, with an `AtmosphereMaterial` in its
+/// seventh slot, the atmosphere shell, whose material asks the engine its
+/// `Field20` names for the instance's extent (`GetInstanceExtent(.., 0)`,
+/// the scene engine's subtree sphere).
+#[test]
+fn the_engine_draws_a_planet_and_its_atmosphere() {
+    let base = outdir();
+    let (Ok(engine_ini), Ok(client_ini)) = (
+        fs::read(base.join("NeuronComponents.ini")),
+        fs::read(base.join("OutpostFrontier.ini")),
+    ) else {
+        println!("outdir has no INI files: nothing to run");
+        return;
+    };
+    let data = base.join("data");
+    if !data.join("SOLAR").is_dir() {
+        println!("outdir/data is missing: nothing to run");
+        return;
+    }
+    let mode = DisplayMode {
+        width: 640,
+        height: 480,
+        fullscreen: false,
+    };
+    let mut config = EngineConfig::new(&data, mode);
+    config.engine_ini = Some(engine_ini);
+    config.client_ini = Some(client_ini);
+    config.font_backend = Some(Box::new(FakeBackend::default()));
+    let mut engine: Engine<RecordingBackend> =
+        Engine::new(config, RecordingBackend::default()).expect("the engine");
+    let library = engine
+        .load_archive(b"SOLAR\\PLANETS\\PLANET_ICEMOON\\planet_icemoon.mat")
+        .expect("the planet's materials");
+    assert!(library.materials.is_some());
+    let planet = engine
+        .create_model(b"SOLAR\\PLANETS\\PLANET_ICEMOON\\planet_icemoon_1500.sph")
+        .expect("the planet");
+    let root = engine.model_root(planet).expect("its root").index() as usize;
+    let mut host = SceneHost::new(
+        std::rc::Rc::downgrade(engine.scene()),
+        std::rc::Rc::clone(engine.links()),
+    );
+    let (radius, _) = host.instance_subtree_extent(root).expect("an extent");
+    assert!(radius > 0.0, "the planet's sphere: {radius}");
+
+    let before = engine.device().backend.draws.len();
+    engine.frame(FrameInput::idle(1.0 / 30.0), &mut Far);
+    let packets = engine.device().backend.draws.len() - before;
+    println!("planet_icemoon_1500: radius {radius}, {packets} draw packets");
+    assert_eq!(packets, 10, "the planet's faces and its atmosphere shell");
+    engine.destroy_model(planet);
 }

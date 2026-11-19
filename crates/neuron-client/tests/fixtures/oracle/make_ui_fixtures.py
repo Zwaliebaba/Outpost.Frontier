@@ -609,6 +609,24 @@ RICH_WIN_CASES = [
 
 CONTROL_CASES += RICH_WIN_CASES
 
+# The render residuals: the edit boxes inherit the window's slot 23. Neither makes a bar of its
+# own; one shown with ShowScrollBarV tells the box of its value as it tells a plain window.
+EDIT_BAR_CASES = [
+    " ; ".join([
+        "new RichTextEditWin", xform(-0.3, 0.2, -1.0), "rtstate", "rbstate",
+        "rtlayout 300 90", "rtshow 1", "rtstate", "rbstate",
+        "rtbar " + fb(70.5), "rtscrolled", "rtstate", "rbstate", "state",
+        "rtbar " + fb(500.0), "rtscrolled", "rtstate", "rbstate",
+    ]),
+    " ; ".join([
+        "new UITextEdit " + fbs(0.5, 0.04) + " " + text("Player"), xform(0.1, -0.05, -1.0),
+        "rbstate", "rtlayout 200 40", "rtshow 1", "rbstate",
+        "rtbar " + fb(33.25), "rtscrolled", "rtstate", "rbstate", "state",
+    ]),
+]
+
+CONTROL_CASES += EDIT_BAR_CASES
+
 CASES = [
     # A front-end page of every class, in the shipped files' style.
     "#Automatically generated. Do not edit!\n"
