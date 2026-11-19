@@ -32,7 +32,9 @@
 mod ai;
 mod ambient;
 mod animate;
+mod cargo;
 mod combat;
+mod fields;
 mod guided;
 pub use guided::GuidedTrace;
 mod sensors;
@@ -60,6 +62,8 @@ use crate::equip::{EquipEvent, SubObjId};
 use super::{Arena, DamageList, ObjHandle, Object};
 
 pub use ai::ManagerHook;
+pub use animate::ActivateResult;
+pub use cargo::{ScanResult, ScannedEquip};
 pub use combat::damage_sub_obj;
 pub use sensors::{EquipStatus, EquipmentVal, equipment_val};
 pub(crate) use spawn::shield_status;
@@ -157,6 +161,25 @@ pub enum WorldEvent {
         solar: u32,
         /// The code.
         code: i32,
+    },
+    /// `StarSystem::send_mine_explosion`: a field mine blew
+    /// (`MedMine::update`).
+    MineExplosion {
+        /// The mine's id.
+        mine: u32,
+        /// The explosion's offset from the mine (its `explosion_offset`
+        /// along the direction to the last ship that entered).
+        offset: Vector,
+    },
+    /// `CEqObj::update_docking_animations` notified `DockAnimEnded`: a
+    /// docking point's animation starts to open (`open`) or to close.
+    DockAnim {
+        /// The object's id.
+        obj: u32,
+        /// The docking point's index.
+        index: usize,
+        /// The flag: 1 when the point opens, 0 when it closes.
+        open: bool,
     },
     /// A gun fired a bullet.
     Fired {
@@ -323,6 +346,9 @@ pub struct World {
     /// `AnimDB`'s playback map for the ambient animations
     /// (`CEInternalFX`'s `use_animation`), by playback id.
     pub(crate) ambient: BTreeMap<i32, ambient::AmbientSub>,
+    /// The server's asteroid fields of each system that loaded them
+    /// ([`World::load_asteroid_fields`]), in load order.
+    pub(crate) asteroid_fields: BTreeMap<u32, Vec<super::field::FieldRuntime>>,
     /// The results of every fire call, when kept ([`World::set_fire_log`]).
     pub(crate) fire_log: Option<Vec<FireCall>>,
     /// Every guided munition's seeker step, when kept
@@ -416,6 +442,7 @@ impl World {
             animation: neuron_core::scene::animation::Animation::new(),
             anim_scripts: BTreeMap::new(),
             ambient: BTreeMap::new(),
+            asteroid_fields: BTreeMap::new(),
             fire_log: None,
             guided_trace: None,
         }
@@ -607,6 +634,22 @@ impl World {
             world.set_collision_state(body, false);
         }
         self.events.push(WorldEvent::Destroyed { id, killer });
+    }
+
+    /// Marks an object dead without a destruction event (an asteroid
+    /// culled with its cube); the reap removes it.
+    pub(crate) fn retire(&mut self, h: ObjHandle) {
+        let Some(obj) = self.objects.get_mut(h) else {
+            return;
+        };
+        if obj.dead {
+            return;
+        }
+        obj.dead = true;
+        let (body, system) = (obj.physical.body, obj.physical.system);
+        if let (Some(body), Some(world)) = (body, self.physics.world_mut(system)) {
+            world.set_collision_state(body, false);
+        }
     }
 
     /// The end-of-tick reap: dead objects leave the lists, the id map, the

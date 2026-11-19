@@ -1052,6 +1052,8 @@ impl World {
                 dock_type: s.dock_type,
                 anim: s.anim.clone(),
                 active: false,
+                playback: None,
+                last_duration: 0.0,
             })
             .collect();
         if let Some(obj) = self.objects.get_mut(h) {
@@ -1774,8 +1776,8 @@ impl World {
         Ok(h)
     }
 
-    /// A field rock (`CAsteroid::init`, `init_physics`: mass 1000, damping
-    /// 1e6, fixed, group "Asteroid").
+    /// A field rock with the object id `id` (`CAsteroid::init`,
+    /// `init_physics`: mass 1000, damping 1e6, fixed, group "Asteroid").
     ///
     /// # Errors
     ///
@@ -1784,6 +1786,7 @@ impl World {
         &mut self,
         system: u32,
         archetype: u32,
+        id: u32,
         position: Vector,
         orientation: Matrix,
         rock: asteroid::AsteroidData,
@@ -1803,7 +1806,6 @@ impl World {
             &arch.root,
             KindData::Asteroid(rock.clone()),
         );
-        let id = rock.asteroid_id;
         World::init_simple(&mut obj, system, id, 0, -1.0, position, orientation);
         let h = self.insert(system, obj);
         self.sync_instance(h);

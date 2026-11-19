@@ -35,6 +35,7 @@ pub mod asteroid;
 pub mod bounds;
 pub mod csys;
 pub mod damage;
+pub mod field;
 pub mod inspect;
 pub mod loot;
 pub mod projectile;
@@ -321,8 +322,15 @@ pub struct DockingPoint {
     pub dock_type: u32,
     /// The animation's name.
     pub anim: Vec<u8>,
-    /// The animation plays.
+    /// +0x00 the point is active (`CEqObj::activate`): its animation opens.
     pub active: bool,
+    /// +0x04 the animation's playback (`PlayScript` of the name at spawn,
+    /// `init_docking_points`); `None` for no name or one the archetype's
+    /// script does not have (channel -1).
+    pub playback: Option<anim::Playback>,
+    /// +0x08 the playback's time at the last update
+    /// (`update_docking_animations`).
+    pub last_duration: f32,
 }
 
 /// `CEqObj` (0xe4..0x1a4).
