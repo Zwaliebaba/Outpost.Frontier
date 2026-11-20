@@ -79,6 +79,7 @@ impl World {
             return;
         };
         let (kind, archetype) = (o.kind, o.archetype);
+        let gate = matches!(&o.data, KindData::Solar(sd) if sd.dest_system != 0);
         let path = self.archetype_path(kind, archetype);
         // `init_docking_points`: one playback per docking sphere with an
         // animation the archetype's script has (`PlayScript`; -1 is
@@ -108,7 +109,9 @@ impl World {
                 .ships
                 .get(&archetype)
                 .map(|s| self.strings.get(s.bay_door_anim).to_vec()),
-            ObjectKind::Solar => self
+            // `CSolar::init` plays the open animation of a gate only (a
+            // destination system).
+            ObjectKind::Solar if gate => self
                 .data
                 .archetypes
                 .solars

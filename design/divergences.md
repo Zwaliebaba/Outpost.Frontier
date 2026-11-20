@@ -244,6 +244,9 @@ and with the run-time base database D611; the owner accepted both on
 With P3.3's star systems (`game-logic::world`) D612 and D613 were
 proposed; the owner accepted both on 2026-11-20.
 
+With P3.3's solar reader (`CSolar::ReadObj`) D614 was proposed; the owner
+accepted it on 2026-11-20.
+
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)
 on 2026-11-19, as `TriMesh`'s editing mode (D358): no shipped model has
@@ -682,6 +685,7 @@ one, and it is ported when a caller needs it.
 | D611 | `game-logic::bases` (P3.3) | `BaseDB` calls through a null entry when a record names an unknown room or base (`create_character`, `create_behavior`, `create_mission_vendor`, `create_news_broadcast`, `count_mission_vendors`), `FRoomEntry::create_character` reads placement -1 for a placement name the room lacks, `FHandlePool::set` throws `out_of_range` above 4095, and the pools' walk never ends when they are full and the last position given is 0 | The creators answer -1 or `0xffffffff` and the count 0 after the C++'s report; an unknown placement creates nothing (-1); an out-of-range position is ignored; a full pool answers -1 or `0xffffffff` after one lap | Undefined behaviour or a crash in the reference | Records naming rooms, bases or placements the data lacks, and more than 4096 live records of a kind, only |
 | D612 | `game-logic::world` (P3.3) | `StarSystem::remove_player` walks the player list of a `SysMap` miss (`PlayerDB_LeaveSystem` with a system id Universe lacks) through an unconstructed head node and faults; `StarSystem_Update`'s dock queue calls `get_id` through the watcher of a ship destroyed before the queue runs | `remove_player` on an unknown system does nothing; a dock-queue entry whose ship is gone is skipped, and the rest of the queue is worked through | Undefined behaviour in the reference | A save naming a system Universe lacks, or a ship destroyed in the sub-step it was queued to land, only |
 | D613 | `game-logic::world` (P3.3) | In single player `StarSystem::unload` deletes the server's `GameObject` wrappers; the client side keeps its `CObject`s until it tears its space scene down | The single world both sides share (record 0002) loses the system's objects at the server's unload (`World::unload_system`), when the player lands or leaves the system | Records 0002 and 0007 point 6: one world, no second copy of the objects | Between the server's unload and the client's own teardown in the same frame, the client side finds none of the system's objects |
+| D614 | `game-sim::object::world` (P3.3) | `CSolar::ReadObj`'s `space_costume` reads an unknown accessory's id through a null pointer and writes a ninth or later accessory past the costume's eight slots | An unknown accessory is skipped; accessories after the eighth are dropped | Undefined behaviour in the reference | A system file naming an unknown accessory or more than eight, only (none in the shipped data) |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32

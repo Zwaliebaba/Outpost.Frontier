@@ -342,6 +342,8 @@ pub struct Equipped {
     pub vibe: i32,
     /// +0x13c the voice.
     pub voice: u32,
+    /// +0x110 the space costume (`SpaceCostume`).
+    pub space_costume: crate::data::costume::Costume,
     /// +0x144 the collision groups.
     pub arch_groups: Vec<ArchGroup>,
     /// +0x15c the weapons are offline (`CELauncher::IsDisabled`).

@@ -64,6 +64,9 @@
 
 // Server.dll, IServerImpl.cpp (Oracle instrumentation): StarSystem::load on one system.
 extern "C" __declspec(dllimport) bool __cdecl OracleSimLoadSystem(unsigned int SystemId);
+// Server.dll, IServerImpl.cpp (Oracle instrumentation, P3.3): every system loaded and its
+// solars written as JSON lines (decision record 0007 point 11).
+extern "C" __declspec(dllimport) int __cdecl OracleDumpSystemLoads(char const* Path);
 // Server.dll's other Oracle export: every controller's heartbeat (session.jsonl `heartbeats`).
 typedef void(__cdecl* FOracleSimHeartbeatFn)(void* Context, unsigned int Flid, unsigned int Priority,
                                               char const* Module, float Interval, float Phase,
@@ -127,6 +130,9 @@ namespace
         // `comms off`: Content's comm system (GCS) refuses every comm, so it draws no rand()
         // (the reproducibility work, owner 2026-11-19).
         bool bCommsOff = false;
+        // `dump system_loads`: after the server starts and the scenario's system loads, every
+        // system is loaded and its solars written (system_loads.jsonl); no scenario runs (P3.3).
+        bool bDumpSystemLoads = false;
         unsigned int Seed = 0x4f524143u;
         double ClockStart = 1000.0;
         std::vector<FObjectDesc> Objects;
@@ -386,6 +392,10 @@ namespace
             {
                 Out.bCommsOff = Lower(T[1]) == "off";
             }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "system_loads")
+            {
+                Out.bDumpSystemLoads = true;
+            }
             else if (Key == "seed" && T.size() == 2 && ParseUnsigned(T[1], Value))
             {
                 Out.Seed = (unsigned int)Value;
@@ -454,7 +464,7 @@ namespace
         }
         if (Out.System.empty() || !bTicks)
             return Error = "a scenario needs `system` and `ticks`", false;
-        if (Out.Objects.empty())
+        if (Out.Objects.empty() && !Out.bDumpSystemLoads)
             return Error = "a scenario needs at least one object", false;
         std::stable_sort(Out.Commands.begin(), Out.Commands.end(),
                          [](FCommand const& A, FCommand const& B) { return A.Tick < B.Tick; });
@@ -2708,6 +2718,17 @@ namespace oracle
             SessionNote("error", ControllerId == 0 ? "no controller" : "the system did not load");
             EndProcess(3);
             return 3;
+        }
+
+        if (GScenario.bDumpSystemLoads)
+        {
+            int const Lines = OracleDumpSystemLoads((OutDir + "\\system_loads.jsonl").c_str());
+            FOracleJson J;
+            J.Str("rec", "system_loads");
+            J.Int("lines", Lines);
+            Write(FileSession, J);
+            EndProcess(Lines < 0 ? 3 : 0);
+            return Lines < 0 ? 3 : 0;
         }
 
         // The seeding point of the comparison (owner, 2026-11-18): the system and Content's

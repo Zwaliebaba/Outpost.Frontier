@@ -167,7 +167,8 @@ pub fn load(cx: &mut Cx<'_>, system: u32) {
         // `CmnAsteroid::Load`, `SrvAsteroid_LoadSystem`, then every
         // `[Object]` of the system file.
         cx.world.load_asteroid_fields(system);
-        cx.world.load_system_solars(system);
+        cx.world
+            .load_system_solars_reported(system, &mut cx.logic.reports);
     }
     if let Some(s) = system_mut(cx, system) {
         s.loaded = true;

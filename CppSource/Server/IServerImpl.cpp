@@ -179,6 +179,72 @@ extern "C" SERVER_API bool __cdecl OracleSimLoadSystem(unsigned int SystemId) {
     return System->bLoaded == 1;
 }
 
+// Oracle instrumentation (P3.3, decision record 0007 point 11): every SysMap system loaded as
+// a multiplayer server's first player would load it (StarSystem::load), and each object of
+// its Solars list written as one JSON line: the fields CSolar::ReadObj and CSolar::init set,
+// floats as their bit patterns. Dynamic solars (none come from the system files; Content may
+// make them on SystemLoaded) are counted, not written. Returns the number of lines, -1 when
+// the file cannot be opened. No game module calls it.
+static unsigned int OracleFloatBits(float Value) {
+    unsigned int Bits = 0;
+    memcpy(&Bits, &Value, sizeof(Bits));
+    return Bits;
+}
+
+extern "C" SERVER_API int __cdecl OracleDumpSystemLoads(char const* Path) {
+    FILE* const Out = fopen(Path, "wb");
+    if (Out == nullptr) return -1;
+    int Lines = 0;
+    for (SysDB::SysMapType::iterator It = SysDB::SysMap.begin(); It != SysDB::SysMap.end(); ++It) {
+        StarSystem& Sys = It->second;
+        Sys.load();
+        unsigned int Dynamic = 0;
+        unsigned int Index = 0;
+        for (FSystemListNode* Node = Sys.Solars.Head; Node != nullptr; Node = Node->Next) {
+            GameObject* const Obj = Node->Data;
+            CObject* const Raw = Obj != nullptr ? Obj->cobj() : nullptr;
+            if (Raw == nullptr || (static_cast<unsigned>(Raw->ObjectClass) & 0x303u) != 0x303u)
+                continue;
+            CSolar* const S = static_cast<CSolar*>(Raw);
+            if (S->bDynamic) {
+                ++Dynamic;
+                continue;
+            }
+            float Orient[9];
+            memcpy(Orient, &S->Orientation, sizeof(Orient));
+            fprintf(Out,
+                    "{\"system\":%u,\"index\":%u,\"id\":%u,\"archetype\":%u,"
+                    "\"pos\":[\"%08x\",\"%08x\",\"%08x\"],\"orient\":[",
+                    It->first, Index, S->Id, S->Archetype != nullptr ? S->Archetype->Nickname.Id : 0u,
+                    OracleFloatBits(S->WorldPosition.x), OracleFloatBits(S->WorldPosition.y),
+                    OracleFloatBits(S->WorldPosition.z));
+            for (int K = 0; K < 9; ++K)
+                fprintf(Out, "%s\"%08x\"", K == 0 ? "" : ",", OracleFloatBits(Orient[K]));
+            fprintf(Out,
+                    "],\"type_bits\":%u,\"docking_base\":%u,\"docking_point_base\":%u,"
+                    "\"dest_system\":%u,\"dest_gate\":%u,\"prev_ring\":%u,\"next_ring\":%u,"
+                    "\"tradelane_space_name\":%u,\"visit\":%u,\"parent\":%u,\"destructible\":%u,"
+                    "\"weapons_offline\":%u,\"vibe\":%d,\"voice\":%u,\"atmosphere_range\":\"%08x\","
+                    "\"equipment\":%d,\"costume\":[%u,%u,%u,%u],\"accessories\":[",
+                    S->TypeBits, S->DockingBaseId, S->DockingPointBaseId, S->DestSystem, S->DestGate.Id,
+                    S->PrevRing, S->NextRing, S->TradelaneSpaceNameId, (unsigned)S->VisitValue,
+                    S->ParentNickname.Id, S->bDestructible ? 1u : 0u, S->bWeaponsOffline ? 1u : 0u,
+                    S->VibeId, S->VoiceId, OracleFloatBits(S->AtmosphereRange), S->EquipManager.Size(),
+                    S->SpaceCostume.PartIds[0], S->SpaceCostume.PartIds[1], S->SpaceCostume.PartIds[2],
+                    S->SpaceCostume.PartIds[3]);
+            unsigned int const Accessories = S->SpaceCostume.AccessoryCount < 8u ? S->SpaceCostume.AccessoryCount : 8u;
+            for (unsigned int K = 0; K < Accessories; ++K)
+                fprintf(Out, "%s%u", K == 0 ? "" : ",", S->SpaceCostume.AccessoryIds[K]);
+            fprintf(Out, "]}\n");
+            ++Index;
+            ++Lines;
+        }
+        fprintf(Out, "{\"system\":%u,\"solars\":%u,\"dynamic\":%u}\n", It->first, Index, Dynamic);
+    }
+    fclose(Out);
+    return Lines;
+}
+
 static PlayerSlot* GetPlayerBySession(unsigned int session_id) {
     return PlayerDB_GetPlayer(session_id);
 }
