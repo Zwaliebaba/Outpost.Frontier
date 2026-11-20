@@ -289,8 +289,8 @@ back afterwards (`take_behavior`, `put_behavior`), and it receives
    `LoadLibrary`.
 
 6. **Typed messages, carried by `&mut`.** `ControllerMessage<'a>` has one
-   variant per id: the 81 ids that are sent, plus `NpcSystemEnter`, which
-   is used only as a trigger event. Each variant keeps its numeric id
+   variant per id: the 80 ids that are sent and `NpcSystemEnter`, which is
+   used only as a trigger event (81 in all; corrected by the P3.2 survey). Each variant keeps its numeric id
    (`id()`) for traces. Out-parameters (`EquipDropLoot.desc`,
    `ObjectDestroyed.dropped_equip`, `DeathFuseLit.lifetime`) are fields that a handler may change and the
    sender reads back. Lent resources are borrows: `&mut dyn Write` for the

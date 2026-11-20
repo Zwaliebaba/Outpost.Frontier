@@ -179,6 +179,8 @@ dependencies = [
 name = "game-logic"
 version = "0.1.0"
 dependencies = [
+ "game-sim",
+ "neuron-core",
  "neuron-server",
 ]
 

@@ -23,7 +23,7 @@ pub use atof::atof;
 pub use format::format_g;
 pub use legacy::{Printed, PrintfArg, PrintfError, legacy_format, legacy_vsnprintf};
 pub use qsort::qsort;
-pub use text::text_mode_read;
+pub use text::{text_mode_read, text_mode_write};
 pub use vc6::{format_lua_number, numeric_vsnprintf};
 
 use crate::hash::c_str;

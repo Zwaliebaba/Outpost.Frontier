@@ -562,7 +562,7 @@ impl World {
             .archetypes
             .ships
             .get(&o.archetype)
-            .map(|s| self.data.strings.get(s.hp_tractor_source).to_vec())
+            .map(|s| self.strings.get(s.hp_tractor_source).to_vec())
             .unwrap_or_default();
         let Some((_, data)) = self.find_hardpoint(o.engine.instance, &name) else {
             return;

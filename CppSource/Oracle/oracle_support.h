@@ -320,3 +320,5 @@ void RunSceneScriptSaveDataDump(const std::vector<std::string>& Files);
 void RunControllerBusSuite();
 // P3.1 (oracle_bus.cpp): the account CRC and hashed names, for account.jsonl.
 void RunServerAccountSuite();
+// P3.2 (oracle_bus.cpp): the C1_SPACE code points above U+00FF, as chat_space.jsonl.
+void RunChatSpaceSuite();

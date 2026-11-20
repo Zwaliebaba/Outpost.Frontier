@@ -97,6 +97,12 @@ namespace NeuronRuntime
     NEURONRUNTIME_API extern ICOManager* NeuronComponents;
 }
 
+// P3.2 (Server/server_savegame.cpp): Server.dll's save reader, one field per line.
+extern "C" __declspec(dllimport) bool __cdecl OracleDumpSaveRecord(char const* SavePath, char const* OutPath);
+extern "C" __declspec(dllimport) bool __cdecl OracleWriteSaveRecord(char const* SavePath, char const* OutPath);
+extern "C" __declspec(dllimport) bool __cdecl OracleSinglePlayerAccount(char const* OutPath);
+extern "C" __declspec(dllimport) void __cdecl OracleReadWorldIni(char const* IniPath);
+
 using namespace oracle;
 
 namespace
@@ -525,7 +531,7 @@ void RunGameDataDump(const std::vector<std::string>& Files)
         printf("game data: no EXE\\OutpostFrontier.ini, nothing loaded\n");
         static const char* const kKinds[] = {"constants", "goods",    "loadouts",   "reputation", "archetypes",
                                              "universe",  "bases",    "fuses",      "characters", "vibes",
-                                             "asteroid_fields", "state_graph"};
+                                             "asteroid_fields", "state_graph", "saves"};
         for (const char* Name : kKinds)
             FGameKind Empty(Name);
         CloseGameData();
@@ -580,6 +586,45 @@ void RunGameDataDump(const std::vector<std::string>& Files)
         Suite Out(K.Path("state_graph"));
         WriteStateGraphLines(Out);
         OracleAiFreeStateGraph();
+    }
+    {
+        // P3.2: the character templates next to the executable through Server.dll's save
+        // reader (PlayerData_LoadSaveRecord, OracleDumpSaveRecord in server_savegame.cpp).
+        FGameKind K("saves");
+        static const char* const kSaves[] = {"newplayer.fl", "mpnewcharacter.fl"};
+        for (const char* Name : kSaves)
+        {
+            const std::string Save = GFixtureDir + "\\EXE\\" + Name;
+            if (GetFileAttributesA(Save.c_str()) == INVALID_FILE_ATTRIBUTES)
+                continue;
+            OracleDumpSaveRecord(Save.c_str(), K.Path(Name).c_str());
+        }
+    }
+    {
+        // P3.2: the single-player template applied to a slot and written again by
+        // Server.dll's save writer (PlayerData_SerializeToFile, OracleWriteSaveRecord).
+        // mpnewcharacter.fl is left out: its system is still the %%HOME_SYSTEM%%
+        // placeholder, and the writer dereferences the missing system (D601).
+        FGameKind K("saves_written");
+        static const char* const kSaves[] = {"newplayer.fl"};
+        for (const char* Name : kSaves)
+        {
+            const std::string Save = GFixtureDir + "\\EXE\\" + Name;
+            if (GetFileAttributesA(Save.c_str()) == INVALID_FILE_ATTRIBUTES)
+                continue;
+            if (!OracleWriteSaveRecord(Save.c_str(), K.Path(Name).c_str()))
+                printf("saves_written: %s was not written\n", Name);
+        }
+    }
+    {
+        // P3.2: the single-player account flow (login, restart file, character list,
+        // character creation) through Server.dll (OracleSinglePlayerAccount).
+        // The restart file reads NewPlayer.fl next to Oracle.exe (the data job copies
+        // the templates there) and the initial world the dump root's INI names.
+        FGameKind K("accounts");
+        OracleReadWorldIni((GFixtureDir + "\\EXE\\OutpostFrontier.ini").c_str());
+        if (!OracleSinglePlayerAccount(K.Path("single_player").c_str()))
+            printf("accounts: the flow did not run\n");
     }
     CloseGameData();
     printf("dumped the game databases\n");

@@ -336,6 +336,17 @@ pub struct World {
     /// ids: the reputation groups are not ported, so a harness sets them
     /// ([`World::set_attitude`]).
     pub(crate) attitudes: BTreeMap<(u32, u32), f32>,
+    /// The vibe store (`Reputation::Vibe`, P3.2): the static records of
+    /// the universe load and the run-time ones. Single player shares it
+    /// between the server and the client side, as Common's globals are.
+    vibes: crate::data::vibe::Vibes,
+    /// The string cache at run time (`StringAlloc`, P3.2): the load's cache,
+    /// which later allocations (a save's hardpoints, a client's) extend.
+    /// The handles of the load's strings stay as they were.
+    pub(crate) strings: crate::data::string_cache::StringCache,
+    /// The run-time reputation registry, cloned from the load's: a save's
+    /// feelings replace its faction feelings (`Reputation::LoadFeelings`).
+    reputation: crate::data::reputation::Reputation,
     always_update: Vec<ObjHandle>,
     anim_channels: Vec<turret::AnimChannel>,
     anim_playbacks: Vec<(ObjHandle, animate::AnimKind)>,
@@ -413,6 +424,16 @@ impl World {
     #[must_use]
     pub fn new(data: Arc<GameData>, config: WorldConfig) -> Self {
         let constants = phy_sys_constants(&data);
+        let vibe_mode = if config.single_player {
+            crate::data::vibe::VibeMode::SinglePlayer
+        } else if config.server_physics {
+            crate::data::vibe::VibeMode::MultiplayerServer
+        } else {
+            crate::data::vibe::VibeMode::MultiplayerClient
+        };
+        let vibes = crate::data::vibe::Vibes::new(data.vibes.clone(), vibe_mode);
+        let strings = data.strings.clone();
+        let reputation = data.reputation.clone();
         let mut scene = Engine::new();
         scene.add_component(Box::new(Hardpoints::new()));
         Self {
@@ -437,6 +458,9 @@ impl World {
             behavior_managers: BTreeMap::new(),
             avoid_table_shuffled: false,
             attitudes: BTreeMap::new(),
+            vibes,
+            strings,
+            reputation,
             always_update: Vec::new(),
             anim_channels: Vec::new(),
             anim_playbacks: Vec::new(),
@@ -465,6 +489,51 @@ impl World {
     #[must_use]
     pub fn data(&self) -> &GameData {
         &self.data
+    }
+
+    /// The loaded data, shared: a caller can read it while it changes the
+    /// world's run-time copies.
+    #[must_use]
+    pub fn data_arc(&self) -> Arc<GameData> {
+        Arc::clone(&self.data)
+    }
+
+    /// The run-time string cache.
+    #[must_use]
+    pub fn strings(&self) -> &crate::data::string_cache::StringCache {
+        &self.strings
+    }
+
+    /// The run-time string cache, to allocate into.
+    pub fn strings_mut(&mut self) -> &mut crate::data::string_cache::StringCache {
+        &mut self.strings
+    }
+
+    /// The vibe store with the reputation registry its accessors read.
+    pub fn vibes(
+        &mut self,
+    ) -> (
+        &mut crate::data::vibe::Vibes,
+        &crate::data::reputation::Reputation,
+    ) {
+        (&mut self.vibes, &self.reputation)
+    }
+
+    /// The run-time reputation registry.
+    #[must_use]
+    pub fn reputation(&self) -> &crate::data::reputation::Reputation {
+        &self.reputation
+    }
+
+    /// The run-time reputation registry, to change.
+    pub fn reputation_mut(&mut self) -> &mut crate::data::reputation::Reputation {
+        &mut self.reputation
+    }
+
+    /// `SetMultiPlayer`: the game runs as multiplayer (or single player)
+    /// from now on.
+    pub fn set_multiplayer(&mut self, multiplayer: bool) {
+        self.config.single_player = !multiplayer;
     }
 
     /// The configuration.

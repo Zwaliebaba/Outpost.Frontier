@@ -287,6 +287,18 @@ fn is_save_file(name: &str) -> bool {
     name.len() > 3 && name[name.len() - 3..].eq_ignore_ascii_case(".fl")
 }
 
+/// The names of the `*.fl` files in a folder (`_findfirst("<dir>\\*.fl")`),
+/// in the byte order the port lists folders in (D37).
+#[must_use]
+pub fn list_save_files(dir: &Path) -> Vec<String> {
+    sorted_entries(dir)
+        .into_iter()
+        .filter(|e| e.path().is_file())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| is_save_file(n))
+        .collect()
+}
+
 /// Phases (D) and (E) of `PlayerDB::init` on a multiplayer server: every
 /// subfolder of the root whose name does not start with `.`, read as an
 /// account, with its `*.fl` files.

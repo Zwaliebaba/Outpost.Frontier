@@ -1,4 +1,5 @@
-//! What `fread` gives from a file opened in text mode (`"rt"`).
+//! What `fread` gives from a file opened in text mode (`"rt"`), and what
+//! `fwrite` puts in one (`"wt"`).
 
 /// The bytes the Microsoft C runtime's `fread` returns for a whole file
 /// opened in text mode: each CR LF pair read as LF, a lone CR kept, and the
@@ -21,9 +22,29 @@ pub fn text_mode_read(bytes: &[u8]) -> Vec<u8> {
     text
 }
 
+/// The bytes a file opened in text mode for writing receives for `text`:
+/// each LF written as CR LF.
+#[must_use]
+pub fn text_mode_write(text: &[u8]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(text.len() + text.len() / 16);
+    for &b in text {
+        if b == b'\n' {
+            bytes.push(b'\r');
+        }
+        bytes.push(b);
+    }
+    bytes
+}
+
 #[cfg(test)]
 mod tests {
-    use super::text_mode_read;
+    use super::{text_mode_read, text_mode_write};
+
+    #[test]
+    fn writes_lf_as_crlf() {
+        assert_eq!(text_mode_write(b"a\nb\r\n"), b"a\r\nb\r\r\n");
+        assert_eq!(text_mode_read(&text_mode_write(b"x\n\ny")), b"x\n\ny");
+    }
 
     #[test]
     fn translates_crlf_and_stops_at_ctrl_z() {

@@ -468,3 +468,18 @@ void RunServerAccountSuite()
         }
     }
 }
+
+// P3.2: the code points from U+0100 to U+FFFF that CT_CTYPE1 reports as C1_SPACE, the set
+// ChatCommand_SpaceClass (Server/server_chat.cpp) adds to the chat commands' space class
+// after 0x09..0x0D and 0x20. crates/neuron-server/tests/chat_space.rs renders the port's.
+void RunChatSpaceSuite()
+{
+    Suite Out("chat_space.jsonl");
+    for (unsigned int Code = 0x100; Code <= 0xffff; ++Code)
+    {
+        const wchar_t Ch = static_cast<wchar_t>(Code);
+        WORD Type = 0;
+        if (GetStringTypeW(CT_CTYPE1, &Ch, 1, &Type) != 0 && (Type & C1_SPACE) != 0)
+            Out.Line(Format("{\"u\":\"%04x\"}", Code));
+    }
+}

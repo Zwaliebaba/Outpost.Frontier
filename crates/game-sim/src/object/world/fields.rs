@@ -63,7 +63,7 @@ impl World {
             let path = self
                 .data
                 .universe
-                .system_file_path(self.data.strings.get(sys.file));
+                .system_file_path(self.strings.get(sys.file));
             // The field loads set the loot of the zones they name; the
             // world keeps the fields, not the zones' loot (P3.3 drops it).
             let mut universe = self.data.universe.clone();

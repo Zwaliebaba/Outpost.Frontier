@@ -26,6 +26,8 @@
 #include "../include/common_server_playerdb.h"
 #include "../include/server_savegame.h"
 #include "../include/server_savefile.h"        // FLS1, account paths, last saved path
+#include "../include/server_playerdb.h"        // PlayerDB::init, load_user_data (oracle export)
+#include "../include/server_characterset.h"    // CCharacterSet (oracle export)
 #include "../include/common_net.h"             // IsMPServer
 #include "../include/common_universe.h"
 #include "../include/common_archetype.h"
@@ -1293,3 +1295,323 @@ bool __cdecl PlayerData_CreateNewCharacter(PlayerData& Slot, SCreateCharacterInf
 // accounts root, which baseline never does. IServerImpl::DestroyCharacter now
 // runs baseline's the routine (PlayerData_DestroyCharacter, server_classes.cpp),
 // and CharacterSaveExists had no caller.
+
+// ===========================================================================
+// Oracle instrumentation (P3.2, the "saves" kind of Oracle.exe dump): the record
+// PlayerData_LoadSaveRecord fills from a save, written to OutPath one field per line as
+// {"k":"<key>","v":"<value>"}: numbers in decimal, ids and float bits as eight hex digits,
+// texts as the hex of their bytes (wide texts four digits per unit), lists one line per
+// element. crates/game-logic/tests/save_dump.rs renders the same lines. A new export; no
+// game module calls it. Returns the loader's answer.
+// ===========================================================================
+namespace {
+    void OracleSaveLine(FILE* Out, char const* Key, char const* Value) {
+        fprintf(Out, "{\"k\":\"%s\",\"v\":\"%s\"}\n", Key, Value);
+    }
+
+    void OracleSaveUint(FILE* Out, char const* Key, unsigned int Value) {
+        char Text[32];
+        sprintf_s(Text, "%u", Value);
+        OracleSaveLine(Out, Key, Text);
+    }
+
+    void OracleSaveHex(FILE* Out, char const* Key, unsigned int Value) {
+        char Text[32];
+        sprintf_s(Text, "%08x", Value);
+        OracleSaveLine(Out, Key, Text);
+    }
+
+    void OracleSaveFloat(FILE* Out, char const* Key, float Value) {
+        unsigned int Bits;
+        memcpy(&Bits, &Value, sizeof(Bits));
+        OracleSaveHex(Out, Key, Bits);
+    }
+
+    std::string OracleBytesHex(void const* Data, size_t Length) {
+        static char const Digits[] = "0123456789abcdef";
+        unsigned char const* Raw = static_cast<unsigned char const*>(Data);
+        std::string Text;
+        for (size_t Index = 0; Index < Length; ++Index) {
+            Text += Digits[Raw[Index] >> 4];
+            Text += Digits[Raw[Index] & 0xf];
+        }
+        return Text;
+    }
+
+    std::string OracleWideHex(std::wstring const& Text) {
+        std::string Out;
+        char Unit[8];
+        for (size_t Index = 0; Index < Text.size(); ++Index) {
+            sprintf_s(Unit, "%04x", static_cast<unsigned int>(static_cast<unsigned short>(Text[Index])));
+            Out += Unit;
+        }
+        return Out;
+    }
+
+    void OracleSaveEquip(FILE* Out, char const* Key, EquipDescList const& List) {
+        for (std::list<EquipDesc>::const_iterator It = List.Items.begin(); It != List.Items.end(); ++It) {
+            unsigned int HealthBits;
+            memcpy(&HealthBits, &It->Health, sizeof(HealthBits));
+            char const* const Hardpoint = It->Hardpoint != nullptr ? It->Hardpoint : "";
+            char Text[1024];
+            sprintf_s(Text, "%u,%08x,%s,%u,%08x,%d,%u,%u", static_cast<unsigned int>(It->Id), It->ArchId,
+                      OracleBytesHex(Hardpoint, strlen(Hardpoint)).c_str(),
+                      static_cast<unsigned int>(It->bEquipped), HealthBits, It->Count, It->bMission ? 1u : 0u,
+                      It->Owner);
+            OracleSaveLine(Out, Key, Text);
+        }
+    }
+
+    void OracleSaveGroups(FILE* Out, char const* Key, std::list<CollisionGroupDesc> const& Groups) {
+        for (std::list<CollisionGroupDesc>::const_iterator It = Groups.begin(); It != Groups.end(); ++It) {
+            unsigned int HealthBits;
+            memcpy(&HealthBits, &It->Health, sizeof(HealthBits));
+            char Text[64];
+            sprintf_s(Text, "%u,%08x", static_cast<unsigned int>(It->Id), HealthBits);
+            OracleSaveLine(Out, Key, Text);
+        }
+    }
+
+    void OracleSaveCostume(FILE* Out, char const* Key, Costume const& Value) {
+        std::string Text;
+        char Part[16];
+        for (int Index = 0; Index < 4; ++Index) {
+            sprintf_s(Part, "%s%08x", Index ? "," : "", Value.PartIds[Index]);
+            Text += Part;
+        }
+        unsigned int const Count = Value.AccessoryCount < 8 ? Value.AccessoryCount : 8;
+        for (unsigned int Index = 0; Index < Count; ++Index) {
+            sprintf_s(Part, ",%08x", Value.AccessoryIds[Index]);
+            Text += Part;
+        }
+        OracleSaveLine(Out, Key, Text.c_str());
+    }
+}
+
+extern "C" SERVER_API bool __cdecl OracleDumpSaveRecord(char const* SavePath, char const* OutPath) {
+    static PlayerData Unused;
+    PlayerData::FSavedCharacter Record;
+    bool const bSaw = PlayerData_LoadSaveRecord(Unused, SavePath, Record);
+    FILE* Out = fopen(OutPath, "wb");
+    if (Out == nullptr)
+        return bSaw;
+    OracleSaveUint(Out, "saw", bSaw ? 1u : 0u);
+    OracleSaveLine(Out, "name", OracleWideHex(Record.Name).c_str());
+    OracleSaveLine(Out, "description", OracleWideHex(Record.Description).c_str());
+    OracleSaveUint(Out, "descrip_strid", Record.DescripStrId);
+    OracleSaveHex(Out, "tstamp_high", Record.TimestampHigh);
+    OracleSaveHex(Out, "tstamp_low", Record.TimestampLow);
+    OracleSaveHex(Out, "ship_archetype", Record.ShipArchetype);
+    OracleSaveUint(Out, "money", static_cast<unsigned int>(Record.Money));
+    OracleSaveUint(Out, "num_kills", static_cast<unsigned int>(Record.NumKills));
+    OracleSaveUint(Out, "num_misn_successes", static_cast<unsigned int>(Record.NumMissionSuccesses));
+    OracleSaveUint(Out, "num_misn_failures", static_cast<unsigned int>(Record.NumMissionFailures));
+    OracleSaveFloat(Out, "hull_status", Record.HullStatus);
+    OracleSaveEquip(Out, "equip", Record.Equipment);
+    OracleSaveGroups(Out, "collision_group", Record.CollisionGroups);
+    OracleSaveFloat(Out, "base_hull_status", Record.BaseHullStatus);
+    OracleSaveEquip(Out, "base_equip", Record.BaseEquipment);
+    OracleSaveGroups(Out, "base_collision_group", Record.BaseCollisionGroups);
+    OracleSaveHex(Out, "base", Record.BaseId);
+    OracleSaveHex(Out, "last_base", Record.LastBaseId);
+    OracleSaveHex(Out, "location", Record.LocationId);
+    OracleSaveHex(Out, "system", Record.SystemId);
+    for (int Index = 0; Index < 3; ++Index)
+        OracleSaveFloat(Out, "pos", Record.Position[Index]);
+    for (int Row = 0; Row < 3; ++Row)
+        for (int Col = 0; Col < 3; ++Col)
+            OracleSaveFloat(Out, "orient", Record.Orientation[Row][Col]);
+    OracleSaveHex(Out, "starting_ring", Record.StartingRing);
+    OracleSaveUint(Out, "rank", Record.Rank);
+    for (size_t Index = 0; Index < Record.Relations.size(); ++Index) {
+        unsigned int Bits;
+        memcpy(&Bits, &Record.Relations[Index].Feeling, sizeof(Bits));
+        char Text[32];
+        sprintf_s(Text, "%08x,%08x", Record.Relations[Index].GroupId, Bits);
+        OracleSaveLine(Out, "relation", Text);
+    }
+    OracleSaveHex(Out, "rep_group", Record.RepGroup);
+    OracleSaveCostume(Out, "com_costume", Record.ComCostume);
+    OracleSaveLine(Out, "voice", OracleBytesHex(Record.Voice.Data, Record.Voice.Length).c_str());
+    OracleSaveCostume(Out, "costume", Record.BaseCostume);
+    OracleSaveLine(Out, "wg", OracleBytesHex(Record.WeaponGroups.data(), Record.WeaponGroups.size()).c_str());
+    for (std::list<FmtStr>::const_iterator It = Record.MissionLog.begin(); It != Record.MissionLog.end(); ++It) {
+        unsigned char Flat[0x4000];
+        int const Size = It->flatten(Flat, sizeof(Flat));
+        OracleSaveLine(Out, "log", Size > 0 ? OracleBytesHex(Flat, static_cast<size_t>(Size)).c_str() : "");
+    }
+    OracleSaveUint(Out, "interface", Record.Interface);
+    for (std::map<unsigned int, unsigned char>::const_iterator It = Record.Visits.begin(); It != Record.Visits.end();
+         ++It) {
+        char Text[32];
+        sprintf_s(Text, "%08x,%u", It->first, static_cast<unsigned int>(It->second));
+        OracleSaveLine(Out, "visit", Text);
+    }
+    fclose(Out);
+    return bSaw;
+}
+
+// Oracle instrumentation (P3.2): a template through the save writer. The
+// record PlayerData_LoadSaveRecord reads is applied to a fresh slot of the
+// account "OracleSaves" (PlayerData_ApplySavedCharacter, client 1), and
+// PlayerData_SerializeToFile writes it as "oraclesave" under the accounts
+// root; the bytes it wrote go to OutPath, one {"k":"line","v":hex} per line
+// with its "\n" (the last line may have none).
+extern "C" SERVER_API bool __cdecl OracleWriteSaveRecord(char const* SavePath, char const* OutPath) {
+    PlayerData* const Slot = new PlayerData();
+    PlayerData::FSavedCharacter Record;
+    if (!PlayerData_LoadSaveRecord(*Slot, SavePath, Record))
+        return false;
+    wcscpy_s(Slot->AccountName, L"OracleSaves");
+    PlayerData_ApplySavedCharacter(*Slot, Record, 1);
+
+    char Dir[260];
+    sprintf_s(Dir, "%s\\OracleSaves", Server_GetAccountsRoot());
+    for (char* Cursor = Dir; *Cursor != '\0'; ++Cursor) {
+        if (*Cursor == '\\' && Cursor != Dir && Cursor[-1] != ':') {
+            *Cursor = '\0';
+            CreateDirectoryA(Dir, nullptr);
+            *Cursor = '\\';
+        }
+    }
+    CreateDirectoryA(Dir, nullptr);
+
+    if (!PlayerData_SerializeToFile(*Slot, "oraclesave", nullptr, 0))
+        return false;
+    FILE* In = fopen(GServerLastSavePath, "rb");
+    if (In == nullptr)
+        return false;
+    std::string Bytes;
+    char Chunk[4096];
+    size_t Read;
+    while ((Read = fread(Chunk, 1, sizeof(Chunk), In)) > 0)
+        Bytes.append(Chunk, Read);
+    fclose(In);
+    FILE* Out = fopen(OutPath, "wb");
+    if (Out == nullptr)
+        return false;
+    size_t Start = 0;
+    while (Start < Bytes.size()) {
+        size_t End = Bytes.find('\n', Start);
+        End = End == std::string::npos ? Bytes.size() : End + 1;
+        OracleSaveLine(Out, "line", OracleBytesHex(Bytes.data() + Start, End - Start).c_str());
+        Start = End;
+    }
+    fclose(Out);
+    return true;
+}
+
+// Oracle instrumentation (P3.2): the single-player account flow on a fresh
+// account "OracleLogin". PlayerDB::init(2, true), the account folder emptied,
+// PlayerDB::login with CreateFlag 1 (load_user_data: create_account, the restart file, the login),
+// then PlayerData_BuildCharacterSet; then, as a multiplayer game
+// (SetMultiPlayer(true) around the call), PlayerData_CreateNewCharacter with
+// "Oracle Pilot" and the shipped new-player choices, and the list again; and
+// PlayerData_DestroyCharacter on the restart file. Written to OutPath as
+// {"k":...,"v":...} lines; files as one "restart" / "created" line per line of
+// the file, hex.
+namespace {
+    void OracleFileLines(FILE* Out, char const* Key, char const* Path) {
+        FILE* In = fopen(Path, "rb");
+        if (In == nullptr) {
+            OracleSaveLine(Out, Key, "missing");
+            return;
+        }
+        std::string Bytes;
+        char Chunk[4096];
+        size_t Read;
+        while ((Read = fread(Chunk, 1, sizeof(Chunk), In)) > 0)
+            Bytes.append(Chunk, Read);
+        fclose(In);
+        size_t Start = 0;
+        while (Start < Bytes.size()) {
+            size_t End = Bytes.find('\n', Start);
+            End = End == std::string::npos ? Bytes.size() : End + 1;
+            OracleSaveLine(Out, Key, OracleBytesHex(Bytes.data() + Start, End - Start).c_str());
+            Start = End;
+        }
+    }
+
+    void OracleCharacterSet(FILE* Out, PlayerData& Slot) {
+        CCharacterSet Set;
+        PlayerData_BuildCharacterSet(Slot, Set);
+        MetaNode<CCharacterSet::CharacterInfo>* Node = nullptr;
+        while (Set.Characters.traverse(Node, true)) {
+            CCharacterSet::CharacterInfo const& Info = *Node->Data;
+            char Text[512];
+            sprintf_s(Text, "%s,%u,%u,%s,%u,%08x,%d,%08x,%08x,%08x,%u,%08x",
+                      OracleBytesHex(Info.Id.Buffer, strlen(Info.Id.Buffer)).c_str(),
+                      static_cast<unsigned int>(Info.bIsRestart),
+                      static_cast<unsigned int>(Info.bIsAutoSave),
+                      OracleWideHex(Info.Name).c_str(), Info.DescripStrId, Info.ShipArchetype,
+                      Info.Money, Info.SystemId, Info.BaseId, Info.LocationId, Info.Rank,
+                      Info.VoiceId);
+            OracleSaveLine(Out, "character", Text);
+        }
+        OracleSaveUint(Out, "save_failure_count", Set.SaveFailureCount);
+    }
+}
+
+extern "C" SERVER_API bool __cdecl OracleSinglePlayerAccount(char const* OutPath) {
+    Players.init(2, true);
+    PlayerData& Slot = Players[1];
+
+    char Dir[260];
+    sprintf_s(Dir, "%s\\OracleLogin", Server_GetAccountsRoot());
+    {
+        char Pattern[260];
+        sprintf_s(Pattern, "%s\\*", Dir);
+        WIN32_FIND_DATAA Found;
+        HANDLE Find = FindFirstFileA(Pattern, &Found);
+        if (Find != INVALID_HANDLE_VALUE) {
+            do {
+                if ((Found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+                    char File[260];
+                    sprintf_s(File, "%s\\%s", Dir, Found.cFileName);
+                    DeleteFileA(File);
+                }
+            } while (FindNextFileA(Find, &Found));
+            FindClose(Find);
+        }
+        RemoveDirectoryA(Dir);
+    }
+
+    FILE* Out = fopen(OutPath, "wb");
+    if (Out == nullptr)
+        return false;
+    SLoginInfo Info;
+    memset(&Info, 0, sizeof(Info));
+    wcscpy_s(Info.AccountName, L"OracleLogin");
+    Info.CreateFlag = 1;
+    unsigned char const Result = Players.login(Info, 1);
+    OracleSaveUint(Out, "login", Result);
+    char Restart[260];
+    sprintf_s(Restart, "%s\\Restart.fl", Dir);
+    OracleFileLines(Out, "restart", Restart);
+    OracleCharacterSet(Out, Slot);
+
+    SCreateCharacterInfo Create;
+    memset(&Create, 0, sizeof(Create));
+    wcscpy_s(Create.Name, L"Oracle Pilot");
+    Create.Field_0x30 = CreateID("new_player");
+    Create.Field_0x34 = CreateID("he01_01_base");
+    Create.Field_0x38 = CreateID("ge_fighter");
+    Create.Field_0x3c = CreateID("rellan");
+    SetMultiPlayer(true);
+    bool const bCreated = PlayerData_CreateNewCharacter(Slot, Create);
+    SetMultiPlayer(false);
+    OracleSaveUint(Out, "created", bCreated ? 1u : 0u);
+    char Hash[260];
+    Server_AccountDirName(Hash, Create.Name);
+    char Created[260];
+    sprintf_s(Created, "%s\\%s.fl", Dir, Hash);
+    OracleFileLines(Out, "created_file", Created);
+    OracleCharacterSet(Out, Slot);
+
+    CHARACTER_ID RestartId;
+    safe_strcpy(RestartId.Buffer, 0x200, "Restart.fl");
+    OracleSaveUint(Out, "destroy_restart",
+                   PlayerData_DestroyCharacter(Slot, RestartId, 1) ? 1u : 0u);
+    fclose(Out);
+    return true;
+}
