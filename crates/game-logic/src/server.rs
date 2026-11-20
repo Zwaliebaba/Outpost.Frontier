@@ -147,6 +147,8 @@ pub struct Logic {
     pub clock: neuron_server::tick::ServerClock,
     /// The players' vibe ids (`g_VibeBitmap`).
     pub vibe_ids: VibeIds,
+    /// What the server reports (`FDUMP`), in order.
+    pub reports: game_sim::data::Reports,
 }
 
 /// The 4096-bit map of player vibe ids (`g_VibeBitmap`, `g_VibeBitmapHint`,
@@ -224,6 +226,7 @@ impl Logic {
             multiplayer_server,
             clock: neuron_server::tick::ServerClock::default(),
             vibe_ids: VibeIds::default(),
+            reports: game_sim::data::Reports::default(),
         }
     }
 }

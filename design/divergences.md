@@ -225,6 +225,9 @@ were proposed; the owner accepted them on 2026-11-20.
 With P3.2's third increment (the character save writer) D601 to D604 were
 proposed; the owner accepted them on 2026-11-20.
 
+With P3.2's fourth increment (the single-player account flow) D605 and D606
+are proposed.
+
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)
 on 2026-11-19, as `TriMesh`'s editing mode (D358): no shipped model has
@@ -654,6 +657,8 @@ one, and it is ported when a caller needs it.
 | D602 | `game-logic::save_writer` (P3.2) | `Server_FormatMissionLogEntry` prints each value's payload dword; for a nested string (tag 0x21) and a navigation marker (tag 0x4E) that dword is the address of the value's heap block | The port prints 0 for those two payloads; the reader ignores the payload of a nested string either way | An address is not reproducible | The payload field of nested and navigation-marker values in `log` lines only |
 | D603 | `game-logic::save_writer` (P3.2) | `PlayerData_SerializeToFile` passes the weapon-group text (`wg` lines) to `fprintf` as its format string, so a `%` in it is read as a conversion with no argument | The port writes the text as it is | Undefined behaviour in the reference | Weapon-group names that contain `%` only |
 | D604 | `game-logic::server` (P3.2) | `Server_VibeID_Alloc` skips its end-of-walk test when the index wraps to 0, so with all 4096 ids taken and the last id given 0 it never returns | The port returns -1 there, as it does for every other full map | A hang in the reference | A server with 4096 player vibes only |
+| D605 | `game-logic::login` (P3.2) | `PlayerDB::create_restart_file` passes the `NewPlayer.fl` template's text to `fprintf` as its format string, so a `%` in it is read as a conversion with no argument | The port writes the template as it is | Undefined behaviour in the reference | Templates that contain `%` only; the shipped one has none |
+| D606 | `game-logic::login` (P3.2) | `PlayerData_LoginAccount` copies the login name into the slot's 40-character `AccountName` with `wcscpy`, past it for a longer name; `PlayerData_CreateNewCharacter` walks `Loadout::Get` of the package's loadout without a null test | The slot keeps the whole name; a package whose loadout is unknown gives a `ship_archetype` line and no equipment | Undefined behaviour in the reference | Names of 40 characters or more, and new-character packages naming an unknown loadout, only |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32

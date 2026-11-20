@@ -100,6 +100,8 @@ namespace NeuronRuntime
 // P3.2 (Server/server_savegame.cpp): Server.dll's save reader, one field per line.
 extern "C" __declspec(dllimport) bool __cdecl OracleDumpSaveRecord(char const* SavePath, char const* OutPath);
 extern "C" __declspec(dllimport) bool __cdecl OracleWriteSaveRecord(char const* SavePath, char const* OutPath);
+extern "C" __declspec(dllimport) bool __cdecl OracleSinglePlayerAccount(char const* OutPath);
+extern "C" __declspec(dllimport) void __cdecl OracleReadWorldIni(char const* IniPath);
 
 using namespace oracle;
 
@@ -611,6 +613,16 @@ void RunGameDataDump(const std::vector<std::string>& Files)
             if (!OracleWriteSaveRecord(Save.c_str(), K.Path(Name).c_str()))
                 printf("saves_written: %s was not written\n", Name);
         }
+    }
+    {
+        // P3.2: the single-player account flow (login, restart file, character list,
+        // character creation) through Server.dll (OracleSinglePlayerAccount).
+        // The restart file reads NewPlayer.fl next to Oracle.exe (the data job copies
+        // the templates there) and the initial world the dump root's INI names.
+        FGameKind K("accounts");
+        OracleReadWorldIni((GFixtureDir + "\\EXE\\OutpostFrontier.ini").c_str());
+        if (!OracleSinglePlayerAccount(K.Path("single_player").c_str()))
+            printf("accounts: the flow did not run\n");
     }
     CloseGameData();
     printf("dumped the game databases\n");

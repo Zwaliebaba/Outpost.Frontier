@@ -112,6 +112,8 @@ pub struct SavedCharacter {
     pub interface: u32,
     /// `visit`: system id and flags, by id.
     pub visits: std::collections::BTreeMap<u32, u8>,
+    /// The save's file name (`FileName`), set by the account load.
+    pub file_name: Vec<u8>,
 }
 
 impl Default for SavedCharacter {
@@ -154,6 +156,7 @@ impl Default for SavedCharacter {
             mission_log: Vec::new(),
             interface: 0,
             visits: std::collections::BTreeMap::new(),
+            file_name: Vec::new(),
         }
     }
 }

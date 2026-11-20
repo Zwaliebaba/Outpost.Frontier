@@ -52,6 +52,9 @@ jobs:
           Copy-Item outdir\*.ini "$root\EXE\"
           # P3.2: the character templates the saves kind reads next to the executable.
           Copy-Item outdir\*.fl "$root\EXE\"
+          # P3.2: the account flow's restart file and new character read the templates
+          # next to the running executable (GetModuleFileNameA), here Oracle.exe.
+          Copy-Item outdir\*.fl bin\
           & .\bin\Oracle.exe dump $root "$env:RUNNER_TEMP\outpost-oracle"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Prepare Rust

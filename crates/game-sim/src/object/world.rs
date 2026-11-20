@@ -344,6 +344,9 @@ pub struct World {
     /// which later allocations (a save's hardpoints, a client's) extend.
     /// The handles of the load's strings stay as they were.
     pub(crate) strings: crate::data::string_cache::StringCache,
+    /// The run-time reputation registry, cloned from the load's: a save's
+    /// feelings replace its faction feelings (`Reputation::LoadFeelings`).
+    reputation: crate::data::reputation::Reputation,
     always_update: Vec<ObjHandle>,
     anim_channels: Vec<turret::AnimChannel>,
     anim_playbacks: Vec<(ObjHandle, animate::AnimKind)>,
@@ -430,6 +433,7 @@ impl World {
         };
         let vibes = crate::data::vibe::Vibes::new(data.vibes.clone(), vibe_mode);
         let strings = data.strings.clone();
+        let reputation = data.reputation.clone();
         let mut scene = Engine::new();
         scene.add_component(Box::new(Hardpoints::new()));
         Self {
@@ -456,6 +460,7 @@ impl World {
             attitudes: BTreeMap::new(),
             vibes,
             strings,
+            reputation,
             always_update: Vec::new(),
             anim_channels: Vec::new(),
             anim_playbacks: Vec::new(),
@@ -486,6 +491,13 @@ impl World {
         &self.data
     }
 
+    /// The loaded data, shared: a caller can read it while it changes the
+    /// world's run-time copies.
+    #[must_use]
+    pub fn data_arc(&self) -> Arc<GameData> {
+        Arc::clone(&self.data)
+    }
+
     /// The run-time string cache.
     #[must_use]
     pub fn strings(&self) -> &crate::data::string_cache::StringCache {
@@ -504,7 +516,24 @@ impl World {
         &mut crate::data::vibe::Vibes,
         &crate::data::reputation::Reputation,
     ) {
-        (&mut self.vibes, &self.data.reputation)
+        (&mut self.vibes, &self.reputation)
+    }
+
+    /// The run-time reputation registry.
+    #[must_use]
+    pub fn reputation(&self) -> &crate::data::reputation::Reputation {
+        &self.reputation
+    }
+
+    /// The run-time reputation registry, to change.
+    pub fn reputation_mut(&mut self) -> &mut crate::data::reputation::Reputation {
+        &mut self.reputation
+    }
+
+    /// `SetMultiPlayer`: the game runs as multiplayer (or single player)
+    /// from now on.
+    pub fn set_multiplayer(&mut self, multiplayer: bool) {
+        self.config.single_player = !multiplayer;
     }
 
     /// The configuration.

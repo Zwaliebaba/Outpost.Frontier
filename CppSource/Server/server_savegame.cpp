@@ -26,6 +26,8 @@
 #include "../include/common_server_playerdb.h"
 #include "../include/server_savegame.h"
 #include "../include/server_savefile.h"        // FLS1, account paths, last saved path
+#include "../include/server_playerdb.h"        // PlayerDB::init, load_user_data (oracle export)
+#include "../include/server_characterset.h"    // CCharacterSet (oracle export)
 #include "../include/common_net.h"             // IsMPServer
 #include "../include/common_universe.h"
 #include "../include/common_archetype.h"
@@ -1495,6 +1497,121 @@ extern "C" SERVER_API bool __cdecl OracleWriteSaveRecord(char const* SavePath, c
         OracleSaveLine(Out, "line", OracleBytesHex(Bytes.data() + Start, End - Start).c_str());
         Start = End;
     }
+    fclose(Out);
+    return true;
+}
+
+// Oracle instrumentation (P3.2): the single-player account flow on a fresh
+// account "OracleLogin". PlayerDB::init(2, true), the account folder emptied,
+// load_user_data with CreateFlag 1 (create_account, the restart file, the login),
+// then PlayerData_BuildCharacterSet; then, as a multiplayer game
+// (SetMultiPlayer(true) around the call), PlayerData_CreateNewCharacter with
+// "Oracle Pilot" and the shipped new-player choices, and the list again; and
+// PlayerData_DestroyCharacter on the restart file. Written to OutPath as
+// {"k":...,"v":...} lines; files as one "restart" / "created" line per line of
+// the file, hex.
+namespace {
+    void OracleFileLines(FILE* Out, char const* Key, char const* Path) {
+        FILE* In = fopen(Path, "rb");
+        if (In == nullptr) {
+            OracleSaveLine(Out, Key, "missing");
+            return;
+        }
+        std::string Bytes;
+        char Chunk[4096];
+        size_t Read;
+        while ((Read = fread(Chunk, 1, sizeof(Chunk), In)) > 0)
+            Bytes.append(Chunk, Read);
+        fclose(In);
+        size_t Start = 0;
+        while (Start < Bytes.size()) {
+            size_t End = Bytes.find('\n', Start);
+            End = End == std::string::npos ? Bytes.size() : End + 1;
+            OracleSaveLine(Out, Key, OracleBytesHex(Bytes.data() + Start, End - Start).c_str());
+            Start = End;
+        }
+    }
+
+    void OracleCharacterSet(FILE* Out, PlayerData& Slot) {
+        CCharacterSet Set;
+        PlayerData_BuildCharacterSet(Slot, Set);
+        MetaNode<CCharacterSet::CharacterInfo>* Node = nullptr;
+        while (Set.Characters.traverse(Node, true)) {
+            CCharacterSet::CharacterInfo const& Info = *Node->Data;
+            char Text[512];
+            sprintf_s(Text, "%s,%u,%u,%s,%u,%08x,%d,%08x,%08x,%08x,%u,%08x",
+                      OracleBytesHex(Info.Id.Buffer, strlen(Info.Id.Buffer)).c_str(),
+                      static_cast<unsigned int>(Info.bIsRestart),
+                      static_cast<unsigned int>(Info.bIsAutoSave),
+                      OracleWideHex(Info.Name).c_str(), Info.DescripStrId, Info.ShipArchetype,
+                      Info.Money, Info.SystemId, Info.BaseId, Info.LocationId, Info.Rank,
+                      Info.VoiceId);
+            OracleSaveLine(Out, "character", Text);
+        }
+        OracleSaveUint(Out, "save_failure_count", Set.SaveFailureCount);
+    }
+}
+
+extern "C" SERVER_API bool __cdecl OracleSinglePlayerAccount(char const* OutPath) {
+    Players.init(2, true);
+    PlayerData& Slot = Players[1];
+
+    char Dir[260];
+    sprintf_s(Dir, "%s\\OracleLogin", Server_GetAccountsRoot());
+    {
+        char Pattern[260];
+        sprintf_s(Pattern, "%s\\*", Dir);
+        WIN32_FIND_DATAA Found;
+        HANDLE Find = FindFirstFileA(Pattern, &Found);
+        if (Find != INVALID_HANDLE_VALUE) {
+            do {
+                if ((Found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+                    char File[260];
+                    sprintf_s(File, "%s\\%s", Dir, Found.cFileName);
+                    DeleteFileA(File);
+                }
+            } while (FindNextFileA(Find, &Found));
+            FindClose(Find);
+        }
+        RemoveDirectoryA(Dir);
+    }
+
+    FILE* Out = fopen(OutPath, "wb");
+    if (Out == nullptr)
+        return false;
+    SLoginInfo Info;
+    memset(&Info, 0, sizeof(Info));
+    wcscpy_s(Info.AccountName, L"OracleLogin");
+    Info.CreateFlag = 1;
+    unsigned char const Result = Players.load_user_data(Info, 1);
+    OracleSaveUint(Out, "login", Result);
+    char Restart[260];
+    sprintf_s(Restart, "%s\\Restart.fl", Dir);
+    OracleFileLines(Out, "restart", Restart);
+    OracleCharacterSet(Out, Slot);
+
+    SCreateCharacterInfo Create;
+    memset(&Create, 0, sizeof(Create));
+    wcscpy_s(Create.Name, L"Oracle Pilot");
+    Create.Field_0x30 = CreateID("new_player");
+    Create.Field_0x34 = CreateID("he01_01_base");
+    Create.Field_0x38 = CreateID("ge_fighter");
+    Create.Field_0x3c = CreateID("rellan");
+    SetMultiPlayer(true);
+    bool const bCreated = PlayerData_CreateNewCharacter(Slot, Create);
+    SetMultiPlayer(false);
+    OracleSaveUint(Out, "created", bCreated ? 1u : 0u);
+    char Hash[260];
+    Server_AccountDirName(Hash, Create.Name);
+    char Created[260];
+    sprintf_s(Created, "%s\\%s.fl", Dir, Hash);
+    OracleFileLines(Out, "created_file", Created);
+    OracleCharacterSet(Out, Slot);
+
+    CHARACTER_ID RestartId;
+    safe_strcpy(RestartId.Buffer, 0x200, "Restart.fl");
+    OracleSaveUint(Out, "destroy_restart",
+                   PlayerData_DestroyCharacter(Slot, RestartId, 1) ? 1u : 0u);
     fclose(Out);
     return true;
 }

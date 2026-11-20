@@ -22,6 +22,7 @@ use game_sim::data::equip_desc::list;
 use game_sim::data::loadout::add_equipment_item;
 use game_sim::data::string_cache::CacheString;
 use game_sim::protocol::fmtstr::FmtStr;
+use neuron_core::hash::stricmp;
 use neuron_core::id::sub_object::EquipmentIds;
 use neuron_server::controller::ControllerId;
 use neuron_server::session::SessionSlot;
@@ -30,6 +31,59 @@ use crate::character_file::{CollisionGroupDesc, SavedCharacter};
 use crate::client;
 use crate::events::ControllerMessage;
 use crate::server::Cx;
+
+/// A character's id (`CHARACTER_ID`): its save's file name, at most 511
+/// bytes, ordered and compared case-insensitively (`stricmp`, as Common's
+/// `operator<` and `operator==` do). Empty for no character.
+#[derive(Clone, Debug, Default)]
+pub struct CharacterId(Vec<u8>);
+
+impl CharacterId {
+    /// The id of a file name (`safe_strcpy` into the 0x200-byte buffer):
+    /// up to the first NUL, at most 511 bytes.
+    #[must_use]
+    pub fn new(name: &[u8]) -> Self {
+        let end = name.iter().position(|&b| b == 0).unwrap_or(name.len());
+        Self(name[..end.min(0x1FF)].to_vec())
+    }
+
+    /// The file name.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    /// `is_valid`: the name is not empty.
+    #[must_use]
+    pub fn is_valid(&self) -> bool {
+        !self.0.is_empty()
+    }
+
+    /// `invalidate`, or the C++'s `Buffer[0] = '\0'`.
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
+}
+
+impl PartialEq for CharacterId {
+    fn eq(&self, other: &Self) -> bool {
+        stricmp(&self.0, &other.0).is_eq()
+    }
+}
+
+impl Eq for CharacterId {}
+
+impl PartialOrd for CharacterId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CharacterId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        stricmp(&self.0, &other.0)
+    }
+}
 
 /// The most cash a player can have (`999999999`).
 pub const CASH_CEILING: i32 = 999_999_999;
@@ -42,9 +96,9 @@ pub struct PlayerData {
     /// The client id (+0x348); 0 for a free slot.
     pub client_id: u32,
     /// The selected character's id (+0x64), empty when none is selected.
-    pub selected_character: Vec<u8>,
+    pub selected_character: CharacterId,
     /// The account's characters by id (`saved_characters`, +0x404).
-    pub saved_characters: BTreeMap<Vec<u8>, SavedCharacter>,
+    pub saved_characters: BTreeMap<CharacterId, SavedCharacter>,
     /// Cash (+0x31c).
     pub cash: i32,
     /// What the player earned (+0x320), for the cheat check.
@@ -126,7 +180,7 @@ impl Default for PlayerData {
         Self {
             account_name: Vec::new(),
             client_id: 0,
-            selected_character: Vec::new(),
+            selected_character: CharacterId::default(),
             saved_characters: BTreeMap::new(),
             cash: 0,
             total_earned: 0,
@@ -177,7 +231,7 @@ impl SessionSlot for PlayerData {
 /// `PlayerData_EquipGateOpen`: outside a multiplayer server always; on one
 /// only once a character is selected.
 fn equip_gate_open(cx: &Cx<'_>, slot: &PlayerData) -> bool {
-    !cx.logic.multiplayer_server || !slot.selected_character.is_empty()
+    !cx.logic.multiplayer_server || slot.selected_character.is_valid()
 }
 
 /// The slot of `session`.
@@ -215,7 +269,7 @@ pub fn add_equipment(
     let Some(player) = cx.logic.players.get_mut(session) else {
         return SUB_OBJECT_ID_NONE;
     };
-    if multiplayer_server && player.selected_character.is_empty() {
+    if multiplayer_server && !player.selected_character.is_valid() {
         return SUB_OBJECT_ID_NONE;
     }
     let id = if combinable {
@@ -369,7 +423,7 @@ pub fn set_cash(cx: &mut Cx<'_>, session: u32, cash: i32) {
     let Some(player) = slot(cx, session) else {
         return;
     };
-    if multiplayer_server && player.selected_character.is_empty() {
+    if multiplayer_server && !player.selected_character.is_valid() {
         return;
     }
     let cash = cash.clamp(0, CASH_CEILING);
@@ -391,7 +445,7 @@ pub fn adjust_cash(cx: &mut Cx<'_>, session: u32, amount: i32, count_earned: boo
         player.total_earned = player.total_earned.wrapping_add(amount);
     }
     let new_cash = player.cash.wrapping_add(amount);
-    if multiplayer_server && player.selected_character.is_empty() {
+    if multiplayer_server && !player.selected_character.is_valid() {
         return;
     }
     let new_cash = new_cash.clamp(0, CASH_CEILING);

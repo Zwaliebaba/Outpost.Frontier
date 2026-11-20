@@ -3250,6 +3250,13 @@ extern "C" SERVER_API void __cdecl OracleBusShutdown() {
     Server_ControllerCleanup();
 }
 
+// Oracle instrumentation (P3.2, the accounts kind of Oracle.exe dump): Startup's read of
+// [OutpostFrontier] initial_world (g_InitialWorldPath) from a server INI, for a dump that
+// runs the account flow without a started server. A new export; no game module calls it.
+extern "C" SERVER_API void __cdecl OracleReadWorldIni(char const* IniPath) {
+    Server_ReadWorldIni(IniPath);
+}
+
 // pub::SetTimer's body — baseline 0x06d5ee00. Allocates a 0x18-byte node, links it at the
 // END of the timer list (list::push_back: node->next = head, node->prev = head->prev,
 // ) and bumps the count. baseline checks ONLY Timeout < 0 (-4); it
