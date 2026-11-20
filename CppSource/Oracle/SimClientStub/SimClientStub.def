@@ -9,3 +9,4 @@ EXPORTS
     SimClientStubConfigure
     SimClientStubSetTick
     SimClientStubSetSink
+    SimClientStubSetScript

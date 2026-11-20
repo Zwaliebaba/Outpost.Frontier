@@ -567,7 +567,7 @@ The output is made from the game data: keep it outside the repository.
 
 The `Oracle` project links `Server.lib` and builds `SimClientStub.dll`
 (`CppSource\Oracle\SimClientStub\`) through its references. Both are
-needed by this mode only: `Server.dll` is delay-loaded (`DelayLoadDLLs`
+needed by this mode and by `Oracle.exe neuron-server` (below): `Server.dll` is delay-loaded (`DelayLoadDLLs`
 with `delayimp.lib`), and the harness loads it and looks up its one data
 export, `Server`, by name at the start of a run, so the vector suites,
 `dump` and `catalog` never load it; `SimClientStub.dll` is loaded with
@@ -991,3 +991,21 @@ path with collision damage, wait for the server's `Guided` controller
 (P3.3). Ships without `faction` have no reputation,
 so their AI targeting is neutral. There is no world snapshot for behaviours that read other objects
 (record 0003 point 7, P2.5).
+
+
+### The controller registry suite (`Oracle.exe neuron-server`)
+
+Added by P3.1 (decision record 0006, point 10). `Oracle.exe neuron-server
+<fixture directory> <output directory>` drives `Server.dll`'s controller
+registry without starting a server: the harness (`oracle_bus.cpp`) loads
+`SimClientStub.dll`, sets its script callback (`SimClientStubSetScript`) and
+reads `crates\neuron-server\tests\fixtures\oracle\controller_bus.list`.
+Each `create` goes through `pub::Controller::Create` with the instance
+name `Scripted:<name>`, which the stub makes into a scripted controller
+whose constructor, messages and destructor come back to the harness; the
+other actions use `pub::Controller::Destroy`, `SetHeartbeatInterval`,
+`_SendMessage` and `pub::SetTimer`. Two exports added to `Server.dll` for
+it, `OracleBusTick` (the heartbeat walk, then timer firing, as `ElapseTime`
+runs them) and `OracleBusShutdown` (`Server_ControllerCleanup`), drive the
+rest. It writes `controller_bus.jsonl`, which CI's oracle job compares with
+`crates\neuron-server\tests\vectors\`. It needs no game data.

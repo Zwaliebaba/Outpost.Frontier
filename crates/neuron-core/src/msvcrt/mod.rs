@@ -9,18 +9,21 @@
 //! `CppSource/include/msvcrt_numeric_format.h` (P4.13, P4.14) with the
 //! legacy `printf` they fall back to, and the Universal C Runtime's
 //! `qsort`, whose order of equal elements the material batcher's draw
-//! order depends on (P4.5).
+//! order depends on (P4.5), and the text-mode `fread` of the server's save
+//! readers (P3.1).
 
 mod atof;
 mod format;
 mod legacy;
 mod qsort;
+mod text;
 mod vc6;
 
 pub use atof::atof;
 pub use format::format_g;
 pub use legacy::{Printed, PrintfArg, PrintfError, legacy_format, legacy_vsnprintf};
 pub use qsort::qsort;
+pub use text::text_mode_read;
 pub use vc6::{format_lua_number, numeric_vsnprintf};
 
 use crate::hash::c_str;

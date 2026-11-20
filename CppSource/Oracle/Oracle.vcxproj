@@ -51,7 +51,8 @@
       <!-- P1.7: D3DXGetImageInfoFromFileInMemory from the DX8.1 SDK's static d3dx8.lib, linked as
            DX8RENDERER links it (legacy stdio, no libci, no SafeSEH tables). -->
       <AdditionalDependencies>neuroncomponents.lib;Common.lib;NeuronRuntime.lib;Server.lib;d3d8.lib;d3dx8.lib;legacy_stdio_definitions.lib;delayimp.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <!-- P2.3: only Oracle.exe sim uses Server.dll, so it is delay-loaded and the other modes
+      <!-- P2.3: only Oracle.exe sim (and, since P3.1, neuron-server) uses Server.dll, so it is
+           delay-loaded and the other modes
            (the vector suites, dump, catalog) never load it. Every import from it must be a
            function: its one data export, `Server`, is looked up with GetProcAddress
            (oracle_sim.cpp); a data import would fail the link with LNK1194. -->
@@ -442,6 +443,9 @@
          registry), oracle_perf_options.cpp the client's perf_options.cpp (its option
          callbacks' targets stood in). -->
     <ClCompile Include="oracle_account.cpp" />
+    <!-- P3.1: Oracle.exe neuron-server, the controller_bus suite (decision record 0006): Server.dll's
+         controller registry driven by SimClientStub.dll's scripted controllers. -->
+    <ClCompile Include="oracle_bus.cpp" />
     <ClCompile Include="oracle_perf_options.cpp" />
   </ItemGroup>
   <ItemGroup>

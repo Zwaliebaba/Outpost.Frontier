@@ -3237,6 +3237,19 @@ extern "C" SERVER_API void __cdecl OracleSimControllerHeartbeats(FOracleSimHeart
     }
 }
 
+// Oracle instrumentation (P3.1, the controller_bus suite, decision record 0006 point 10):
+// the two steps of ElapseTime that drive the registry, the heartbeat walk with its teardown
+// and then timer firing, and the registry's part of Shutdown, for Oracle.exe neuron-server,
+// which runs the registry without a started server. New exports; no game module calls them.
+extern "C" SERVER_API void __cdecl OracleBusTick(float Dt) {
+    Server_TimerTick(Dt);
+    Server_TimerFiring(Dt);
+}
+
+extern "C" SERVER_API void __cdecl OracleBusShutdown() {
+    Server_ControllerCleanup();
+}
+
 // pub::SetTimer's body — baseline 0x06d5ee00. Allocates a 0x18-byte node, links it at the
 // END of the timer list (list::push_back: node->next = head, node->prev = head->prev,
 // ) and bumps the count. baseline checks ONLY Timeout < 0 (-4); it

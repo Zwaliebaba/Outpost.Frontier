@@ -129,6 +129,34 @@ namespace
 
         unsigned int Flid;
     };
+
+    // P3.1, the controller_bus suite (oracle_bus.cpp): a controller made from an instance
+    // name "Scripted:<name>". Its constructor, every message and its destructor go to the
+    // harness's script callback; the constructor's answer decides whether CreateInstance
+    // returns the instance.
+    FSimClientStubScript GScript = nullptr;
+
+    struct FScriptedController final : public IDLL
+    {
+        FScriptedController(unsigned int InFlid, char const* InName) : Flid(InFlid), Name(InName) {}
+
+        ~FScriptedController() override
+        {
+            if (GScript != nullptr)
+                GScript(Flid, Name.c_str(), SIM_CLIENT_STUB_SCRIPT_DTOR, nullptr);
+        }
+
+        void HandleMessage(pub::Controller::EMessage MessageId, void const* Parms) override
+        {
+            if (GScript != nullptr)
+                GScript(Flid, Name.c_str(), static_cast<int>(MessageId), Parms);
+        }
+
+        unsigned int Flid;
+        std::string Name;
+    };
+
+    char const GScriptedPrefix[] = "Scripted:";
 }
 
 // IDLL's special members: content.h declares them out of line and Content.dll exports its
@@ -207,8 +235,20 @@ extern "C" IChatClient* GetChatClientInterface()
     return SimStubChatClient();
 }
 
-extern "C" IDLL* __cdecl CreateInstance(unsigned int ControllerId, char const* /*Name*/, void const* /*Parms*/)
+extern "C" IDLL* __cdecl CreateInstance(unsigned int ControllerId, char const* Name, void const* /*Parms*/)
 {
+    size_t const PrefixLength = sizeof(GScriptedPrefix) - 1;
+    if (Name != nullptr && strncmp(Name, GScriptedPrefix, PrefixLength) == 0)
+    {
+        char const* const Short = Name + PrefixLength;
+        // The constructor's rules run before the instance exists, as a Content constructor's
+        // pub:: calls do; a "fail" rule makes CreateInstance return null.
+        bool const bKeep = GScript == nullptr ||
+                           GScript(ControllerId, Short, SIM_CLIENT_STUB_SCRIPT_CTOR, nullptr) != 0;
+        if (!bKeep)
+            return nullptr;
+        return new FScriptedController(ControllerId, Short);
+    }
     return new FSimController(ControllerId);
 }
 
@@ -244,6 +284,11 @@ extern "C" void __cdecl SimClientStubSetTick(unsigned int Tick)
 extern "C" void __cdecl SimClientStubSetSink(FSimClientStubSink Sink)
 {
     GSink = Sink;
+}
+
+extern "C" void __cdecl SimClientStubSetScript(FSimClientStubScript Script)
+{
+    GScript = Script;
 }
 
 BOOL WINAPI DllMain(HINSTANCE /*Instance*/, DWORD /*Reason*/, LPVOID /*Reserved*/)

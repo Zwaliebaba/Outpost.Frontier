@@ -313,3 +313,8 @@ void SceneScriptSaveSuite();
 // P4.14 (oracle_scene_script_save.cpp): every .thn under DATA loaded into a fresh script engine
 // and saved, each write of the save; kind "thn_save".
 void RunSceneScriptSaveDataDump(const std::vector<std::string>& Files);
+
+// Oracle.exe neuron-server <fixture directory> <output directory> (oracle_bus.cpp, work package
+// P3.1): Server.dll's controller registry driven by scripted controllers, for
+// crates/neuron-server/tests/vectors/controller_bus.jsonl (decision record 0006 point 10).
+void RunControllerBusSuite();
