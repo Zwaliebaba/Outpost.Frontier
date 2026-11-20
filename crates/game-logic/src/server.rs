@@ -180,6 +180,8 @@ pub struct Logic {
     pub groups: crate::group::Groups,
     /// A host's view of the chat traffic.
     pub chat_hooks: crate::chat::ChatHooks,
+    /// The prefix of a cheat announcement (`GCheatMessage`).
+    pub cheat_message: Vec<u16>,
 }
 
 /// The 4096-bit map of player vibe ids (`g_VibeBitmap`, `g_VibeBitmapHint`,
@@ -263,6 +265,7 @@ impl Logic {
             chat: Box::new(RecordingChat::default()),
             groups: crate::group::Groups::default(),
             chat_hooks: crate::chat::ChatHooks::default(),
+            cheat_message: crate::cheats::DEFAULT_MESSAGE.encode_utf16().collect(),
         }
     }
 }

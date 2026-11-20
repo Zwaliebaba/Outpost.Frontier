@@ -8,9 +8,7 @@
 //! text as the C++ prints it, before that translation; [`serialize_to_file`]
 //! writes it where the C++ does and returns what happened.
 //!
-//! Three gaps remain until later work packages: the cheat gate of a
-//! multiplayer server (`PlayerData_CheckForCheats`) needs P3.3's base
-//! database and passes every save; the position of a ship in space on a
+//! Two gaps remain until later work packages: the position of a ship in space on a
 //! multiplayer server is the object's own, because the remote physics
 //! controller the C++ asks first belongs to P3.4; and `GetLocalTime` is the
 //! caller's (the `tstamp` argument), so a test can fix it.
@@ -545,9 +543,10 @@ pub enum SaveOutcome {
 /// `PlayerData_SerializeToFile(slot, file_name, description, strid)`: the
 /// save of `session`'s player in its account folder under `accounts`, with
 /// the extension `.fl` in single player (a multiplayer name carries its
-/// own). A multiplayer server writes `temp.fl` in the accounts folder and
+/// own); `now` is the local time a cheat report logs. A multiplayer server writes `temp.fl` in the accounts folder and
 /// renames it over the save, then refreshes the selected character's
 /// record from the slot.
+#[allow(clippy::too_many_arguments)]
 pub fn serialize_to_file(
     cx: &mut Cx<'_>,
     session: u32,
@@ -556,12 +555,13 @@ pub fn serialize_to_file(
     description: Option<&[u16]>,
     descrip_strid: u32,
     tstamp: (u32, u32),
+    now: crate::cheats::LocalTime,
 ) -> SaveOutcome {
     let single_player = cx.world.config().single_player;
     if cx.logic.players.get(session).is_none() {
         return SaveOutcome::NoPlayer;
     }
-    if player::check_for_cheats(cx, session) {
+    if crate::cheats::check_for_cheats(cx, session, accounts, now) {
         return SaveOutcome::Refused;
     }
     if prepare(cx, session).is_none() {

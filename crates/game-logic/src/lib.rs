@@ -1,8 +1,10 @@
 //! Outpost:Frontier server startup and authoritative game rules.
 #![forbid(unsafe_code)]
 
+pub mod bases;
 pub mod character_file;
 pub mod chat;
+pub mod cheats;
 pub mod client;
 pub mod events;
 pub mod group;
