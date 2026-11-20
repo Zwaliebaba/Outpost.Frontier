@@ -237,8 +237,9 @@ owner accepted it on 2026-11-20.
 With P3.3's first increment (the markets and the cheat check) D609 was
 proposed; the owner accepted it on 2026-11-20.
 
-With P3.3's room placements (`game-sim::data::room`) D610 is proposed,
-and with the run-time base database D611.
+With P3.3's room placements (`game-sim::data::room`) D610 was proposed,
+and with the run-time base database D611; the owner accepted both on
+2026-11-20.
 
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)
