@@ -336,6 +336,10 @@ pub struct World {
     /// ids: the reputation groups are not ported, so a harness sets them
     /// ([`World::set_attitude`]).
     pub(crate) attitudes: BTreeMap<(u32, u32), f32>,
+    /// The vibe store (`Reputation::Vibe`, P3.2): the static records of
+    /// the universe load and the run-time ones. Single player shares it
+    /// between the server and the client side, as Common's globals are.
+    vibes: crate::data::vibe::Vibes,
     always_update: Vec<ObjHandle>,
     anim_channels: Vec<turret::AnimChannel>,
     anim_playbacks: Vec<(ObjHandle, animate::AnimKind)>,
@@ -413,6 +417,14 @@ impl World {
     #[must_use]
     pub fn new(data: Arc<GameData>, config: WorldConfig) -> Self {
         let constants = phy_sys_constants(&data);
+        let vibe_mode = if config.single_player {
+            crate::data::vibe::VibeMode::SinglePlayer
+        } else if config.server_physics {
+            crate::data::vibe::VibeMode::MultiplayerServer
+        } else {
+            crate::data::vibe::VibeMode::MultiplayerClient
+        };
+        let vibes = crate::data::vibe::Vibes::new(data.vibes.clone(), vibe_mode);
         let mut scene = Engine::new();
         scene.add_component(Box::new(Hardpoints::new()));
         Self {
@@ -437,6 +449,7 @@ impl World {
             behavior_managers: BTreeMap::new(),
             avoid_table_shuffled: false,
             attitudes: BTreeMap::new(),
+            vibes,
             always_update: Vec::new(),
             anim_channels: Vec::new(),
             anim_playbacks: Vec::new(),
@@ -465,6 +478,16 @@ impl World {
     #[must_use]
     pub fn data(&self) -> &GameData {
         &self.data
+    }
+
+    /// The vibe store with the reputation registry its accessors read.
+    pub fn vibes(
+        &mut self,
+    ) -> (
+        &mut crate::data::vibe::Vibes,
+        &crate::data::reputation::Reputation,
+    ) {
+        (&mut self.vibes, &self.data.reputation)
     }
 
     /// The configuration.
