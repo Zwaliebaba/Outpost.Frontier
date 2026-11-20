@@ -10,6 +10,7 @@
 #![forbid(unsafe_code)]
 
 pub mod account;
+pub mod chat_space;
 pub mod controller;
 pub mod registry;
 pub mod save;

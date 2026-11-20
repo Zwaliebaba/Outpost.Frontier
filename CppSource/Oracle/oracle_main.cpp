@@ -553,6 +553,7 @@ int main(int Argc, char** Argv)
     {
         RunControllerBusSuite();
         RunServerAccountSuite();
+        RunChatSpaceSuite();
         return GFailed ? 1 : 0;
     }
     if (bGameSim)
