@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 pub mod character_file;
+pub mod events;
 
 use std::io::{self, Write};
 
