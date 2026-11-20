@@ -7,10 +7,14 @@
 use game_sim::data::equip_desc::EquipDesc;
 use game_sim::data::string_cache::StringCache;
 use game_sim::protocol::ToClient;
+use game_sim::protocol::common::{
+    SetInterfaceState, SetMissionLog, SetVisitedState, SetWeaponGroup,
+};
+use game_sim::protocol::fmtstr::FmtStr;
 use game_sim::protocol::records::{CollisionGroup, EquipRecord};
 use game_sim::protocol::to_client::{
-    SetAddItem, SetCash, SetCollisionGroups, SetEquipment, SetHullStatus, SetRemoveItem,
-    SetShipArch,
+    MiscObjUpdate, PlayerList, SetAddItem, SetCash, SetCollisionGroups, SetEquipment,
+    SetHullStatus, SetRemoveItem, SetShipArch,
 };
 
 use crate::character_file::CollisionGroupDesc;
@@ -119,4 +123,141 @@ pub fn set_equipment(cx: &mut Cx<'_>, client: u32, items: &[EquipDesc]) {
         })
         .collect();
     send(cx, client, SetEquipment { records });
+}
+
+fn send_common(
+    cx: &mut Cx<'_>,
+    client: u32,
+    message: impl Into<game_sim::protocol::common::CommonMessage>,
+) {
+    cx.logic
+        .client
+        .send(client, ToClient::Common(message.into()));
+}
+
+/// The player-list kinds (`kPlayerListKind*`).
+const PLAYER_LIST_CLEAR: u32 = 0;
+const PLAYER_LIST_ADD: u32 = 1;
+const PLAYER_LIST_REMOVE: u32 = 2;
+
+/// `SendServerPlayerListClear` (slot +0x1c0, ch2 0x52).
+pub fn player_list_clear(cx: &mut Cx<'_>, client: u32) {
+    let message = PlayerList {
+        kind: PLAYER_LIST_CLEAR,
+        ..PlayerList::default()
+    };
+    send(cx, client, message);
+}
+
+/// `SendServerPlayerListAdd` (slot +0x1b8, ch2 0x52): the name travels
+/// with its terminator.
+pub fn player_list_add(cx: &mut Cx<'_>, client: u32, name: &[u16], player: u32, present: bool) {
+    let mut units = name.to_vec();
+    units.push(0);
+    let message = PlayerList {
+        kind: PLAYER_LIST_ADD,
+        player_id: player,
+        field_2c: u8::from(present),
+        name: units,
+    };
+    send(cx, client, message);
+}
+
+/// `SendServerPlayerListRemove` (slot +0x1bc, ch2 0x52).
+pub fn player_list_remove(cx: &mut Cx<'_>, client: u32, player: u32) {
+    let message = PlayerList {
+        kind: PLAYER_LIST_REMOVE,
+        player_id: player,
+        ..PlayerList::default()
+    };
+    send(cx, client, message);
+}
+
+/// `SendServerMiscObjUpdateRank` (slot +0x1d4, ch2 0x54): the player and
+/// the rank's low word.
+pub fn misc_obj_update_rank(cx: &mut Cx<'_>, client: u32, player: u32, rank: i32) {
+    let message = MiscObjUpdate {
+        flags: 0x04 | 0x40,
+        field_24: player,
+        field_2c: rank as u16,
+        ..MiscObjUpdate::default()
+    };
+    send(cx, client, message);
+}
+
+/// `SendServerMiscObjUpdatePlayerGroup` (slot +0x1d8, ch2 0x54).
+pub fn misc_obj_update_player_group(cx: &mut Cx<'_>, client: u32, player: u32, group: u32) {
+    let message = MiscObjUpdate {
+        flags: 0x04 | 0x01,
+        field_24: player,
+        field_34: group,
+        ..MiscObjUpdate::default()
+    };
+    send(cx, client, message);
+}
+
+/// `SendServerMiscObjUpdateSystem` (slot +0x1dc, ch2 0x54).
+pub fn misc_obj_update_system(cx: &mut Cx<'_>, client: u32, player: u32, system: u32) {
+    let message = MiscObjUpdate {
+        flags: 0x04 | 0x80,
+        field_24: player,
+        field_30: system,
+        ..MiscObjUpdate::default()
+    };
+    send(cx, client, message);
+}
+
+/// `PlayerData_SendVisitedState` through `SendCommonSetVisitedState` (ch1
+/// 0x13): the count, then each visit's id and flags, five bytes each.
+pub fn set_visited_state(
+    cx: &mut Cx<'_>,
+    client: u32,
+    visits: &std::collections::BTreeMap<u32, u8>,
+) {
+    let mut data = Vec::with_capacity(4 + 5 * visits.len());
+    data.extend_from_slice(&(visits.len() as u32).to_le_bytes());
+    for (&id, &flags) in visits {
+        data.extend_from_slice(&id.to_le_bytes());
+        data.push(flags);
+    }
+    send_common(cx, client, SetVisitedState { data });
+}
+
+/// `SendCommonSetWeaponGroup` (ch1 0x11): the text up to its first NUL
+/// (`strlen`).
+pub fn set_weapon_group(cx: &mut Cx<'_>, client: u32, text: &[u8]) {
+    let end = text.iter().position(|&b| b == 0).unwrap_or(text.len());
+    send_common(
+        cx,
+        client,
+        SetWeaponGroup {
+            data: text[..end].to_vec(),
+        },
+    );
+}
+
+/// `PlayerData_SendMissionLog` through `SendCommonSetMissionLog` (ch1
+/// 0x19): the words 1 and the entry count, then each entry flattened. An
+/// entry that does not flatten is left out.
+pub fn set_mission_log(cx: &mut Cx<'_>, client: u32, log: &[FmtStr]) {
+    let mut data = Vec::new();
+    data.extend_from_slice(&1u32.to_le_bytes());
+    data.extend_from_slice(&(log.len() as u32).to_le_bytes());
+    for entry in log {
+        if let Ok(bytes) = entry.flatten() {
+            data.extend_from_slice(&bytes);
+        }
+    }
+    send_common(cx, client, SetMissionLog { data });
+}
+
+/// `SendCommonSetInterfaceState` (ch1 0x1c): the state as four bytes.
+pub fn set_interface_state(cx: &mut Cx<'_>, client: u32, state: u32) {
+    send_common(
+        cx,
+        client,
+        SetInterfaceState {
+            data: state.to_le_bytes().to_vec(),
+        },
+    );
 }

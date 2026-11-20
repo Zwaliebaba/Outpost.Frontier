@@ -7,6 +7,7 @@ pub mod events;
 pub mod login;
 pub mod player;
 pub mod save_writer;
+pub mod selection;
 pub mod server;
 
 use std::io::{self, Write};
