@@ -40,6 +40,7 @@ pub use guided::GuidedTrace;
 mod sensors;
 mod spawn;
 mod step;
+mod transfer;
 mod turret;
 
 use std::collections::BTreeMap;
@@ -68,6 +69,7 @@ pub use combat::damage_sub_obj;
 pub use sensors::{EquipStatus, EquipmentVal, equipment_val};
 pub(crate) use spawn::shield_status;
 pub use spawn::{LootSpawn, ProjectileSpawn, ShipSpawn, SolarSpawn, SpawnError};
+pub use step::{NoServerHooks, ServerHooks};
 pub use turret::TurretGeometry;
 
 /// A force controller the world registered with the physics
@@ -734,6 +736,11 @@ impl World {
         for h in dead {
             self.remove_now(h);
         }
+    }
+
+    /// Removes an object at once, as the reap does.
+    pub(crate) fn remove_object(&mut self, h: ObjHandle) {
+        self.remove_now(h);
     }
 
     fn remove_now(&mut self, h: ObjHandle) {
