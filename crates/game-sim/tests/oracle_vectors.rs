@@ -305,6 +305,13 @@ fn feeling(rep: &Reputation, from: u32, to: u32) -> String {
 
 #[test]
 fn reputation() {
+    let (_, lines) = reputation_run();
+    check_suite("reputation.jsonl", &lines);
+}
+
+/// The reputation suite's steps: the registry it leaves (which the vibes
+/// suite continues from) and its lines.
+fn reputation_run() -> (Reputation, Vec<String>) {
     let source = Host::new(fixtures());
     let mut rep = Reputation::default();
     let mut lines = Vec::new();
@@ -394,7 +401,7 @@ fn reputation() {
         }
         lines.push(out.done());
     }
-    check_suite("reputation.jsonl", &lines);
+    (rep, lines)
 }
 
 /// The universe of `zone_queries/` (system `zq`).
@@ -1375,4 +1382,194 @@ fn asteroid_field() {
             absolute: 1.0e-6,
         },
     );
+}
+
+fn vibe_bits(value: f32) -> String {
+    format!("{:08x}", value.to_bits())
+}
+
+fn vibe_wide(units: &[u16]) -> String {
+    units.iter().map(|u| format!("{u:04x}")).collect()
+}
+
+/// The vibes suite (P3.2): `Reputation::Vibe`'s run-time store over
+/// `vibes.list`, continuing from the reputation suite's registry.
+#[test]
+fn vibes() {
+    use game_sim::data::vibe::{VibeDb, VibeMode, Vibes};
+    let (rep, _) = reputation_run();
+    let group = |hex: &str| rep.get_id(&name_arg(hex));
+    let mut vibes = Vibes::new(VibeDb::default(), VibeMode::SinglePlayer);
+    let empty = game_sim::protocol::fmtstr::FmtStr::default();
+    let mut lines = Vec::new();
+    for line in input_lines("vibes.list") {
+        let a: Vec<&str> = line.split(' ').collect();
+        let mut out = Line::new();
+        out.add("op", &line);
+        let k: i32 = a.get(1).and_then(|t| t.parse().ok()).unwrap_or(0);
+        match a[0] {
+            "mode" => {
+                vibes.mode = match a[1] {
+                    "sp" => VibeMode::SinglePlayer,
+                    "mps" => VibeMode::MultiplayerServer,
+                    _ => VibeMode::MultiplayerClient,
+                };
+            }
+            "static" => {
+                if a[1] == "begin" {
+                    vibes.statics.begin_static_load();
+                } else {
+                    vibes.statics.end_static_load();
+                }
+            }
+            "alloc" => {
+                out.add("r", vibes.alloc(k).to_string());
+            }
+            "ensure" => {
+                out.add("r", vibes.ensure_exists(k).to_string());
+            }
+            "free" => {
+                out.add("r", vibes.free(k).to_string());
+            }
+            "freedyn" => vibes.free_dynamic(),
+            "verify" => {
+                out.add("r", u8::from(vibes.verify(k)).to_string());
+            }
+            "count" => {
+                out.add("r", vibes.count().to_string());
+            }
+            "client" => {
+                out.add(
+                    "r",
+                    vibes.set_client_id(k, a[2].parse().unwrap()).to_string(),
+                );
+            }
+            "getclient" => {
+                out.add("r", vibes.client_id(k).to_string());
+            }
+            "aff" => {
+                let r = vibes.set_affiliation(k, group(a[2]), a[3] == "1", &rep);
+                out.add("r", r.to_string());
+            }
+            "getaff" => {
+                let (r, aff) = vibes.affiliation(k, a[2] == "1");
+                out.add("r", r.to_string()).add("aff", format!("{aff:08x}"));
+            }
+            "feel" => {
+                let r = vibes.set_group_feelings_towards(k, group(a[2]), f32_hex(a[3]), &rep);
+                out.add("r", r.to_string());
+            }
+            "getfeel" => {
+                let (r, f) = vibes.group_feelings_towards(k, group(a[2]), &rep);
+                out.add("r", r.to_string()).add("f", vibe_bits(f));
+            }
+            "set" => {
+                let relations: Vec<(u32, f32)> = a[4..]
+                    .iter()
+                    .map(|pair| {
+                        let (name, value) = pair.split_once(':').unwrap();
+                        (group(name), f32_hex(value))
+                    })
+                    .collect();
+                let r = vibes.set(
+                    k,
+                    group(a[2]),
+                    a[3].parse().unwrap(),
+                    &relations,
+                    &empty,
+                    &empty,
+                    &[],
+                    &rep,
+                );
+                out.add("r", r.to_string());
+            }
+            "get" => match vibes.summary(k) {
+                Some(s) => {
+                    let rel: Vec<String> = s
+                        .relations
+                        .iter()
+                        .map(|(id, f)| format!("{id:08x}:{}", vibe_bits(*f)))
+                        .collect();
+                    out.add("r", "0")
+                        .add("aff", format!("{:08x}", s.affiliation))
+                        .add("rank", s.rank.to_string())
+                        .add("rel", rel.join(";"))
+                        .add("display", vibe_wide(&s.display_name));
+                }
+                None => {
+                    out.add("r", "-2");
+                }
+            },
+            "att" => {
+                let (r, v) = vibes.attitude_towards(k, a[2].parse().unwrap(), &rep);
+                out.add("r", r.to_string()).add("a", vibe_bits(v));
+            }
+            "sym" => {
+                let (r, v, w) = vibes.attitude_towards_symmetrical(k, a[2].parse().unwrap(), &rep);
+                out.add("r", r.to_string())
+                    .add("a", vibe_bits(v))
+                    .add("b", vibe_bits(w.unwrap_or(0.0)));
+            }
+            "adj" => {
+                let r = vibes.adjust_attitude(k, a[2].parse().unwrap(), f32_hex(a[3]), &rep);
+                out.add("r", r.to_string());
+            }
+            "atp" => {
+                out.add(
+                    "r",
+                    vibes
+                        .set_attitude_towards_player(k, f32_hex(a[2]))
+                        .to_string(),
+                );
+            }
+            "info" => {
+                out.add(
+                    "r",
+                    vibes.set_infocard(k, a[2].parse().unwrap()).to_string(),
+                );
+            }
+            "getinfo" => {
+                let (r, v) = vibes.infocard(k);
+                out.add("r", r.to_string()).add("v", v.to_string());
+            }
+            "rank" => {
+                out.add("r", vibes.set_rank(k, a[2].parse().unwrap()).to_string());
+            }
+            "getrank" => {
+                let (r, v) = vibes.rank(k);
+                out.add("r", r.to_string()).add("v", v.to_string());
+            }
+            "name" => {
+                let wide: Option<Vec<u16>> = (a[2] != "-").then(|| {
+                    unhex(a[2])
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|&p| u16::from_le_bytes(p))
+                        .collect()
+                });
+                let r = vibes.set_name(k, &empty, &empty, wide.as_deref());
+                out.add("r", r.to_string());
+            }
+            "getname" => match vibes.name(k) {
+                Some((_, _, display)) => {
+                    out.add("r", "0").add("display", vibe_wide(&display));
+                }
+                None => {
+                    out.add("r", "-2").add("display", "");
+                }
+            },
+            "changed" => {
+                let map: Vec<String> = vibes
+                    .changed_affiliations
+                    .iter()
+                    .map(|(c, old)| format!("{c}:{old:08x}"))
+                    .collect();
+                out.add("map", map.join(";"));
+            }
+            other => panic!("vibes.list: bad op {other}"),
+        }
+        lines.push(out.done());
+    }
+    check_suite("vibes.jsonl", &lines);
 }

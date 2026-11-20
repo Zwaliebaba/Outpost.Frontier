@@ -32,6 +32,8 @@
 #include "common_goods.h"
 #include "common_casteroid.h"
 #include "common_reputation.h"
+#include "common_net.h"     // SetIsMPServer (P3.2)
+#include "common_misc.h"    // SetMultiPlayer (P3.2)
 #include "common_universe.h"
 #include "common_cequip.h"   // CEGun::ComputeTimeToTgt, CNudgeEngine, CSteering (P2.4)
 #include "common_csys.h"    // LookMatrix (P2.4)
@@ -1328,12 +1330,227 @@ namespace
     }
 }
 
+
+// P3.2: the run-time vibe store (Common/common_vibe.cpp) over vibes.list, after the
+// reputation suite, whose groups and feelings it uses. crates/game-sim/tests/oracle_vectors.rs
+// renders the same lines through game_sim::data::vibe::Vibes.
+extern "C" __declspec(dllimport) void __cdecl OracleVibeStatic(int Step);
+
+namespace
+{
+    std::string VibeBits(float Value)
+    {
+        return Format("%08x", FloatBits(Value));
+    }
+
+    std::string VibeWide(wchar_t const* Text)
+    {
+        std::string Out;
+        if (Text == nullptr)
+            return Out;
+        for (; *Text != L'\0'; ++Text)
+            Out += Format("%04x", static_cast<unsigned int>(static_cast<unsigned short>(*Text)));
+        return Out;
+    }
+
+    unsigned int VibeGroup(const std::string& HexName)
+    {
+        return Reputation::get_id(Name16(HexName));
+    }
+
+    void VibesSuite()
+    {
+        Suite Out("vibes.jsonl");
+        Reputation::Vibe::FreeDynamic();
+        OracleVibeStatic(2);
+        std::vector<std::wstring> Names;
+        for (const std::string& Line : InputLines("vibes.list"))
+        {
+            const std::vector<std::string> A = Split(Line, ' ');
+            const std::string& Op = A[0];
+            FLine L;
+            L.Add("op", Line);
+            const int K = A.size() > 1 ? atoi(A[1].c_str()) : 0;
+            if (Op == "mode")
+            {
+                if (A[1] == "sp")
+                {
+                    SetIsMPServer(false);
+                    SetMultiPlayer(false);
+                }
+                else if (A[1] == "mps")
+                {
+                    SetIsMPServer(true);
+                }
+                else
+                {
+                    SetIsMPServer(false);
+                    SetMultiPlayer(true);
+                }
+            }
+            else if (Op == "static")
+            {
+                OracleVibeStatic(A[1] == "begin" ? 0 : 1);
+            }
+            else if (Op == "alloc")
+                L.Add("r", Format("%d", Reputation::Vibe::Alloc(K)));
+            else if (Op == "ensure")
+                L.Add("r", Format("%d", Reputation::Vibe::EnsureExists(K)));
+            else if (Op == "free")
+                L.Add("r", Format("%d", Reputation::Vibe::Free(K)));
+            else if (Op == "freedyn")
+                Reputation::Vibe::FreeDynamic();
+            else if (Op == "verify")
+                L.Add("r", Reputation::Vibe::Verify(K) ? "1" : "0");
+            else if (Op == "count")
+                L.Add("r", Format("%u", Reputation::Vibe::Count()));
+            else if (Op == "client")
+                L.Add("r", Format("%d", Reputation::Vibe::SetClientID(K, strtoul(A[2].c_str(), nullptr, 10))));
+            else if (Op == "getclient")
+                L.Add("r", Format("%u", Reputation::Vibe::GetClientID(K)));
+            else if (Op == "aff")
+                L.Add("r", Format("%d", Reputation::Vibe::SetAffiliation(K, VibeGroup(A[2]), A[3] == "1")));
+            else if (Op == "getaff")
+            {
+                unsigned int Aff = 0;
+                L.Add("r", Format("%d", Reputation::Vibe::GetAffiliation(K, Aff, A[2] == "1")));
+                L.Add("aff", Format("%08x", Aff));
+            }
+            else if (Op == "feel")
+                L.Add("r", Format("%d", Reputation::Vibe::SetGroupFeelingsTowards(K, VibeGroup(A[2]), HexFloat(A[3]))));
+            else if (Op == "getfeel")
+            {
+                float Value = 0.0f;
+                L.Add("r", Format("%d", Reputation::Vibe::GetGroupFeelingsTowards(K, VibeGroup(A[2]), Value)));
+                L.Add("f", VibeBits(Value));
+            }
+            else if (Op == "set")
+            {
+                std::vector<Reputation::Relation> Relations;
+                for (size_t Index = 4; Index < A.size(); ++Index)
+                {
+                    const size_t Colon = A[Index].find(':');
+                    Reputation::Relation Relation;
+                    Relation.GroupId = VibeGroup(A[Index].substr(0, Colon));
+                    Relation.Feeling = HexFloat(A[Index].substr(Colon + 1));
+                    Relations.push_back(Relation);
+                }
+                FmtStr Empty;
+                const int R = Reputation::Vibe::Set(K, VibeGroup(A[2]), strtoul(A[3].c_str(), nullptr, 10),
+                                                    static_cast<unsigned char>(Relations.size()),
+                                                    Relations.empty() ? nullptr : &Relations[0], Empty, Empty, L"");
+                L.Add("r", Format("%d", R));
+            }
+            else if (Op == "get")
+            {
+                unsigned int Aff = 0;
+                unsigned int Rank = 0;
+                unsigned char Count = 0;
+                Reputation::Relation Relations[256];
+                FmtStr Name1;
+                FmtStr Name2;
+                wchar_t const* Display = nullptr;
+                const int R = Reputation::Vibe::Get(K, Aff, Rank, Count, Relations, Name1, Name2, Display);
+                L.Add("r", Format("%d", R));
+                if (R == 0)
+                {
+                    std::string Text;
+                    for (unsigned int Index = 0; Index < Count; ++Index)
+                        Text += Format("%s%08x:%08x", Index ? ";" : "", Relations[Index].GroupId,
+                                       FloatBits(Relations[Index].Feeling));
+                    L.Add("aff", Format("%08x", Aff));
+                    L.Add("rank", Format("%u", Rank));
+                    L.Add("rel", Text);
+                    L.Add("display", VibeWide(Display));
+                }
+            }
+            else if (Op == "att" || Op == "sym")
+            {
+                const int B = atoi(A[2].c_str());
+                float Out1 = 0.0f;
+                float Out2 = 0.0f;
+                const int R = Op == "att" ? Reputation::Vibe::AttitudeTowards(K, B, Out1)
+                                          : Reputation::Vibe::AttitudeTowardsSymmetrical(K, B, Out1, Out2);
+                L.Add("r", Format("%d", R));
+                L.Add("a", VibeBits(Out1));
+                if (Op == "sym")
+                    L.Add("b", VibeBits(Out2));
+            }
+            else if (Op == "adj")
+                L.Add("r", Format("%d", Reputation::Vibe::AdjustAttitude(K, atoi(A[2].c_str()), HexFloat(A[3]))));
+            else if (Op == "atp")
+                L.Add("r", Format("%d", Reputation::Vibe::SetAttitudeTowardsPlayer(K, HexFloat(A[2]))));
+            else if (Op == "info")
+                L.Add("r", Format("%d", Reputation::Vibe::SetInfocard(K, strtoul(A[2].c_str(), nullptr, 10))));
+            else if (Op == "getinfo")
+            {
+                unsigned int Value = 0;
+                L.Add("r", Format("%d", Reputation::Vibe::GetInfocard(K, Value)));
+                L.Add("v", Format("%u", Value));
+            }
+            else if (Op == "rank")
+                L.Add("r", Format("%d", Reputation::Vibe::SetRank(K, strtoul(A[2].c_str(), nullptr, 10))));
+            else if (Op == "getrank")
+            {
+                unsigned int Value = 0;
+                L.Add("r", Format("%d", Reputation::Vibe::GetRank(K, Value)));
+                L.Add("v", Format("%u", Value));
+            }
+            else if (Op == "name")
+            {
+                FmtStr Empty;
+                std::wstring Wide;
+                if (A[2] != "-")
+                {
+                    const Bytes Raw = Unhex(A[2]);
+                    for (size_t Index = 0; Index + 1 < Raw.size() - 1; Index += 2)
+                        Wide.push_back(static_cast<wchar_t>(Raw[Index] | (Raw[Index + 1] << 8)));
+                }
+                Names.push_back(Wide);
+                L.Add("r", Format("%d", Reputation::Vibe::SetName(K, Empty, Empty,
+                                                                 A[2] == "-" ? nullptr : Names.back().c_str())));
+            }
+            else if (Op == "getname")
+            {
+                FmtStr Name1;
+                FmtStr Name2;
+                wchar_t const* Display = nullptr;
+                const int R = Reputation::Vibe::GetName(K, Name1, Name2, Display);
+                L.Add("r", Format("%d", R));
+                L.Add("display", R == 0 ? VibeWide(Display) : std::string());
+            }
+            else if (Op == "changed")
+            {
+                std::string Text;
+                std::map<unsigned int, unsigned int>* Map = Reputation::GetChangedAffiliationClientMap();
+                if (Map != nullptr)
+                {
+                    for (std::map<unsigned int, unsigned int>::const_iterator It = Map->begin(); It != Map->end(); ++It)
+                        Text += Format("%s%u:%08x", Text.empty() ? "" : ";", It->first, It->second);
+                }
+                L.Add("map", Text);
+            }
+            else
+            {
+                fprintf(stderr, "vibes.list: bad line %s\n", Line.c_str());
+                GFailed = true;
+            }
+            Out.Line(L.Done());
+        }
+        Reputation::Vibe::FreeDynamic();
+        OracleVibeStatic(2);
+        SetIsMPServer(false);
+        SetMultiPlayer(false);
+    }
+}
+
 void RunGameSimSuites()
 {
     GuardedGameSimSuite("asteroid_ids", AsteroidIds);
     GuardedGameSimSuite("asteroid_orient", AsteroidOrient);
     GuardedGameSimSuite("string_cache", StringCacheSuite);
     GuardedGameSimSuite("reputation", ReputationSuite);
+    GuardedGameSimSuite("vibes", VibesSuite);
     GuardedGameSimSuite("zones", ZoneSuite);
     GuardedGameSimSuite("zone_queries", ZoneQuerySuite);
     GuardedGameSimSuite("exclusion_zones", ExclusionSuite);

@@ -1,0 +1,103 @@
+# The vibes suite (work package P3.2): Reputation::Vibe's run-time store against
+# CppSource/Common/common_vibe.cpp. Runs after the reputation suite, whose groups and
+# feelings it uses. Keys are decimal; groups are names as hex, '-' for none; floats are
+# f32 bits as hex. Ops: mode sp|mps|mpc; static begin|end; alloc K; ensure K; free K;
+# freedyn; verify K; count; client K C; getclient K; aff K G notify; getaff K exclude;
+# feel K G F; getfeel K G; set K G rank [G:F ...]; get K; att A B; sym A B; adj A B F;
+# atp K F; info K I; getinfo K; rank K R; getrank K; name K hexutf16|-; getname K; changed
+mode sp
+alloc 100
+alloc 100
+alloc -1
+verify 100
+verify 999
+aff 100 6c695f6e5f677270 0
+aff 100 6e6f626f64795f677270 0
+aff 999 6c695f6e5f677270 0
+getaff 100 0
+att 100 100
+alloc 200
+aff 200 6c695f705f677270 0
+att 100 200
+sym 100 200
+feel 200 6c695f6e5f677270 3ecccccd
+getfeel 200 6c695f6e5f677270
+getfeel 200 -
+att 100 200
+sym 100 200
+adj 100 200 3e99999a
+att 100 200
+adj 100 200 c0000000
+att 100 200
+adj 100 999 3dcccccd
+client 200 7
+getclient 200
+getclient 999
+feel 200 6c695f705f677270 3dcccccd
+get 200
+changed
+set 300 6c695f6e5f677270 5
+alloc 300
+set 300 6c695f6e5f677270 5 6c695f705f677270:3f733333 66635f715f677270:3f7d70a4 6e6f626f64795f677270:3f000000
+get 300
+att 300 100
+client 300 9
+set 300 6c695f6e5f677270 5 6c695f705f677270:3f733333 66635f715f677270:3f7d70a4
+get 300
+changed
+mode mps
+alloc 400
+client 400 11
+set 400 6c695f6e5f677270 1 6c695f705f677270:3f733333
+get 400
+changed
+aff 400 66635f715f677270 1
+changed
+aff 400 6c695f6e5f677270 0
+getaff 400 1
+mode mpc
+att 100 200
+atp 100 3f000000
+att 100 200
+atp 100 bdfcd680
+att 100 200
+mode sp
+info 100 77
+getinfo 100
+rank 100 3
+getrank 100
+name 100 5400720065006e007400
+getname 100
+name 100 410041004100410041004100410041004100410041004100410041004100410041004100410041004100410041004100410041004100410041004100
+getname 100
+name 100 -
+getname 100
+static begin
+alloc 500
+alloc 600
+alloc 500
+static end
+verify 500
+verify 600
+aff 500 6c695f6e5f677270 0
+att 500 100
+alloc 500
+verify 500
+getaff 500 0
+count
+adj 200 300 3f000000
+adj 500 300 3e800000
+att 200 300
+free 300
+att 200 300
+free 600
+free 300
+ensure 300
+ensure 300
+count
+freedyn
+count
+verify 200
+verify 500
+getaff 500 0
+mode sp

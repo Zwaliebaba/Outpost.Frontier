@@ -1188,3 +1188,16 @@ int __cdecl Reputation::Vibe::AdjustAttitude(int const& FromGroupId, int const& 
     Node->Delta = (float)((double)Delta - Sum);
     return 0;
 }
+
+// Oracle instrumentation (P3.2, the vibes suite of Oracle.exe game-sim): the static-store
+// steps the universe load runs, which Common does not export. 0 BeginStaticLoad, 1
+// EndStaticLoad, 2 FreeStatic. A new export; no game module calls it.
+extern "C" COMMON_API void __cdecl OracleVibeStatic(int Step)
+{
+    if (Step == 0)
+        Reputation::Vibe::BeginStaticLoad();
+    else if (Step == 1)
+        Reputation::Vibe::EndStaticLoad();
+    else if (Step == 2)
+        Reputation::Vibe::FreeStatic();
+}
