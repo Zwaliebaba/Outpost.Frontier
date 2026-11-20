@@ -22,7 +22,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use neuron_core::num;
+use crate::num;
 
 use super::entity::{
     AudioProps, EntityDesc, EntityTail, Fog, LightProps, MotionPathDesc, PathFactory, PathInit,
@@ -1270,7 +1270,7 @@ fn light_event_post(props: &mut LightProps, mask: &mut i32) {
 /// `ConvertCompactLightbaseline`): a LIGHT entity whose script gives no
 /// `type` takes its type, cone, diffuse colour, range and attenuation from
 /// the compact fields.
-pub(crate) fn convert_compact_light(props: &mut LightProps) {
+pub fn convert_compact_light(props: &mut LightProps) {
     let pi = f64::from(PI);
     if props.infinite != 0 {
         props.light_type = 3;

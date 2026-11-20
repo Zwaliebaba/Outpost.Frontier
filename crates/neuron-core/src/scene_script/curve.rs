@@ -28,7 +28,7 @@
 
 use std::collections::BTreeMap;
 
-use neuron_core::num;
+use crate::num;
 
 /// The evaluator of a curve kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

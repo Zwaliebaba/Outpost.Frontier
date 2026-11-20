@@ -146,9 +146,9 @@ pub fn to_number(text: &[u8]) -> Option<f64> {
 /// digits (`1e+020`, `9e-006`).
 ///
 /// One implementation serves the client and xtask:
-/// [`neuron_core::msvcrt::format_lua_number`].
+/// [`crate::msvcrt::format_lua_number`].
 pub fn format(x: f64) -> Vec<u8> {
-    neuron_core::msvcrt::format_lua_number(x).into_bytes()
+    crate::msvcrt::format_lua_number(x).into_bytes()
 }
 
 #[cfg(test)]

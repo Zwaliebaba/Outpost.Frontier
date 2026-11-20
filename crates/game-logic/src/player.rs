@@ -685,19 +685,13 @@ pub fn reload_ship_data(cx: &mut Cx<'_>, session: u32) {
     *items = kept;
 }
 
-/// `PlayerData_CheckForCheats`: never in single player; always once a
-/// cheat was reported; never outside a base. The four checks after that
-/// (equipment beyond the ship, equipment the base does not sell, worth
-/// above what was earned, a hold over capacity) need P3.3's base database;
-/// until then they find nothing.
-pub fn check_for_cheats(cx: &mut Cx<'_>, session: u32) -> bool {
-    if cx.world.config().single_player {
-        return false;
+/// `PlayerData_ResetTotalEarned`: what the player earned becomes the
+/// worth of what it has (`PlayerData_TotalEquipmentValue`).
+pub fn reset_total_earned(cx: &mut Cx<'_>, session: u32) {
+    let value = crate::cheats::total_equipment_value(cx, session);
+    if let Some(slot) = cx.logic.players.get_mut(session) {
+        slot.total_earned = value;
     }
-    cx.logic
-        .players
-        .get(session)
-        .is_some_and(|slot| slot.cheat_reported)
 }
 
 /// The end of `PlayerData_SerializeToFile` on a multiplayer server: the

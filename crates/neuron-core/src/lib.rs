@@ -18,6 +18,7 @@ pub mod num;
 pub mod physics;
 pub mod rng;
 pub mod scene;
+pub mod scene_script;
 pub mod sur;
 pub mod time;
 pub mod utf;

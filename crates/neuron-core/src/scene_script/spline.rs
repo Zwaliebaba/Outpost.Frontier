@@ -23,11 +23,11 @@
 // comparisons.
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
 
-use neuron_core::math::{self, Matrix, Quaternion};
+use crate::math::{self, Matrix, Quaternion};
 
 use super::entity::{PathFactory, PathInit, PathObject};
 use super::spline_math::{Vec3, catmull_rom_3d, catmull_rom_tangent_3d, lerp_3d, sample_parameter};
-use crate::audio::config::ucrt_atof;
+use crate::msvcrt::ucrt_atof;
 
 /// `GR_OK`.
 pub const OK: i32 = 0;
