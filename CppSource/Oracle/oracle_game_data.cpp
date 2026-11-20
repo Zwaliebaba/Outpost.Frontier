@@ -97,6 +97,9 @@ namespace NeuronRuntime
     NEURONRUNTIME_API extern ICOManager* NeuronComponents;
 }
 
+// P3.2 (Server/server_savegame.cpp): Server.dll's save reader, one field per line.
+extern "C" __declspec(dllimport) bool __cdecl OracleDumpSaveRecord(char const* SavePath, char const* OutPath);
+
 using namespace oracle;
 
 namespace
@@ -525,7 +528,7 @@ void RunGameDataDump(const std::vector<std::string>& Files)
         printf("game data: no EXE\\OutpostFrontier.ini, nothing loaded\n");
         static const char* const kKinds[] = {"constants", "goods",    "loadouts",   "reputation", "archetypes",
                                              "universe",  "bases",    "fuses",      "characters", "vibes",
-                                             "asteroid_fields", "state_graph"};
+                                             "asteroid_fields", "state_graph", "saves"};
         for (const char* Name : kKinds)
             FGameKind Empty(Name);
         CloseGameData();
@@ -580,6 +583,19 @@ void RunGameDataDump(const std::vector<std::string>& Files)
         Suite Out(K.Path("state_graph"));
         WriteStateGraphLines(Out);
         OracleAiFreeStateGraph();
+    }
+    {
+        // P3.2: the character templates next to the executable through Server.dll's save
+        // reader (PlayerData_LoadSaveRecord, OracleDumpSaveRecord in server_savegame.cpp).
+        FGameKind K("saves");
+        static const char* const kSaves[] = {"newplayer.fl", "mpnewcharacter.fl"};
+        for (const char* Name : kSaves)
+        {
+            const std::string Save = GFixtureDir + "\\EXE\\" + Name;
+            if (GetFileAttributesA(Save.c_str()) == INVALID_FILE_ATTRIBUTES)
+                continue;
+            OracleDumpSaveRecord(Save.c_str(), K.Path(Name).c_str());
+        }
     }
     CloseGameData();
     printf("dumped the game databases\n");
