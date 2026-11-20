@@ -15,4 +15,4 @@ decision register then carries a one-line entry that points here.
 | [0004](0004-render-device-and-trace.md) | Render device API, trace format version 1, shader toolchain | accepted | P4.0 |
 | [0005](0005-programmable-passes.md) | Programmable passes: render targets, programs, volume textures, scene depth | accepted | P4.9 |
 | [0006](0006-controller-bus.md) | Controller bus and re-entrant dispatch | accepted | P3.0 |
-| [0007](0007-server-world.md) | The server world over the shared arena | proposed | P3.3 |
+| [0007](0007-server-world.md) | The server world over the shared arena | accepted | P3.3 |

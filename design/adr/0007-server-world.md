@@ -1,6 +1,6 @@
 # 0007 — The server world over the shared arena
 
-Status: proposed (P3.3). Waits for the owner before P3.3's world parts.
+Status: accepted by the owner on 2026-11-20 (P3.3); decision O43.
 Builds on records 0001 (object model), 0002 (single player keeps one
 world) and 0006 (controller bus, point 7: hooks and `MetaList` walks).
 
