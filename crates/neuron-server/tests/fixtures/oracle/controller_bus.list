@@ -1,0 +1,302 @@
+# The controller_bus suite (work package P3.1, decision record 0006 point 10).
+# Read by CppSource/Oracle/oracle_bus.cpp (Oracle.exe neuron-server) and by
+# crates/neuron-server/tests/controller_bus.rs; the directive syntax is in
+# oracle_bus.cpp's header. Test messages use ids 4096 and up. Every case ends
+# with shutdown, so the next one starts with an empty active list; leftover
+# timers carry over, as they do in Server.dll.
+# Not scripted here, because the C++ is undefined there: a broadcast or a
+# targeted send to itself from a constructor that runs outside a walk, and any
+# action in a destructor (the Rust-only tests in src/controller/tests.rs cover
+# them), nor a zero heartbeat period, whose NaN depends on the host's
+# default NaN.
+
+case priority_order
+create A NORMAL
+create B NORMAL
+create C HIGHEST
+create D LOWEST
+create E NORMAL
+create F ABOVE_NORMAL
+state
+broadcast 4096 1
+shutdown
+tick 0
+state
+
+case create_during_broadcast
+on A 4096 * 1 create B HIGHEST
+on A 4096 * 1 send B 4097 5
+on B ctor * 0 heartbeat self 1
+create A NORMAL
+broadcast 4096 1
+state
+broadcast 4096 2
+shutdown
+tick 0
+
+case create_during_send
+on A 4100 * 1 create B LOWEST
+on A 4100 * 1 broadcast 4101 2
+create A NORMAL
+send A 4100 1
+state
+shutdown
+tick 0
+
+case destroy_self_during_broadcast
+on A 4096 1 1 destroy self
+create A NORMAL
+create B NORMAL
+broadcast 4096 1
+broadcast 4096 2
+send A 4097 3
+state
+tick 0
+send A 4097 4
+state
+shutdown
+tick 0
+
+case destroy_twice_and_deferred
+on A 4096 * 1 create B NORMAL
+on A 4096 * 1 destroy B
+on B destroyed * 0 send A 4098 9
+create A NORMAL
+broadcast 4096 1
+state
+destroy B
+destroy B
+destroy ghost
+tick 0
+state
+shutdown
+tick 0
+
+case heartbeat 7
+create A NORMAL
+create B HIGHEST
+heartbeat A 1
+heartbeat B 0.25
+heartbeat ghost 1
+state
+tick 0.5
+tick 0.5
+tick 0.5
+tick 0.5
+on A heartbeat * 1 heartbeat self 0.5
+tick 0.75
+state
+tick 0.1
+tick 3
+state
+shutdown
+tick 0
+
+case timers
+on A timer 1 1 timer self 9 10 0
+on A timer 3 1 send B 4099 3
+create A NORMAL
+create B NORMAL
+timer A 1 2 0.5
+timer A 3 4 0.25
+timer ghost 5 6 0.1
+timer A 7 8 -1
+tick 0.3
+tick 0.3
+tick 0.01
+timer all 11 12 0
+tick 0.1
+shutdown
+tick 0
+
+case many_timers
+create A NORMAL
+timer A 1 0 0
+timer A 2 0 0
+timer A 3 0 0
+timer A 4 0 0
+timer A 5 0 0
+timer A 6 0 0
+timer A 7 0 0
+timer A 8 0 0
+timer A 9 0 0
+timer A 10 0 0
+timer A 11 0 0
+timer A 12 0 0
+timer A 13 0 0
+timer A 14 0 0
+timer A 15 0 0
+timer A 16 0 0
+timer A 17 0 0
+timer A 18 0 0
+timer A 19 0 0
+timer A 20 0 0
+timer A 21 0 0
+timer A 22 0 0
+timer A 23 0 0
+timer A 24 0 0
+timer A 25 0 0
+timer A 26 0 0
+timer A 27 0 0
+timer A 28 0 0
+timer A 29 0 0
+timer A 30 0 0
+timer A 31 0 0
+timer A 32 0 0
+timer A 33 0 0
+timer A 34 0 0
+timer A 35 0 0
+timer A 36 0 0
+timer A 37 0 0
+timer A 38 0 0
+timer A 39 0 0
+timer A 40 0 0
+timer A 41 0 0
+timer A 42 0 0
+timer A 43 0 0
+timer A 44 0 0
+timer A 45 0 0
+timer A 46 0 0
+timer A 47 0 0
+timer A 48 0 0
+timer A 49 0 0
+timer A 50 0 0
+timer A 51 0 0
+timer A 52 0 0
+timer A 53 0 0
+timer A 54 0 0
+timer A 55 0 0
+timer A 56 0 0
+timer A 57 0 0
+timer A 58 0 0
+timer A 59 0 0
+timer A 60 0 0
+timer A 61 0 0
+timer A 62 0 0
+timer A 63 0 0
+timer A 64 0 0
+timer A 65 0 0
+timer A 66 0 0
+timer A 67 0 0
+timer A 68 0 0
+timer A 69 0 0
+timer A 70 0 0
+timer A 71 0 0
+timer A 72 0 0
+timer A 73 0 0
+timer A 74 0 0
+timer A 75 0 0
+timer A 76 0 0
+timer A 77 0 0
+timer A 78 0 0
+timer A 79 0 0
+timer A 80 0 0
+timer A 81 0 0
+timer A 82 0 0
+timer A 83 0 0
+timer A 84 0 0
+timer A 85 0 0
+timer A 86 0 0
+timer A 87 0 0
+timer A 88 0 0
+timer A 89 0 0
+timer A 90 0 0
+timer A 91 0 0
+timer A 92 0 0
+timer A 93 0 0
+timer A 94 0 0
+timer A 95 0 0
+timer A 96 0 0
+timer A 97 0 0
+timer A 98 0 0
+timer A 99 0 0
+timer A 100 0 0
+timer A 101 0 0
+timer A 102 0 0
+timer A 103 0 0
+timer A 104 0 0
+timer A 105 0 0
+timer A 106 0 0
+timer A 107 0 0
+timer A 108 0 0
+timer A 109 0 0
+timer A 110 0 0
+timer A 111 0 0
+timer A 112 0 0
+timer A 113 0 0
+timer A 114 0 0
+timer A 115 0 0
+timer A 116 0 0
+timer A 117 0 0
+timer A 118 0 0
+timer A 119 0 0
+timer A 120 0 0
+timer A 121 0 0
+timer A 122 0 0
+timer A 123 0 0
+timer A 124 0 0
+timer A 125 0 0
+timer A 126 0 0
+timer A 127 0 0
+timer A 128 0 0
+timer A 129 0 0
+timer A 130 0 0
+tick 0.1
+tick 0.1
+shutdown
+tick 0
+
+case nested_depth
+on A 4096 1 1 broadcast 4096 2
+on B 4096 2 1 send C 4098 3
+on C 4098 * 1 broadcast 4099 4
+on C 4099 4 1 create D HIGHEST
+on D ctor * 0 send A 4100 5
+create A HIGHEST
+create B NORMAL
+create C LOWEST
+broadcast 4096 1
+state
+broadcast 4099 6
+shutdown
+tick 0
+
+case ctor_fail
+on X ctor * 1 heartbeat self 1
+on X ctor * 1 fail
+create X NORMAL
+create Y NORMAL
+send X 4096 1
+state
+shutdown
+tick 0
+
+case ctor_actions_deferred 11
+on A 4096 * 1 create B NORMAL
+on B ctor * 0 heartbeat self 2
+on B ctor * 0 timer self 1 0 0.1
+on B ctor * 0 send A 4097 1
+on B timer * 0 destroy self
+create A NORMAL
+broadcast 4096 1
+state
+tick 0.2
+tick 0.2
+state
+shutdown
+tick 0
+
+case shutdown_order
+on B destroyed C 1 create D NORMAL
+on D destroyed * 0 send ghost 4096 7
+create A LOWEST
+create B HIGHEST
+create C NORMAL
+state
+shutdown
+state
+tick 0
+state
+shutdown
+tick 0
+state

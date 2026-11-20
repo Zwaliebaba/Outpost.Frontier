@@ -13,6 +13,9 @@
 //     (CreateInstance / DestroyInstance): the harness's ships name it as their controller, and
 //     every controller message it receives is written to controller.jsonl and handed to the
 //     harness's sink, which turns docks and deaths into events.
+//   * P3.1: an instance named "Scripted:<name>" is a scripted controller of Oracle.exe
+//     neuron-server (oracle_bus.cpp). Its constructor, messages and destructor go to the
+//     script callback (SimClientStubSetScript) and nothing is written.
 //
 // Record layouts: design/sim-records.md. Until SimClientStubConfigure names the output
 // folder nothing is written.
@@ -43,3 +46,12 @@ typedef void(__cdecl* FSimClientStubSink)(int MessageId, void const* Data);
 extern "C" void __cdecl SimClientStubConfigure(char const* OutputFolder);
 extern "C" void __cdecl SimClientStubSetTick(unsigned int Tick);
 extern "C" void __cdecl SimClientStubSetSink(FSimClientStubSink Sink);
+
+// P3.1, the controller_bus suite: the script callback gets the controller's id, its short
+// name and SIM_CLIENT_STUB_SCRIPT_CTOR (inside CreateInstance; a zero answer makes it return
+// null), a pub::Controller::EMessage value with its payload, or SIM_CLIENT_STUB_SCRIPT_DTOR
+// (inside DestroyInstance).
+#define SIM_CLIENT_STUB_SCRIPT_CTOR (-1)
+#define SIM_CLIENT_STUB_SCRIPT_DTOR (-2)
+typedef int(__cdecl* FSimClientStubScript)(unsigned int Flid, char const* Name, int Event, void const* Data);
+extern "C" void __cdecl SimClientStubSetScript(FSimClientStubScript Script);

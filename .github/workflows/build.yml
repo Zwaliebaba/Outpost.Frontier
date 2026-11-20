@@ -250,6 +250,19 @@ jobs:
           git diff --no-index --stat crates/game-app/tests/vectors oracle-out-game-app
           git diff --no-index crates/game-app/tests/vectors oracle-out-game-app
           if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Compare the neuron-server vectors
+        # P3.1: Server.dll's controller registry driven by SimClientStub.dll's
+        # scripted controllers (oracle_bus.cpp; controller_bus.jsonl), over
+        # crates/neuron-server/tests/fixtures/oracle (decision record 0006,
+        # point 10).
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force oracle-out-neuron-server | Out-Null
+          & .\bin\Oracle.exe neuron-server "$PWD\crates\neuron-server\tests\fixtures\oracle" "$PWD\oracle-out-neuron-server"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --no-index --stat crates/neuron-server/tests/vectors oracle-out-neuron-server
+          git diff --no-index crates/neuron-server/tests/vectors oracle-out-neuron-server
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Check the data-dump mode on a synthetic installation
         # The same pipeline .github/workflows/data.yml runs on the original
         # data in outdir/, on a tree made from fixtures.

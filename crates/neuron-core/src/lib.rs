@@ -1,5 +1,6 @@
 //! Shared engine facilities for the client and server.
 
+pub mod account;
 pub mod anim;
 pub mod catalog;
 pub mod diag;

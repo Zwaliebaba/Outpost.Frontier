@@ -13,6 +13,7 @@
 //        Oracle.exe game-sim <fixture directory> <output directory>
 //        Oracle.exe neuron-client <fixture directory> <output directory>
 //        Oracle.exe game-app <fixture directory> <output directory>
+//        Oracle.exe neuron-server <fixture directory> <output directory>
 //        Oracle.exe sim <data root> <scenario file> <out folder> [--runs N] [--seed S]
 //        Oracle.exe render-replay <vectors directory> <output directory>
 //        Oracle.exe gdi-fonts <fixture directory> <output directory>
@@ -502,17 +503,19 @@ int main(int Argc, char** Argv)
     const bool bGameSim = Argc == 4 && strcmp(Argv[1], "game-sim") == 0;
     const bool bNeuronClient = Argc == 4 && strcmp(Argv[1], "neuron-client") == 0;
     const bool bGameApp = Argc == 4 && strcmp(Argv[1], "game-app") == 0;
-    if (Argc != 3 && !bDump && !bCatalog && !bGameSim && !bNeuronClient && !bGameApp)
+    const bool bNeuronServer = Argc == 4 && strcmp(Argv[1], "neuron-server") == 0;
+    if (Argc != 3 && !bDump && !bCatalog && !bGameSim && !bNeuronClient && !bGameApp && !bNeuronServer)
     {
         fprintf(stderr, "usage: Oracle.exe <fixture directory> <output directory>\n"
                         "       Oracle.exe dump <data directory> <output directory>\n"
                         "       Oracle.exe catalog <resource DLL directory> <output directory>\n"
                         "       Oracle.exe game-sim <fixture directory> <output directory>\n"
                         "       Oracle.exe neuron-client <fixture directory> <output directory>\n"
-                        "       Oracle.exe game-app <fixture directory> <output directory>\n");
+                        "       Oracle.exe game-app <fixture directory> <output directory>\n"
+                        "       Oracle.exe neuron-server <fixture directory> <output directory>\n");
         return 2;
     }
-    const bool bMode = bDump || bCatalog || bGameSim || bNeuronClient || bGameApp;
+    const bool bMode = bDump || bCatalog || bGameSim || bNeuronClient || bGameApp || bNeuronServer;
     GFixtureDir = Argv[bMode ? 2 : 1];
     GOutputDir = Argv[bMode ? 3 : 2];
     if (!SetCurrentDirectoryA(GFixtureDir.c_str()))
@@ -544,6 +547,12 @@ int main(int Argc, char** Argv)
     if (bGameApp)
     {
         RunGameAppSuites();
+        return GFailed ? 1 : 0;
+    }
+    if (bNeuronServer)
+    {
+        RunControllerBusSuite();
+        RunServerAccountSuite();
         return GFailed ? 1 : 0;
     }
     if (bGameSim)
