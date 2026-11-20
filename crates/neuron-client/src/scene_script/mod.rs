@@ -1,5 +1,8 @@
 //! Scene scripts (`.thn`), work package P4.14: the port of `SceneScript`
-//! (`CppSource/SceneScript`).
+//! (`CppSource/SceneScript`). The chunk reader, evaluator, the parser's two
+//! passes, curves and splines live in `neuron-core::scene_script`
+//! (decision O44) and are re-exported here; the playback and the script
+//! engine are this crate's.
 //!
 //! A scene script is a compiled Lua 3.2 chunk that assigns three globals,
 //! `entities`, `events` and `duration`, from table constructors, and is
@@ -59,25 +62,17 @@
 //! This is an altered version: a Rust evaluator for a subset of the
 //! virtual machine, not the original C source.
 
-mod build;
-pub mod chunk;
-pub mod curve;
-pub mod entity;
-pub mod event;
-mod load;
-pub mod number;
+pub use neuron_core::scene_script::{
+    build, chunk, curve, entity, event, load, number, spline, spline_math, table, vm,
+};
 pub mod playback;
 mod script_engine;
-pub mod spline;
-mod spline_math;
-mod table;
-mod vm;
 
-pub use build::{BuildError, BuildState, Scene, Step, build};
-pub use load::{LoadError, LoadSummary, load};
+pub use neuron_core::scene_script::{
+    BuildError, BuildState, LoadError, LoadSummary, Native, NativeKind, SCENE_CONSTANTS, Scene,
+    ScriptError, Step, Table, TableError, TableId, Value, Vm,
+};
 pub use script_engine::{
     CREATE_ALWAYS, ComContext, DefaultSaveParser, FileSystemFactory, LoadParser, SaveParser,
     ScriptEngine, ScriptModule, host_file_systems,
 };
-pub use table::{Native, NativeKind, Table, TableError, TableId, Value};
-pub use vm::{SCENE_CONSTANTS, ScriptError, Vm};

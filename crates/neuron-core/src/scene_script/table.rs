@@ -13,7 +13,7 @@
 
 use std::rc::Rc;
 
-use neuron_core::num;
+use crate::num;
 
 /// A table in a [`Vm`](super::Vm), by index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

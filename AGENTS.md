@@ -23,6 +23,7 @@ data root (O31).
   the executable connects them through a transport.
 - NeuronClient, NeuronServer and GameSim use NeuronCore.
 - NeuronCore owns shared engine data, formats, geometry, physics primitives,
+  the scene-script reader and evaluator (decision O44),
   wire primitives and the transport interface. It contains no platform code.
 - GameSim owns game data, the space object model, equipment, flight AI and
   the message catalog that client and server share.

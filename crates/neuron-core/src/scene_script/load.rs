@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use neuron_core::num;
+use crate::num;
 
 use super::table::Value;
 use super::vm::{ScriptError, Vm};
