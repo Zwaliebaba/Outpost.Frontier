@@ -34,7 +34,7 @@ fn the_shipped_rows_create_contents_controllers_in_order() {
         println!("outdir/ is missing: no controllers");
         return;
     };
-    let mut logic = Logic::new(Box::new(RecordingSink::default()));
+    let mut logic = Logic::new(Box::new(RecordingSink::default()), 16, false);
     let ini = std::fs::read(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../outdir/OutpostFrontier.ini"),
     )
@@ -81,7 +81,7 @@ fn a_nested_broadcast_is_depth_first() {
         println!("outdir/ is missing: no controllers");
         return;
     };
-    let mut logic = Logic::new(Box::new(RecordingSink::default()));
+    let mut logic = Logic::new(Box::new(RecordingSink::default()), 16, false);
     logic.deliver_hook = Some(|cx, id, kind, message| {
         let mut sink_line = format!("{}:{}", kind.name(), message.name());
         if let ControllerMessage::PlayerLogin { player: 1 } = message

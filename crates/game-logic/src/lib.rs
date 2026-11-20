@@ -2,7 +2,9 @@
 #![forbid(unsafe_code)]
 
 pub mod character_file;
+pub mod client;
 pub mod events;
+pub mod player;
 pub mod server;
 
 use std::io::{self, Write};

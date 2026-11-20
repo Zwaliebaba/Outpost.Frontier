@@ -340,6 +340,10 @@ pub struct World {
     /// the universe load and the run-time ones. Single player shares it
     /// between the server and the client side, as Common's globals are.
     vibes: crate::data::vibe::Vibes,
+    /// The string cache at run time (`StringAlloc`, P3.2): the load's cache,
+    /// which later allocations (a save's hardpoints, a client's) extend.
+    /// The handles of the load's strings stay as they were.
+    pub(crate) strings: crate::data::string_cache::StringCache,
     always_update: Vec<ObjHandle>,
     anim_channels: Vec<turret::AnimChannel>,
     anim_playbacks: Vec<(ObjHandle, animate::AnimKind)>,
@@ -425,6 +429,7 @@ impl World {
             crate::data::vibe::VibeMode::MultiplayerClient
         };
         let vibes = crate::data::vibe::Vibes::new(data.vibes.clone(), vibe_mode);
+        let strings = data.strings.clone();
         let mut scene = Engine::new();
         scene.add_component(Box::new(Hardpoints::new()));
         Self {
@@ -450,6 +455,7 @@ impl World {
             avoid_table_shuffled: false,
             attitudes: BTreeMap::new(),
             vibes,
+            strings,
             always_update: Vec::new(),
             anim_channels: Vec::new(),
             anim_playbacks: Vec::new(),
@@ -478,6 +484,17 @@ impl World {
     #[must_use]
     pub fn data(&self) -> &GameData {
         &self.data
+    }
+
+    /// The run-time string cache.
+    #[must_use]
+    pub fn strings(&self) -> &crate::data::string_cache::StringCache {
+        &self.strings
+    }
+
+    /// The run-time string cache, to allocate into.
+    pub fn strings_mut(&mut self) -> &mut crate::data::string_cache::StringCache {
+        &mut self.strings
     }
 
     /// The vibe store with the reputation registry its accessors read.

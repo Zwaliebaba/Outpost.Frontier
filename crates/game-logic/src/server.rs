@@ -139,16 +139,22 @@ pub struct Logic {
     pub client: Box<dyn ClientSink>,
     /// Deliveries go here until Content's handlers are ported.
     pub deliver_hook: Option<DeliverHook>,
+    /// The session slots (`Players`, `PlayerDB::init(MaxPlayers, ...)`).
+    pub players: neuron_server::session::SessionTable<crate::player::PlayerData>,
+    /// `IsMPServer()`: a dedicated multiplayer server.
+    pub multiplayer_server: bool,
 }
 
 impl Logic {
-    /// A server with no controllers.
+    /// A server with no controllers and `max_players` empty slots.
     #[must_use]
-    pub fn new(client: Box<dyn ClientSink>) -> Self {
+    pub fn new(client: Box<dyn ClientSink>, max_players: usize, multiplayer_server: bool) -> Self {
         Self {
             bus: ControllerBus::new(),
             client,
             deliver_hook: None,
+            players: neuron_server::session::SessionTable::new(max_players),
+            multiplayer_server,
         }
     }
 }

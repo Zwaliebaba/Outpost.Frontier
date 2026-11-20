@@ -107,13 +107,13 @@ impl World {
                 .archetypes
                 .ships
                 .get(&archetype)
-                .map(|s| self.data.strings.get(s.bay_door_anim).to_vec()),
+                .map(|s| self.strings.get(s.bay_door_anim).to_vec()),
             ObjectKind::Solar => self
                 .data
                 .archetypes
                 .solars
                 .get(&archetype)
-                .map(|s| self.data.strings.get(s.open_anim).to_vec()),
+                .map(|s| self.strings.get(s.open_anim).to_vec()),
             _ => None,
         }
         .unwrap_or_default();

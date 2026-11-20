@@ -182,7 +182,7 @@ impl World {
     /// `CObject::Alloc`, `Root::create_instance` and `open`: the object
     /// with its instance tree and part map.
     fn base_object(&mut self, kind: ObjectKind, root: &Root, data: KindData) -> Object {
-        let path = self.data.strings.get(root.da_archetype).to_vec();
+        let path = self.strings.get(root.da_archetype).to_vec();
         let instance = self.create_scene_instance(&path);
         let mut physical = Physical::default();
         for i in self.instance_tree(instance) {
@@ -431,7 +431,7 @@ impl World {
             ObjectKind::DynamicAsteroid => a.dynamic_asteroids.get(&archetype).copied(),
             _ => a.equipment.get(&archetype).map(|e| e.root),
         };
-        root.map(|r| self.data.strings.get(r.da_archetype).to_vec())
+        root.map(|r| self.strings.get(r.da_archetype).to_vec())
             .unwrap_or_default()
     }
 
@@ -486,11 +486,11 @@ impl World {
         let non_physical = self
             .part_hardpoint_ids(owner, Some(instance))
             .contains(&hp_crc);
-        let path = self.data.strings.get(arch.root.da_archetype).to_vec();
+        let path = self.strings.get(arch.root.da_archetype).to_vec();
         let model = self.create_scene_instance(&path);
         let child_hp = arch
             .attached()
-            .map(|a| self.data.strings.get(a.hp_child).to_vec())
+            .map(|a| self.strings.get(a.hp_child).to_vec())
             .unwrap_or_default();
         let Some(model) = model else {
             // `create_instance` failed: the attachment fails and the item
@@ -779,7 +779,7 @@ impl World {
         // `CEInternalFX::CEInternalFX`: a `use_animation` starts its
         // ambient playback on the owner.
         if let EquipmentKind::InternalFx { use_animation } = &arch.kind {
-            let name = self.data.strings.get(*use_animation).to_vec();
+            let name = self.strings.get(*use_animation).to_vec();
             if !name.is_empty() {
                 self.start_ambient(owner, &name);
             }
@@ -790,9 +790,9 @@ impl World {
         if let EquipKind::ShieldGenerator(g) = &mut equip.kind {
             g.last_update_time = self.time;
         }
-        let internal = desc.is_internal(&self.data.strings);
+        let internal = desc.is_internal(&self.strings);
         if !internal && equip.mount.is_some() {
-            let hp = hp_name(&self.data.strings, desc.hardpoint);
+            let hp = hp_name(&self.strings, desc.hardpoint);
             self.connect_equip(owner, &mut equip, &hp, &arch);
         }
         if let EquipKind::Engine(engine) = &mut equip.kind {
@@ -869,7 +869,7 @@ impl World {
         for link in links {
             let mut shield_slot: Option<SubObjId> = None;
             for gen_hp in &link.generator_hps {
-                let hp = hp_name(&self.data.strings, *gen_hp);
+                let hp = hp_name(&self.strings, *gen_hp);
                 let Some(obj) = self.objects.get(owner) else {
                     return;
                 };
@@ -912,7 +912,7 @@ impl World {
                     if let Some(a) = &mut shield.attached {
                         a.fate = crate::equip::Fate::HealthProxy;
                     }
-                    let link_hp = hp_name(&self.data.strings, link.hardpoint);
+                    let link_hp = hp_name(&self.strings, link.hardpoint);
                     self.connect_equip(owner, &mut shield, &link_hp, &arch);
                     // `CEShield::Connect`: the shield's part is flagged.
                     if let Some(Attachment::NonPhysical { instance, .. }) =
@@ -1034,7 +1034,7 @@ impl World {
             })
             .unwrap_or_default();
         for g in &eq_arch.collision_groups {
-            let name = self.data.strings.get(g.obj).to_vec();
+            let name = self.strings.get(g.obj).to_vec();
             let mut group = ArchGroup::new(g, name.clone());
             let crc = name_crc32(&name);
             group.root_instance = tree.iter().find(|(_, part)| *part == crc).map(|(i, _)| *i);
@@ -1385,7 +1385,7 @@ impl World {
         let path = self
             .data
             .universe
-            .system_file_path(self.data.strings.get(sys.file));
+            .system_file_path(self.strings.get(sys.file));
         let Some(mut reader) = crate::data::open_ini(&assets.host, &path) else {
             return Vec::new();
         };
