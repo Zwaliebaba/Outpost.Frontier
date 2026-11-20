@@ -24,6 +24,7 @@ pub mod goods;
 pub mod loadout;
 pub mod new_char;
 pub mod reputation;
+pub mod room;
 pub mod rtc_slider;
 pub mod spatial;
 pub mod string_cache;
