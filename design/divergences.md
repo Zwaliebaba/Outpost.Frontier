@@ -228,8 +228,8 @@ proposed; the owner accepted them on 2026-11-20.
 With P3.2's fourth increment (the single-player account flow) D605 and D606
 were proposed; the owner accepted them on 2026-11-20.
 
-With P3.2's fifth increment (the multiplayer account registry) D607 is
-proposed.
+With P3.2's fifth increment (the multiplayer account registry) D607 was
+proposed; the owner accepted it on 2026-11-20.
 
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)

@@ -55,8 +55,12 @@ jobs:
           # P3.2: the account flow's restart file and new character read the templates
           # next to the running executable (GetModuleFileNameA), here Oracle.exe.
           Copy-Item outdir\*.fl bin\
-          & .\bin\Oracle.exe dump $root "$env:RUNNER_TEMP\outpost-oracle"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The output is kept for the last step, which repeats its end where the
+          # job log's tail shows it.
+          & .\bin\Oracle.exe dump $root "$env:RUNNER_TEMP\outpost-oracle" | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log"
+          $code = $LASTEXITCODE
+          "Oracle.exe dump exited with $code" | Add-Content "$env:RUNNER_TEMP\oracle-dump.log"
+          if ($code -ne 0) { exit $code }
       - name: Prepare Rust
         run: rustup toolchain install
       - name: Compare the port with the oracle
@@ -365,3 +369,11 @@ jobs:
           name: scenario-spread-summaries
           path: ${{ runner.temp }}/outpost-sim-summaries
           if-no-files-found: ignore
+      - name: Repeat the oracle dump's last output
+        # The dump step's output sits in the middle of a long log; its end is repeated
+        # here, at the log's tail, so a failure can be read from it.
+        if: always()
+        shell: pwsh
+        run: |
+          $log = "$env:RUNNER_TEMP\oracle-dump.log"
+          if (Test-Path $log) { Get-Content $log -Tail 80 } else { "the oracle dump did not run" }
