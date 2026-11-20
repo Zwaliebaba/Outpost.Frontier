@@ -601,10 +601,12 @@ void RunGameDataDump(const std::vector<std::string>& Files)
         }
     }
     {
-        // P3.2: the same templates applied to a slot and written again by Server.dll's
-        // save writer (PlayerData_SerializeToFile, OracleWriteSaveRecord).
+        // P3.2: the single-player template applied to a slot and written again by
+        // Server.dll's save writer (PlayerData_SerializeToFile, OracleWriteSaveRecord).
+        // mpnewcharacter.fl is left out: its system is still the %%HOME_SYSTEM%%
+        // placeholder, and the writer dereferences the missing system (D601).
         FGameKind K("saves_written");
-        static const char* const kSaves[] = {"newplayer.fl", "mpnewcharacter.fl"};
+        static const char* const kSaves[] = {"newplayer.fl"};
         for (const char* Name : kSaves)
         {
             const std::string Save = GFixtureDir + "\\EXE\\" + Name;

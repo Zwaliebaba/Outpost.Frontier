@@ -1,4 +1,4 @@
-//! The single-player account flow (work package P3.2): login with account
+//! The single-player account flow (work package P3.2): `PlayerDB::login` with account
 //! creation (the restart file), the character list, a character created
 //! from the multiplayer template, and the restart file refused for
 //! deletion, against `Server.dll` as `OracleSinglePlayerAccount` runs it
@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use game_logic::login::{
     self, CreateCharacterInfo, LoginInfo, ServerFiles, build_character_set, create_new_character,
-    destroy_character, load_user_data,
+    destroy_character,
 };
 use game_logic::player::CharacterId;
 use game_logic::server::{Cx, Logic, RecordingSink};
@@ -120,7 +120,7 @@ fn run(exe: &Path, data_dir: &Path, user_data: &Path) -> Option<Vec<String>> {
         account_name: account,
         create: true,
     };
-    let result = load_user_data(&mut cx, &files, &info, 1);
+    let result = login::login(&mut cx, &files, &info, 1);
     line(&mut out, "login", &result.to_string());
     file_lines(&mut out, "restart", &dir.join("Restart.fl"));
     character_set(&mut out, &mut cx);

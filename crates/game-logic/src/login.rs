@@ -179,6 +179,35 @@ pub fn create_account(cx: &mut Cx<'_>, files: &ServerFiles, info: &LoginInfo) ->
     -1
 }
 
+/// `PlayerDB::login`: 1 when an active slot is logged in on the account
+/// already (`_wcsicmp` of the names), else `load_user_data`'s answer.
+pub fn login(cx: &mut Cx<'_>, files: &ServerFiles, info: &LoginInfo, session: u32) -> u8 {
+    let name = until_nul(&info.account_name);
+    let taken = cx.logic.players.active_ids().any(|id| {
+        cx.logic
+            .players
+            .get(id)
+            .is_some_and(|slot| wcsicmp_eq(&slot.account_name, name))
+    });
+    if taken {
+        return 1;
+    }
+    load_user_data(cx, files, info, session)
+}
+
+/// `_wcsicmp(a, b) == 0` in the "C" locale: A to Z fold to a to z.
+fn wcsicmp_eq(a: &[u16], b: &[u16]) -> bool {
+    let fold = |c: u16| {
+        if (u16::from(b'A')..=u16::from(b'Z')).contains(&c) {
+            c + 32
+        } else {
+            c
+        }
+    };
+    let a = until_nul(a);
+    a.len() == b.len() && a.iter().zip(b).all(|(&x, &y)| fold(x) == fold(y))
+}
+
 /// `PlayerDB::load_user_data`: the result code the login answers with (2
 /// for no account or a name that does not match a multiplayer account's
 /// `name` file, else `PlayerData_LoginAccount`'s).

@@ -1503,7 +1503,7 @@ extern "C" SERVER_API bool __cdecl OracleWriteSaveRecord(char const* SavePath, c
 
 // Oracle instrumentation (P3.2): the single-player account flow on a fresh
 // account "OracleLogin". PlayerDB::init(2, true), the account folder emptied,
-// load_user_data with CreateFlag 1 (create_account, the restart file, the login),
+// PlayerDB::login with CreateFlag 1 (load_user_data: create_account, the restart file, the login),
 // then PlayerData_BuildCharacterSet; then, as a multiplayer game
 // (SetMultiPlayer(true) around the call), PlayerData_CreateNewCharacter with
 // "Oracle Pilot" and the shipped new-player choices, and the list again; and
@@ -1583,7 +1583,7 @@ extern "C" SERVER_API bool __cdecl OracleSinglePlayerAccount(char const* OutPath
     memset(&Info, 0, sizeof(Info));
     wcscpy_s(Info.AccountName, L"OracleLogin");
     Info.CreateFlag = 1;
-    unsigned char const Result = Players.load_user_data(Info, 1);
+    unsigned char const Result = Players.login(Info, 1);
     OracleSaveUint(Out, "login", Result);
     char Restart[260];
     sprintf_s(Restart, "%s\\Restart.fl", Dir);

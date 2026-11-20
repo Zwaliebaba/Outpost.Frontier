@@ -27,8 +27,10 @@ use neuron_core::msvcrt::{text_mode_read, text_mode_write};
 use neuron_core::vfs::Host;
 use neuron_server::save::read_save;
 
-/// The files of the kind, in the oracle's order.
-const SAVES: [&str; 2] = ["newplayer.fl", "mpnewcharacter.fl"];
+/// The files of the kind, in the oracle's order. `mpnewcharacter.fl` is not
+/// written: its system is the unfilled `%%HOME_SYSTEM%%` placeholder, which
+/// the C++ writer dereferences as a missing system (D601).
+const SAVES: [&str; 1] = ["newplayer.fl"];
 
 /// The data under a root and the records of the templates found in `exe`,
 /// read before the world exists so their strings are in its cache.
@@ -215,7 +217,7 @@ fn written_templates_read_back_on_outdir() {
         println!("outdir/ is missing: no saves");
         return;
     };
-    assert_eq!(records.len(), 2);
+    assert_eq!(records.len(), 1);
     let (data2, _) = load(&outdir, &outdir.join("data")).expect("data");
     let mut data2 = data2;
     let files = write_all(data, &records);
