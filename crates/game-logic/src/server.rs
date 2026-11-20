@@ -149,6 +149,11 @@ pub struct Logic {
     pub vibe_ids: VibeIds,
     /// What the server reports (`FDUMP`), in order.
     pub reports: game_sim::data::Reports,
+    /// The accounts a multiplayer server knows (`m_AccountNameMap`,
+    /// `m_CharacterIDMap`); empty in single player.
+    pub accounts: neuron_server::registry::AccountRegistry,
+    /// New accounts may be made (`PlayerDB::init`'s `bAllowNewPlayers`).
+    pub allow_new_players: bool,
 }
 
 /// The 4096-bit map of player vibe ids (`g_VibeBitmap`, `g_VibeBitmapHint`,
@@ -227,6 +232,8 @@ impl Logic {
             clock: neuron_server::tick::ServerClock::default(),
             vibe_ids: VibeIds::default(),
             reports: game_sim::data::Reports::default(),
+            accounts: neuron_server::registry::AccountRegistry::new(),
+            allow_new_players: true,
         }
     }
 }

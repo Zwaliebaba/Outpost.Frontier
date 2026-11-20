@@ -11,6 +11,7 @@
 
 pub mod account;
 pub mod controller;
+pub mod registry;
 pub mod save;
 pub mod session;
 pub mod tick;

@@ -6,12 +6,10 @@
 //! (`Server/server_classes.cpp`, `Server/server_savegame.cpp`).
 //!
 //! Files are written in text mode (`"wt"`), so with CR LF, and read as
-//! [`read_save`] reads them. The multiplayer parts that need the account
-//! registry (`CAccount`: its lookup by name, the locked and banned states,
-//! `PlayerDB::CreateAccount`, the character-id map) and the multiplayer
-//! prologues of the character list (the autosave and leaving the system)
-//! arrive with the multiplayer login increment; until then a multiplayer
-//! login finds no registered account and `create_account` refuses.
+//! [`read_save`] reads them. A multiplayer server keeps its accounts in
+//! [`neuron_server::registry::AccountRegistry`] (`Logic::accounts`). The
+//! multiplayer prologues of the character list (the autosave and leaving
+//! the system) arrive with character selection.
 
 use std::path::{Path, PathBuf};
 
@@ -162,8 +160,8 @@ pub fn create_restart_file(cx: &mut Cx<'_>, files: &ServerFiles, account_dir: &P
 
 /// `PlayerDB::create_account`: in single player the account folder is made
 /// and given a restart file (0, or -1 when that fails). On a multiplayer
-/// server the account registry decides; until it is ported the answer is
-/// -1.
+/// server, when new players are allowed, the registry makes the account
+/// (`PlayerDB::CreateAccount`): 0, else -1.
 pub fn create_account(cx: &mut Cx<'_>, files: &ServerFiles, info: &LoginInfo) -> i32 {
     let dir = files.accounts.account_dir(&info.account_name);
     if cx.world.config().single_player {
@@ -176,7 +174,24 @@ pub fn create_account(cx: &mut Cx<'_>, files: &ServerFiles, info: &LoginInfo) ->
             -1
         };
     }
-    -1
+    if !cx.logic.allow_new_players {
+        return -1;
+    }
+    let name = until_nul(&info.account_name).to_vec();
+    if cx.logic.accounts.create_account(&files.accounts, &name) {
+        cx.logic.reports.push(
+            "",
+            0,
+            format!(
+                "LOG: Create account {} \"{}\"",
+                String::from_utf16_lossy(&name),
+                dir.display()
+            ),
+        );
+        0
+    } else {
+        -1
+    }
 }
 
 /// `PlayerDB::login`: 1 when an active slot is logged in on the account
@@ -246,12 +261,29 @@ pub fn login_account(
     info: &LoginInfo,
     session: u32,
 ) -> u8 {
+    let name = until_nul(&info.account_name).to_vec();
+    let account = cx.logic.accounts.find_by_name(&name);
+    if let Some(slot) = cx.logic.players.get_mut(session) {
+        slot.account = account;
+    }
+    if let Some(id) = account {
+        let registered = cx.logic.accounts.get(id);
+        if registered.is_some_and(|a| a.locked) {
+            return 7;
+        }
+        if registered.is_some_and(|a| !a.not_banned) {
+            return 0;
+        }
+    }
     {
         let Some(slot) = cx.logic.players.get_mut(session) else {
             return 6;
         };
         slot.client_id = session;
-        slot.account_name = until_nul(&info.account_name).to_vec();
+        slot.account_name.clone_from(&name);
+    }
+    if let Some(registered) = account.and_then(|id| cx.logic.accounts.get_mut(id)) {
+        registered.client_id = session;
     }
     let mut result = 6;
     if dir.exists() {
@@ -273,15 +305,22 @@ pub fn login_account(
             }
         } else {
             result = 3;
-            let name = String::from_utf16_lossy(until_nul(&info.account_name));
+            let shown = String::from_utf16_lossy(&name);
             cx.logic.reports.push(
                 "",
                 0,
-                format!("LOG: Login on account {name} (\"{}\")", dir.display()),
+                format!("LOG: Login on account {shown} (\"{}\")", dir.display()),
             );
+            // The C++ stores the folder through the account pointer without
+            // a test; a login whose account is not registered skips it (D607).
+            if let Some(registered) = account.and_then(|id| cx.logic.accounts.get_mut(id)) {
+                registered.directory_path = dir.to_path_buf();
+            }
         }
     }
+    let account = cx.logic.accounts.find_by_name(&name);
     if let Some(slot) = cx.logic.players.get_mut(session) {
+        slot.account = account;
         slot.system_id = 0;
         slot.ship_object_id = 0;
         slot.created_ship_id = 0;
@@ -500,9 +539,11 @@ pub fn build_character_set(cx: &mut Cx<'_>, session: u32) -> Option<CharacterSet
     Some(set)
 }
 
-/// `PlayerData_DestroyCharacter` in single player: the restart file is
-/// kept (`false`); any other character's file is deleted and its record
-/// removed.
+/// `PlayerData_DestroyCharacter`: the restart file is kept (`false`); any
+/// other character's file is deleted, its id leaves the account registry
+/// (`PlayerDB::DeleteCharacterFromID`) and its record is removed. Leaving
+/// the game first when the character is the selected one
+/// (`PlayerData_DeselectCharacter`) arrives with character selection.
 pub fn destroy_character(
     cx: &mut Cx<'_>,
     files: &ServerFiles,
@@ -522,9 +563,76 @@ pub fn destroy_character(
         .accounts
         .account_dir(&slot.account_name)
         .join(String::from_utf8_lossy(&record.file_name).as_ref());
-    let _ = std::fs::remove_file(&path);
+    let key = record.file_name.to_ascii_lowercase();
+    let account = slot.account_name.clone();
     slot.saved_characters.remove(id);
+    cx.logic
+        .accounts
+        .delete_character_from_id(&files.accounts, &key);
+    let _ = std::fs::remove_file(&path);
+    if !cx.world.config().single_player {
+        cx.logic.reports.push(
+            "",
+            0,
+            format!(
+                "LOG: Delete character on account {} (\"{}\")",
+                String::from_utf16_lossy(&account),
+                path.display()
+            ),
+        );
+    }
     true
+}
+
+/// `PlayerDB::create_new_character`: `false` when a registered account
+/// already has a character of that name; `true` without making one when
+/// the slot's account has five characters (as the C++ answers); otherwise
+/// [`create_new_character`], and on success the name joins the account and
+/// its id the registry. A slot without a registered account is refused,
+/// where the C++ reads through the null account (D607).
+pub fn create_character(
+    cx: &mut Cx<'_>,
+    files: &ServerFiles,
+    session: u32,
+    info: &CreateCharacterInfo,
+) -> bool {
+    let name = until_nul(&info.name).to_vec();
+    let key = neuron_server::registry::character_id(&name);
+    if cx.logic.accounts.find_by_character_id(&key).is_some() {
+        return false;
+    }
+    let Some(account) = cx.logic.players.get(session).and_then(|s| s.account) else {
+        return false;
+    };
+    if cx
+        .logic
+        .accounts
+        .get(account)
+        .is_some_and(|a| a.characters.len() >= 5)
+    {
+        return true;
+    }
+    if !create_new_character(cx, files, session, info) {
+        return false;
+    }
+    if let Some(registered) = cx.logic.accounts.get_mut(account) {
+        registered.characters.push(name);
+    }
+    cx.logic.accounts.insert_character_id(&key, account);
+    true
+}
+
+/// Phases (D) and (E) of `PlayerDB::init` on a multiplayer server: the
+/// registry of every account folder under the root, with the character
+/// names its saves hold (`ReadCharacterName`).
+#[must_use]
+pub fn scan_registry(files: &ServerFiles) -> neuron_server::registry::AccountRegistry {
+    let folders = neuron_server::account::scan_accounts(&files.accounts);
+    neuron_server::registry::AccountRegistry::from_folders(&folders, &files.accounts, |path| {
+        std::fs::read(path)
+            .map(|bytes| crate::character_file::read_character_name(&bytes))
+            .unwrap_or_default()
+    })
 }
 
 /// What the client creates a character with (`SCreateCharacterInfo`).

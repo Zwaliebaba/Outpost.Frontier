@@ -234,3 +234,100 @@ fn the_account_flow_runs_on_outdir() {
     );
     let _ = login::ServerFiles::read_initial_world(b"");
 }
+
+/// A multiplayer server over `outdir/`: an account made at login, a
+/// character created from `MPNewCharacter.fl` and found again by a fresh
+/// scan of the folders, the character deleted, and a locked and a banned
+/// account refused.
+#[test]
+fn multiplayer_accounts_on_outdir() {
+    let outdir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../outdir");
+    let Some(config) = DataConfig::read(&Host::new(&outdir), b"OutpostFrontier.ini") else {
+        println!("outdir/ is missing: no accounts");
+        return;
+    };
+    let mut data = GameData::new();
+    data.load(&Host::new(outdir.join("data")), &config, None);
+    let ini = std::fs::read(outdir.join("OutpostFrontier.ini")).expect("ini");
+    let user_data = scratch("accounts-mp");
+    let _ = std::fs::remove_dir_all(user_data.join("Accts"));
+    let files = ServerFiles {
+        exe_dir: outdir.clone(),
+        data_dir: outdir.join("data"),
+        initial_world: ServerFiles::read_initial_world(&ini),
+        accounts: AccountsRoot::new(&user_data, true),
+    };
+    let data = Arc::new(data);
+    let world_config = WorldConfig {
+        single_player: false,
+        ..WorldConfig::default()
+    };
+    let mut world = World::new(Arc::clone(&data), world_config);
+    let mut logic = Logic::new(Box::new(RecordingSink::default()), 2, true);
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    let account: Vec<u16> = "Wing".encode_utf16().collect();
+    let info = LoginInfo {
+        account_name: account.clone(),
+        create: true,
+    };
+    // Made at login: the folder is the hashed name, with its `name` file.
+    assert_eq!(login::login(&mut cx, &files, &info, 1), 3);
+    assert!(files.accounts.account_dir(&account).join("name").is_file());
+    assert_eq!(
+        login::login(&mut cx, &files, &info, 2),
+        1,
+        "logged in already"
+    );
+    let create = CreateCharacterInfo {
+        name: "Ace".encode_utf16().collect(),
+        faction: create_id(b"new_player"),
+        base: create_id(b"he01_01_base"),
+        package: create_id(b"ge_fighter"),
+        pilot: create_id(b"rellan"),
+    };
+    assert!(login::create_character(&mut cx, &files, 1, &create));
+    assert!(
+        !login::create_character(&mut cx, &files, 1, &create),
+        "name taken"
+    );
+    let key = CharacterId::new(format!("{}.fl", hashed_name(&create.name)).as_bytes());
+    let record = login::saved_character(&cx, 1, &key).expect("the new character loads");
+    assert_eq!(record.name, create.name);
+    assert_eq!(record.money, 2000);
+
+    // A fresh scan finds the account and the character's name.
+    let scanned = login::scan_registry(&files);
+    let id = scanned.find_by_name(&account).expect("account");
+    assert_eq!(
+        scanned.get(id).unwrap().characters,
+        std::slice::from_ref(&create.name)
+    );
+    assert_eq!(scanned.find_by_character_name(&create.name), Some(id));
+
+    assert!(destroy_character(&mut cx, &files, 1, &key));
+    assert_eq!(cx.logic.accounts.find_by_character_name(&create.name), None);
+    assert!(login::saved_character(&cx, 1, &key).is_none());
+
+    // Locked, then banned, on a server that has just scanned its folders.
+    let mut world = World::new(Arc::clone(&data), world_config);
+    let mut logic = Logic::new(Box::new(RecordingSink::default()), 2, true);
+    logic.accounts = login::scan_registry(&files);
+    assert_eq!(logic.accounts.lock(&account), None);
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    assert_eq!(login::login(&mut cx, &files, &info, 1), 7);
+    std::fs::write(files.accounts.account_dir(&account).join("banned"), b"").expect("banned");
+    cx.logic.accounts = login::scan_registry(&files);
+    assert_eq!(login::login(&mut cx, &files, &info, 1), 0);
+    // An unknown account without the create flag.
+    let stranger = LoginInfo {
+        account_name: "Nobody".encode_utf16().collect(),
+        create: false,
+    };
+    assert_eq!(login::login(&mut cx, &files, &stranger, 2), 2);
+}

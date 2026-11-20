@@ -95,6 +95,8 @@ pub struct PlayerData {
     pub account_name: Vec<u16>,
     /// The client id (+0x348); 0 for a free slot.
     pub client_id: u32,
+    /// The registered account the slot is logged in on (`account_ptr`).
+    pub account: Option<neuron_server::registry::AccountId>,
     /// The selected character's id (+0x64), empty when none is selected.
     pub selected_character: CharacterId,
     /// The account's characters by id (`saved_characters`, +0x404).
@@ -180,6 +182,7 @@ impl Default for PlayerData {
         Self {
             account_name: Vec::new(),
             client_id: 0,
+            account: None,
             selected_character: CharacterId::default(),
             saved_characters: BTreeMap::new(),
             cash: 0,
