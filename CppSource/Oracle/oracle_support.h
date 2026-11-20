@@ -319,4 +319,4 @@ void RunSceneScriptSaveDataDump(const std::vector<std::string>& Files);
 // crates/neuron-server/tests/vectors/controller_bus.jsonl (decision record 0006 point 10).
 void RunControllerBusSuite();
 // P3.1 (oracle_bus.cpp): the account CRC and hashed names, for account.jsonl.
-void RunAccountSuite();
+void RunServerAccountSuite();

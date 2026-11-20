@@ -552,7 +552,7 @@ int main(int Argc, char** Argv)
     if (bNeuronServer)
     {
         RunControllerBusSuite();
-        RunAccountSuite();
+        RunServerAccountSuite();
         return GFailed ? 1 : 0;
     }
     if (bGameSim)

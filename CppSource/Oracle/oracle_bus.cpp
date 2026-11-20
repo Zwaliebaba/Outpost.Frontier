@@ -432,7 +432,7 @@ void RunControllerBusSuite()
 //   name <hex UTF-16LE>|.     -> {"in","dir","key"}   (Server_AccountDirName; the name-file key,
 //                                                     the low 16 bits of the CRC of
 //                                                     L"AKL!8167fGBA0712", server_classes.cpp)
-void RunAccountSuite()
+void RunServerAccountSuite()
 {
     Suite Out("account.jsonl");
     for (std::string const& Line : InputLines("account.list"))
