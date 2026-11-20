@@ -261,3 +261,29 @@ pub fn set_interface_state(cx: &mut Cx<'_>, client: u32, state: u32) {
         },
     );
 }
+
+/// `SendServerMiscObjUpdateMission` (slot +0x1c8, ch2 0x54): the group's
+/// mission and who set it.
+pub fn misc_obj_update_mission(cx: &mut Cx<'_>, client: u32, mission: u32, set_by: u32) {
+    let message = MiscObjUpdate {
+        flags: 0x02,
+        field_38: mission,
+        field_3c: set_by,
+        ..MiscObjUpdate::default()
+    };
+    send(cx, client, message);
+}
+
+/// `SendServerSetMissionObjectives` (ch2 0x35) with no objectives: the
+/// mission and state 0 and two empty format strings.
+pub fn clear_mission_objectives(cx: &mut Cx<'_>, client: u32) {
+    let empty = FmtStr::default().flatten().unwrap_or_default();
+    let message = game_sim::protocol::to_client::SetMissionObjectives {
+        field_00: 0,
+        state: 0,
+        text_a: empty.clone(),
+        text_b: empty,
+        objectives: Vec::new(),
+    };
+    send(cx, client, message);
+}

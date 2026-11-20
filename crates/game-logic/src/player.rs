@@ -173,6 +173,12 @@ pub struct PlayerData {
     pub visits: BTreeMap<u32, u8>,
     /// Visits not yet committed (+0x3b8), in order.
     pub pending_visits: Vec<(u32, u8)>,
+    /// The player's group (`group_ptr`), by id.
+    pub group: Option<u32>,
+    /// The group's mission (`group_mission_id`).
+    pub group_mission_id: u32,
+    /// Who set it (`group_mission_set_by`).
+    pub group_mission_set_by: u32,
 }
 
 impl Default for PlayerData {
@@ -221,6 +227,9 @@ impl Default for PlayerData {
             interface_state: 0,
             visits: BTreeMap::new(),
             pending_visits: Vec::new(),
+            group: None,
+            group_mission_id: 0,
+            group_mission_set_by: 0,
         }
     }
 }

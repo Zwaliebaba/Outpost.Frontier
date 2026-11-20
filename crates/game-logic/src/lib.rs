@@ -2,8 +2,10 @@
 #![forbid(unsafe_code)]
 
 pub mod character_file;
+pub mod chat;
 pub mod client;
 pub mod events;
+pub mod group;
 pub mod login;
 pub mod player;
 pub mod save_writer;

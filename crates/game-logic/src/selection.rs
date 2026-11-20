@@ -5,12 +5,11 @@
 //!
 //! On a multiplayer server, re-selecting while a character is selected
 //! first takes the old one out of its system and base (`PlayerDB_LeaveSystem`,
-//! `PlayerDB_LeaveBase`, the `SystemExit` broadcast), ends its trade and
-//! takes it out of its group. Those need the system and base databases
-//! (P3.3, P3.4), trades and groups, and are not done yet; the rest of the
-//! re-selection (the `PlayerLogout` and `PlayerLogin` broadcasts and the
-//! player-list removals) is. The groups the player list reports are 0
-//! until groups are ported.
+//! `PlayerDB_LeaveBase`, the `SystemExit` broadcast) and ends its trade.
+//! Those need the system and base databases (P3.3, P3.4) and trades, and
+//! are not done yet; the rest of the
+//! re-selection (the `PlayerLogout` broadcast, leaving the group, the
+//! player-list removals and `PlayerLogin`) is.
 
 use neuron_core::ini::IniReader;
 use neuron_server::controller::ControllerId;
@@ -46,7 +45,12 @@ pub fn select_character(
         return false;
     };
     if !cx.world.config().single_player {
-        let own_group = 0;
+        let mut own_group = cx
+            .logic
+            .players
+            .get(session)
+            .and_then(|slot| slot.group)
+            .unwrap_or(0);
         let selected = cx
             .logic
             .players
@@ -55,6 +59,10 @@ pub fn select_character(
             .unwrap_or_default();
         if selected.is_valid() && *id != selected {
             broadcast(cx, &mut ControllerMessage::PlayerLogout { player: session });
+            if let Some(group) = cx.logic.players.get(session).and_then(|slot| slot.group) {
+                crate::group::handle_client_logout(cx, group, session);
+                own_group = 0;
+            }
             let others: Vec<u32> = cx
                 .logic
                 .players
@@ -81,13 +89,16 @@ pub fn select_character(
             if cx.logic.multiplayer_server && !other_slot.selected_character.is_valid() {
                 continue;
             }
-            let (vibe, system) = (other_slot.rep_vibe, other_slot.system_id);
+            let (vibe, system, other_group) = (
+                other_slot.rep_vibe,
+                other_slot.system_id,
+                other_slot.group.unwrap_or(0),
+            );
             let (vibes, _) = cx.world.vibes();
             let rank = match vibes.rank(vibe) {
                 (0, rank) => rank,
                 _ => 0,
             };
-            let other_group = 0;
             if other != session {
                 let name = vibes.name(vibe).map_or_else(
                     || BAD_NAME.encode_utf16().collect(),

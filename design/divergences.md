@@ -231,6 +231,8 @@ were proposed; the owner accepted them on 2026-11-20.
 With P3.2's fifth increment (the multiplayer account registry) D607 was
 proposed; the owner accepted it on 2026-11-20.
 
+With P3.2's seventh increment (groups and chat) D608 is proposed.
+
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)
 on 2026-11-19, as `TriMesh`'s editing mode (D358): no shipped model has
@@ -663,6 +665,7 @@ one, and it is ported when a caller needs it.
 | D605 | `game-logic::login` (P3.2) | `PlayerDB::create_restart_file` passes the `NewPlayer.fl` template's text to `fprintf` as its format string, so a `%` in it is read as a conversion with no argument | The port writes the template as it is | Undefined behaviour in the reference | Templates that contain `%` only; the shipped one has none |
 | D606 | `game-logic::login` (P3.2) | `PlayerData_LoginAccount` copies the login name into the slot's 40-character `AccountName` with `wcscpy`, past it for a longer name; `PlayerData_CreateNewCharacter` walks `Loadout::Get` of the package's loadout without a null test | The slot keeps the whole name; a package whose loadout is unknown gives a `ship_archetype` line and no equipment | Undefined behaviour in the reference | Names of 40 characters or more, and new-character packages naming an unknown loadout, only |
 | D607 | `game-logic::login` (P3.2) | On a multiplayer server `PlayerData_LoginAccount` stores the account folder through `account_ptr` without a test, and `PlayerDB::create_new_character` reads the slot's character count through it: a login or a new character on an account the registry does not hold calls through null | The folder is not stored for an unregistered account, and its new character is refused | Undefined behaviour in the reference | Accounts whose folder exists but which the registry lacks (made after the scan by hand) only |
+| D608 | `game-logic::chat` (P3.2) | `Server_SubmitChat` checks a player's right to universe chat through `account_ptr` without a test, so a sender whose slot has no registered account (single player, or an account the registry lacks) calls through null | Such a sender is refused as one without the right | Undefined behaviour in the reference | Universe chat from a slot without a registered account only |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32

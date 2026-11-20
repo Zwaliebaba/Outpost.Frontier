@@ -113,6 +113,26 @@ pub trait ClientSink {
     fn send(&mut self, client: u32, message: ToClient);
 }
 
+/// Where the server's chat messages go (`IChatClient::SendCommonChatMsg`):
+/// to a chat id, from a chat id, with the encoded message.
+pub trait ChatSink {
+    /// One chat message.
+    fn send(&mut self, to: u32, from: u32, data: Vec<u8>);
+}
+
+/// A chat sink that keeps what it is sent.
+#[derive(Debug, Default)]
+pub struct RecordingChat {
+    /// The messages in order: to, from, data.
+    pub sent: Vec<(u32, u32, Vec<u8>)>,
+}
+
+impl ChatSink for RecordingChat {
+    fn send(&mut self, to: u32, from: u32, data: Vec<u8>) {
+        self.sent.push((to, from, data));
+    }
+}
+
 /// A sink that keeps what it is sent, for tests and the harness.
 #[derive(Debug, Default)]
 pub struct RecordingSink {
@@ -154,6 +174,12 @@ pub struct Logic {
     pub accounts: neuron_server::registry::AccountRegistry,
     /// New accounts may be made (`PlayerDB::init`'s `bAllowNewPlayers`).
     pub allow_new_players: bool,
+    /// The chat side of the transport (`g_pChatClientInterface`).
+    pub chat: Box<dyn ChatSink>,
+    /// The player groups.
+    pub groups: crate::group::Groups,
+    /// A host's view of the chat traffic.
+    pub chat_hooks: crate::chat::ChatHooks,
 }
 
 /// The 4096-bit map of player vibe ids (`g_VibeBitmap`, `g_VibeBitmapHint`,
@@ -234,6 +260,9 @@ impl Logic {
             reports: game_sim::data::Reports::default(),
             accounts: neuron_server::registry::AccountRegistry::new(),
             allow_new_players: true,
+            chat: Box::new(RecordingChat::default()),
+            groups: crate::group::Groups::default(),
+            chat_hooks: crate::chat::ChatHooks::default(),
         }
     }
 }
