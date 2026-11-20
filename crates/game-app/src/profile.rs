@@ -82,7 +82,7 @@ impl Profile {
         let profile = Profile {
             logins: LoginHistory::from_registry(&root),
             tables: TableLayouts::from_registry(&root),
-            account: AccountKeys::from_registry(&root),
+            account: account_keys::from_registry(&root),
         };
         profile.save(paths, protector)?;
         Ok((profile, Origin::Imported))
@@ -99,7 +99,7 @@ impl Profile {
                 .ok_or(ProfileError::Malformed(table_layouts::FILE_NAME))?;
         }
         if let Some(t) = user_state::load(&paths.file(account_keys::FILE_NAME))? {
-            profile.account = AccountKeys::from_toml(&t)
+            profile.account = account_keys::from_toml(&t)
                 .ok_or(ProfileError::Malformed(account_keys::FILE_NAME))?;
         }
         Ok(profile)
@@ -118,7 +118,7 @@ impl Profile {
         )?;
         user_state::save(
             &paths.file(account_keys::FILE_NAME),
-            &self.account.to_toml(),
+            &account_keys::to_toml(&self.account),
         )?;
         Ok(())
     }

@@ -61,6 +61,9 @@ extern "C" __declspec(dllimport) void __cdecl OracleSimControllerHeartbeats(FOra
                                                                             void* Context);
 extern "C" __declspec(dllimport) void __cdecl OracleBusTick(float Dt);
 extern "C" __declspec(dllimport) void __cdecl OracleBusShutdown();
+extern "C" __declspec(dllimport) unsigned int __cdecl OracleAccountCrc(unsigned char const* Bytes,
+                                                                       unsigned int ByteCount);
+extern "C" __declspec(dllimport) void __cdecl OracleAccountDirName(char* Out, wchar_t const* AccountName);
 
 namespace
 {
@@ -422,4 +425,46 @@ void RunControllerBusSuite()
     }
     GOut = nullptr;
     SetScript(nullptr);
+}
+
+// P3.1: the account suite, over crates/neuron-server/tests/fixtures/oracle/account.list:
+//   crc <hex bytes>|.         -> {"in","crc"}         (Server_AccountCrc)
+//   name <hex UTF-16LE>|.     -> {"in","dir","key"}   (Server_AccountDirName; the name-file key,
+//                                                     the low 16 bits of the CRC of
+//                                                     L"AKL!8167fGBA0712", server_classes.cpp)
+void RunAccountSuite()
+{
+    Suite Out("account.jsonl");
+    for (std::string const& Line : InputLines("account.list"))
+    {
+        std::vector<std::string> const A = Tokens(Line);
+        if (A.empty())
+            continue;
+        std::string const Field = A.size() == 2 && A[1] != "." ? A[1] : std::string();
+        Bytes const Data = Unhex(Field);
+        size_t const Length = Data.empty() ? 0 : Data.size() - 1;   // Unhex adds a NUL
+        if (A[0] == "crc" && A.size() == 2)
+        {
+            unsigned int const Crc = OracleAccountCrc(Data.data(), static_cast<unsigned int>(Length));
+            Out.Line(Format("{\"in\":\"%s\",\"crc\":\"%08x\"}", A[1].c_str(), Crc));
+        }
+        else if (A[0] == "name" && A.size() == 2)
+        {
+            std::wstring Name;
+            for (size_t Index = 0; Index + 1 < Length; Index += 2)
+                Name.push_back(static_cast<wchar_t>(Data[Index] | (Data[Index + 1] << 8)));
+            char Dir[64] = {};
+            OracleAccountDirName(Dir, Name.c_str());
+            wchar_t const KeySource[] = L"AKL!8167fGBA0712";
+            unsigned short const Key = static_cast<unsigned short>(OracleAccountCrc(
+                reinterpret_cast<unsigned char const*>(KeySource),
+                static_cast<unsigned int>(wcslen(KeySource) * sizeof(wchar_t))));
+            Out.Line(Format("{\"in\":\"%s\",\"dir\":\"%s\",\"key\":\"%04x\"}", A[1].c_str(), Dir, Key));
+        }
+        else
+        {
+            fprintf(stderr, "account.list: bad line %s\n", Line.c_str());
+            GFailed = true;
+        }
+    }
 }

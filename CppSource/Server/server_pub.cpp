@@ -931,6 +931,17 @@ void Server_AccountDirName(char* Out, wchar_t const* AccountName) {
     sprintf(Out, "%02x-%08x", Length, Folded);
 }
 
+// Oracle instrumentation (P3.1, the account suite of Oracle.exe neuron-server): the account
+// CRC and the hashed account and character names, for crates/neuron-server's account module.
+// New exports; no game module calls them. Out takes at least 32 characters.
+extern "C" SERVER_API unsigned int __cdecl OracleAccountCrc(unsigned char const* Bytes, unsigned int ByteCount) {
+    return Server_AccountCrc(Bytes, ByteCount);
+}
+
+extern "C" SERVER_API void __cdecl OracleAccountDirName(char* Out, wchar_t const* AccountName) {
+    Server_AccountDirName(Out, AccountName);
+}
+
 // ---------------------------------------------------------------------------
 // Server_WriteCostume -- baseline the routine (module storage .. module storage).
 

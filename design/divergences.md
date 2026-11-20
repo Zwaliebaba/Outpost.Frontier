@@ -215,6 +215,9 @@ With P3.1's first increment (the controller bus of decision record 0006,
 decision O40) D594 to D596 were proposed; the owner accepted them on
 2026-11-20.
 
+With P3.1's second increment (the account files, session slots and the
+server frame) D597 and D598 are proposed.
+
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)
 on 2026-11-19, as `TriMesh`'s editing mode (D358): no shipped model has
@@ -636,6 +639,8 @@ one, and it is ported when a caller needs it.
 | D594 | `neuron-server::controller` (P3.1) | `Server_ControllerCreate` links the new node into the active list (outside a walk) before `CreateInstance` sets its interface pointer; a broadcast the constructor sends, or a targeted send to its own id, calls `HandleMessage` through that null pointer | A node whose kind is not set yet is skipped by every delivery | Undefined behaviour in the reference | None where the P3.0 survey looked: Content creates controllers from inside broadcasts, where the new node waits in the deferred list and no walk reaches it; P3.5 and P3.7 check the constructors they port |
 | D595 | `neuron-server::controller` (P3.1) | `Server_TimerTick` calls `DestroyInstance` while the node is still in the active list and in `g_DestroyPending`, and frees the node before the queue is cleared: a broadcast from the destructor reaches the half-destroyed controller, and a `pub::Controller::Destroy` from it reads freed nodes of the queue | The queue is taken front to back and each node leaves the active list before its destructor runs; a controller a destructor destroys is torn down in the same pass, as the C++'s walk of the list it appends to does | Undefined behaviour in the reference | None expected: the Content destructors read so far release memory only; P3.5 to P3.7 check the ones they port |
 | D596 | `neuron-server::controller` (P3.1) | A heartbeat period of 0 divides 0 by 0 in the x87 unit on the first beat, which delivers the x87 default NaN (sign bit set) | The same division in `f64` delivers the host's default NaN (negative on x86-64, positive on AArch64); either way it is delivered once and the accumulator stays NaN, so no beat follows | Numeric policy (decision T11) | No data sets a zero period; the delivered value's sign only |
+| D597 | `neuron-server::account` (P3.1) | In single player an account's folder is `wcstombs(name)` in the "C" locale, which fails at the first character above 0xFF and leaves the buffer unterminated past what it converted | The folder name ends before the first character above 0xFF | Undefined behaviour in the reference | Single-player names with such characters only; multiplayer folders are hashed |
+| D598 | `neuron-server::session` (P3.1) | `PlayerDB::operator[]` indexes `m_PlayerArray[Id - 1]` without a check; id 0 or one above `MaxPlayers` reads outside the array | `SessionTable::get` answers `None` outside the array; `is_valid` keeps the C++'s three tests | Undefined behaviour in the reference | None where callers test `is_valid` first, as the C++'s do |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32

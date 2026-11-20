@@ -318,3 +318,5 @@ void RunSceneScriptSaveDataDump(const std::vector<std::string>& Files);
 // P3.1): Server.dll's controller registry driven by scripted controllers, for
 // crates/neuron-server/tests/vectors/controller_bus.jsonl (decision record 0006 point 10).
 void RunControllerBusSuite();
+// P3.1 (oracle_bus.cpp): the account CRC and hashed names, for account.jsonl.
+void RunAccountSuite();
