@@ -212,7 +212,8 @@ recognises are taken; the orientation also follows the layouts the
 messages see.
 
 With P3.1's first increment (the controller bus of decision record 0006,
-decision O40) D594 to D596 are proposed.
+decision O40) D594 to D596 were proposed; the owner accepted them on
+2026-11-20.
 
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)
