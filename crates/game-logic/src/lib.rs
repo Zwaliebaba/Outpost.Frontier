@@ -3,6 +3,7 @@
 
 pub mod character_file;
 pub mod events;
+pub mod server;
 
 use std::io::{self, Write};
 
