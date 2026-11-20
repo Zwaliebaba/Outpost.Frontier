@@ -182,6 +182,9 @@ pub struct Logic {
     pub chat_hooks: crate::chat::ChatHooks,
     /// The prefix of a cheat announcement (`GCheatMessage`).
     pub cheat_message: Vec<u16>,
+    /// The base database, made from the world's bases on first use
+    /// (`Server_SubsystemInit`).
+    pub bases: Option<crate::bases::BaseDb>,
 }
 
 /// The 4096-bit map of player vibe ids (`g_VibeBitmap`, `g_VibeBitmapHint`,
@@ -266,6 +269,7 @@ impl Logic {
             groups: crate::group::Groups::default(),
             chat_hooks: crate::chat::ChatHooks::default(),
             cheat_message: crate::cheats::DEFAULT_MESSAGE.encode_utf16().collect(),
+            bases: None,
         }
     }
 }

@@ -237,7 +237,8 @@ owner accepted it on 2026-11-20.
 With P3.3's first increment (the markets and the cheat check) D609 was
 proposed; the owner accepted it on 2026-11-20.
 
-With P3.3's room placements (`game-sim::data::room`) D610 is proposed.
+With P3.3's room placements (`game-sim::data::room`) D610 is proposed,
+and with the run-time base database D611.
 
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)
@@ -674,6 +675,7 @@ one, and it is ported when a caller needs it.
 | D608 | `game-logic::chat` (P3.2) | `Server_SubmitChat` checks a player's right to universe chat through `account_ptr` without a test, so a sender whose slot has no registered account (single player, or an account the registry lacks) calls through null | Such a sender is refused as one without the right | Undefined behaviour in the reference | Universe chat from a slot without a registered account only |
 | D609 | `game-logic::bases`, `game-logic::cheats` (P3.3) | `pub::Market::GetPrice` reads `GoodList::find_by_id(good)->Price` without a test for a good the base's market lacks, and `PlayerData_EquipmentNotSoldOnBase` reads the ship archetype of a ship good's hull good without a test: an unknown good or hull calls through null | `GetPrice` answers -4 (the worth check then counts the item at price 0, as it starts the price at 0 and ignores the result); a ship good whose hull good is unknown is passed over | Undefined behaviour in the reference | Goods the goods list lacks only |
 | D610 | `game-sim::data::room` (P3.3) | `SetpointProperties::extract_from_name` compares the `strtok` tokens of a `zs`/`zg` setpoint name without testing for null, so a name with fewer than five tokens crashes after its report; `read_set_script` takes `strlen` of a nameless camera or marker, and `read_CharacterPlacement_block` compares a missing `name` after its report | A missing token reads as empty, a nameless entity is skipped, and a block without a name is skipped after its report | Undefined behaviour in the reference | Room scripts and files that break the naming convention only; the shipped rooms report none |
+| D611 | `game-logic::bases` (P3.3) | `BaseDB` calls through a null entry when a record names an unknown room or base (`create_character`, `create_behavior`, `create_mission_vendor`, `create_news_broadcast`, `count_mission_vendors`), `FRoomEntry::create_character` reads placement -1 for a placement name the room lacks, `FHandlePool::set` throws `out_of_range` above 4095, and the pools' walk never ends when they are full and the last position given is 0 | The creators answer -1 or `0xffffffff` and the count 0 after the C++'s report; an unknown placement creates nothing (-1); an out-of-range position is ignored; a full pool answers -1 or `0xffffffff` after one lap | Undefined behaviour or a crash in the reference | Records naming rooms, bases or placements the data lacks, and more than 4096 live records of a kind, only |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32
