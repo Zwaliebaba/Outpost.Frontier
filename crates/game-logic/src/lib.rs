@@ -13,6 +13,7 @@ pub mod player;
 pub mod save_writer;
 pub mod selection;
 pub mod server;
+pub mod world;
 
 use std::io::{self, Write};
 

@@ -129,6 +129,37 @@ impl Object {
     }
 }
 
+/// The server's parts of a system frame (decision record 0007, point 2):
+/// the wrapper's update around each object's own, the dock queue after
+/// the deferred deletes, and whether the frame steps the physics.
+/// `game-logic` implements it; the world alone uses [`NoServerHooks`].
+pub trait ServerHooks {
+    /// `GameObject::update`'s server part, before the object's own update.
+    fn object_update(&mut self, world: &mut World, object: ObjHandle, dt: f32) {
+        let _ = (world, object, dt);
+    }
+
+    /// After a sub-step's deferred deletes: `StarSystem_Update`'s dock
+    /// queue.
+    fn after_reap(&mut self, world: &mut World, system: u32) {
+        let _ = (world, system);
+    }
+
+    /// Whether a sub-step with `server_physics` moves the bullets and steps
+    /// the physics: `StarSystem_Update` does so only while the system has
+    /// players. True without a server.
+    fn steps_physics(&mut self, world: &World, system: u32) -> bool {
+        let _ = (world, system);
+        true
+    }
+}
+
+/// No server: every sub-step steps the physics.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NoServerHooks;
+
+impl ServerHooks for NoServerHooks {}
+
 /// `ZONE::GetImmersion` (P2.1's `Zone::immersion`), stored to the caller's
 /// float.
 fn zone_immersion(zone: &crate::data::zone::Zone, pos: Vector) -> f32 {
@@ -154,8 +185,24 @@ fn sync_bodies(objects: &mut Arena<Object>, world: &PhysicsWorld) {
 
 impl World {
     /// One server frame of a system (`StarSystem_Update`): the sub-step
-    /// loop, the global time, and, with `server_physics`, the physics.
+    /// loop and, with `server_physics`, the physics, then the global time
+    /// (a harness that steps one system per frame).
     pub fn step(&mut self, system: u32, dt: f32) {
+        self.step_with(system, dt, &mut NoServerHooks);
+        self.update_global_time(dt);
+    }
+
+    /// `Timing::UpdateGlobalTime`: once per frame, whatever number of
+    /// systems the frame steps (the executables' frame loops).
+    pub fn update_global_time(&mut self, dt: f32) {
+        self.time += f64::from(dt);
+    }
+
+    /// [`World::step`] with the server's hooks (decision record 0007,
+    /// point 2), without the global time, which a server advances once per
+    /// frame ([`World::update_global_time`]). Returns the number of
+    /// sub-steps (`StarSystem_Update`'s result).
+    pub fn step_with(&mut self, system: u32, dt: f32, hooks: &mut dyn ServerHooks) -> u32 {
         // `Server_StepSystems`: outside single player `AnimDB::Update`
         // first, which turns the joints the last frame registered.
         if !self.config.single_player {
@@ -166,12 +213,14 @@ impl World {
             step = 0.2;
         }
         let target = f64::from(dt);
+        let mut iterations = 0;
         if target > 0.0 {
             let mut accum = 0.0f64;
             let mut current = step;
             loop {
                 accum += f64::from(current);
-                self.sub_step(system, current);
+                iterations += 1;
+                self.sub_step(system, current, hooks);
                 if target - accum < f64::from(current) {
                     current = (target - accum) as f32;
                 }
@@ -180,28 +229,30 @@ impl World {
                 }
             }
         }
-        self.time += target;
+        iterations
     }
 
-    fn sub_step(&mut self, system: u32, step: f32) {
+    fn sub_step(&mut self, system: u32, step: f32, hooks: &mut dyn ServerHooks) {
         for list in [TickList::Ships, TickList::Guided] {
-            self.tick_list(system, list, step);
+            self.tick_list(system, list, step, hooks);
         }
-        self.tick_near_solars(system, step);
+        self.tick_near_solars(system, step, hooks);
         for list in [
             TickList::Loot,
             TickList::Beams,
             TickList::Mines,
             TickList::CounterMeasures,
         ] {
-            self.tick_list(system, list, step);
+            self.tick_list(system, list, step, hooks);
         }
         // `CmnAsteroid::Update` and `SrvAsteroid_UpdateSystem`, then the
         // asteroid list (`ListC0`).
         self.update_asteroid_fields(system, step);
-        self.tick_list(system, TickList::Asteroids, step);
+        self.tick_list(system, TickList::Asteroids, step, hooks);
         self.reap();
-        if self.config.server_physics {
+        // The dock queue, after the deferred deletes.
+        hooks.after_reap(self, system);
+        if self.config.server_physics && hooks.steps_physics(self, system) {
             self.move_beams(system, step);
             self.step_physics(system, step);
             self.phantom_events(system);
@@ -210,15 +261,16 @@ impl World {
         }
     }
 
-    fn tick_list(&mut self, system: u32, list: TickList, dt: f32) {
+    fn tick_list(&mut self, system: u32, list: TickList, dt: f32, hooks: &mut dyn ServerHooks) {
         for h in self.list(system, list) {
+            hooks.object_update(self, h, dt);
             self.update_object(h, dt, 0);
         }
     }
 
     /// `StarSystem_UpdateNearShips`: the solars within 10000 m of a
     /// player's ship, then those kept always updated.
-    fn tick_near_solars(&mut self, system: u32, dt: f32) {
+    fn tick_near_solars(&mut self, system: u32, dt: f32, hooks: &mut dyn ServerHooks) {
         let players: Vec<Vector> = self
             .list(system, TickList::Ships)
             .into_iter()
@@ -251,6 +303,7 @@ impl World {
             }
         }
         for h in chosen {
+            hooks.object_update(self, h, dt);
             self.update_object(h, dt, 0);
         }
     }

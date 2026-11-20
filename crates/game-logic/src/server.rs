@@ -185,6 +185,8 @@ pub struct Logic {
     /// The base database, made from the world's bases on first use
     /// (`Server_SubsystemInit`).
     pub bases: Option<crate::bases::BaseDb>,
+    /// The star systems (`SysDB::SysMap`, record 0007 point 3).
+    pub server_world: crate::world::ServerWorld,
 }
 
 /// The 4096-bit map of player vibe ids (`g_VibeBitmap`, `g_VibeBitmapHint`,
@@ -270,6 +272,7 @@ impl Logic {
             chat_hooks: crate::chat::ChatHooks::default(),
             cheat_message: crate::cheats::DEFAULT_MESSAGE.encode_utf16().collect(),
             bases: None,
+            server_world: crate::world::ServerWorld::default(),
         }
     }
 }

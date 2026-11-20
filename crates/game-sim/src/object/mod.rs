@@ -424,6 +424,9 @@ pub struct Object {
     pub data: KindData,
     /// Marked for the end-of-tick reap (decision record 0001, point 5).
     pub dead: bool,
+    /// In transit between systems: the physics parameters
+    /// `GameObject::leave_system` saved (decision record 0007, point 5).
+    pub transit: Option<neuron_core::physics::CreateParms>,
 }
 
 impl Object {

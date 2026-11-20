@@ -206,6 +206,7 @@ impl World {
             equipped: None,
             data,
             dead: false,
+            transit: None,
         }
     }
 
@@ -606,6 +607,7 @@ impl World {
                 equip,
             },
             dead: false,
+            transit: None,
         };
         let h = self.insert(system, obj);
         let constants = self.physics.constants().clone();
@@ -982,6 +984,18 @@ impl World {
         if let Some(obj) = self.objects.get_mut(h) {
             obj.physical.controllers.push((which, handle, key));
         }
+    }
+
+    /// `PhySys::Controller::Register` for one of an object's own
+    /// controllers.
+    pub(crate) fn register_controller(&mut self, h: ObjHandle, which: ControllerRef) {
+        self.register(h, which);
+    }
+
+    /// `ReMakePhysicalR`'s body: built from `parms` at the object's frame
+    /// in its system, as a ship's first body is.
+    pub(crate) fn rebuild_body(&mut self, h: ObjHandle, parms: CreateParms) {
+        self.build_body(h, parms, None, false);
     }
 
     /// `ControlObject` for an item's controller (`EnableController`).
@@ -1535,6 +1549,7 @@ impl World {
             equipped: None,
             data: KindData::Beam(beam),
             dead: false,
+            transit: None,
         };
         // `CProjectile::CreateParms::Id` is 0: a server bullet has no id
         // (`Server/server_classes.cpp:9743`), so a partner's
