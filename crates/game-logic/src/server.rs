@@ -143,6 +143,73 @@ pub struct Logic {
     pub players: neuron_server::session::SessionTable<crate::player::PlayerData>,
     /// `IsMPServer()`: a dedicated multiplayer server.
     pub multiplayer_server: bool,
+    /// The server's game time (`GServerTimeBase`, `g_ElapsedTimeAccum`).
+    pub clock: neuron_server::tick::ServerClock,
+    /// The players' vibe ids (`g_VibeBitmap`).
+    pub vibe_ids: VibeIds,
+}
+
+/// The 4096-bit map of player vibe ids (`g_VibeBitmap`, `g_VibeBitmapHint`,
+/// `Server/server_pub.cpp:5802`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VibeIds {
+    bits: [u32; 128],
+    hint: u32,
+}
+
+impl Default for VibeIds {
+    fn default() -> Self {
+        Self {
+            bits: [0; 128],
+            hint: 0,
+        }
+    }
+}
+
+impl VibeIds {
+    /// The number of ids.
+    pub const COUNT: u32 = 0x1000;
+
+    fn taken(&self, index: u32) -> bool {
+        self.bits[(index >> 5) as usize] & (1 << (index & 0x1F)) != 0
+    }
+
+    /// `Server_VibeID_Alloc`: the first free id after the last one given,
+    /// wrapping at 4096; -1 when the walk comes back to that id. The walk
+    /// passes 0 without the comparison, so with every id taken and the last
+    /// one given 0 the C++ never returns; the port returns -1 there too
+    /// (D604).
+    pub fn alloc(&mut self) -> i32 {
+        let mut index = self.hint + 1;
+        if index >= Self::COUNT {
+            index = 0;
+        }
+        for _ in 0..=Self::COUNT {
+            if !self.taken(index) {
+                self.bits[(index >> 5) as usize] |= 1 << (index & 0x1F);
+                self.hint = index;
+                return index as i32;
+            }
+            index += 1;
+            if index >= Self::COUNT {
+                index = 0;
+            } else if index == self.hint {
+                return -1;
+            }
+        }
+        -1
+    }
+
+    /// `Server_VibeID_Free`; the C++ throws `out_of_range` for an id above
+    /// 4095, which the port ignores.
+    pub fn free(&mut self, id: i32) {
+        let Ok(index) = u32::try_from(id) else {
+            return;
+        };
+        if index < Self::COUNT {
+            self.bits[(index >> 5) as usize] &= !(1 << (index & 0x1F));
+        }
+    }
 }
 
 impl Logic {
@@ -155,6 +222,8 @@ impl Logic {
             deliver_hook: None,
             players: neuron_server::session::SessionTable::new(max_players),
             multiplayer_server,
+            clock: neuron_server::tick::ServerClock::default(),
+            vibe_ids: VibeIds::default(),
         }
     }
 }

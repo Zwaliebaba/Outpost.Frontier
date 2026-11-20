@@ -5,6 +5,7 @@ pub mod character_file;
 pub mod client;
 pub mod events;
 pub mod player;
+pub mod save_writer;
 pub mod server;
 
 use std::io::{self, Write};

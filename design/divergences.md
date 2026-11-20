@@ -222,6 +222,9 @@ server frame) D597 and D598 were proposed; the owner accepted them on
 With P3.2's first increment (the character save reader) D599 and D600
 are proposed.
 
+With P3.2's third increment (the character save writer) D601 to D604 are
+proposed.
+
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)
 on 2026-11-19, as `TriMesh`'s editing mode (D358): no shipped model has
@@ -647,6 +650,10 @@ one, and it is ported when a caller needs it.
 | D598 | `neuron-server::session` (P3.1) | `PlayerDB::operator[]` indexes `m_PlayerArray[Id - 1]` without a check; id 0 or one above `MaxPlayers` reads outside the array | `SessionTable::get` answers `None` outside the array; `is_valid` keeps the C++'s three tests | Undefined behaviour in the reference | None where callers test `is_valid` first, as the C++'s do |
 | D599 | `game-logic::character_file` (P3.2) | `PlayerData_LoadSaveRecord` calls `get_undamaged_collision_group_list` and `get_group_by_name` on `Archetype::GetShip(ship_archetype)` without a null test: a save naming a ship the archetypes lack calls through null | A missing ship gives no collision groups, and a `collision_group` key for it is skipped | Undefined behaviour in the reference | Saves that name an unknown ship only |
 | D600 | `game-logic::character_file` (P3.2) | `Costume_AddAccessory` appends each `accessory` key to the costume's eight slots without a bound, writing past them from the ninth on | Accessories past the eighth are dropped, as `game-sim::data::costume` drops them for `[Costume]` | Undefined behaviour in the reference | Saves with more than eight accessories per costume only |
+| D601 | `game-logic::save_writer`, `game-logic::player` (P3.2) | The save path calls through lookups it never tests: `PlayerData_SerializeToFile` hands `WideToHex` the uninitialised display name when `Reputation::Vibe::Get` misses and prints `Universe::get_system(system_id)->Nickname`; `PlayerData_ApplySavedCharacter` reads the system of `Universe::get_base(base_id)`; `PlayerData_ReloadShipData` reads the class of `Archetype::GetEquipment(arch_id)` | A missing vibe writes an empty `name`, rank 0 (or the slot's in single player), no `house` and no `rep_group`; a missing system writes an empty `system`; a missing base keeps the record's system; an unknown archetype's cargo is dropped by the reload | Undefined behaviour in the reference | Slots without a vibe and saves naming data the game lacks only |
+| D602 | `game-logic::save_writer` (P3.2) | `Server_FormatMissionLogEntry` prints each value's payload dword; for a nested string (tag 0x21) and a navigation marker (tag 0x4E) that dword is the address of the value's heap block | The port prints 0 for those two payloads; the reader ignores the payload of a nested string either way | An address is not reproducible | The payload field of nested and navigation-marker values in `log` lines only |
+| D603 | `game-logic::save_writer` (P3.2) | `PlayerData_SerializeToFile` passes the weapon-group text (`wg` lines) to `fprintf` as its format string, so a `%` in it is read as a conversion with no argument | The port writes the text as it is | Undefined behaviour in the reference | Weapon-group names that contain `%` only |
+| D604 | `game-logic::server` (P3.2) | `Server_VibeID_Alloc` skips its end-of-walk test when the index wraps to 0, so with all 4096 ids taken and the last id given 0 it never returns | The port returns -1 there, as it does for every other full map | A hang in the reference | A server with 4096 player vibes only |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32

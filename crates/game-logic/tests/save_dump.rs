@@ -244,6 +244,13 @@ fn data_dump_saves() {
     let listed: Vec<&str> = listed.lines().collect();
     let names: Vec<&str> = files.iter().map(|(n, _)| n.as_str()).collect();
     assert_eq!(listed, names, "the files the oracle dumped");
+    // Both sides skip a missing template, so an empty list on both would
+    // pass while comparing nothing.
+    assert!(
+        !files.is_empty(),
+        "no character templates in {}",
+        exe.display()
+    );
     let mut problems = Vec::new();
     for (name, rendered) in &files {
         let text = std::fs::read_to_string(oracle.join("saves").join(format!("{name}.jsonl")))

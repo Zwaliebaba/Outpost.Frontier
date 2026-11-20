@@ -1448,3 +1448,53 @@ extern "C" SERVER_API bool __cdecl OracleDumpSaveRecord(char const* SavePath, ch
     fclose(Out);
     return bSaw;
 }
+
+// Oracle instrumentation (P3.2): a template through the save writer. The
+// record PlayerData_LoadSaveRecord reads is applied to a fresh slot of the
+// account "OracleSaves" (PlayerData_ApplySavedCharacter, client 1), and
+// PlayerData_SerializeToFile writes it as "oraclesave" under the accounts
+// root; the bytes it wrote go to OutPath, one {"k":"line","v":hex} per line
+// with its "\n" (the last line may have none).
+extern "C" SERVER_API bool __cdecl OracleWriteSaveRecord(char const* SavePath, char const* OutPath) {
+    PlayerData* const Slot = new PlayerData();
+    PlayerData::FSavedCharacter Record;
+    if (!PlayerData_LoadSaveRecord(*Slot, SavePath, Record))
+        return false;
+    wcscpy_s(Slot->AccountName, L"OracleSaves");
+    PlayerData_ApplySavedCharacter(*Slot, Record, 1);
+
+    char Dir[260];
+    sprintf_s(Dir, "%s\\OracleSaves", Server_GetAccountsRoot());
+    for (char* Cursor = Dir; *Cursor != '\0'; ++Cursor) {
+        if (*Cursor == '\\' && Cursor != Dir && Cursor[-1] != ':') {
+            *Cursor = '\0';
+            CreateDirectoryA(Dir, nullptr);
+            *Cursor = '\\';
+        }
+    }
+    CreateDirectoryA(Dir, nullptr);
+
+    if (!PlayerData_SerializeToFile(*Slot, "oraclesave", nullptr, 0))
+        return false;
+    FILE* In = fopen(GServerLastSavePath, "rb");
+    if (In == nullptr)
+        return false;
+    std::string Bytes;
+    char Chunk[4096];
+    size_t Read;
+    while ((Read = fread(Chunk, 1, sizeof(Chunk), In)) > 0)
+        Bytes.append(Chunk, Read);
+    fclose(In);
+    FILE* Out = fopen(OutPath, "wb");
+    if (Out == nullptr)
+        return false;
+    size_t Start = 0;
+    while (Start < Bytes.size()) {
+        size_t End = Bytes.find('\n', Start);
+        End = End == std::string::npos ? Bytes.size() : End + 1;
+        OracleSaveLine(Out, "line", OracleBytesHex(Bytes.data() + Start, End - Start).c_str());
+        Start = End;
+    }
+    fclose(Out);
+    return true;
+}

@@ -99,6 +99,7 @@ namespace NeuronRuntime
 
 // P3.2 (Server/server_savegame.cpp): Server.dll's save reader, one field per line.
 extern "C" __declspec(dllimport) bool __cdecl OracleDumpSaveRecord(char const* SavePath, char const* OutPath);
+extern "C" __declspec(dllimport) bool __cdecl OracleWriteSaveRecord(char const* SavePath, char const* OutPath);
 
 using namespace oracle;
 
@@ -595,6 +596,20 @@ void RunGameDataDump(const std::vector<std::string>& Files)
             if (GetFileAttributesA(Save.c_str()) == INVALID_FILE_ATTRIBUTES)
                 continue;
             OracleDumpSaveRecord(Save.c_str(), K.Path(Name).c_str());
+        }
+    }
+    {
+        // P3.2: the same templates applied to a slot and written again by Server.dll's
+        // save writer (PlayerData_SerializeToFile, OracleWriteSaveRecord).
+        FGameKind K("saves_written");
+        static const char* const kSaves[] = {"newplayer.fl", "mpnewcharacter.fl"};
+        for (const char* Name : kSaves)
+        {
+            const std::string Save = GFixtureDir + "\\EXE\\" + Name;
+            if (GetFileAttributesA(Save.c_str()) == INVALID_FILE_ATTRIBUTES)
+                continue;
+            if (!OracleWriteSaveRecord(Save.c_str(), K.Path(Name).c_str()))
+                printf("saves_written: %s was not written\n", Name);
         }
     }
     CloseGameData();
