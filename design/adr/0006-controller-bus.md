@@ -1,6 +1,6 @@
 # 0006 — Controller bus and re-entrant dispatch
 
-Status: proposed (P3.0), awaiting the owner. Answers the risk "nested
+Status: accepted by the owner on 2026-11-20 (P3.0); decision O40. Answers the risk "nested
 message dispatch between server and content does not fit Rust borrowing"
 (migration plan section 8) and the assessment's open question 4
 (runtime-selectable controllers, [04-server-content](../assessment/04-server-content.md)).

@@ -14,4 +14,4 @@ decision register then carries a one-line entry that points here.
 | [0003](0003-simulation-oracle.md) | Replay and scenario oracle; G2 envelope method | accepted; revised 2026-11-19 (seed ensemble; outcome bounds approved) | P2.0 |
 | [0004](0004-render-device-and-trace.md) | Render device API, trace format version 1, shader toolchain | accepted | P4.0 |
 | [0005](0005-programmable-passes.md) | Programmable passes: render targets, programs, volume textures, scene depth | accepted | P4.9 |
-| [0006](0006-controller-bus.md) | Controller bus and re-entrant dispatch | proposed | P3.0 |
+| [0006](0006-controller-bus.md) | Controller bus and re-entrant dispatch | accepted | P3.0 |
