@@ -75,4 +75,18 @@ fn he01s_load_carries_the_section_fields() {
         )
         .count();
     assert_eq!(with_parent, 5);
+    // A lane ring carries its trade-lane item (`CSolar::alloc_equip`) with
+    // the other 21 of its loadout and the shield its generator links: 23.
+    let ring = made
+        .iter()
+        .filter_map(|&h| world.get(h))
+        .find(|o| o.archetype == create_id(b"trade_lane_ring"))
+        .expect("a lane ring");
+    let eq = ring.equipped.as_deref().unwrap();
+    assert!(
+        eq.equipment
+            .iter()
+            .any(|e| matches!(e.kind, game_sim::equip::EquipKind::TradeLane))
+    );
+    assert_eq!(eq.equipment.len(), 23);
 }
