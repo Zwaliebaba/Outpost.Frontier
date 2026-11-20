@@ -216,7 +216,11 @@ decision O40) D594 to D596 were proposed; the owner accepted them on
 2026-11-20.
 
 With P3.1's second increment (the account files, session slots and the
-server frame) D597 and D598 are proposed.
+server frame) D597 and D598 were proposed; the owner accepted them on
+2026-11-20.
+
+With P3.2's first increment (the character save reader) D599 and D600
+are proposed.
 
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)
@@ -641,6 +645,8 @@ one, and it is ported when a caller needs it.
 | D596 | `neuron-server::controller` (P3.1) | A heartbeat period of 0 divides 0 by 0 in the x87 unit on the first beat, which delivers the x87 default NaN (sign bit set) | The same division in `f64` delivers the host's default NaN (negative on x86-64, positive on AArch64); either way it is delivered once and the accumulator stays NaN, so no beat follows | Numeric policy (decision T11) | No data sets a zero period; the delivered value's sign only |
 | D597 | `neuron-server::account` (P3.1) | In single player an account's folder is `wcstombs(name)` in the "C" locale, which fails at the first character above 0xFF and leaves the buffer unterminated past what it converted | The folder name ends before the first character above 0xFF | Undefined behaviour in the reference | Single-player names with such characters only; multiplayer folders are hashed |
 | D598 | `neuron-server::session` (P3.1) | `PlayerDB::operator[]` indexes `m_PlayerArray[Id - 1]` without a check; id 0 or one above `MaxPlayers` reads outside the array | `SessionTable::get` answers `None` outside the array; `is_valid` keeps the C++'s three tests | Undefined behaviour in the reference | None where callers test `is_valid` first, as the C++'s do |
+| D599 | `game-logic::character_file` (P3.2) | `PlayerData_LoadSaveRecord` calls `get_undamaged_collision_group_list` and `get_group_by_name` on `Archetype::GetShip(ship_archetype)` without a null test: a save naming a ship the archetypes lack calls through null | A missing ship gives no collision groups, and a `collision_group` key for it is skipped | Undefined behaviour in the reference | Saves that name an unknown ship only |
+| D600 | `game-logic::character_file` (P3.2) | `Costume_AddAccessory` appends each `accessory` key to the costume's eight slots without a bound, writing past them from the ninth on | Accessories past the eighth are dropped, as `game-sim::data::costume` drops them for `[Costume]` | Undefined behaviour in the reference | Saves with more than eight accessories per costume only |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32

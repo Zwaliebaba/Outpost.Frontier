@@ -172,7 +172,7 @@ pub mod sub_object {
     macro_rules! id_maker {
         ($(#[$doc:meta])* $name:ident, $start:expr) => {
             $(#[$doc])*
-            #[derive(Clone, Debug)]
+            #[derive(Clone, Debug, PartialEq, Eq)]
             pub struct $name {
                 next: u16,
             }

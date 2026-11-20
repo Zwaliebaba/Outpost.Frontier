@@ -22,6 +22,7 @@ publish = false
 [workspace.dependencies]
 game-app = { path = "crates/game-app" }
 game-logic = { path = "crates/game-logic" }
+game-sim = { path = "crates/game-sim" }
 lua32-compiler = { path = "crates/lua32-compiler" }
 neuron-client = { path = "crates/neuron-client" }
 neuron-core = { path = "crates/neuron-core" }

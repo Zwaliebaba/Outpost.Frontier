@@ -1,6 +1,8 @@
 //! Outpost:Frontier server startup and authoritative game rules.
 #![forbid(unsafe_code)]
 
+pub mod character_file;
+
 use std::io::{self, Write};
 
 /// Start the server application.

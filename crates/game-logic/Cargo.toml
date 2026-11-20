@@ -6,6 +6,8 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+game-sim.workspace = true
+neuron-core.workspace = true
 neuron-server.workspace = true
 
 [lints]
