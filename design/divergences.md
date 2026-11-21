@@ -247,6 +247,8 @@ proposed; the owner accepted both on 2026-11-20.
 With P3.3's solar reader (`CSolar::ReadObj`) D614 was proposed; the owner
 accepted it on 2026-11-20.
 
+With P3.3's `pub::GF` D615 was proposed.
+
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)
 on 2026-11-19, as `TriMesh`'s editing mode (D358): no shipped model has
@@ -686,6 +688,7 @@ one, and it is ported when a caller needs it.
 | D612 | `game-logic::world` (P3.3) | `StarSystem::remove_player` walks the player list of a `SysMap` miss (`PlayerDB_LeaveSystem` with a system id Universe lacks) through an unconstructed head node and faults; `StarSystem_Update`'s dock queue calls `get_id` through the watcher of a ship destroyed before the queue runs | `remove_player` on an unknown system does nothing; a dock-queue entry whose ship is gone is skipped, and the rest of the queue is worked through | Undefined behaviour in the reference | A save naming a system Universe lacks, or a ship destroyed in the sub-step it was queued to land, only |
 | D613 | `game-logic::world` (P3.3) | In single player `StarSystem::unload` deletes the server's `GameObject` wrappers; the client side keeps its `CObject`s until it tears its space scene down | The single world both sides share (record 0002) loses the system's objects at the server's unload (`World::unload_system`), when the player lands or leaves the system | Records 0002 and 0007 point 6: one world, no second copy of the objects | Between the server's unload and the client's own teardown in the same frame, the client side finds none of the system's objects |
 | D614 | `game-sim::object::world` (P3.3) | `CSolar::ReadObj`'s `space_costume` reads an unknown accessory's id through a null pointer and writes a ninth or later accessory past the costume's eight slots | An unknown accessory is skipped; accessories after the eighth are dropped | Undefined behaviour in the reference | A system file naming an unknown accessory or more than eight, only (none in the shipped data) |
+| D615 | `game-logic::api::gf` (P3.3) | `pub::GF`'s placement queries (`GetCharacterPlacementName`, `Occupancy`, `Posture`, `IsCharacterPlacementNormal`, `Special`, `Properties`) index the room's placements without a bound; `GetBasePosition` calls through a null system for an id Universe lacks; `get_costume_gender` reads a part id the descriptions lack through a null pointer | A placement past the end answers the function's not-found value (an empty name, 0, -2, false); an unknown system answers -2; an unknown part id is skipped | Undefined behaviour in the reference | Content calls with an index past a room's placements, a system Universe lacks, or a costume naming an unknown part, only |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32

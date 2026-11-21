@@ -424,7 +424,7 @@ impl BaseDb {
     }
 }
 
-fn base_db<'c>(cx: &'c mut Cx<'_>) -> &'c mut BaseDb {
+pub(crate) fn base_db<'c>(cx: &'c mut Cx<'_>) -> &'c mut BaseDb {
     if cx.logic.bases.is_none() {
         cx.logic.bases = Some(BaseDb::new(&cx.world.data().bases));
     }
