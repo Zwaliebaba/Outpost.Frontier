@@ -766,8 +766,8 @@ pub fn ai_fired(
 }
 
 // ---------------------------------------------------------------------------
-// The observers' notices (replication's fan-outs). Each is the C++ call's
-// site; the fan-out itself is wired with replication's per-object part.
+// The observers' notices: each is the C++ call's site, sent through
+// replication's per-object fan-out.
 
 /// `StarSystem::notify_fire_weapon(&ObjId, EquipIds, Target, SourceClient)`
 /// (`Server/server_classes.cpp:10145`): the players' `FIREWEAPON`.
@@ -779,13 +779,13 @@ fn notify_fire_weapon(
     target: Vector,
     source_client: i32,
 ) {
-    let _ = (cx, system, obj_id, equip_ids, target, source_client);
+    crate::replication::weapon_fired(cx, system, obj_id, equip_ids, target, source_client);
 }
 
 /// `StarSystem::notify_thrusters(&ObjId, bActivate, &SourceClient)`
 /// (`server_classes.cpp:10043`).
 fn notify_thrusters(cx: &mut Cx<'_>, system: u32, obj_id: u32, activate: bool, source_client: i32) {
-    let _ = (cx, system, obj_id, activate, source_client);
+    crate::replication::thrusters_changed(cx, system, obj_id, activate, source_client);
 }
 
 /// `StarSystem::notify_activate_equip(&ObjId, EquipId, bActivate,
@@ -798,5 +798,5 @@ fn notify_activate_equip(
     activate: bool,
     source_client: i32,
 ) {
-    let _ = (cx, system, obj_id, equip, activate, source_client);
+    crate::replication::equip_activated(cx, system, obj_id, equip, activate, source_client);
 }

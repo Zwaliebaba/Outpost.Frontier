@@ -44,9 +44,7 @@
 //! Left to other parts: the behaviour events of a dock (event 5 to the
 //! requesting ship's followers in `pub::SpaceObj::Dock`, event 3 to every
 //! NPC ship's manager in `complete_dock`: the behaviour manager's server
-//! link, `IBehaviorManager::Slot00`); the observers' `OnObjectLeftSystem`
-//! (a later replication increment; a launched ship's creates are now
-//! `create_ship`'s, [`crate::replication`]); an NPC's launch
+//! link, `IBehaviorManager::Slot00`); an NPC's launch
 //! (`pub::SpaceObj::Launch`, `StarSystem::launch`), which runs `CShip::
 //! launch` and its launch action, not ported.
 
@@ -429,7 +427,9 @@ pub fn process_dock_queue(cx: &mut Cx<'_>, host: ObjHandle) {
 
 /// `StarSystem::complete_dock(Ship, Dock)` in the dock's system: nothing
 /// for a ship already in a death sequence; otherwise `DockComplete` (ship,
-/// dock, system) and the dock as the sequence's object. A player's ship
+/// dock, system), every player's `OnObjectLeftSystem`
+/// ([`crate::replication::ship_left_for_dock`]) and the dock as the
+/// sequence's object. A player's ship
 /// that went through a gate or a jump hole gets the invincibility of type 2
 /// against everyone with no loss allowed; an NPC's ship in single player
 /// waits for its jump-out again; on a multiplayer server an NPC's ship
@@ -453,7 +453,8 @@ pub fn complete_dock(cx: &mut Cx<'_>, system: u32, ship: ObjHandle, dock: ObjHan
             system,
         },
     );
-    // The observers' `OnObjectLeftSystem` comes with replication.
+    // Every player hears that the ship left for the dock.
+    crate::replication::ship_left_for_dock(cx, system, ship, dock);
     let dock_id = cx.world.get(dock).map_or(dock_id, |o| o.simple.id);
     if let Some(s) = crate::ship::ship_state(cx, ship) {
         s.death_sequence_obj_id = dock_id;
@@ -897,7 +898,9 @@ pub fn player_launch(cx: &mut Cx<'_>, ship_id: u32, session: u32) {
 
 /// `pub::SpaceObj::ActivateEquipment` with `EQInfo` type 3: every docking
 /// light of an equipped object switched on or off (`EqObj::slot_4c` from
-/// the server: a destroyed object or item is left alone). The other
+/// the server: a destroyed object or item is left alone, and each switch
+/// tells the players who can see the object,
+/// [`crate::replication::equip_activated`]). The other
 /// `EQInfo` types come with their parts.
 pub fn activate_docking_lights(cx: &mut Cx<'_>, h: ObjHandle, on: bool) {
     if cx.logic.objects.get(h).is_some_and(|o| o.destroyed) {
@@ -927,10 +930,15 @@ pub fn activate_docking_lights(cx: &mut Cx<'_>, h: ObjHandle, on: bool) {
             })
             .unwrap_or_default()
     };
+    let (system, object) = cx
+        .world
+        .get(h)
+        .map_or((0, 0), |o| (o.physical.system, o.simple.id));
     for (id, skip) in lights {
         if !skip {
             cx.world
                 .command(h, game_sim::object::Command::ActivateEquip(id, on));
+            crate::replication::equip_activated(cx, system, object, id, on, 0);
         }
     }
 }

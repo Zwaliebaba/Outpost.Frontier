@@ -27,9 +27,9 @@
 //!   `arrive_ship` (an NPC's jump-in or airlock animation and the players'
 //!   switch-in packets) is still open.
 //!
-//! The observers (`Observer`, their tracking, creates, destroys and the
-//! per-frame update) are [`crate::replication`]'s; the changed
-//! affiliations after the update are still open.
+//! The observers (`Observer`, their tracking, creates, destroys, fan-outs,
+//! the per-frame update and the changed affiliations after it) are
+//! [`crate::replication`]'s.
 
 use std::collections::BTreeMap;
 
@@ -330,7 +330,9 @@ pub fn queue_dock(
 /// `StarSystem_Update`'s dock queue. Each entry in order, including any
 /// queued while the queue is worked through (the C++ list walk sees them):
 /// the target's id goes with the message only when the target is not
-/// itself a base's (`DockingBaseId == 0`); a landing ship's message
+/// itself a base's (`DockingBaseId == 0`); a landing ship is first
+/// announced to every player of the system
+/// ([`crate::replication::ship_landed`]); a landing ship's message
 /// (`Msg0x27`) is followed by its destruction when it has no owner, or its
 /// owner's removal from the system after the walk (pending visits flushed,
 /// and in single player the system shut down); a ship that docks without
@@ -354,7 +356,9 @@ fn work_dock_queue(cx: &mut Cx<'_>, system: u32) {
             .world
             .get(ship)
             .map_or((0, 0), |o| (o.simple.id, o.simple.owner_player));
-        // The observers' `OnObjectLanded` comes with the replication part.
+        if entry.land {
+            crate::replication::ship_landed(cx, system, ship, target, entry.base_id);
+        }
         let _ = cx.dispatch(
             ControllerId::BROADCAST,
             &mut ControllerMessage::Msg0x27 {
@@ -581,14 +585,16 @@ pub fn destroy_object(cx: &mut Cx<'_>, object: ObjHandle, kind: i32, killer: u32
 
 /// `StarSystem_Update`: the world's frame of the system with the server's
 /// hooks, then each observer's update with the frame's whole time
-/// ([`crate::replication::update_observers`]). Returns the number of
-/// sub-steps. The changed affiliations that follow are still open.
+/// ([`crate::replication::update_observers`]), then the changed
+/// affiliations ([`crate::replication::send_changed_affiliations`]).
+/// Returns the number of sub-steps.
 pub fn step_system(cx: &mut Cx<'_>, system: u32, dt: f32) -> u32 {
     let mut hooks = Hooks {
         logic: &mut *cx.logic,
     };
     let iterations = cx.world.step_with(system, dt, &mut hooks);
     crate::replication::update_observers(cx, system, f64::from(dt));
+    crate::replication::send_changed_affiliations(cx, system);
     iterations
 }
 
@@ -646,17 +652,23 @@ pub fn physics_update(cx: &mut Cx<'_>, dt: f32) {
 
 /// `StarSystem::remove_ship`: every other player of the system hears of
 /// the ship as destroyed (kind 0, [`crate::replication::ship_removed`]),
-/// then the ship leaves its system's lists, its body is destroyed and its
-/// parameters returned (`GameObject::leave_system`). `notify_object_left`
-/// is still open; the lookup cache is not ported (record 0007 point 4).
+/// then the ship leaves its system's lists, a player's ship on a
+/// multiplayer server stops following its client (`PhySys::RCEnd`), its
+/// body is destroyed and its parameters returned
+/// (`GameObject::leave_system`). `notify_object_left`'s behaviour events
+/// are the behaviour manager's server link; the lookup cache is not
+/// ported (record 0007 point 4).
 pub fn remove_ship(cx: &mut Cx<'_>, ship: ObjHandle) -> Option<CreateParms> {
     crate::replication::ship_removed(cx, ship);
+    crate::replication::end_remote_control(cx, ship);
     cx.world.leave_system(ship)
 }
 
 /// `StarSystem::add_ship`: the ship at `position` and `orientation` in
 /// `system` with a body rebuilt from its saved parameters
-/// (`Ship::enter_system`, which also ends a death sequence), appended to
+/// (`Ship::enter_system`, which also ends a death sequence; a player's
+/// ship on a multiplayer server follows its client, `PhySys::RCBegin`),
+/// appended to
 /// the ship list; then every player of the system gets the ship's create
 /// ([`crate::replication::ship_arrived`]). False when the ship is not in
 /// transit or the system is not loaded.
@@ -670,6 +682,7 @@ pub fn add_ship(
     if !cx.world.enter_system(ship, system, position, orientation) {
         return false;
     }
+    crate::replication::begin_remote_control(cx, ship);
     if let Some(s) = cx
         .logic
         .objects

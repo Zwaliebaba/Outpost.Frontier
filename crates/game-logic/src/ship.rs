@@ -34,8 +34,8 @@
 //! sequence, are in [`crate::dock`]; the cargo decay, which runs in
 //! `EqObj::update` here, and the jettison, which runs in the ship's
 //! update after its own, in [`crate::cargo`]; the server equipment's fire,
-//! launches and equipment notices in [`crate::equip_fire`]. Left to other
-//! parts: the observers' `RCBegin` of a new ship (replication).
+//! launches and equipment notices in [`crate::equip_fire`]; the observers'
+//! `RCBegin` of a new ship in [`crate::replication`].
 
 use game_sim::equip::{Fate, SUBOBJ_ID_NONE, SUBOBJ_ID_ROOT, SubObjId, types};
 use game_sim::object::damage::{self, DamageList};
@@ -311,7 +311,8 @@ pub fn create_ship_with_groups(
         o.mark_for_player(req.mark_player, 1);
     }
     // `GameObject::enter_system(this, nullptr)`: the owning system is the
-    // world's; a multiplayer player's `RCBegin` is replication's.
+    // world's; a player's ship on a multiplayer server follows its client.
+    crate::replication::begin_remote_control(cx, h);
     set_equip_state(
         cx,
         h,

@@ -14,7 +14,7 @@
 //! `StarSystem::unload` (`Server/server_classes.cpp:11102`) deletes every
 //! object of a system's lists, its asteroid fields and its physics world.
 
-use neuron_core::math::{Matrix, Vector};
+use neuron_core::math::{Matrix, Quaternion, Vector};
 use neuron_core::physics::CreateParms;
 
 use crate::equip::EquipKind;
@@ -306,5 +306,81 @@ impl World {
     #[must_use]
     pub fn system_loaded(&self, system: u32) -> bool {
         self.systems.contains_key(&system)
+    }
+
+    /// `PhySys::RCBegin` on an object's body: the body follows a client's
+    /// samples from now on (remote correction), starting from `position`,
+    /// `orientation` and `velocity`; the angular velocity is not used, as
+    /// in the reference. Nothing for an object without a body. The server
+    /// calls it for a player's object entering a system on a multiplayer
+    /// server (`GameObject::enter_system`).
+    pub fn rc_begin(
+        &mut self,
+        h: ObjHandle,
+        position: Vector,
+        velocity: Vector,
+        orientation: Quaternion,
+        angular_velocity: Vector,
+    ) {
+        let Some((system, Some(body))) = self
+            .objects
+            .get(h)
+            .map(|o| (o.physical.system, o.physical.body))
+        else {
+            return;
+        };
+        let constants = self.physics.constants().clone();
+        if let Some(world) = self.physics.world_mut(system) {
+            world.rc_begin(
+                body,
+                &constants,
+                position,
+                velocity,
+                orientation,
+                angular_velocity,
+            );
+        }
+    }
+
+    /// `PhySys::RCSet`: a client's further sample of an object under
+    /// remote correction; nothing without [`World::rc_begin`].
+    pub fn rc_set(&mut self, h: ObjHandle, position: Vector, orientation: Quaternion, time: f64) {
+        let Some((system, Some(body))) = self
+            .objects
+            .get(h)
+            .map(|o| (o.physical.system, o.physical.body))
+        else {
+            return;
+        };
+        if let Some(world) = self.physics.world_mut(system) {
+            world.rc_set(body, position, orientation, time);
+        }
+    }
+
+    /// `PhySys::RCEnd`: the remote correction of an object's body ends.
+    pub fn rc_end(&mut self, h: ObjHandle) {
+        let Some((system, Some(body))) = self
+            .objects
+            .get(h)
+            .map(|o| (o.physical.system, o.physical.body))
+        else {
+            return;
+        };
+        if let Some(world) = self.physics.world_mut(system) {
+            world.rc_end(body);
+        }
+    }
+
+    /// Whether an object's body is under remote correction
+    /// ([`World::rc_begin`]).
+    #[must_use]
+    pub fn rc_active(&self, h: ObjHandle) -> bool {
+        self.objects
+            .get(h)
+            .and_then(|o| {
+                let world = self.physics.world(o.physical.system)?;
+                world.remote_simulation(o.physical.body?)
+            })
+            .is_some()
     }
 }

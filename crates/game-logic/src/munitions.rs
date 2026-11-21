@@ -27,8 +27,8 @@
 //!   detonation are game-sim's `Guided` (moved into Phase 2); a missile a
 //!   counter-measure destroys does not explode.
 //!
-//! The creators tell the system's players ([`crate::replication`]); the
-//! observers' `XSetTarget` of a retargeted missile is still open.
+//! The creators tell the system's players ([`crate::replication`]), and so
+//! does a retargeted missile (`XSetTarget`).
 
 use game_sim::equip::SubObjId;
 use game_sim::object::damage::{self, DamageCause};
@@ -418,8 +418,9 @@ pub fn divert_missiles(cx: &mut Cx<'_>, h: ObjHandle) -> Vec<ObjHandle> {
 /// `Guided::set_target` (`IObjAffect::set_target`): a source of -1 is 0; a
 /// munition that does not seek refuses with -3; on a multiplayer server,
 /// or from no client, a different target or sub-target is taken. Then the
-/// observers hear of it (`notify_set_target`, with replication) unless the
-/// change came from no client and changed nothing. In single player a
+/// players hear of it (`notify_set_target` on the root,
+/// [`crate::replication::target_changed`]) unless the change came from no
+/// client and changed nothing. In single player a
 /// client's change is only relayed. Returns 0 otherwise.
 pub fn set_target(
     cx: &mut Cx<'_>,
@@ -456,8 +457,22 @@ pub fn set_target(
             return 0;
         }
     }
-    // `StarSystem::notify_set_target`: the observers' `XSetTarget` comes
-    // with replication.
+    // `StarSystem::notify_set_target` on the munition's root.
+    if let Some((system, id)) = cx
+        .world
+        .get(missile)
+        .map(|o| (o.physical.system, o.simple.id))
+    {
+        crate::replication::target_changed(
+            cx,
+            system,
+            id,
+            game_sim::equip::SUBOBJ_ID_ROOT,
+            target,
+            sub_target,
+            source,
+        );
+    }
     0
 }
 
