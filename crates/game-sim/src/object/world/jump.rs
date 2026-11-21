@@ -116,13 +116,20 @@ impl World {
     }
 
     /// `ActionDB::update` of a ship (`CShip::update` without `NO_ACTIONS`):
+    /// the jump-in, then the launch ([`World::update_launch`]; a ship
+    /// with both updates them in this order, D720).
+    pub(crate) fn update_actions(&mut self, h: ObjHandle, hooks: &mut dyn ServerHooks) {
+        self.update_jump_in(h, hooks);
+        self.update_launch(h, hooks);
+    }
+
     /// `JumpInAction::update` wakes the controller while the jump is not
     /// complete (`PhySys::Controller::wakeup`, nothing once the body that
     /// held it is gone) and answers whether the action stays; a completed
     /// one is removed. An arrival the server has not heard of yet (in
     /// single player, where the client side steps the physics) is
     /// reported first.
-    pub(crate) fn update_actions(&mut self, h: ObjHandle, hooks: &mut dyn ServerHooks) {
+    fn update_jump_in(&mut self, h: ObjHandle, hooks: &mut dyn ServerHooks) {
         let Some(complete) = self.jump_in_state(h).map(|j| j.complete) else {
             return;
         };

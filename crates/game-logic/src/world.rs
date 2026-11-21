@@ -577,6 +577,14 @@ impl ServerHooks for Hooks<'_> {
         crate::transfer::slot_74(&mut cx, object, system);
     }
 
+    fn launch_complete(&mut self, world: &mut World, object: ObjHandle, base: u32) {
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        let _ = crate::ship::launch_complete(&mut cx, object, base);
+    }
+
     fn steps_physics(&mut self, world: &World, system: u32) -> bool {
         !world.config().single_player
             && self
