@@ -11,8 +11,10 @@
 //! asking the server. Entries of objects the world has reaped are swept
 //! after each sub-step's deletes.
 //!
-//! The per-kind wrappers (`EqObj`, `Ship`, `Loot`, `Mine`, the munitions)
-//! and their state arrive with the later parts of the object work.
+//! The per-kind wrappers' state lives in the entry too: `EqObj`'s fuses
+//! ([`crate::fuses`]) and server equipment, `Ship`'s ([`crate::ship`]) and
+//! `Loot`'s ([`crate::loot`]); `Mine`'s and the munitions' arrive with
+//! their part.
 
 use std::collections::BTreeMap;
 
@@ -75,6 +77,11 @@ pub struct ServerObject {
     pub fuses: Vec<crate::fuses::ServerFuse>,
     /// A loot container's own state (`Loot`).
     pub loot: Option<crate::loot::LootState>,
+    /// `EqObj::ServerEquips`: the server's wrappers of the equipment
+    /// ([`crate::ship::rebuild_server_equip`]).
+    pub server_equip: Vec<crate::ship::ServerEquip>,
+    /// A ship's own state (`Ship`).
+    pub ship: Option<crate::ship::ShipState>,
 }
 
 impl Default for ServerObject {
@@ -92,6 +99,8 @@ impl Default for ServerObject {
             death_fuse_lit: false,
             fuses: Vec::new(),
             loot: None,
+            server_equip: Vec::new(),
+            ship: None,
         }
     }
 }

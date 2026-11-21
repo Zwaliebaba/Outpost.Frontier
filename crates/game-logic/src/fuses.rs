@@ -24,9 +24,9 @@
 //! broadcast_fuse`, replication); `Ship::light_fuse`'s word to the
 //! formation and follow followers' behaviour managers and the death
 //! branch's own behaviour event 7 (the behaviour manager's server link);
-//! `check_fuses`'s `rebuild_server_equip` (the server's equipment
-//! wrappers); the loot of a `destroy_hp_attachment` with the `loot` fate
-//! (the server's `destroy_equip` loot branch).
+//! the loot of a `destroy_hp_attachment` with the `loot` fate (the server's
+//! `destroy_equip` loot branch). A new ship's `check_fuses` runs from
+//! `Ship::set_equip_state` ([`crate::ship::create_ship`]).
 
 use std::collections::BTreeMap;
 
@@ -645,14 +645,15 @@ pub fn send_death_fuse_lit(cx: &mut Cx<'_>, h: ObjHandle) -> f32 {
 }
 
 /// `EqObj::check_fuses` (when a system's solars are wrapped or loaded, and
-/// a ship's equipment state is set): every archetype fuse whose hit-point
-/// threshold the hull is at or below lights on the root, then each
-/// collision group's on the group. The server's equipment wrappers
-/// (`rebuild_server_equip`) come with their part.
+/// a ship's equipment state is set): the server's equipment wrappers are
+/// rebuilt ([`crate::ship::rebuild_server_equip`]), then every archetype
+/// fuse whose hit-point threshold the hull is at or below lights on the
+/// root, then each collision group's on the group.
 pub fn check_fuses(cx: &mut Cx<'_>, h: ObjHandle) {
     if !is_eq_obj(cx.world, h) {
         return;
     }
+    crate::ship::rebuild_server_equip(cx, h);
     for f in arch_fuses(cx.world, h) {
         if hull_hit_pts(cx.world, h).is_none_or(|hp| hp > f.value2) {
             continue;
@@ -864,7 +865,7 @@ fn apply(cx: &mut Cx<'_>, h: ObjHandle, list: &DamageList) {
 
 /// Runs a damage computation on the object with the server's state for
 /// the list's inflictor.
-fn compute(
+pub(crate) fn compute(
     cx: &Cx<'_>,
     h: ObjHandle,
     list: &mut DamageList,

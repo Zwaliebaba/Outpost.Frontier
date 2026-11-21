@@ -66,6 +66,10 @@ impl ServerHooks for ScenarioHooks<'_> {
         self.server.object_update(world, object, dt)
     }
 
+    fn object_update_flags(&mut self, world: &World, object: ObjHandle) -> u32 {
+        self.server.object_update_flags(world, object)
+    }
+
     fn object_after_update(&mut self, world: &mut World, object: ObjHandle, dt: f32) {
         self.server.object_after_update(world, object, dt);
     }

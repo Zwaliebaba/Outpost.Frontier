@@ -198,6 +198,8 @@ pub struct Logic {
     /// The client's performance slider (`GRtcSliderValue`, 0 until set),
     /// which a single-player server reads.
     pub rtc_slider: f32,
+    /// The ships `pub::SpaceObj::Create` made and their controllers.
+    pub space_obj: crate::api::space_obj::SpaceObjState,
 }
 
 /// The 4096-bit map of player vibe ids (`g_VibeBitmap`, `g_VibeBitmapHint`,
@@ -288,6 +290,7 @@ impl Logic {
             rtc_slider: 0.0,
             objects: crate::objects::ServerObjects::default(),
             fuses: None,
+            space_obj: crate::api::space_obj::SpaceObjState::default(),
         }
     }
 }
