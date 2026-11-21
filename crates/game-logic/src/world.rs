@@ -21,11 +21,14 @@
 //! - **Unloading**: single player unloads a system when its player
 //!   leaves or lands (`player_switched_out`, `shutdown`); a multiplayer
 //!   server keeps every system.
-//! - **Transfer** (`remove_ship`, `add_ship`, `:10334-10417`): the ship
-//!   leaves its system's lists and body, is in transit, and enters the
-//!   next; the other players hear of it ([`crate::replication`]).
-//!   `arrive_ship` (an NPC's jump-in or airlock animation and the players'
-//!   switch-in packets) is still open.
+//! - **Transfer** (`remove_ship`, `add_ship`, `arrive_ship`,
+//!   `:10286-10417`): the ship leaves its system's lists and body, is in
+//!   transit, and enters the next; the other players hear of it
+//!   ([`crate::replication`]); arriving through a jump object an NPC's
+//!   ship jumps in or comes out of the airlock and the players who can
+//!   see it get the switch-in. The callers (a player's gate jump, `pub::
+//!   SpaceObj::JumpIn` and `Relocate`) are [`crate::transfer`]'s and
+//!   [`crate::api::space_obj`]'s.
 //!
 //! The observers (`Observer`, their tracking, creates, destroys, fan-outs,
 //! the per-frame update and the changed affiliations after it) are
@@ -566,6 +569,14 @@ impl ServerHooks for Hooks<'_> {
         })
     }
 
+    fn jump_in_complete(&mut self, world: &mut World, object: ObjHandle, system: u32) {
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        crate::transfer::slot_74(&mut cx, object, system);
+    }
+
     fn steps_physics(&mut self, world: &World, system: u32) -> bool {
         !world.config().single_player
             && self
@@ -697,4 +708,38 @@ pub fn add_ship(
     }
     crate::replication::ship_arrived(cx, system, ship);
     true
+}
+
+/// The type bits of a jump gate and a jump hole.
+const GATE_BITS: u32 = 0x40 | 0x800;
+/// The type bits of an airlock.
+const AIRLOCK_BITS: u32 = 0x400;
+
+/// `StarSystem::arrive_ship(Obj, JumpObj, Pos, Orient)`: an NPC's ship
+/// (no owner) arriving through a jump gate or hole jumps in over 0.5 s
+/// (`CShip::jump_in`, [`World::jump_in`]), through an airlock comes out of
+/// it (`airlock_in`); then every player of the system who can see the ship
+/// gets the switch-in with the jump object's type bits (0 without one,
+/// [`crate::replication::ship_switched_in`]). A player's ship only
+/// switches in: its client plays the arrival.
+pub fn arrive_ship(
+    cx: &mut Cx<'_>,
+    system: u32,
+    ship: ObjHandle,
+    jump_object: Option<ObjHandle>,
+    position: Vector,
+    orientation: Matrix,
+) {
+    let bits = jump_object
+        .and_then(|h| cx.world.get(h))
+        .map_or(0, |o| o.simple.type_bits);
+    let owner = cx.world.get(ship).map_or(0, |o| o.simple.owner_player);
+    if owner == 0 {
+        if bits & GATE_BITS != 0 {
+            cx.world.jump_in(ship, position, orientation, 0.5);
+        } else if bits & AIRLOCK_BITS != 0 {
+            cx.world.airlock_in(ship, position, orientation);
+        }
+    }
+    crate::replication::ship_switched_in(cx, system, ship, bits, position, &orientation);
 }

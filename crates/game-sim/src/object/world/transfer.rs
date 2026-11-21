@@ -3,10 +3,12 @@
 //!
 //! `GameObject::leave_system` (`Server/server_gameobject.cpp:459`) saves
 //! the body's physics parameters (`PhySys::CreateParms`), turns the
-//! object's controllers off and destroys its body (`unmake_physical`);
+//! object's controllers off, destroys its body (`unmake_physical`) and
+//! disconnects it from its system's object database;
 //! `GameObject::enter_system` (`:417`) rebuilds the body from the saved
-//! parameters in the new system (`remake_physical`) and turns the
-//! controllers back on. Between the two the object is in transit: it is in
+//! parameters in the new system (`remake_physical`), turns the
+//! controllers back on and connects the object to the new system (D680
+//! for a player's ship in single player). Between the two the object is in transit: it is in
 //! no system's lists, has no body and is found by id. The server's own
 //! parts of the move (the observers, `notify_object_left`, the lookup
 //! cache) belong to `game-logic`.
@@ -190,8 +192,11 @@ impl World {
             inertia: Some(inertia),
         };
         // `unmake_physical`: the controllers, then the body and the bodies
-        // of the parts below it that are objects of their own.
+        // of the parts below it that are objects of their own. Deleting the
+        // core detaches the controllers still on it: a jump-in's
+        // (`PhySys::Controller::core_is_going_to_be_deleted_event`).
         self.disable_controllers(h);
+        self.unregister(h, ControllerRef::JumpIn);
         if let Some(obj) = self.objects.get_mut(h) {
             let body = obj.physical.body.take();
             let free: Vec<_> = obj.physical.free_parts.drain(..).map(|p| p.body).collect();
@@ -211,8 +216,12 @@ impl World {
             }
         }
         self.always_update.retain(|x| *x != h);
+        // `CSimple::disconnect(OwnerSystem)`.
         if let Some(obj) = self.objects.get_mut(h) {
             obj.physical.system = 0;
+            if obj.simple.system == Some(system) {
+                obj.simple.system = None;
+            }
         }
         Some(parms)
     }
@@ -257,6 +266,8 @@ impl World {
         obj.engine.position = position;
         obj.engine.orientation = orientation;
         obj.physical.system = system;
+        // `CSimple::connect(Sys)`.
+        obj.simple.system = Some(system);
         let kind = obj.kind;
         self.sync_instance(h);
         let enable = parms.enable_collisions;

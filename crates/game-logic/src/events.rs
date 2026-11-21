@@ -438,9 +438,10 @@ pub enum ControllerMessage<'a> {
         /// The system left.
         system: u32,
     },
-    /// 0x26.
+    /// 0x26: a ship's jump-in ended (`Ship::slot_74`).
     JumpInComplete {
-        /// The client's argument (meaning unknown).
+        /// The argument: the system the ship arrived in, from the world's
+        /// `JumpInAction` or the client.
         arg: u32,
         /// The ship.
         ship: u32,

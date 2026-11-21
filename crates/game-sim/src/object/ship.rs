@@ -2,7 +2,7 @@
 //! controllers read, the drag and damping the update recomputes, and the
 //! ship-only commands.
 
-use neuron_core::math::Vector;
+use neuron_core::math::{Matrix, Vector};
 
 use crate::data::constants::EngineEquipConsts;
 use crate::equip::flight::{EngineState, Nudge, ShipFlightArch, Steering, Strafe};
@@ -125,6 +125,33 @@ pub struct ShipData {
     pub jumped_out: bool,
     /// +0x2b0 the bay door animation (`BayAnim`), `None` (-1) without one.
     pub bay_anim: Option<super::anim::Playback>,
+    /// The jump-in action in the ship's `ActionDB` (`JumpInAction`, the
+    /// only action the port has), from `CShip::jump_in` until it completes.
+    pub jump_in: Option<JumpIn>,
+}
+
+/// `JumpInAction` (0x68 bytes, `Common/common_launchaction.cpp:490`): a
+/// ship arriving through a jump gate or hole eases to its arrival point
+/// over `speed` seconds, with its collisions off.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct JumpIn {
+    /// +0x20 the time the controller has run.
+    pub elapsed: f32,
+    /// +0x24 the length of the approach in seconds (`JumpSpeed`).
+    pub speed: f32,
+    /// +0x28 `speed * 2000`: the approach's distance at its start.
+    pub approach_budget: f32,
+    /// +0x2c the arrival orientation.
+    pub orientation: Matrix,
+    /// +0x50 the arrival position.
+    pub position: Vector,
+    /// +0x64 the ship has arrived (`bJumpComplete`).
+    pub complete: bool,
+    /// The arrival's report (`IObjAffect::slot_74` with the system id),
+    /// until the server has it.
+    pub arrived: Option<u32>,
+    /// The arrival's engine activation, which runs after the physics step.
+    pub activate_engine: bool,
 }
 
 impl ShipData {
