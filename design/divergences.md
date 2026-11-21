@@ -251,7 +251,7 @@ With P3.3's `pub::GF` D615 was proposed; the owner accepted it on
 2026-11-21.
 
 With P3.3's server fuses (`game-logic::fuses`) D616 to D618 were
-proposed.
+proposed; the owner accepted them on 2026-11-21.
 
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)
