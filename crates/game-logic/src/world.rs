@@ -106,6 +106,10 @@ pub struct ServerWorld {
     /// order (a ship may be in it more than once), announced after the
     /// frame ([`physics_update`]).
     pub dying_ships: Vec<ObjHandle>,
+    /// `!GbAllowPvp`: damage between players' ships is not applied
+    /// ([`crate::munitions::pvp_blocked`]). False (PvP allowed) until the
+    /// startup sets it, as the C++'s initial 1.
+    pub forbid_pvp: bool,
     initialized: bool,
 }
 
@@ -472,6 +476,7 @@ impl ServerHooks for Hooks<'_> {
         match kind {
             Some(ObjectKind::Loot) => crate::loot::after_update(&mut cx, object, dt),
             Some(ObjectKind::Ship) => crate::ship::after_update(&mut cx, object, dt),
+            Some(ObjectKind::Mine) => crate::munitions::mine_after_update(&mut cx, object, dt),
             _ => {}
         }
     }
@@ -520,6 +525,23 @@ impl ServerHooks for Hooks<'_> {
             };
             work_dock_queue(&mut cx, system);
         }
+    }
+
+    fn phantom_event(
+        &mut self,
+        world: &mut World,
+        system: u32,
+        event: &neuron_core::physics::PhantomEvent,
+    ) {
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        crate::munitions::phantom_event(&mut cx, system, event);
+    }
+
+    fn pvp_blocked(&mut self, world: &World, inflictor: u32, target: ObjHandle) -> bool {
+        crate::munitions::pvp_blocked(self.logic.server_world.forbid_pvp, world, inflictor, target)
     }
 
     fn steps_physics(&mut self, world: &World, system: u32) -> bool {

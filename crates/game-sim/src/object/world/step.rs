@@ -41,7 +41,7 @@ pub(crate) fn run_controller(
     };
     let flight = &mut ship.flight;
     match which {
-        ControllerRef::Ship | ControllerRef::Guided => {}
+        ControllerRef::Ship | ControllerRef::Guided | ControllerRef::Mine => {}
         ControllerRef::Steering => {
             steering_controller(&flight.steering, &flight.arch, &orientation, dt, pusher);
         }
@@ -116,6 +116,10 @@ impl ControllerHost for Host<'_> {
         if which == ControllerRef::Guided {
             let mass = context.core().mass;
             super::guided::guided_controller(obj, mass, dt, context);
+            return;
+        }
+        if which == ControllerRef::Mine {
+            super::mine::mine_controller(obj, dt, context);
             return;
         }
         run_controller(obj, which, self.consts, dt, context);
@@ -317,6 +321,27 @@ pub trait ServerHooks {
         let _ = (world, requests);
     }
 
+    /// A phantom's enter or leave event that no object of the world claims
+    /// (`CObjectCB::added`, `deleted` of a server wrapper's phantom: a
+    /// mine's). Nothing without a server, which makes no such phantom.
+    fn phantom_event(
+        &mut self,
+        world: &mut World,
+        system: u32,
+        event: &neuron_core::physics::PhantomEvent,
+    ) {
+        let _ = (world, system, event);
+    }
+
+    /// The server's PvP gate (`GbAllowPvp`) on damage that `inflictor` (an
+    /// object id) deals to `target`: `StarSystem::explode`'s damage pass,
+    /// `munition_collision` and `collision_damage` skip the target when it
+    /// answers true. False without a server.
+    fn pvp_blocked(&mut self, world: &World, inflictor: u32, target: ObjHandle) -> bool {
+        let _ = (world, inflictor, target);
+        false
+    }
+
     /// After a sub-step's deferred deletes: `StarSystem_Update`'s dock
     /// queue.
     fn after_reap(&mut self, world: &mut World, system: u32) {
@@ -433,7 +458,7 @@ impl World {
         if self.config.server_physics && hooks.steps_physics(self, system) {
             self.move_beams(system, step);
             self.step_physics(system, step);
-            self.phantom_events(system);
+            self.phantom_events(system, hooks);
             self.process_collisions(system, hooks);
             self.reap();
         }

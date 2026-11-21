@@ -66,6 +66,12 @@ impl ControllerContext<'_> {
     pub fn core(&self) -> &Core {
         self.core
     }
+
+    /// Writes the core's linear velocity (`core->speed`, +0xa4) directly,
+    /// as the server's mine controller does (`Mine::do_simulation_controller`).
+    pub fn set_speed(&mut self, speed: Vector) {
+        self.core.speed = speed.to_words();
+    }
 }
 
 /// The game side of the controller hook: `game-sim` dispatches each

@@ -12,9 +12,8 @@
 //! after each sub-step's deletes.
 //!
 //! The per-kind wrappers' state lives in the entry too: `EqObj`'s fuses
-//! ([`crate::fuses`]) and server equipment, `Ship`'s ([`crate::ship`]) and
-//! `Loot`'s ([`crate::loot`]); `Mine`'s and the munitions' arrive with
-//! their part.
+//! ([`crate::fuses`]) and server equipment, `Ship`'s ([`crate::ship`]),
+//! `Loot`'s ([`crate::loot`]) and `Mine`'s ([`crate::munitions`]).
 
 use std::collections::BTreeMap;
 
@@ -85,6 +84,8 @@ pub struct ServerObject {
     /// `EqObj::DockQueue`: the dock requests the object hosts, in order
     /// ([`crate::dock`]).
     pub dock_queue: Vec<crate::dock::DockRequest>,
+    /// A mine's own state (`Mine`).
+    pub mine: Option<crate::munitions::MineState>,
 }
 
 impl Default for ServerObject {
@@ -105,6 +106,7 @@ impl Default for ServerObject {
             server_equip: Vec::new(),
             ship: None,
             dock_queue: Vec::new(),
+            mine: None,
         }
     }
 }
@@ -473,6 +475,9 @@ pub fn destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32, killer: u32) -> bool {
     let is_player = o.as_ship().is_some_and(|s| s.is_player);
     if o.kind == ObjectKind::Loot {
         return crate::loot::destroy(cx, h, kind, killer);
+    }
+    if matches!(o.kind, ObjectKind::Mine | ObjectKind::CounterMeasure) {
+        return crate::munitions::destroy(cx, h, kind, killer);
     }
     if !equipped {
         base_destroy(cx, h, kind);
