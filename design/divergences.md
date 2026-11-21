@@ -266,7 +266,7 @@ missiles on a server, the gap D125 left open for P3.3; the bare world
 keeps D125's behaviour.
 
 With P3.3's replication (`game-logic::replication`) D640 to D643 were
-proposed.
+proposed; the owner accepted them on 2026-11-21.
 
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)

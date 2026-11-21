@@ -36,9 +36,8 @@
 //!
 //! The per-object fan-outs beyond these (equipment, cruise, thrusters,
 //! target, fire, fuses, comm, trade lanes, group changes, cargo, the
-//! object updates a player's client sends, leaving the system) and the
-//! solars' damage state and `SETREPUTATION` of `add_player` are left to
-//! later increments.
+//! object updates a player's client sends, leaving the system) are left
+//! to later increments.
 //!
 //! [`ClientSink::link_saturation`]: crate::server::ClientSink::link_saturation
 
@@ -60,7 +59,7 @@ use game_sim::protocol::records::{
 };
 use game_sim::protocol::to_client::{
     ActivateObject, CreateCounter, CreateGuided, CreateLoot, CreateMine, CreateShip,
-    CreateShipOwner, CreateSolar, DamageObject, DestroyObject, LootRecord,
+    CreateShipOwner, CreateSolar, DamageObject, DestroyObject, LootRecord, SetReputation,
 };
 use neuron_core::id::sub_object::{is_arch_group_id, is_equip_id};
 use neuron_core::math::{Matrix, Quaternion, Vector, matrix_to_quaternion};
@@ -1403,18 +1402,17 @@ fn objects_of(world: &World, system: u32, kind: ObjectKind) -> Vec<ObjHandle> {
 /// The creates `StarSystem::add_player` sends the player whose observer is
 /// at `index`, after the multiplayer system id:
 /// - multiplayer only, each solar: a dynamic one's record
-///   (`CREATESOLAR`); then the target of each working gun (`SETTARGET`)
-///   and each active docking point (`ACTIVATEOBJECT`);
+///   (`CREATESOLAR`), any other's damage state below full health
+///   (`DAMAGEOBJECT`, cause 0x19, when it has entries); then its vibe's
+///   reputation towards the player (`SETREPUTATION`: the affiliation and
+///   the attitude), the target of each working gun (`SETTARGET`) and each
+///   active docking point (`ACTIVATEOBJECT`);
 /// - each ship: in single player [`create_ship_for_player`] with its
 ///   record; in multiplayer it is tracked unless destroyed;
 /// - the loot, when there is any: in single player one `CREATELOOT` of
 ///   every container (owner 0, kind 5, each marked for the player,
 ///   [`create_loot_for_player`]); in multiplayer each container is
 ///   tracked unless destroyed.
-///
-/// Left to a later increment: a static solar's damage state below full
-/// health (`DAMAGEOBJECT` in place of the create) and every solar's
-/// `SETREPUTATION` before its targets.
 pub fn add_player(cx: &mut Cx<'_>, system: u32, index: usize) {
     let Some(session) = observer(cx, system, index).map(|v| v.player) else {
         return;
@@ -1475,11 +1473,21 @@ fn add_player_solar(cx: &mut Cx<'_>, session: u32, h: ObjHandle) {
     };
     let dynamic = matches!(&o.data, KindData::Solar(s) if s.dynamic);
     let id = o.simple.id;
-    if dynamic && let Some(mut info) = solar_create_info(cx.world, h) {
-        info.marked_by = is_marked_by(cx.logic, h, session);
-        let packet = create_solar_packet(cx.world, &info);
-        send_server(cx.logic, session, packet);
+    let vibe = o.equipped.as_deref().map_or(-1, |e| e.vibe);
+    if dynamic {
+        if let Some(mut info) = solar_create_info(cx.world, h) {
+            info.marked_by = is_marked_by(cx.logic, h, session);
+            let packet = create_solar_packet(cx.world, &info);
+            send_server(cx.logic, session, packet);
+        }
+    } else {
+        let list = damage_state_list(cx.world, h, 1.0);
+        if !list.entries.is_empty() {
+            send_damage(cx.logic, session, id, &list);
+        }
     }
+    let reputation = solar_reputation(cx.world, vibe, rep_vibe(cx.logic, session));
+    send_server(cx.logic, session, reputation);
     let targets: Vec<(SubObjId, u32, SubObjId)> = cx
         .world
         .get(h)
@@ -1516,6 +1524,28 @@ fn add_player_solar(cx: &mut Cx<'_>, session: u32, h: ObjHandle) {
                 );
             }
         }
+    }
+}
+
+/// `add_player`'s `FServerSetReputationInfo` for a solar's vibe as
+/// rpclocal's `MarshalSetReputation` carries it: the vibe as the target,
+/// its affiliation (`GetAffiliation`, none for an unknown vibe), the two
+/// empty names flattened, no display name and no relations, and its
+/// attitude towards the player's vibe (`AttitudeTowards`, 0 when either
+/// is unknown). A multiplayer server sends the attitude, not the names.
+#[must_use]
+pub fn solar_reputation(world: &mut World, vibe: i32, player_vibe: i32) -> SetReputation {
+    let (vibes, rep) = world.vibes();
+    let attitude = vibes.attitude_towards(vibe, player_vibe, rep).1;
+    let affiliation = vibes.affiliation(vibe, false).1;
+    let empty = flatten(&FmtStr::default());
+    SetReputation {
+        target: vibe as u32,
+        affiliation,
+        display_name: Vec::new(),
+        names: (empty.clone(), empty),
+        relations: Vec::new(),
+        attitude,
     }
 }
 

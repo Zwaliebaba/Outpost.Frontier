@@ -705,3 +705,171 @@ fn creators_tell_the_players_and_damage_waits_until_visible() {
     assert_eq!(damage.damage.entries[0].hit_points, hit);
     assert!(view(&cx, he01(), 1).pending_damage.is_empty());
 }
+
+#[test]
+fn a_multiplayer_arrival_gets_the_solars_damage_states_and_reputations() {
+    let sink = Shared::default();
+    let Some((mut world, mut logic)) = setup("add_player's solars", false, &sink) else {
+        return;
+    };
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    join(&mut cx, 1, he01());
+    cx.world.load_system(he01());
+    world::load(&mut cx, he01());
+    let solars: Vec<ObjHandle> = cx
+        .world
+        .objects_in(he01())
+        .into_iter()
+        .filter(|&h| {
+            cx.world
+                .get(h)
+                .is_some_and(|o| o.kind == game_sim::object::ObjectKind::Solar)
+        })
+        .collect();
+    let vibe_of = |cx: &Cx<'_>, h: ObjHandle| {
+        cx.world
+            .get(h)
+            .and_then(|o| o.equipped.as_deref())
+            .map_or(-1, |e| e.vibe)
+    };
+    // The player's vibe: a solar's record, so that the attitudes are
+    // computed. In he01 no solar's record has a faction: the system file
+    // names it with `reputation`, and the loader reads `group`.
+    let mut known: Vec<i32> = Vec::new();
+    for &h in &solars {
+        let v = vibe_of(&cx, h);
+        if cx.world.vibes().0.affiliation(v, false).0 == 0 && !known.contains(&v) {
+            known.push(v);
+        }
+    }
+    let player_vibe = *known.last().expect("a solar with a vibe record");
+    cx.logic.players.get_mut(1).unwrap().rep_vibe = player_vibe;
+    let _ = sink.take();
+    world::add_player(&mut cx, he01(), 1);
+    let sent = sink.take();
+
+    // Per solar, in the system's order: a dynamic one's create or a static
+    // one's damage state when its list (below 1.0) has entries, then its
+    // reputation.
+    let mut expected: Vec<(&str, u32)> = Vec::new();
+    let mut damaged = 0;
+    let mut ring = None;
+    for &h in &solars {
+        let o = cx.world.get(h).unwrap();
+        let dynamic = matches!(&o.data, game_sim::object::KindData::Solar(s) if s.dynamic);
+        if dynamic {
+            expected.push(("create", o.simple.id));
+        } else {
+            let mut list = DamageList::new(replication::CAUSE_DAMAGE_STATE, 0, 0);
+            replication::get_damage_list(cx.world, h, &mut list, 1.0);
+            if !list.entries.is_empty() {
+                damaged += 1;
+                expected.push(("damage", o.simple.id));
+                if ring.is_none() && o.simple.type_bits & replication::TRADELANE_RING != 0 {
+                    ring = Some((o.simple.id, list));
+                }
+            }
+        }
+        expected.push(("reputation", vibe_of(&cx, h) as u32));
+    }
+    let actual: Vec<(&str, u32)> = sent
+        .iter()
+        .filter_map(|(c, m)| {
+            assert_eq!(*c, 1);
+            match server(m)? {
+                ServerMessage::CreateSolar(s) => Some(("create", s.object.obj_id)),
+                ServerMessage::DamageObject(d) => Some(("damage", d.object_id)),
+                ServerMessage::SetReputation(r) => Some(("reputation", r.target)),
+                _ => None,
+            }
+        })
+        .collect();
+    assert_eq!(actual, expected);
+    let damage_packets = actual.iter().filter(|(k, _)| *k == "damage").count();
+    assert_eq!(damage_packets, damaged);
+    assert!(damaged > 0, "he01 has solars below full health");
+    let reputations = actual.iter().filter(|(k, _)| *k == "reputation").count();
+    assert_eq!(reputations, solars.len());
+    println!(
+        "he01: {} solars, {damaged} DAMAGEOBJECT, {reputations} SETREPUTATION, {} packets",
+        solars.len(),
+        sent.len()
+    );
+
+    // A trade-lane ring's damage state: its item at 0 hit points, as
+    // `CEquip::GetRelativeHealth` answers 0 for an item without maximum.
+    let (ring_id, list) = ring.expect("a trade-lane ring with a damage state");
+    let packet = sent
+        .iter()
+        .find_map(|(_, m)| match server(m) {
+            Some(ServerMessage::DamageObject(d)) if d.object_id == ring_id => Some(d),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        (
+            packet.damage.destroyed,
+            packet.damage.cause,
+            packet.damage.inflictor_id
+        ),
+        (0, 0x19, 0)
+    );
+    let entries: Vec<(u16, u8, f32)> = packet
+        .damage
+        .entries
+        .iter()
+        .map(|x| (x.sub_obj_id, x.fate, x.hit_points))
+        .collect();
+    let wanted: Vec<(u16, u8, f32)> = list
+        .entries
+        .iter()
+        .map(|x| (x.sub_obj_id, x.fate.value() as u8, x.hit_pts))
+        .collect();
+    assert_eq!(entries, wanted);
+    assert!(entries.iter().any(|&(_, fate, hp)| fate == 0 && hp == 0.0));
+
+    // One reputation: the vibe's affiliation and its attitude towards the
+    // player's vibe; the names are the empty ones, no display name.
+    let vibe = known[0];
+    assert_ne!(vibe, player_vibe, "two solars' vibes");
+    let (affiliation, (code, attitude)) = {
+        let (vibes, rep) = cx.world.vibes();
+        (
+            vibes.affiliation(vibe, false).1,
+            vibes.attitude_towards(vibe, player_vibe, rep),
+        )
+    };
+    assert_eq!(code, 0, "both vibes are known");
+    let reputation = sent
+        .iter()
+        .find_map(|(_, m)| match server(m) {
+            Some(ServerMessage::SetReputation(r)) if r.target == vibe as u32 => Some(r),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(reputation.affiliation, affiliation);
+    assert_eq!(reputation.attitude, attitude);
+    assert!(reputation.display_name.is_empty() && reputation.relations.is_empty());
+    let empty = game_sim::protocol::fmtstr::FmtStr::default()
+        .flatten()
+        .unwrap();
+    assert_eq!(reputation.names, (empty.clone(), empty));
+
+    // Single player sends none of them.
+    let sink = Shared::default();
+    let Some((mut world, mut logic)) = setup("add_player's solars", true, &sink) else {
+        return;
+    };
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    join(&mut cx, 1, he01());
+    cx.world.load_system(he01());
+    cx.world.load_system_solars(he01());
+    world::add_player(&mut cx, he01(), 1);
+    assert!(sink.take().is_empty());
+}
