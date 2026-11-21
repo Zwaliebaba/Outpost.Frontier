@@ -187,6 +187,12 @@ pub struct Logic {
     pub bases: Option<crate::bases::BaseDb>,
     /// The star systems (`SysDB::SysMap`, record 0007 point 3).
     pub server_world: crate::world::ServerWorld,
+    /// `pub::GF::GetBasePosition`'s one-entry cache: the base and its
+    /// position.
+    pub gf_base_position: Option<(u32, neuron_core::math::Vector)>,
+    /// The client's performance slider (`GRtcSliderValue`, 0 until set),
+    /// which a single-player server reads.
+    pub rtc_slider: f32,
 }
 
 /// The 4096-bit map of player vibe ids (`g_VibeBitmap`, `g_VibeBitmapHint`,
@@ -273,6 +279,8 @@ impl Logic {
             cheat_message: crate::cheats::DEFAULT_MESSAGE.encode_utf16().collect(),
             bases: None,
             server_world: crate::world::ServerWorld::default(),
+            gf_base_position: None,
+            rtc_slider: 0.0,
         }
     }
 }
