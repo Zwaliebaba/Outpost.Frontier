@@ -187,6 +187,16 @@ pub trait ServerHooks {
         true
     }
 
+    /// The flags of the object's own update (`CObject::update(dt,
+    /// flags)`), asked when [`ServerHooks::object_update`] lets it run:
+    /// `Ship::update` passes `NO_SCANNER` for an NPC's ship and
+    /// `UPDATE_DUMB` for a player's on a multiplayer server. 0
+    /// (`UPDATE_DEFAULT`) without a server.
+    fn object_update_flags(&mut self, world: &World, object: ObjHandle) -> u32 {
+        let _ = (world, object);
+        0
+    }
+
     /// The server part after the object's own update (a ship's jettison
     /// and zone damage; loot, mines and counter-measures).
     fn object_after_update(&mut self, world: &mut World, object: ObjHandle, dt: f32) {
@@ -390,7 +400,8 @@ impl World {
     fn tick_list(&mut self, system: u32, list: TickList, dt: f32, hooks: &mut dyn ServerHooks) {
         for h in self.list(system, list) {
             if hooks.object_update(self, h, dt) {
-                self.update_object_hooked(h, dt, 0, hooks);
+                let flags = hooks.object_update_flags(self, h);
+                self.update_object_hooked(h, dt, flags, hooks);
             }
             hooks.object_after_update(self, h, dt);
         }
@@ -432,7 +443,8 @@ impl World {
         }
         for h in chosen {
             if hooks.object_update(self, h, dt) {
-                self.update_object_hooked(h, dt, 0, hooks);
+                let flags = hooks.object_update_flags(self, h);
+                self.update_object_hooked(h, dt, flags, hooks);
             }
             hooks.object_after_update(self, h, dt);
         }

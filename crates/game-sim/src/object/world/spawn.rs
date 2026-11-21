@@ -73,10 +73,29 @@ pub struct ShipSpawn {
     pub hit_pts: f32,
     /// The object id; `None` allocates a dynamic one.
     pub id: Option<u32>,
+    /// Equipment after the loadout's (`Parms.Equipment.append`): a
+    /// transport's cargo, a player's equipment.
+    pub equipment: Vec<crate::data::equip_desc::EquipDesc>,
+    /// The reputation group (`VibeId`, -1 none).
+    pub vibe: i32,
+    /// The space costume (`SpaceCostume`).
+    pub costume: crate::data::costume::Costume,
+    /// The voice (`VoiceId`).
+    pub voice: u32,
+    /// The base the ship sits in (`DockingCount`, `DockingBaseId`).
+    pub docking_base: u32,
+    /// The group name (`GroupNameId`).
+    pub group_name_id: u32,
+    /// In a trade lane (`bUsingTradelane`).
+    pub using_tradelane: bool,
+    /// The rank given to the reputation group (`Rank`, `Vibe::SetRank`).
+    pub rank: u32,
 }
 
 impl ShipSpawn {
-    /// A ship at rest with full health and a dynamic id.
+    /// A ship at rest with full health and a dynamic id, the rest as
+    /// `CShip::CreateParms`' constructor leaves it (no reputation group,
+    /// costume, voice, base or rank).
     #[must_use]
     pub fn new(archetype: u32, loadout: u32, position: Vector, orientation: Matrix) -> Self {
         Self {
@@ -89,6 +108,14 @@ impl ShipSpawn {
             owner_player: 0,
             hit_pts: -1.0,
             id: None,
+            equipment: Vec::new(),
+            vibe: -1,
+            costume: crate::data::costume::Costume::default(),
+            voice: 0,
+            docking_base: 0,
+            group_name_id: 0,
+            using_tradelane: false,
+            rank: 0,
         }
     }
 }
@@ -1125,6 +1152,18 @@ impl World {
         loadout: u32,
         ship: bool,
     ) {
+        self.init_equipped_with(h, eq_arch, loadout, &[], ship);
+    }
+
+    /// [`World::init_equipped`] with `extra` after the loadout's items.
+    fn init_equipped_with(
+        &mut self,
+        h: ObjHandle,
+        eq_arch: &crate::data::archetype::eq_obj::EqObj,
+        loadout: u32,
+        extra: &[crate::data::equip_desc::EquipDesc],
+        ship: bool,
+    ) {
         let mut groups = Vec::new();
         let tree: Vec<(InstanceId, u32)> = self
             .objects
@@ -1172,7 +1211,9 @@ impl World {
                 self.add_item(h, item, ship);
             }
         }
-        let _ = ();
+        for item in extra {
+            self.add_item(h, item, ship);
+        }
         let has_gen = self
             .objects
             .get(h)
@@ -1250,7 +1291,21 @@ impl World {
         };
         self.build_body(h, parms, None, false);
         self.add_initial_velocity(h, s.velocity, s.angular_velocity);
-        self.init_equipped(h, &arch.eq_obj, s.loadout, true);
+        self.init_equipped_with(h, &arch.eq_obj, s.loadout, &s.equipment, true);
+        // `CEqObj::init`'s reputation group, costume (the accessories up to
+        // the eight of its array) and voice.
+        if let Some(eq) = self
+            .objects
+            .get_mut(h)
+            .and_then(|o| o.equipped.as_deref_mut())
+        {
+            eq.vibe = s.vibe;
+            eq.space_costume = s.costume.clone();
+            eq.space_costume
+                .accessory_ids
+                .truncate(crate::data::costume::MAX_ACCESSORIES);
+            eq.voice = s.voice;
+        }
         // Engines and thrusters register as they are made
         // (`CEEngine::CEEngine` through `EnableController`,
         // `CEThruster::CEThruster` through `ControlObject`).
@@ -1322,8 +1377,17 @@ impl World {
             ship.flight.thrust_power = max;
             ship.flight.steering.active = true;
             ship.flight.nudge.active = true;
+            // `GroupNameId`, `bUsingTradelane` and the base the ship sits
+            // in. The base's run-time system (`IBase::SetSystem`) is not
+            // kept by the world.
+            ship.group_name_id = s.group_name_id;
+            ship.using_tradelane = s.using_tradelane;
+            eq.docking_base = s.docking_base;
             ship.is_player = owner != 0;
         }
+        // `Reputation::Vibe::SetRank(VibeId, Rank)`; an unknown group is
+        // left alone (-2).
+        let _ = self.vibes.set_rank(s.vibe, s.rank);
         if !self.config.single_player || s.owner_player == 0 {
             self.set_collisions(h, true);
         }

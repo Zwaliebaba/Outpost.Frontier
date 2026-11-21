@@ -466,6 +466,33 @@ impl Object {
         self.equipped.as_deref_mut()
     }
 
+    /// `CEqObj::get_total_max_hit_pts`: the maximum hit points of the
+    /// hull, of every item of the mask `0x1ee0` (cloak, cargo pods,
+    /// thrusters, shield generators and the launchers) that is not
+    /// destroyed, and of every collision group that is neither killed nor
+    /// destroyed, each sum stored to a float. The hull's alone without
+    /// equipment.
+    #[must_use]
+    pub fn total_max_hit_pts(&self) -> f32 {
+        let mut total = self.simple.max_hit_pts;
+        let Some(eq) = self.equipped.as_deref() else {
+            return total;
+        };
+        for slot in eq.equipment.traverse(0x1ee0, false) {
+            if let Some(e) = eq.equipment.get(slot) {
+                total = (f64::from(total) + f64::from(e.max_hit_points())) as f32;
+            }
+        }
+        let mut groups: Vec<&damage::ArchGroup> = eq.arch_groups.iter().collect();
+        groups.sort_by_key(|g| g.id);
+        for g in groups {
+            if g.state == damage::GroupState::Alive {
+                total = (f64::from(total) + g.max_hit_points()) as f32;
+            }
+        }
+        total
+    }
+
     /// The projectile part of the projectile kinds.
     #[must_use]
     pub fn as_projectile(&self) -> Option<&projectile::Projectile> {

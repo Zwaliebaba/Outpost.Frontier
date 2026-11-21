@@ -102,6 +102,10 @@ impl StarSystem {
 pub struct ServerWorld {
     /// The systems, by id.
     pub systems: BTreeMap<u32, StarSystem>,
+    /// `GDyingShips`: the ships whose death sequence ended this frame, in
+    /// order (a ship may be in it more than once), announced after the
+    /// frame ([`physics_update`]).
+    pub dying_ships: Vec<ObjHandle>,
     initialized: bool,
 }
 
@@ -424,37 +428,24 @@ impl ServerHooks for Hooks<'_> {
             logic: self.logic,
         };
         crate::objects::begin_damage_list(&mut cx, object, list);
+        crate::ship::stamp_damage_times(&mut cx, object, list);
         crate::fuses::sweep_damage_list(&mut cx, object, list);
         true
     }
 
     fn object_update(&mut self, world: &mut World, object: ObjHandle, dt: f32) -> bool {
-        // `EqObj::update`: past `GameObject::update`'s gate, the fuses
-        // burn (the weapons-offline repair, the dock queue, the server's
-        // equipment and the cargo decay before them come with their
-        // parts); a destroyed object skips its own update.
-        let eq_obj = world.get(object).is_some_and(|o| {
-            matches!(o.kind, ObjectKind::Ship | ObjectKind::Solar) && o.equipped.is_some()
-        });
-        if !eq_obj {
-            return true;
-        }
-        if self.logic.objects.get(object).is_some_and(|o| o.destroyed) {
-            return false;
-        }
-        if self
-            .logic
-            .objects
-            .get(object)
-            .is_some_and(|o| !o.fuses.is_empty())
-        {
-            let mut cx = Cx {
-                world,
-                logic: self.logic,
-            };
-            crate::fuses::burn_fuses(&mut cx, object, dt);
-        }
-        !self.logic.objects.get(object).is_some_and(|o| o.destroyed)
+        // `EqObj::update` (the dock queue's tick and the cargo decay come
+        // with their parts), then `Ship::update`'s choice; a destroyed
+        // object skips its own update.
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        crate::ship::object_update(&mut cx, object, dt)
+    }
+
+    fn object_update_flags(&mut self, world: &World, object: ObjHandle) -> u32 {
+        crate::ship::update_flags(world, object)
     }
 
     fn after_damage_list(&mut self, world: &mut World, object: ObjHandle, list: &mut DamageList) {
@@ -474,15 +465,15 @@ impl ServerHooks for Hooks<'_> {
     }
 
     fn object_after_update(&mut self, world: &mut World, object: ObjHandle, dt: f32) {
-        if world
-            .get(object)
-            .is_some_and(|o| o.kind == ObjectKind::Loot)
-        {
-            let mut cx = Cx {
-                world,
-                logic: self.logic,
-            };
-            crate::loot::after_update(&mut cx, object, dt);
+        let kind = world.get(object).map(|o| o.kind);
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        match kind {
+            Some(ObjectKind::Loot) => crate::loot::after_update(&mut cx, object, dt),
+            Some(ObjectKind::Ship) => crate::ship::after_update(&mut cx, object, dt),
+            _ => {}
         }
     }
 
@@ -575,6 +566,36 @@ pub fn step_systems(cx: &mut Cx<'_>, dt: f32) {
     }
 }
 
+/// `Server_PhysicsUpdate`: [`step_systems`], then each ship of the
+/// dying-ship list that still exists is announced (`Msg0x25` with its
+/// system, id and death-sequence object, which the update zeroed when it
+/// queued the ship), and the list is emptied. The phantoms' events
+/// between them come with `pub::Phantom`.
+pub fn physics_update(cx: &mut Cx<'_>, dt: f32) {
+    step_systems(cx, dt);
+    let dying = std::mem::take(&mut cx.logic.server_world.dying_ships);
+    for h in dying {
+        let Some(o) = cx.world.get(h) else {
+            continue;
+        };
+        let (system, ship) = (o.physical.system, o.simple.id);
+        let death_sequence = cx
+            .logic
+            .objects
+            .get(h)
+            .and_then(|e| e.ship.as_ref())
+            .map_or(0, |s| s.death_sequence_obj_id);
+        let _ = cx.dispatch(
+            ControllerId::BROADCAST,
+            &mut ControllerMessage::Msg0x25 {
+                ship,
+                death_sequence,
+                system,
+            },
+        );
+    }
+}
+
 /// `StarSystem::remove_ship`: the ship out of its system's lists, its body
 /// destroyed and its parameters returned (`GameObject::leave_system`).
 /// The other players' `OnObjectDestroyed`, `notify_object_left` and the
@@ -585,9 +606,10 @@ pub fn remove_ship(cx: &mut Cx<'_>, ship: ObjHandle) -> Option<CreateParms> {
 
 /// `StarSystem::add_ship`: the ship at `position` and `orientation` in
 /// `system` with a body rebuilt from its saved parameters
-/// (`GameObject::enter_system`), appended to the ship list. The creates
-/// for the system's players are the replication part's. False when the
-/// ship is not in transit or the system is not loaded.
+/// (`Ship::enter_system`, which also ends a death sequence), appended to
+/// the ship list. The creates for the system's players are the
+/// replication part's. False when the ship is not in transit or the
+/// system is not loaded.
 pub fn add_ship(
     cx: &mut Cx<'_>,
     system: u32,
@@ -595,5 +617,16 @@ pub fn add_ship(
     position: Vector,
     orientation: Matrix,
 ) -> bool {
-    cx.world.enter_system(ship, system, position, orientation)
+    if !cx.world.enter_system(ship, system, position, orientation) {
+        return false;
+    }
+    if let Some(s) = cx
+        .logic
+        .objects
+        .entry_mut(ship)
+        .and_then(|o| o.ship.as_mut())
+    {
+        s.death_sequence_obj_id = 0;
+    }
+    true
 }
