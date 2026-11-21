@@ -774,6 +774,13 @@ pub trait AiWorld {
     fn single_player(&self) -> bool {
         false
     }
+
+    /// `is_using_tradelane` (`CShip::bUsingTradelane`): the ship is in a
+    /// trade lane. The default answers false.
+    fn using_tradelane(&self, h: Self::Handle) -> bool {
+        let _ = h;
+        false
+    }
 }
 
 /// What `get_dock_hardpoints` answers: the result and the outputs it

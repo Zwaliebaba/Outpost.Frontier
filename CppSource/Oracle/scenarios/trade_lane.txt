@@ -3,9 +3,9 @@
 # (3628, 0, -52369; the lane runs to ring 17 at -70, 0, -58894 and on to ring 18) and is given
 # an instant-trade-lane directive from ring 16 to ring 18 (InstantTradeLaneBehavior,
 # behaviour 9). Multiplayer stepping. No PSIs are recorded: in the lane the ship moves by
-# CShip's LaneAction, which the port does not have yet.
+# CShip's LaneAction.
 
-# rust: skip CShip's LaneAction (P3.3)
+# rust: server the server's notify_stop_tradelane ends the instant trade lane
 
 system he01
 ticks 600

@@ -25,10 +25,12 @@ use std::sync::Arc;
 
 use neuron_core::math::Vector;
 
-use super::behavior::{AiEnv, Behavior, CancelRequest, Cx, DirectiveOp, EvaluateResult, ids};
+use super::behavior::{
+    AiEnv, Behavior, CancelRequest, Cx, DirectiveOp, EvaluateResult, LaneEvent, ids,
+};
 use super::behaviors::{UnportedBehavior, create_behavior};
 use super::fp::{e, r};
-use super::gun_convergence::LeaderNotification;
+use super::gun_convergence::{DirectiveOrder, LeaderNotification};
 use super::intercept::{is_aligned_and_outside_heading_cone, is_within_intercept_range_of_iface};
 use super::pathfind::PathfindManager;
 use super::personality::Personality;
@@ -689,6 +691,28 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
             self.state.pending_request = None;
             self.state.request_busy = false;
         }
+    }
+
+    /// `IBehaviorManager::Slot00` case 4 (a trade-lane event): nothing
+    /// without a current behaviour; when the formation block's current
+    /// leader is the event's ship, its trade-lane order becomes the
+    /// event's (`SetDirectiveOrder(entering, entrance, exit, fast exit,
+    /// speed)`); then the current behaviour's slot 22 hears the event.
+    pub fn lane_event(&mut self, world: &mut W, ship: W::Handle, event: &LaneEvent) {
+        if self.state.behavior == -1 {
+            return;
+        }
+        if self.state.sys.formation.current_leader(&*world) == Some(event.ship) {
+            self.state.sys.formation.order = DirectiveOrder {
+                pending: event.entering,
+                object: event.entrance,
+                second_object: event.exit,
+                commit_directly: event.fast_exit,
+                lane_param: event.speed.to_bits(),
+            };
+        }
+        let index = self.state.behavior;
+        let _ = self.with(world, ship, index, |b, cx| b.lane_event(cx, event));
     }
 
     /// `lock_maneuvers`.

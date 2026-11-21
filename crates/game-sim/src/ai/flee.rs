@@ -14,7 +14,7 @@
 
 use neuron_core::math::Vector;
 
-use super::behavior::{AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, GotoOp, ids};
+use super::behavior::{AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, GotoOp, LaneEvent, ids};
 use super::fp::{e, r};
 use super::goto::GotoBehavior;
 
@@ -221,6 +221,15 @@ impl<W: AiEnv + ?Sized> Behavior<W> for FleeBehavior {
                 });
             }
             _ => {}
+        }
+    }
+
+    /// Slot 22: the delegate's. Only the formation behaviour (while the
+    /// leader flees) has a slot 22 of its own; the goto and dock
+    /// behaviours keep `Behavior`'s.
+    fn lane_event(&mut self, cx: &mut Cx<'_, W>, event: &LaneEvent) {
+        if self.field_38 != 0 {
+            cx.with_peer(ids::FORMATION, |b, cx| b.lane_event(cx, event));
         }
     }
 

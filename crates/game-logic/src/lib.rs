@@ -24,6 +24,7 @@ pub mod save_writer;
 pub mod selection;
 pub mod server;
 pub mod ship;
+pub mod tradelane;
 pub mod transfer;
 pub mod world;
 

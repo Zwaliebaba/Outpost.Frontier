@@ -38,6 +38,7 @@ mod descs;
 mod fields;
 mod guided;
 mod jump;
+mod lane_action;
 mod launch;
 mod launch_action;
 mod loot_drop;
@@ -104,6 +105,8 @@ pub enum ControllerRef {
     JumpIn,
     /// A ship's `LaunchAction` (the path out of a docking ring).
     Launch,
+    /// A ship's `LaneAction` (the transit of a trade lane).
+    Lane,
 }
 
 /// The behaviour manager's tick (`IBehaviorManager::UpdateBehaviorTick`),

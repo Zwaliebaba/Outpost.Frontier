@@ -760,7 +760,10 @@ place of `ram_asteroid` (owner, 2026-11-18); the escort scenarios of P2.5,
 `formation`, `follow`, `guide` and `large_ship`; and the dock scenarios of P2.5,
 `dock_trade_lane`, `launch_from_station` and `trade_lane`. A line
 `# rust: skip <reason>` tells `scenario_replay` that the Rust world cannot
-run the scenario yet.
+run the scenario yet; a line `# rust: server <reason>` that the scenario
+needs the server's answers, so only `game-logic`'s `scenario_hooks` runs
+it, with Content's SpaceSupport and the AI's requests to the server (P3.3,
+the trade lanes).
 
 | Line | Meaning |
 | --- | --- |
@@ -848,8 +851,10 @@ end at tick 1188. `launch_from_station` launches the fighter from the
 station's first berth (behaviour 8, ticks 1 to 277). `trade_lane` puts the
 fighter into the lane from ring 16 to ring 18 with the instant trade lane
 (behaviour 9, `go_tradelane` at tick 12). The lane scenarios record no
-PSIs: in the lane the ship moves by `CShip`'s `LaneAction`, which the port
-does not have yet.
+PSIs: in the lane the ship moves by `CShip`'s `LaneAction`. Since P3.3's
+trade lanes both run through the server's hooks (`# rust: server`): the
+lane request is SpaceSupport's to answer, and the server's
+`notify_stop_tradelane` ends the instant trade lane's directive.
 
 The escort scenarios (P2.5) reach the behaviours no fight does.
 `formation` is a leader and two wingmen of `formations.ini`'s

@@ -116,11 +116,13 @@ impl World {
     }
 
     /// `ActionDB::update` of a ship (`CShip::update` without `NO_ACTIONS`):
-    /// the jump-in, then the launch ([`World::update_launch`]; a ship
-    /// with both updates them in this order, D720).
+    /// the jump-in, then the launch ([`World::update_launch`]), then the
+    /// trade lane ([`World::update_lane`]; a ship with more than one
+    /// updates them in this order, D720 and D736).
     pub(crate) fn update_actions(&mut self, h: ObjHandle, hooks: &mut dyn ServerHooks) {
         self.update_jump_in(h, hooks);
         self.update_launch(h, hooks);
+        self.update_lane(h);
     }
 
     /// `JumpInAction::update` wakes the controller while the jump is not

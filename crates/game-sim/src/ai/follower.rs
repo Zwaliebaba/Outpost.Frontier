@@ -21,7 +21,7 @@
 use neuron_core::math::{Matrix, Vector, transform_matrix};
 
 use super::behavior::{
-    AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, DockOp, EvaluateResult, GotoOp,
+    AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, DockOp, EvaluateResult, GotoOp, LaneEvent,
 };
 use super::dock::DockBehavior;
 use super::dodge::BreakAwayIdea;
@@ -180,6 +180,37 @@ impl FollowerBase {
         self.goto_running = 0;
         self.delegates = false;
         self.base.disengage(cx.state);
+    }
+
+    /// Slot 22 (`BaseFollowerBehavior::Slot22`) with the manager's
+    /// type-4 event. The running dock delegate hears it first (the dock
+    /// behaviour's own slot 22 is `Behavior`'s). When the formation
+    /// block's current leader asked its followers out of the lane, the
+    /// ship in a lane asks for its own exit (`CShip::
+    /// request_exit_tradelane`) and a ship out of it stops the dock
+    /// delegate; the own ship leaving a lane marks it, and without the
+    /// dock delegate cancels the lane request (`slot_60(2, &0, 0)`).
+    fn lane_event<W: AiEnv + ?Sized>(&mut self, cx: &mut Cx<'_, W>, event: &LaneEvent) {
+        if self.dock_running != 0 && self.delegates {
+            cx.with_peer(super::behavior::ids::DOCK, |b, cx| b.lane_event(cx, event));
+        }
+        let watched = cx.state.sys.formation.current_leader(&*cx.world);
+        if !event.entering && watched == Some(event.ship) && event.exit_requested {
+            if cx.world.using_tradelane(cx.ship) {
+                cx.world.command(cx.ship, AiCommand::RequestExitTradeLane);
+            } else if self.dock_running != 0 && self.delegates {
+                self.dock_running = 0;
+                cx.with_peer(super::behavior::ids::DOCK, |b, cx| b.disengage(cx));
+            }
+        }
+        if cx.own().map(|v| v.id) != Some(event.ship) || event.entering {
+            return;
+        }
+        self.left_lane = 1;
+        if self.dock_running != 0 {
+            return;
+        }
+        cx.cancel_request(2, 0, 0);
     }
 
     /// The leader validation of slot 7 for a player's ship: the leader
@@ -777,6 +808,11 @@ impl<W: AiEnv + ?Sized> Behavior<W> for FollowBehavior {
             self.f.lead = None;
         }
     }
+
+    /// Slot 22: the base's.
+    fn lane_event(&mut self, cx: &mut Cx<'_, W>, event: &LaneEvent) {
+        self.f.lane_event(cx, event);
+    }
 }
 
 /// `FormationBehavior` (behaviour 10, 0x2b8 bytes).
@@ -1086,6 +1122,11 @@ impl<W: AiEnv + ?Sized> Behavior<W> for FormationBehavior {
         if self.f.lead == Some(id) {
             self.f.lead = None;
         }
+    }
+
+    /// Slot 22: the base's.
+    fn lane_event(&mut self, cx: &mut Cx<'_, W>, event: &LaneEvent) {
+        self.f.lane_event(cx, event);
     }
 }
 

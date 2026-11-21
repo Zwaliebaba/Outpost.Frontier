@@ -194,10 +194,12 @@ impl World {
         // `unmake_physical`: the controllers, then the body and the bodies
         // of the parts below it that are objects of their own. Deleting the
         // core detaches the controllers still on it: a jump-in's and a
-        // launch's (`PhySys::Controller::core_is_going_to_be_deleted_event`).
+        // launch's and a trade lane's
+        // (`PhySys::Controller::core_is_going_to_be_deleted_event`).
         self.disable_controllers(h);
         self.unregister(h, ControllerRef::JumpIn);
         self.unregister(h, ControllerRef::Launch);
+        self.unregister(h, ControllerRef::Lane);
         if let Some(obj) = self.objects.get_mut(h) {
             let body = obj.physical.body.take();
             let free: Vec<_> = obj.physical.free_parts.drain(..).map(|p| p.body).collect();

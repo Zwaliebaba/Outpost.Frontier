@@ -45,7 +45,8 @@ pub(crate) fn run_controller(
         | ControllerRef::Guided
         | ControllerRef::Mine
         | ControllerRef::JumpIn
-        | ControllerRef::Launch => {}
+        | ControllerRef::Launch
+        | ControllerRef::Lane => {}
         ControllerRef::Steering => {
             steering_controller(&flight.steering, &flight.arch, &orientation, dt, pusher);
         }
@@ -132,6 +133,10 @@ impl ControllerHost for Host<'_> {
         }
         if which == ControllerRef::Launch {
             super::launch_action::launch_controller(obj, dt, context);
+            return;
+        }
+        if which == ControllerRef::Lane {
+            super::lane_action::lane_controller(obj, dt, context);
             return;
         }
         run_controller(obj, which, self.consts, dt, context);
@@ -234,6 +239,36 @@ pub enum ServerRequest {
         target: u32,
         /// `Arg3`.
         arg: i32,
+    },
+    /// `go_tradelane(Entrance, Exit, bFastExit, Speed)` (`Ship::
+    /// go_tradelane`, IObjAffect slot 25) from the AI: the world made the
+    /// ship's `LaneAction` (`CShip::go_tradelane`); the server's
+    /// `notify_go_tradelane` follows (D730).
+    GoTradeLane {
+        /// The ship.
+        ship: ObjHandle,
+        /// The entrance ring's id.
+        entrance: u32,
+        /// The exit ring's id (0 for none).
+        exit: u32,
+        /// `bFastExit`.
+        fast_exit: bool,
+        /// The speed.
+        speed: f32,
+    },
+    /// `stop_tradelane()` (`Ship::stop_tradelane`, IObjAffect slot 26) of
+    /// the ship, from the AI or from its `LaneAction`'s end: the world ran
+    /// `CShip::stop_tradelane` and read the rings
+    /// (`get_tradelane_entrance_ring`, `get_tradelane_exit_ring`); the
+    /// server's `notify_stop_tradelane` follows (D730).
+    StopTradeLane {
+        /// The ship.
+        ship: ObjHandle,
+        /// The entrance ring's id.
+        entrance: u32,
+        /// What `get_tradelane_exit_ring` answers (the current leg's first
+        /// ring, as the reference reads it).
+        exit: u32,
     },
 }
 
@@ -553,6 +588,12 @@ impl World {
             self.step_physics(system, step);
             self.deliver_controller_events(system, hooks);
             self.deliver_jump_ins(system, hooks);
+            // A trade lane that ended in the step (`LaneAction::stop`'s
+            // `stop_tradelane` on the traveller, D731).
+            let requests = self.take_server_requests();
+            if !requests.is_empty() {
+                hooks.server_requests(self, requests);
+            }
             self.phantom_events(system, hooks);
             self.process_collisions(system, hooks);
             self.reap();
@@ -1049,6 +1090,7 @@ impl World {
     pub fn step_physics(&mut self, system: u32, dt: f32) {
         let mode = self.config.step_mode;
         let consts = self.data.constants.engine.clone();
+        self.prepare_lanes(system);
         let objects = RefCell::new(&mut self.objects);
         let mut host = Host {
             objects: &objects,
@@ -1075,6 +1117,7 @@ impl World {
             self.sync_instance(h);
         }
         self.finish_jump_ins(system);
+        self.finish_lanes(system);
         let _ = StepMode::SinglePlayer;
     }
 }

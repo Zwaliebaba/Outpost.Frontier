@@ -6,11 +6,11 @@
 //! The states of `State30`: 0 the lane resolved (`get_lane_start`, unless
 //! the directive named the exit ring), 3 into the lane (`go_tradelane`),
 //! 4 in the lane, 5 and 6 done (directive result 0 and 2). The lane's end
-//! comes as a manager event (slot 22).
+//! comes as the manager's type-4 event (slot 22, [`Behavior::lane_event`]).
 
 use neuron_core::math::Vector;
 
-use super::behavior::{AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, ids};
+use super::behavior::{AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, LaneEvent, ids};
 use super::gun_convergence::LeaderNotification;
 use super::world::AiCommand;
 
@@ -263,6 +263,12 @@ impl<W: AiEnv + ?Sized> Behavior<W> for InstantTradeLaneBehavior {
             self.base.flags &= !0x2;
         }
         self.entrance.is_some()
+    }
+
+    /// (22) `HandleTargetEvent`: the type-4 event of this ship leaving its
+    /// lane.
+    fn lane_event(&mut self, cx: &mut Cx<'_, W>, event: &LaneEvent) {
+        self.handle_target_event(cx, 4, u8::from(event.entering), event.ship);
     }
 
     /// `OnResult`: a lane granted goes back to state 3; refused, done.

@@ -58,7 +58,9 @@
 //! `launch`, `tradelane`) take their ids from the Rust world. Scenarios
 //! whose directives need a behaviour that is not ported yet, and those
 //! marked `# rust: skip <reason>` (the server's and Content's parts the
-//! Rust world does not have yet), are skipped with a note. The fights (`dogfight`, `skirmish`: AI ships of hostile
+//! Rust world does not have yet) or `# rust: server <reason>` (answers
+//! only the server gives, which `scenario_hooks` runs), are skipped with a
+//! note. The fights (`dogfight`, `skirmish`: AI ships of hostile
 //! factions; `strafe`: an AI fighter and a hostile ship without one) take
 //! each pilot's personality and the ships' attitudes from the oracle's
 //! `ai.jsonl` (a ship without a manager the reverse attitude of the AI
@@ -89,7 +91,7 @@ use game_sim::object::world::{NoServerHooks, ShipSpawn, WorldConfig};
 use game_sim::scenario::{
     self, AiInputs, Contact, EXACT_SCENARIOS, GROSS_POSITION, Hit, Run, Scenario, State, Unit,
     dist, first_event, first_event_of, fmt_contact, gun_text, judge_contact, judge_exact,
-    judge_fight, needs_ai, oracle_ai_inputs, oracle_run, parse, report_guided,
+    judge_fight, needs_ai, needs_server, oracle_ai_inputs, oracle_run, parse, report_guided,
     report_object_errors, same_state, scenario_files, scenarios_dir, spawn_orientation,
     world_config,
 };
@@ -1391,6 +1393,14 @@ fn scenarios_against_the_oracle() {
         report_load_draws(&mut summary, &s, oracle.as_deref());
         if let Some(why) = needs_ai(&s) {
             let _ = writeln!(summary, "{}: skipped, {why} (AI is P2.5)", s.name);
+            continue;
+        }
+        if let Some(why) = needs_server(&s) {
+            let _ = writeln!(
+                summary,
+                "{}: skipped without a server, {why} (game-logic's scenario_hooks runs it)",
+                s.name
+            );
             continue;
         }
         let ai = oracle

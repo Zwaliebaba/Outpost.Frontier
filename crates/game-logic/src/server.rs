@@ -6,7 +6,9 @@
 //! sink and (from the later P3.2 increments) the player database. The
 //! controllers are the 23 kinds of Content's factory (`CreateInstance`,
 //! `Content/Content.cpp:84-108`); their handlers arrive with P3.5 to P3.7,
-//! and until then a delivery goes to the optional test hook.
+//! and until then a delivery goes to the optional test hook. SpaceSupport's
+//! trade-lane handlers are ported ([`crate::tradelane::space_support`]) and
+//! run before the hook.
 
 use game_sim::object::World;
 use game_sim::protocol::ToClient;
@@ -333,6 +335,11 @@ impl BusHost for Cx<'_> {
         kind: ControllerKind,
         message: &mut ControllerMessage<'_>,
     ) {
+        // The part of Content's SpaceSupport the port has: its trade-lane
+        // handlers (`crate::tradelane::space_support`).
+        if kind == ControllerKind::SpaceSupport {
+            crate::tradelane::space_support(self, message);
+        }
         if let Some(hook) = self.logic.deliver_hook {
             hook(self, id, kind, message);
         }

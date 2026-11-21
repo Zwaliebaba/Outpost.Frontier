@@ -58,13 +58,16 @@
 //!   ([`send_changed_affiliations`]).
 //!
 //! The callers of the fire, launch, jettison, cruise, thruster,
-//! ship-target, comm, trade-lane and cargo notifiers are not ported yet;
-//! the notifiers are, for those callers to use.
+//! ship-target, comm and cargo notifiers are not ported yet; the notifiers
+//! are, for those callers to use. The trade-lane notifiers are called by
+//! the server's `Ship::go_tradelane` and `stop_tradelane`
+//! ([`crate::tradelane`]).
 //!
 //! [`ClientSink::link_saturation`]: crate::server::ClientSink::link_saturation
 
 use std::collections::BTreeSet;
 
+use game_sim::ai::behavior::LaneEvent;
 use game_sim::data::costume::Costume;
 use game_sim::data::equip_desc::EquipDesc;
 use game_sim::equip::{EquipKind, Fate, SUBOBJ_ID_NONE, SUBOBJ_ID_ROOT, SubObjId, types};
@@ -2535,13 +2538,8 @@ pub fn weapon_fired(
 // ---------------------------------------------------------------------------
 // Trade lanes (`StarSystem::notify_go_tradelane`, `notify_stop_tradelane`).
 
-/// `StarSystem::notify_go_tradelane` (`Ship::go_tradelane`,
-/// `IServerImpl::GoTradelane`): the ship with the id, when it is in the
-/// system, sends `TradelaneEnter` (ship, rings, system) to the bus and
-/// uses the lane, and its owner is not told; then `GOTRADELANE` (the ship,
-/// the rings, the fast-exit byte) to every other player that can see it.
-/// The type-4 behaviour event to every NPC ship's manager comes with the
-/// behaviour manager's server link.
+/// `IServerImpl::GoTradelane` (a client's own lane): `notify_go_tradelane`
+/// with the speed 0, as the C++ pushes it ([`notify_go_tradelane`]).
 pub fn go_tradelane(
     cx: &mut Cx<'_>,
     system: u32,
@@ -2550,7 +2548,37 @@ pub fn go_tradelane(
     exit: u32,
     fast_exit: bool,
 ) {
-    let skip = lane_ship(cx, system, ship_id, true, entrance, exit);
+    notify_go_tradelane(cx, system, ship_id, entrance, exit, fast_exit, 0.0);
+}
+
+/// `StarSystem::notify_go_tradelane` (`Ship::go_tradelane`,
+/// `IServerImpl::GoTradelane`). Pass 1 walks the system's ships in list
+/// order: the ship with the id sends `TradelaneEnter` (ship, rings,
+/// system) to the bus and uses the lane, and its owner is not told; every
+/// other ship nobody owns hears the type-4 behaviour event of the ship
+/// entering the lane (`IBehaviorManager::Slot00`; the requests its
+/// behaviour makes go to the server at once). Pass 2 sends `GOTRADELANE`
+/// (the ship, the rings, the fast-exit byte) to every other player that
+/// can see the ship.
+pub fn notify_go_tradelane(
+    cx: &mut Cx<'_>,
+    system: u32,
+    ship_id: u32,
+    entrance: u32,
+    exit: u32,
+    fast_exit: bool,
+    speed: f32,
+) {
+    let event = LaneEvent {
+        entering: true,
+        exit_requested: false,
+        fast_exit,
+        speed,
+        ship: ship_id,
+        entrance,
+        exit,
+    };
+    let skip = lane_ships(cx, system, &event);
     for player in players_seeing(cx, system, ship_id, Some(skip)) {
         let message = GoTradeLane {
             object_id: ship_id,
@@ -2563,11 +2591,18 @@ pub fn go_tradelane(
 }
 
 /// `StarSystem::notify_stop_tradelane` (`Ship::stop_tradelane`,
-/// `IServerImpl::StopTradelane`): as [`go_tradelane`] with
-/// `TradelaneExit`, the lane left, and `STOPTRADELANE` (the ship, the
-/// rings).
+/// `IServerImpl::StopTradelane`): as [`notify_go_tradelane`] with
+/// `TradelaneExit` and the lane left, except that the ship itself also
+/// hears the event when nobody owns it, a destroyed ship does not, and the
+/// event is the "left the lane" form (no exit ring, speed or fast exit);
+/// then `STOPTRADELANE` (the ship, the rings).
 pub fn stop_tradelane(cx: &mut Cx<'_>, system: u32, ship_id: u32, entrance: u32, exit: u32) {
-    let skip = lane_ship(cx, system, ship_id, false, entrance, exit);
+    let event = LaneEvent {
+        ship: ship_id,
+        entrance,
+        ..LaneEvent::default()
+    };
+    let skip = lane_ships_left(cx, system, &event, exit);
     for player in players_seeing(cx, system, ship_id, Some(skip)) {
         let message = StopTradeLane {
             ship_id,
@@ -2578,33 +2613,77 @@ pub fn stop_tradelane(cx: &mut Cx<'_>, system: u32, ship_id: u32, entrance: u32,
     }
 }
 
-/// The trade-lane notices' pass over the ship itself: the bus hears of it
-/// and the ship's lane flag follows (`CShip::use_tradelane`). Returns the
-/// owner, the player not told (0 when the ship is not in the system).
-fn lane_ship(
-    cx: &mut Cx<'_>,
-    system: u32,
-    ship_id: u32,
-    enter: bool,
-    entrance: u32,
-    exit: u32,
-) -> u32 {
-    let Some(h) = find_in_system(cx.world, system, ship_id)
+/// The system's ships in list order.
+fn system_ships(cx: &Cx<'_>, system: u32) -> Vec<ObjHandle> {
+    cx.world
+        .objects_in(system)
+        .into_iter()
         .filter(|&h| cx.world.get(h).is_some_and(|o| o.kind == ObjectKind::Ship))
-    else {
-        return 0;
-    };
-    let owner = cx.world.get(h).map_or(0, |o| o.simple.owner_player);
+        .collect()
+}
+
+/// Pass 1 of [`notify_go_tradelane`]. Returns the ship's owner, the player
+/// not told (0 when the ship is not in the system).
+fn lane_ships(cx: &mut Cx<'_>, system: u32, event: &LaneEvent) -> u32 {
+    let mut skip = 0;
+    for h in system_ships(cx, system) {
+        let Some((id, owner)) = cx
+            .world
+            .get(h)
+            .map(|o| (o.simple.id, o.simple.owner_player))
+        else {
+            continue;
+        };
+        if id == event.ship {
+            skip = owner;
+            lane_ship(cx, h, system, true, event.entrance, event.exit);
+            continue;
+        }
+        if owner != 0 {
+            continue;
+        }
+        lane_event_to(cx, h, event);
+    }
+    skip
+}
+
+/// Pass 1 of [`stop_tradelane`], `exit` the ring the bus hears.
+fn lane_ships_left(cx: &mut Cx<'_>, system: u32, event: &LaneEvent, exit: u32) -> u32 {
+    let mut skip = 0;
+    for h in system_ships(cx, system) {
+        let Some((id, owner)) = cx
+            .world
+            .get(h)
+            .map(|o| (o.simple.id, o.simple.owner_player))
+        else {
+            continue;
+        };
+        if id == event.ship {
+            skip = owner;
+            lane_ship(cx, h, system, false, event.entrance, exit);
+        }
+        if owner != 0 || is_destroyed(cx, h) {
+            continue;
+        }
+        lane_event_to(cx, h, event);
+    }
+    skip
+}
+
+/// The trade-lane notices' work on the ship itself: the bus hears of it
+/// and the ship's lane flag follows (`CShip::use_tradelane`).
+fn lane_ship(cx: &mut Cx<'_>, h: ObjHandle, system: u32, enter: bool, entrance: u32, exit: u32) {
+    let ship = cx.world.get(h).map_or(0, |o| o.simple.id);
     let mut message = if enter {
         ControllerMessage::TradelaneEnter {
-            ship: ship_id,
+            ship,
             entrance,
             exit,
             system,
         }
     } else {
         ControllerMessage::TradelaneExit {
-            ship: ship_id,
+            ship,
             entrance,
             exit,
             system,
@@ -2614,7 +2693,17 @@ fn lane_ship(
     if let Some(ship) = cx.world.get_mut(h).and_then(|o| o.as_ship_mut()) {
         ship.using_tradelane = enter;
     }
-    owner
+}
+
+/// The type-4 event to a ship's behaviour manager; the requests the
+/// behaviour makes of the server (`slot_60` from `HandleTargetEvent`) run
+/// at once, as they do inside the event in the reference.
+fn lane_event_to(cx: &mut Cx<'_>, h: ObjHandle, event: &LaneEvent) {
+    cx.world.lane_event(h, event);
+    let requests = cx.world.take_server_requests();
+    if !requests.is_empty() {
+        crate::dock::server_requests(cx, requests);
+    }
 }
 
 // ---------------------------------------------------------------------------

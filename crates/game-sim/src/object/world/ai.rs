@@ -513,6 +513,21 @@ impl AiWorld for World {
         self.hardpoint_world(h, name)
     }
 
+    /// `IObjInspectImpl::get_lane_start` ([`World::get_lane_start`]).
+    fn lane_start(
+        &mut self,
+        h: ObjHandle,
+        ring: Option<ObjHandle>,
+        lane: Option<ObjHandle>,
+    ) -> crate::ai::world::LaneStart<ObjHandle> {
+        self.get_lane_start(h, ring, lane)
+    }
+
+    /// `IObjInspectImpl::is_using_tradelane`.
+    fn using_tradelane(&self, h: ObjHandle) -> bool {
+        self.is_using_tradelane(h)
+    }
+
     /// `IObjInspectImpl::has_dock_hardpoints` (`common_iobjinspectimpl.cpp:1227`).
     fn has_dock_hardpoints(&self, h: ObjHandle) -> bool {
         self.get(h).and_then(|o| o.as_equipped()).is_some_and(|eq| {
@@ -908,7 +923,27 @@ impl AiWorld for World {
                 });
                 return 0;
             }
-            // Trade lane and the unnamed slots are not world commands yet.
+            // `Ship::go_tradelane` and `stop_tradelane` (slots 25 and 26):
+            // the `CShip` part at once, the server's after the tick (D730).
+            AiCommand::GoTradeLane {
+                entrance,
+                exit,
+                fast_exit,
+                speed,
+            } => return self.ai_go_tradelane(h, entrance, exit, fast_exit, speed),
+            AiCommand::StopTradeLane => {
+                if self.ship_data(h).is_none() {
+                    return -3;
+                }
+                self.traveller_stop_tradelane(h);
+                return 0;
+            }
+            // `CShip::request_exit_tradelane`, called on the ship directly.
+            AiCommand::RequestExitTradeLane => {
+                self.request_exit_tradelane(h);
+                return 0;
+            }
+            // The unnamed slots are not world commands yet.
             _ => return -2,
         };
         match self.command(h, typed) {

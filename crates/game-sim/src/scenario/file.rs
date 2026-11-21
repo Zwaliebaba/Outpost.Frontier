@@ -82,6 +82,10 @@ pub struct Scenario {
     /// The file is marked `# rust: skip <reason>`: the Rust world cannot
     /// run it yet.
     pub rust_skip: Option<String>,
+    /// The file is marked `# rust: server <reason>`: the scenario needs
+    /// the server's (or Content's) answers, so only a run through the
+    /// server's hooks can run it ([`needs_server`]).
+    pub rust_server: Option<String>,
     /// The `srand` seed (`seed`).
     pub seed: u32,
     /// The seed of the seeding point when it is not `seed`: Gate G2's seed
@@ -161,6 +165,11 @@ pub fn parse(path: &Path) -> Option<Scenario> {
         rust_skip: text.lines().find_map(|l| {
             l.trim_start()
                 .strip_prefix("# rust: skip ")
+                .map(|r| r.trim().to_owned())
+        }),
+        rust_server: text.lines().find_map(|l| {
+            l.trim_start()
+                .strip_prefix("# rust: server ")
                 .map(|r| r.trim().to_owned())
         }),
         seed: 0x4f52_4143,
@@ -278,6 +287,14 @@ pub fn parse(path: &Path) -> Option<Scenario> {
     }
     s.commands.sort_by_key(|c| c.tick);
     Some(s)
+}
+
+/// Why a scenario cannot run without a server: the file is marked
+/// `# rust: server <reason>` (the world alone would wait for an answer
+/// nobody gives).
+#[must_use]
+pub fn needs_server(s: &Scenario) -> Option<String> {
+    s.rust_server.clone()
 }
 
 /// Why a scenario cannot run yet: the file says so (`# rust: skip`), or
