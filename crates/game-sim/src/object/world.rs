@@ -70,7 +70,7 @@ pub use combat::damage_sub_obj;
 pub use sensors::{EquipStatus, EquipmentVal, equipment_val};
 pub(crate) use spawn::shield_status;
 pub use spawn::{LootSpawn, ProjectileSpawn, ShipSpawn, SolarSpawn, SpawnError};
-pub use step::{NoServerHooks, ServerHooks};
+pub use step::{DamageState, NoServerHooks, ServerHooks};
 pub use turret::TurretGeometry;
 
 /// A force controller the world registered with the physics
@@ -693,6 +693,28 @@ impl World {
     /// (decision record 0001, point 5). The physics body leaves the
     /// collision checks at once.
     pub fn destroy(&mut self, h: ObjHandle, killer: u32) {
+        self.destroy_hooked(h, 0, killer, &mut NoServerHooks);
+    }
+
+    /// `destroy(kind, killer)` with the server's hooks: the server's
+    /// `destroy` runs first ([`ServerHooks::destroy`]) and may keep the
+    /// object (a death fuse lit instead); otherwise it is marked dead as
+    /// [`World::destroy`] does. `kind` is the C++'s first argument (0 an
+    /// expiry or removal, 1 destroyed by damage or a hit, 2 a tractored
+    /// loot).
+    pub fn destroy_hooked(
+        &mut self,
+        h: ObjHandle,
+        kind: i32,
+        killer: u32,
+        hooks: &mut dyn ServerHooks,
+    ) {
+        if self.objects.get(h).is_none_or(|o| o.dead) {
+            return;
+        }
+        if !hooks.destroy(self, h, kind, killer) {
+            return;
+        }
         let Some(obj) = self.objects.get_mut(h) else {
             return;
         };

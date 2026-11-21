@@ -12,7 +12,7 @@ use crate::equip::{Pusher, SUBOBJ_ID_ROOT};
 use crate::object::damage::{self, CAUSE_EXPLOSION, DamageCause};
 use crate::object::{KindData, ObjHandle, Object, ObjectKind, class};
 
-use super::{TickList, World};
+use super::{ServerHooks, TickList, World};
 
 /// One seeker step of a guided munition (diagnostic,
 /// [`World::set_guided_trace`]): its id, the aim point and velocity, the
@@ -86,7 +86,7 @@ impl World {
     /// collisions go on at the first update, and a touch latched since
     /// detonates; the wake-up; and a lock-on seeker with a target it can
     /// see steers onto it (`seek`), one that lost it drops it.
-    pub(crate) fn update_guided(&mut self, h: ObjHandle, dt: f32) {
+    pub(crate) fn update_guided(&mut self, h: ObjHandle, dt: f32, hooks: &mut dyn ServerHooks) {
         let Some(o) = self.objects.get_mut(h) else {
             return;
         };
@@ -103,14 +103,14 @@ impl World {
             world.set_collision_group(body, b"");
         }
         if !alive {
-            self.kill(h, 0);
+            self.kill(h, 0, hooks);
             return;
         }
         if let (Some(phantom), Some(world)) = (phantom, self.physics.world_mut(system)) {
             if !world.phantom_collision_state(phantom) {
                 world.set_phantom_collision_state(phantom, true);
             } else if triggered {
-                self.kill(h, trigger_obj);
+                self.kill(h, trigger_obj, hooks);
                 return;
             }
         }
@@ -358,6 +358,7 @@ impl World {
         h: ObjHandle,
         other: ObjHandle,
         other_sub: crate::equip::SubObjId,
+        hooks: &mut dyn ServerHooks,
     ) {
         let (Some(o), Some(other_obj)) = (self.objects.get(h), self.objects.get(other)) else {
             return;
@@ -369,12 +370,12 @@ impl World {
             return;
         }
         let (owner, munition) = (g.projectile.owner_id, g.munition);
-        self.munition_collision(other, owner, munition, other_sub, Vector::ZERO);
+        self.munition_collision_hooked(other, owner, munition, other_sub, Vector::ZERO, hooks);
     }
 
     /// `destroy(1, killer)`: the object is marked destroyed; a guided
     /// munition then detonates (`Guided::destroy`).
-    pub(crate) fn kill(&mut self, h: ObjHandle, killer: u32) {
+    pub(crate) fn kill(&mut self, h: ObjHandle, killer: u32, hooks: &mut dyn ServerHooks) {
         let Some(o) = self.objects.get(h) else {
             return;
         };
@@ -382,9 +383,11 @@ impl World {
             return;
         }
         let guided = o.kind == ObjectKind::Guided;
-        self.destroy(h, killer);
-        if guided {
-            self.guided_detonate(h, killer);
+        self.destroy_hooked(h, 1, killer, hooks);
+        // A server that keeps the object (a death fuse) does not detonate it.
+        let dead = self.objects.get(h).is_none_or(|o| o.dead);
+        if guided && dead {
+            self.guided_detonate(h, killer, hooks);
         }
     }
 
@@ -392,7 +395,7 @@ impl World {
     /// a missile whose explosion has a radius and some effect explodes at
     /// its position (`StarSystem::explode`), inflicted by its owner, cause
     /// 6 for a cruise disruptor else 5.
-    fn guided_detonate(&mut self, h: ObjHandle, killer: u32) {
+    fn guided_detonate(&mut self, h: ObjHandle, killer: u32, hooks: &mut dyn ServerHooks) {
         if self
             .find(killer)
             .and_then(|k| self.objects.get(k))
@@ -444,6 +447,14 @@ impl World {
             hull_damage: explosion.hull_damage,
             energy_damage: explosion.energy_damage,
         };
-        self.explode_caused(system, &blast, cause, owner, Some(h), explosion.impulse);
+        self.explode_caused_hooked(
+            system,
+            &blast,
+            cause,
+            owner,
+            Some(h),
+            explosion.impulse,
+            hooks,
+        );
     }
 }

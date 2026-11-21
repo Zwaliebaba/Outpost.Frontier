@@ -34,7 +34,8 @@
 
 use std::collections::BTreeMap;
 
-use game_sim::object::world::ServerHooks;
+use game_sim::object::damage::DamageList;
+use game_sim::object::world::{DamageState, ServerHooks};
 use game_sim::object::{ObjHandle, ObjectKind, World};
 use neuron_core::math::{Matrix, Vector};
 use neuron_core::physics::CreateParms;
@@ -234,9 +235,9 @@ pub fn remove_player(cx: &mut Cx<'_>, system: u32, session: u32) {
         })
         .collect();
     for h in ships {
-        // `GameObject::destroy(0, id)`: the wrapper's part (the death
-        // fuse, `on_object_destroyed`) comes with the object part.
-        cx.world.destroy(h, 0);
+        // `GameObject::destroy(0, id)`.
+        let id = cx.world.get(h).map_or(0, |o| o.simple.id);
+        destroy_object(cx, h, 0, id);
     }
 }
 
@@ -352,7 +353,7 @@ fn work_dock_queue(cx: &mut Cx<'_>, system: u32) {
         );
         if entry.land {
             if owner == 0 {
-                cx.world.destroy(ship, 0);
+                destroy_object(cx, ship, 0, 0);
             } else {
                 landed.push(owner);
             }
@@ -372,13 +373,70 @@ fn work_dock_queue(cx: &mut Cx<'_>, system: u32) {
     }
 }
 
-/// The server's hooks in a system's frame.
-struct Hooks<'l> {
-    logic: &'l mut Logic,
+/// The server's hooks in a system's frame and on the world's damage and
+/// destruction paths (record 0007 point 2).
+pub struct Hooks<'l> {
+    /// The server's state.
+    pub logic: &'l mut Logic,
 }
 
 impl ServerHooks for Hooks<'_> {
+    fn damage_state(
+        &mut self,
+        _world: &World,
+        object: ObjHandle,
+        inflictor_owner: u32,
+    ) -> DamageState {
+        crate::objects::damage_state(&self.logic.objects, object, inflictor_owner)
+    }
+
+    fn before_damage_list(
+        &mut self,
+        world: &mut World,
+        object: ObjHandle,
+        list: &mut DamageList,
+    ) -> bool {
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        crate::objects::begin_damage_list(&mut cx, object, list);
+        true
+    }
+
+    fn after_damage_list(&mut self, world: &mut World, object: ObjHandle, list: &mut DamageList) {
+        // `StarSystem_DamageObject` (the observers) comes with replication.
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        crate::objects::end_damage_list(&mut cx, object, list);
+    }
+
+    fn damage_list_done(&mut self, world: &mut World, object: ObjHandle) {
+        let pending = {
+            let mut cx = Cx {
+                world: &mut *world,
+                logic: &mut *self.logic,
+            };
+            crate::objects::take_pending_damage(&mut cx, object)
+        };
+        if let Some(pending) = pending {
+            world.apply_damage_list_hooked(object, &pending, self);
+        }
+    }
+
+    fn destroy(&mut self, world: &mut World, object: ObjHandle, kind: i32, _killer: u32) -> bool {
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        crate::objects::destroy(&mut cx, object, kind);
+        true
+    }
+
     fn after_reap(&mut self, world: &mut World, system: u32) {
+        self.logic.objects.sweep(world);
         let queued = self
             .logic
             .server_world
@@ -403,6 +461,14 @@ impl ServerHooks for Hooks<'_> {
                 .get(&system)
                 .is_some_and(|s| !s.observers.is_empty())
     }
+}
+
+/// `GameObject::destroy(kind, killer)` through the server's hooks.
+pub fn destroy_object(cx: &mut Cx<'_>, object: ObjHandle, kind: i32, killer: u32) {
+    let mut hooks = Hooks {
+        logic: &mut *cx.logic,
+    };
+    cx.world.destroy_hooked(object, kind, killer, &mut hooks);
 }
 
 /// `StarSystem_Update`: the world's frame of the system with the server's

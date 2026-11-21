@@ -1,0 +1,187 @@
+//! The server's object state (record 0007 point 1) over the original data
+//! (`outdir/`): the invincibility reduction, marks, a player-protected
+//! ship whose hull stops at its allowed loss under gun fire, the
+//! destruction of a player's current ship (`SpaceExit`, the slot's ship
+//! cleared) and a relative-health set outside a damage callback.
+
+use std::cell::RefCell;
+use std::path::Path;
+use std::sync::Arc;
+
+use game_logic::events::ControllerMessage;
+use game_logic::objects::{Invincibility, ServerObject};
+use game_logic::server::{CreateParams, Cx, Logic, RecordingSink};
+use game_logic::world::{self, Hooks};
+use game_sim::data::config::{DataConfig, GameData};
+use game_sim::equip::SUBOBJ_ID_ROOT;
+use game_sim::object::world::{Assets, ShipSpawn, WorldConfig};
+use game_sim::object::{ObjHandle, World};
+use neuron_core::id::create_id;
+use neuron_core::math::{Matrix, Vector};
+use neuron_core::vfs::Host;
+use neuron_server::controller::{self, Priority};
+
+thread_local! {
+    static HEARD: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+fn command(kind: u32, protect: bool, from_players: bool, loss: f32) -> Invincibility {
+    Invincibility {
+        kind,
+        protect,
+        from_players,
+        max_hp_loss: loss,
+    }
+}
+
+#[test]
+fn invincibility_commands_reduce_to_one_state() {
+    let mut o = ServerObject::default();
+    assert_eq!(o.invincible_timer, 1.0);
+    o.set_invincible(command(1, true, false, 0.5));
+    o.set_invincible(command(2, false, true, 0.25));
+    assert!(o.invincible && o.invincible_flag);
+    assert_eq!(o.invincible_timer, 0.25);
+    // The same kind replaces its command and is not counted again.
+    o.set_invincible(command(2, false, false, 0.75));
+    assert!(o.invincible, "kind 1 still protects");
+    assert!(!o.invincible_flag);
+    assert_eq!(o.invincible_timer, 0.5, "kind 1's loss is the smaller");
+    assert_eq!(o.invincibilities.len(), 2);
+    assert!(o.is_damage_blocked(5, 0));
+    assert!(!o.is_damage_blocked(5, 1), "players are not blocked now");
+    assert!(!o.is_damage_blocked(0x10, 0), "causes from 0x10 never are");
+    o.mark_for_player(3, 1);
+    o.mark_for_player(3, 1);
+    assert_eq!(o.marked_by, [3]);
+    assert!(o.is_marked_by(3));
+    o.mark_for_player(3, 0);
+    assert!(!o.is_marked_by(3));
+}
+
+fn fighter(cx: &mut Cx<'_>, system: u32, owner: u32, z: f32) -> ObjHandle {
+    let mut spawn = ShipSpawn::new(
+        create_id(b"he_fighter"),
+        create_id(b"li_p_he_fighter_loadout01"),
+        Vector::new(15000.0, 3000.0, z),
+        Matrix::IDENTITY,
+    );
+    spawn.owner_player = owner;
+    cx.world
+        .spawn_ship(system, &spawn)
+        .expect("he_fighter spawns")
+}
+
+fn shots(cx: &mut Cx<'_>, target: ObjHandle, shooter: u32, count: usize) {
+    let munition = create_id(b"fc_lr_gun01_mark05_ammo");
+    for _ in 0..count {
+        let mut hooks = Hooks {
+            logic: &mut *cx.logic,
+        };
+        cx.world.munition_collision_hooked(
+            target,
+            shooter,
+            munition,
+            SUBOBJ_ID_ROOT,
+            Vector::ZERO,
+            &mut hooks,
+        );
+    }
+}
+
+#[test]
+fn server_state_on_the_damage_and_destruction_paths() {
+    let outdir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../outdir");
+    let Some(config) = DataConfig::read(&Host::new(&outdir), b"OutpostFrontier.ini") else {
+        println!("outdir/ is missing: no server objects");
+        return;
+    };
+    let mut data = GameData::new();
+    data.load(&Host::new(outdir.join("data")), &config, None);
+    let mut world = World::new(Arc::new(data), WorldConfig::default())
+        .with_assets(Assets::new(outdir.join("data")));
+    let mut logic = Logic::new(Box::new(RecordingSink::default()), 2, true);
+    logic.deliver_hook = Some(|_, _, _, message| {
+        let line = match message {
+            ControllerMessage::SpaceExit { system, player } => {
+                format!("SpaceExit {system} {player}")
+            }
+            other => other.name().to_owned(),
+        };
+        HEARD.with(|h| h.borrow_mut().push(line));
+    });
+    let he01 = create_id(b"he01");
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    controller::create(
+        &mut cx,
+        b"Content.dll",
+        b"GameSupport",
+        &CreateParams::None,
+        Priority::Highest,
+    );
+    cx.world.load_system(he01);
+    let shooter = fighter(&mut cx, he01, 0, -24000.0);
+    let shooter_id = cx.world.get(shooter).unwrap().simple.id;
+
+    // An unprotected ship is destroyed by enough shots.
+    let plain = fighter(&mut cx, he01, 0, -25000.0);
+    shots(&mut cx, plain, shooter_id, 200);
+    assert!(cx.world.get(plain).unwrap().dead, "200 shots destroy it");
+    assert!(cx.logic.objects.get(plain).unwrap().destroyed, "the latch");
+    assert_eq!(cx.world.get(plain).unwrap().simple.hit_pts, 0.0);
+
+    // A ship protected from NPCs loses at most a quarter of its hull.
+    let guarded = fighter(&mut cx, he01, 0, -26000.0);
+    cx.logic
+        .objects
+        .entry(cx.world, guarded)
+        .unwrap()
+        .set_invincible(command(1, true, false, 0.25));
+    shots(&mut cx, guarded, shooter_id, 200);
+    let g = cx.world.get(guarded).unwrap();
+    assert!(!g.dead, "blocked damage does not destroy");
+    let relative = g.simple.hit_pts / g.simple.max_hit_pts;
+    assert!(
+        (relative - 0.75).abs() < 1e-4,
+        "the hull stops at 75 %: {relative}"
+    );
+    assert!(!cx.logic.objects.get(guarded).unwrap().in_damage_callback);
+
+    // A relative-health set outside a callback applies at once.
+    let pending = game_logic::objects::set_relative_health(&mut cx, guarded, 0.5).expect("now");
+    let mut hooks = Hooks {
+        logic: &mut *cx.logic,
+    };
+    cx.world
+        .apply_damage_list_hooked(guarded, &pending, &mut hooks);
+    let g = cx.world.get(guarded).unwrap();
+    assert_eq!(g.simple.hit_pts, g.simple.max_hit_pts * 0.5);
+
+    // A player's current ship destroyed by damage: health 0, ship cleared,
+    // `SpaceExit` to the bus.
+    let own = fighter(&mut cx, he01, 1, -27000.0);
+    let own_id = cx.world.get(own).unwrap().simple.id;
+    {
+        let slot = cx.logic.players.get_mut(1).unwrap();
+        slot.client_id = 1;
+        slot.system_id = he01;
+        slot.ship_object_id = own_id;
+        slot.relative_health = 1.0;
+    }
+    let _ = HEARD.with(|h| std::mem::take(&mut *h.borrow_mut()));
+    world::destroy_object(&mut cx, own, 1, shooter_id);
+    assert!(cx.world.get(own).unwrap().dead);
+    let slot = cx.logic.players.get(1).unwrap();
+    assert_eq!((slot.ship_object_id, slot.relative_health), (0, 0.0));
+    let heard = HEARD.with(|h| std::mem::take(&mut *h.borrow_mut()));
+    assert_eq!(heard, [format!("SpaceExit {he01} 1")]);
+
+    // The reap drops the entries of reaped objects.
+    let before = cx.logic.objects.len();
+    cx.world.reap();
+    cx.logic.objects.sweep(cx.world);
+    assert!(cx.logic.objects.len() < before);
+}

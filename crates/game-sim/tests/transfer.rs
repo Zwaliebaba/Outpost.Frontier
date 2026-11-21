@@ -101,12 +101,18 @@ fn a_ship_leaves_one_system_and_enters_another() {
 #[derive(Default)]
 struct Counting {
     updates: usize,
+    after: usize,
     reaps: usize,
 }
 
 impl ServerHooks for Counting {
-    fn object_update(&mut self, _world: &mut World, _object: ObjHandle, _dt: f32) {
+    fn object_update(&mut self, _world: &mut World, _object: ObjHandle, _dt: f32) -> bool {
         self.updates += 1;
+        true
+    }
+
+    fn object_after_update(&mut self, _world: &mut World, _object: ObjHandle, _dt: f32) {
+        self.after += 1;
     }
 
     fn after_reap(&mut self, _world: &mut World, _system: u32) {
@@ -134,6 +140,7 @@ fn the_server_hooks_see_each_sub_step() {
     assert_eq!(world.step_with(he01, 0.5, &mut hooks), 3);
     assert_eq!(hooks.reaps, 3);
     assert_eq!(hooks.updates, 3, "the one ship, once per sub-step");
+    assert_eq!(hooks.after, 3, "after each own update");
     assert_eq!(
         world.inspect(ship).unwrap().position,
         before,
