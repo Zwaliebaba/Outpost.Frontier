@@ -270,7 +270,7 @@ proposed; the owner accepted them on 2026-11-21.
 
 With P3.3's equipment fire (`game-logic::equip_fire`, `game-logic::cargo`,
 `game-sim::object::world::step`, `combat` and `sensors`) D650 to D653 were
-proposed.
+proposed; the owner accepted them on 2026-11-21.
 
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)
