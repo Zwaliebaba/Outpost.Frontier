@@ -2,6 +2,11 @@
 //! the lights, on any render backend.
 
 use std::fmt::Write as _;
+use std::path::Path;
+use std::rc::Rc;
+
+use neuron_core::catalog::TextCatalogs;
+use neuron_core::vfs::Host;
 
 use neuron_client::engine::camera::{ViewCamera, orbit};
 use neuron_client::engine::{
@@ -98,6 +103,9 @@ pub struct Viewer<B: Backend + 'static> {
     content: Content,
     animations: Option<Animations>,
     character: Option<DeformableId>,
+    /// The character is framed again after its first frame, when the
+    /// animation has posed its bones.
+    frame_character: bool,
     sound: Option<SoundId>,
     /// The sound tables and voice profiles are loaded.
     sound_tables: bool,
@@ -133,6 +141,7 @@ impl<B: Backend + 'static> Viewer<B> {
             content: Content::default(),
             animations: None,
             character: None,
+            frame_character: false,
             sound: None,
             sound_tables: false,
             log: Vec::new(),
@@ -255,7 +264,7 @@ impl<B: Backend + 'static> Viewer<B> {
                 animations,
                 animation,
             } => self.show_character(body, animations.as_deref(), animation.as_deref())?,
-            Scene::Effect { file, name } => self.show_effect(file, name.as_deref())?,
+            Scene::Effect { file, name } => self.show_effect(&data, file, name.as_deref())?,
             Scene::Script(path) => self.show_script(path)?,
             Scene::Sound(nickname) => {
                 self.ensure_sound_tables();
@@ -299,10 +308,14 @@ impl<B: Backend + 'static> Viewer<B> {
             .map_err(|e| e.to_string())?;
         self.content.deformables.push(id);
         self.character = Some(id);
+        self.frame_character = true;
         self.engine.set_deformable_lod(id, 0.0, &[0]);
         let (radius, centre) = self.engine.deformable_bounds(id).unwrap_or((1.0, [0.0; 3]));
         self.orbit = Orbit::framing(centre, radius);
-        self.note(format!("character {body}: radius {radius:.2}"));
+        self.note(format!(
+            "character {body}: radius {radius:.2}, centre {:.2} {:.2} {:.2}",
+            centre[0], centre[1], centre[2]
+        ));
         let Some(file) = animations else {
             return Ok(());
         };
@@ -381,11 +394,9 @@ impl<B: Backend + 'static> Viewer<B> {
         self.animations.as_ref().map_or(0, |a| a.current + 1)
     }
 
-    fn show_effect(&mut self, file: &str, name: Option<&str>) -> Result<(), String> {
-        for library in [&b"FX\\efx.txm"[..], file.as_bytes()] {
-            if self.libraries.insert(library.to_ascii_lowercase()) {
-                let _ = self.engine.load_archive(library);
-            }
+    fn show_effect(&mut self, data: &Host, file: &str, name: Option<&str>) -> Result<(), String> {
+        if self.libraries.insert(file.as_bytes().to_ascii_lowercase()) {
+            let _ = self.engine.load_archive(file.as_bytes());
         }
         let names = self
             .engine
@@ -399,16 +410,29 @@ impl<B: Backend + 'static> Viewer<B> {
                 .ok_or_else(|| format!("{file} has no effect {n}"))?,
             None => names.first().cloned().ok_or("no effect in the file")?,
         };
+        // The texture libraries its `[VisEffect]` names, loaded before the
+        // effect looks its textures up; `efx.txm` when no entry names any.
+        let mut textures = catalog::effect_textures(data, file.as_bytes(), &chosen);
+        if textures.is_empty() {
+            textures.push(b"FX\\efx.txm".to_vec());
+        }
+        for library in &textures {
+            if self.libraries.insert(library.to_ascii_lowercase()) {
+                let _ = self.engine.load_archive(library);
+            }
+        }
         let id = self
             .engine
             .create_effect(&chosen)
             .map_err(|e| e.to_string())?;
         self.content.effects.push(id);
         self.orbit = Orbit::framing([0.0; 3], 6.0);
+        let textures: Vec<String> = textures.iter().map(|t| lossy(t)).collect();
         self.note(format!(
-            "effect {} of {file} ({} effects)",
+            "effect {} of {file} ({} effects), textures {}",
             lossy(&chosen),
-            names.len()
+            names.len(),
+            textures.join(", ")
         ));
         Ok(())
     }
@@ -548,6 +572,34 @@ impl<B: Backend + 'static> Viewer<B> {
         device.lights.set_light_enable(LIGHT_KEY, true);
     }
 
+    /// Hands the interface the client's text catalogs in `dir`, as the
+    /// game's client does at start (the C++ loads its resource modules):
+    /// captions and labels a page gives by text ID read them. The line
+    /// says what loaded; without them those texts are empty.
+    pub fn load_catalogs(&mut self, dir: &Path) -> String {
+        let (catalogs, failures) = TextCatalogs::load_client(dir);
+        let line = if failures.is_empty() {
+            format!(
+                "text catalogs: {} modules from {}",
+                catalogs.len(),
+                dir.display()
+            )
+        } else {
+            let missing: Vec<&str> = failures.iter().map(|f| f.module.as_str()).collect();
+            format!(
+                "text catalogs: {} of {} modules from {}; missing {} (`cargo xtask catalog`                  builds them): their text IDs read as empty",
+                catalogs.len() - failures.len(),
+                catalogs.len(),
+                dir.display(),
+                missing.join(", ")
+            )
+        };
+        if let Some(ui) = self.engine.ui_mut() {
+            ui.catalogs = Some(Rc::new(catalogs));
+        }
+        line
+    }
+
     /// One frame of the engine with the viewer's camera.
     pub fn frame(&mut self, input: FrameInput<'_>) -> FrameReport {
         self.prepare(input.delta_seconds);
@@ -556,7 +608,22 @@ impl<B: Backend + 'static> Viewer<B> {
             let dt = input.delta_seconds as f32;
             self.engine.set_deformable_lod(id, dt, &[0]);
         }
-        self.engine.frame(input, &mut self.camera)
+        let report = self.engine.frame(input, &mut self.camera);
+        if let Some(id) = self.character.filter(|_| self.frame_character) {
+            // The sphere's centre goes through the root bone's pose, which
+            // is the zero pose until the animation's first step: a body
+            // built around its hips is framed at its feet before that.
+            self.frame_character = false;
+            if let Some((radius, centre)) = self.engine.deformable_bounds(id) {
+                self.orbit.target = centre;
+                self.orbit.distance = Orbit::framing(centre, radius).distance;
+                self.note(format!(
+                    "character posed: radius {radius:.2}, centre {:.2} {:.2} {:.2}",
+                    centre[0], centre[1], centre[2]
+                ));
+            }
+        }
+        report
     }
 
     /// One line on what the scene shows now.
