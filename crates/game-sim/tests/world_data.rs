@@ -362,11 +362,10 @@ fn a_gate_opens_and_closes_and_a_bay_cycles() {
                 nickname: create_id(b"test_gate"),
                 position: Vector::new(0.0, 0.0, 0.0),
                 orientation: Matrix::IDENTITY,
-                angular_velocity: Vector::ZERO,
-                destructible: false,
-                dock_with: 0,
-                dest_system: 0,
-                atmosphere_range: 0.0,
+                // A gate plays its open animation (`CSolar::init`'s
+                // destination test).
+                dest_system: create_id(b"he02"),
+                ..SolarSpawn::default()
             },
         )
         .expect("the gate spawns");

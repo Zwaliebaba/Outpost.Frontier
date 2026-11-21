@@ -93,29 +93,83 @@ impl ShipSpawn {
     }
 }
 
-/// What a solar is made from.
+/// What a solar is made from (`CSolar::CreateParms` as `CSolar::ReadObj`
+/// fills it).
 #[derive(Clone, Debug, PartialEq)]
 pub struct SolarSpawn {
     /// The solar archetype.
     pub archetype: u32,
-    /// The loadout (0 none).
+    /// The loadout (0 none): the section's, else the archetype's.
     pub loadout: u32,
     /// The nickname id; also the object id (`CreateID(nickname)`).
     pub nickname: u32,
+    /// The nickname as the file gives it.
+    pub name: Vec<u8>,
     /// The position.
     pub position: Vector,
     /// The orientation.
     pub orientation: Matrix,
     /// The spin (world space); a still solar is fixed.
     pub angular_velocity: Vector,
-    /// Destructible.
+    /// Destructible: the section's, else the archetype's.
     pub destructible: bool,
-    /// The base it docks with.
+    /// The base the solar is on (`base`, `DockingBaseId`).
+    pub base: u32,
+    /// The base it docks with (`dock_with`, `DockingPointBaseId`).
     pub dock_with: u32,
     /// The system a gate leads to.
     pub dest_system: u32,
+    /// The gate it leads to.
+    pub dest_gate: u32,
     /// The atmosphere range.
     pub atmosphere_range: f32,
+    /// `visit`.
+    pub visit: u8,
+    /// `parent`.
+    pub parent: u32,
+    /// The trade-lane ring before and after.
+    pub prev_ring: u32,
+    /// See `prev_ring`.
+    pub next_ring: u32,
+    /// `tradelane_space_name`.
+    pub tradelane_space_name: u32,
+    /// The voice.
+    pub voice: u32,
+    /// `space_costume` or `comm_appr`.
+    pub costume: crate::data::costume::Costume,
+    /// The `anim` values (`ContinualAnims`).
+    pub continual_anims: Vec<Vec<u8>>,
+    /// The reputation record (`VibeId`): the nickname id once verified.
+    pub vibe: i32,
+}
+
+impl Default for SolarSpawn {
+    fn default() -> Self {
+        Self {
+            archetype: 0,
+            loadout: 0,
+            nickname: 0,
+            name: Vec::new(),
+            position: Vector::ZERO,
+            orientation: Matrix::IDENTITY,
+            angular_velocity: Vector::ZERO,
+            destructible: false,
+            base: 0,
+            dock_with: 0,
+            dest_system: 0,
+            dest_gate: 0,
+            atmosphere_range: 0.0,
+            visit: 0,
+            parent: 0,
+            prev_ring: 0,
+            next_ring: 0,
+            tradelane_space_name: 0,
+            voice: 0,
+            costume: crate::data::costume::Costume::default(),
+            continual_anims: Vec::new(),
+            vibe: 0,
+        }
+    }
 }
 
 /// What a loot container is made from.
@@ -1284,6 +1338,13 @@ impl World {
         solar.loadout = s.loadout;
         solar.dest_system = s.dest_system;
         solar.atmosphere_range = s.atmosphere_range;
+        solar.dest_gate = s.dest_gate;
+        solar.prev_ring = s.prev_ring;
+        solar.next_ring = s.next_ring;
+        solar.tradelane_space_name = s.tradelane_space_name;
+        solar.visit_value = s.visit;
+        solar.parent_nickname = s.parent;
+        solar.continual_anims.clone_from(&s.continual_anims);
         let mut obj = self.base_object(
             ObjectKind::Solar,
             &arch.eq_obj.root,
@@ -1341,6 +1402,11 @@ impl World {
             .get_mut(h)
             .and_then(|o| o.equipped.as_deref_mut())
         {
+            // `CEqObj::init` and `CSolar::init`.
+            eq.vibe = s.vibe;
+            eq.voice = s.voice;
+            eq.space_costume.clone_from(&s.costume);
+            eq.docking_base = s.base;
             eq.docking_point_base = s.dock_with;
             if !self.config.single_player {
                 eq.weapons_offline = true;
@@ -1383,82 +1449,6 @@ impl World {
         let path = self.archetype_path(ObjectKind::Solar, archetype);
         self.surface_parts(archetype, &path)
             .is_some_and(|parts| parts.values().any(|p| !p.not_fixed))
-    }
-
-    /// The solars of a system file's `[Object]` sections in file order, as
-    /// [`World::load_system_solars`] reads them (those with a nickname and
-    /// a known solar archetype), without making them.
-    pub fn system_solar_spawns(&mut self, system: u32) -> Vec<SolarSpawn> {
-        self.load_system(system);
-        let Some(sys) = self.data.universe.systems.get(&system).cloned() else {
-            return Vec::new();
-        };
-        let Some(assets) = self.assets.clone() else {
-            return Vec::new();
-        };
-        let path = self
-            .data
-            .universe
-            .system_file_path(self.strings.get(sys.file));
-        let Some(mut reader) = crate::data::open_ini(&assets.host, &path) else {
-            return Vec::new();
-        };
-        let mut out = Vec::new();
-        while reader.read_header() {
-            if !reader.is_header(b"Object") {
-                continue;
-            }
-            let mut spawn = SolarSpawn {
-                archetype: 0,
-                loadout: 0,
-                nickname: 0,
-                position: Vector::ZERO,
-                orientation: Matrix::IDENTITY,
-                angular_velocity: Vector::ZERO,
-                destructible: false,
-                dock_with: 0,
-                dest_system: 0,
-                atmosphere_range: 0.0,
-            };
-            while reader.read_value() {
-                if reader.is_value(b"nickname") {
-                    spawn.nickname = neuron_core::id::create_id(&reader.value_string());
-                } else if reader.is_value(b"pos") {
-                    spawn.position = Vector::new(
-                        crate::data::value_f32(&mut reader, 0),
-                        crate::data::value_f32(&mut reader, 1),
-                        crate::data::value_f32(&mut reader, 2),
-                    );
-                } else if reader.is_value(b"rotate") {
-                    spawn.orientation = crate::data::zone::euler_matrix(Vector::new(
-                        crate::data::value_f32(&mut reader, 0),
-                        crate::data::value_f32(&mut reader, 1),
-                        crate::data::value_f32(&mut reader, 2),
-                    ));
-                } else if reader.is_value(b"archetype") {
-                    spawn.archetype = neuron_core::id::create_id(&reader.value_string());
-                } else if reader.is_value(b"loadout") {
-                    spawn.loadout = neuron_core::id::create_id(&reader.value_string());
-                } else if reader.is_value(b"dock_with") {
-                    spawn.dock_with = neuron_core::id::create_id(&reader.value_string());
-                } else if reader.is_value(b"atmosphere_range") {
-                    spawn.atmosphere_range = crate::data::value_f32(&mut reader, 0);
-                } else if reader.is_value(b"spin") {
-                    // `CSolar::ReadObj` (`common_csolar.cpp:756`): the object-space
-                    // angular velocity `init_physics` gives the body.
-                    spawn.angular_velocity = Vector::new(
-                        crate::data::value_f32(&mut reader, 0),
-                        crate::data::value_f32(&mut reader, 1),
-                        crate::data::value_f32(&mut reader, 2),
-                    );
-                }
-            }
-            if spawn.nickname == 0 || !self.data.archetypes.solars.contains_key(&spawn.archetype) {
-                continue;
-            }
-            out.push(spawn);
-        }
-        out
     }
 
     /// Makes a loot container (`Loot::create`, `CLoot::init`,

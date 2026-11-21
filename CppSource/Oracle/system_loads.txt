@@ -1,0 +1,7 @@
+# Oracle.exe sim session (P3.3, decision record 0007 point 11): not a scenario. The server
+# starts as a multiplayer server, he01 loads, then every system loads (StarSystem::load) and
+# its solars are written to system_loads.jsonl; nothing is stepped.
+
+system he01
+ticks 1
+dump system_loads

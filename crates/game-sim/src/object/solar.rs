@@ -38,6 +38,9 @@ pub struct SolarData {
     pub visit_value: u8,
     /// +0x1e8 the parent's nickname.
     pub parent_nickname: u32,
+    /// The `anim` values of the system file (`init_continual_anim`; their
+    /// playback is not ported yet).
+    pub continual_anims: Vec<Vec<u8>>,
 }
 
 impl SolarData {

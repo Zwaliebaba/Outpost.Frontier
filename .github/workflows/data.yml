@@ -347,6 +347,27 @@ jobs:
           }
           Copy-Item "$env:OUTPOST_ORACLE_DIR\rust-*-replay.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
           exit $failed
+      - name: Compare the system loads
+        # Work package P3.3 (decision record 0007 point 11): Oracle.exe sim starts a multiplayer
+        # server, loads every system (StarSystem::load) and writes its solars
+        # (CppSource/Oracle/system_loads.txt, Server.dll's OracleDumpSystemLoads); the port loads
+        # them through game-logic::world and renders the same lines
+        # (crates/game-logic/tests/system_loads.rs). Summary rust-system-loads.txt.
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $out = "$env:RUNNER_TEMP\outpost-systems"
+          & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\system_loads.txt" $out
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content "$out\session.jsonl" -Tail 20 -ErrorAction SilentlyContinue
+            exit $LASTEXITCODE
+          }
+          $env:OUTPOST_ORACLE_DIR = $out
+          cargo test --locked --release -p game-logic --test system_loads -- --nocapture
+          $code = $LASTEXITCODE
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\outpost-sim-summaries" | Out-Null
+          Copy-Item "$out\rust-system-loads.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
+          exit $code
       - name: Compare the seed ensemble through the Rust world
         # Gate G2 (record 0003 point 9): the same scenarios and seeds through the Rust world
         # (scenario_replay's g2_seed_ensemble test). Each seed is judged exactly up to its first

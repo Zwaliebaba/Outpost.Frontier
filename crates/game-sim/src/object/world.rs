@@ -38,6 +38,7 @@ mod fields;
 mod guided;
 pub use guided::GuidedTrace;
 mod sensors;
+mod solar_read;
 mod spawn;
 mod step;
 mod transfer;

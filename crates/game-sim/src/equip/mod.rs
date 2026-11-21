@@ -381,6 +381,8 @@ pub enum EquipKind {
     InternalFx,
     /// `CERepairDroid`.
     RepairDroid(misc::RepairDroid),
+    /// `CETradeLaneEquip`: a lane ring's item (`CSolar::alloc_equip`).
+    TradeLane,
 }
 
 impl Equip {
@@ -418,7 +420,8 @@ impl Equip {
         }
     }
 
-    /// `CEqObj::alloc_equip` and `CShip::alloc_equip`: the item an
+    /// `CEqObj::alloc_equip`, `CShip::alloc_equip` and
+    /// `CSolar::alloc_equip`: the item an
     /// archetype makes, or `None` for a class that cannot be equipped
     /// (the reference's warning). `ship` selects the ship-only kinds
     /// (engine, thruster, tractor). The constructors' own activations are
@@ -531,6 +534,10 @@ impl Equip {
                     hit_pts_scale: *hit_pts_scale,
                 }),
             ),
+            // `CSolar::alloc_equip`: the trade-lane class makes a
+            // `CETradeLaneEquip` on a solar; a ship's `alloc_equip` has no
+            // case for it.
+            (EquipmentKind::TradeLane, _) if !ship => (types::TRADE_LANE, EquipKind::TradeLane),
             _ => return None,
         };
         let mut equip = Self::new(id, arch, type_bits, kind, mission);
