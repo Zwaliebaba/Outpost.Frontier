@@ -35,7 +35,7 @@
 use std::collections::BTreeMap;
 
 use game_sim::object::damage::DamageList;
-use game_sim::object::world::{DamageState, ServerHooks};
+use game_sim::object::world::{DamageState, Hit, HitRule, ServerHooks};
 use game_sim::object::{ObjHandle, ObjectKind, World};
 use neuron_core::math::{Matrix, Vector};
 use neuron_core::physics::CreateParms;
@@ -388,6 +388,18 @@ impl ServerHooks for Hooks<'_> {
         inflictor_owner: u32,
     ) -> DamageState {
         crate::objects::damage_state(&self.logic.objects, object, inflictor_owner)
+    }
+
+    fn hit_rule(&mut self, world: &World, object: ObjHandle, hit: Hit) -> HitRule {
+        crate::objects::hit_rule(world, object, hit)
+    }
+
+    fn root_hit_ignored(&mut self, world: &mut World, object: ObjHandle, list: &DamageList) {
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        crate::objects::root_hit_ignored(&mut cx, object, list);
     }
 
     fn before_damage_list(

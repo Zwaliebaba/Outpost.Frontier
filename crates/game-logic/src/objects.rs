@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 
 use game_sim::equip::{Fate, SUBOBJ_ID_ROOT};
 use game_sim::object::damage::DamageList;
-use game_sim::object::world::DamageState;
+use game_sim::object::world::{DamageState, Hit, HitRule};
 use game_sim::object::{ObjHandle, ObjectKind, World};
 use neuron_server::controller::ControllerId;
 
@@ -220,13 +220,82 @@ pub fn damage_state(objects: &ServerObjects, h: ObjHandle, inflictor_owner: u32)
         invincible: blocked.then_some(o.invincible_timer),
         difficulty_scale: None,
         death_fuse_burning: false,
+        root_immune: false,
     }
+}
+
+/// The wrappers' per-kind hit rules (decision O46): an indestructible
+/// solar's root takes no damage (`Solar::damage_sub_obj`, `munition_hit`,
+/// `explosion_hit_hull`); the asteroid fields' rocks and mines take none
+/// (`MedAsteroid`, `MedMine`); a counter-measure is destroyed by any
+/// collision or munition (`CounterMeasure`); a mine or guided munition by
+/// any collision and by a seeking munition (`Mine::munition_hit`, which a
+/// guided munition shares).
+#[must_use]
+pub fn hit_rule(world: &World, h: ObjHandle, hit: Hit) -> HitRule {
+    let Some(o) = world.get(h) else {
+        return HitRule::Common;
+    };
+    match (o.kind, hit) {
+        (ObjectKind::Solar, _) => match &o.data {
+            game_sim::object::KindData::Solar(s) if !s.destructible => HitRule::RootImmune,
+            _ => HitRule::Common,
+        },
+        (ObjectKind::Asteroid, _) => HitRule::Ignore,
+        (ObjectKind::CounterMeasure, Hit::SubObj | Hit::Munition { .. }) => HitRule::Destroy,
+        (ObjectKind::Mine | ObjectKind::Guided, Hit::SubObj | Hit::Munition { seeker: true }) => {
+            HitRule::Destroy
+        }
+        _ => HitRule::Common,
+    }
+}
+
+/// `Solar::munition_hit`'s and `explosion_hit_hull`'s notice of a root hit
+/// on an indestructible solar: `ObjectDamaged` at relative health 1 with
+/// no damage. The solar's behaviour event comes with the behaviour
+/// manager's server link.
+pub fn root_hit_ignored(cx: &mut Cx<'_>, h: ObjHandle, list: &DamageList) {
+    let Some(o) = cx.world.get(h) else {
+        return;
+    };
+    let (id, system) = (o.simple.id, o.physical.system);
+    let _ = cx.dispatch(
+        ControllerId::BROADCAST,
+        &mut ControllerMessage::ObjectDamaged(crate::events::ObjectDamaged {
+            id,
+            system,
+            inflictor: list.inflictor_id,
+            equip_type: 0,
+            collision_group_type: 0,
+            cause: list.cause,
+            damage: 0.0,
+            relative_damage: 0.0,
+            relative_health: 1.0,
+        }),
+    );
 }
 
 /// `GameObject::apply_damage_list`'s head: a list applied inside another's
 /// callback is reported (and applied all the same), then the callback
 /// latch is set.
 pub fn begin_damage_list(cx: &mut Cx<'_>, h: ObjHandle, list: &DamageList) {
+    // `Ship::apply_damage_list`: a cruise disruptor's list (cause 6) on an
+    // NPC ship ends its cruise first (`slot_50(false, true, 0)`); the
+    // observers' cruise notice comes with replication.
+    if list.cause == 6
+        && cx
+            .world
+            .get(h)
+            .is_some_and(|o| o.kind == ObjectKind::Ship && o.simple.owner_player == 0)
+    {
+        cx.world.command(
+            h,
+            game_sim::object::Command::EngageCruise {
+                engage: false,
+                instant: true,
+            },
+        );
+    }
     let id = cx.world.get(h).map_or(0, |o| o.simple.id);
     let Some(o) = cx.logic.objects.entry(cx.world, h) else {
         return;

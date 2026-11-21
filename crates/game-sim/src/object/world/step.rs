@@ -141,6 +141,36 @@ pub struct DamageState {
     pub difficulty_scale: Option<f32>,
     /// Its death fuse burns.
     pub death_fuse_burning: bool,
+    /// Its root takes no damage (set from [`HitRule::RootImmune`]).
+    pub root_immune: bool,
+}
+
+/// A hit the server's per-kind rule is asked about ([`ServerHooks::hit_rule`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hit {
+    /// `damage_sub_obj` (a collision).
+    SubObj,
+    /// `munition_hit`; `seeker` when the munition seeks.
+    Munition {
+        /// The munition has a seeker.
+        seeker: bool,
+    },
+    /// `explosion_hit`.
+    Explosion,
+}
+
+/// The server's answer for a hit (decision O46).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HitRule {
+    /// The world's computation (`EqObj`'s and `GameObject`'s).
+    Common,
+    /// No damage (the asteroid fields' rocks and mines).
+    Ignore,
+    /// The object is destroyed (a counter-measure; a mine hit by a
+    /// collision or a seeker).
+    Destroy,
+    /// The computation without root damage (an indestructible solar).
+    RootImmune,
 }
 
 /// The server's parts of a system frame (decision record 0007, point 2,
@@ -161,6 +191,25 @@ pub trait ServerHooks {
     /// and zone damage; loot, mines and counter-measures).
     fn object_after_update(&mut self, world: &mut World, object: ObjHandle, dt: f32) {
         let _ = (world, object, dt);
+    }
+
+    /// The server's per-kind rule for a hit on `object` (decision O46): the
+    /// wrapper's `damage_sub_obj`, `munition_hit` or `explosion_hit`.
+    fn hit_rule(&mut self, world: &World, object: ObjHandle, hit: Hit) -> HitRule {
+        let _ = (world, object, hit);
+        HitRule::Common
+    }
+
+    /// A root hit an indestructible solar ignored (`Solar::munition_hit`,
+    /// `explosion_hit_hull`): the server's `ObjectDamaged` and behaviour
+    /// event.
+    fn root_hit_ignored(
+        &mut self,
+        world: &mut World,
+        object: ObjHandle,
+        list: &crate::object::damage::DamageList,
+    ) {
+        let _ = (world, object, list);
     }
 
     /// The server's state the damage computation reads for `object`, hit

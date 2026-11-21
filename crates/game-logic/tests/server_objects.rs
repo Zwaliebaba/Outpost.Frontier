@@ -312,3 +312,61 @@ fn loot_containers_decay_unseen_and_lose_units() {
         "a player keeps it"
     );
 }
+
+#[test]
+fn an_indestructible_solar_keeps_its_hull() {
+    let outdir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../outdir");
+    let Some(config) = DataConfig::read(&Host::new(&outdir), b"OutpostFrontier.ini") else {
+        println!("outdir/ is missing: no solars");
+        return;
+    };
+    let mut data = GameData::new();
+    data.load(&Host::new(outdir.join("data")), &config, None);
+    let mut world = World::new(Arc::new(data), WorldConfig::default())
+        .with_assets(Assets::new(outdir.join("data")));
+    let mut logic = Logic::new(Box::new(RecordingSink::default()), 2, true);
+    logic.deliver_hook = Some(|_, _, _, message| {
+        HEARD.with(|h| h.borrow_mut().push(message.name().to_owned()));
+    });
+    let he01 = create_id(b"he01");
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    controller::create(
+        &mut cx,
+        b"Content.dll",
+        b"GameSupport",
+        &CreateParams::None,
+        Priority::Highest,
+    );
+    let solars = cx.world.load_system_solars(he01);
+    let station = *solars
+        .iter()
+        .find(|&&h| {
+            cx.world.get(h).is_some_and(|o| {
+                o.simple.max_hit_pts > 0.0
+                    && matches!(&o.data, game_sim::object::KindData::Solar(s) if !s.destructible)
+            })
+        })
+        .expect("an indestructible solar with hit points");
+    let before = cx.world.get(station).unwrap().simple.hit_pts;
+    let _ = HEARD.with(|h| std::mem::take(&mut *h.borrow_mut()));
+    shots(&mut cx, station, 0, 5);
+    assert_eq!(cx.world.get(station).unwrap().simple.hit_pts, before);
+    let heard = HEARD.with(|h| std::mem::take(&mut *h.borrow_mut()));
+    assert_eq!(
+        heard.iter().filter(|l| *l == "ObjectDamaged").count(),
+        5,
+        "{heard:?}"
+    );
+    // The bare world has no such rule.
+    cx.world.munition_collision(
+        station,
+        0,
+        create_id(b"fc_lr_gun01_mark05_ammo"),
+        SUBOBJ_ID_ROOT,
+        Vector::ZERO,
+    );
+    assert!(cx.world.get(station).unwrap().simple.hit_pts < before);
+}

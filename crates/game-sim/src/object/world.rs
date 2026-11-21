@@ -72,7 +72,7 @@ pub use combat::damage_sub_obj;
 pub use sensors::{EquipStatus, EquipmentVal, equipment_val};
 pub(crate) use spawn::shield_status;
 pub use spawn::{LootSpawn, ProjectileSpawn, ShipSpawn, SolarSpawn, SpawnError};
-pub use step::{DamageState, NoServerHooks, ServerHooks};
+pub use step::{DamageState, Hit, HitRule, NoServerHooks, ServerHooks};
 pub use turret::TurretGeometry;
 
 /// A force controller the world registered with the physics

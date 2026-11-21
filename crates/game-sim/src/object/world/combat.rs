@@ -15,7 +15,7 @@ use crate::object::damage::{self, CAUSE_GUN, DamageList, DamageTarget, GroupStat
 use crate::object::{KindData, ObjHandle, ObjectKind, class};
 
 use super::spawn::ProjectileSpawn;
-use super::{DamageState, NoServerHooks, ServerHooks, TickList, World, WorldEvent};
+use super::{DamageState, Hit, HitRule, NoServerHooks, ServerHooks, TickList, World, WorldEvent};
 
 fn e(v: f32) -> f64 {
     f64::from(v)
@@ -456,12 +456,17 @@ impl World {
             ObjectKind::Beam => return,
             // `Guided::damage_sub_obj` (and `Mine`'s) destroys.
             ObjectKind::Guided | ObjectKind::Mine => list.destroyed = true,
-            _ => {
-                let state = hooks.damage_state(self, other, inflictor_owner);
-                self.with_damage_target_state(other, state, |t, in_group, mount_of| {
-                    damage_sub_obj(t, other_sub, amount, &mut list, in_group, mount_of);
-                });
-            }
+            _ => match hooks.hit_rule(self, other, Hit::SubObj) {
+                HitRule::Ignore => {}
+                HitRule::Destroy => list.destroyed = true,
+                rule => {
+                    let mut state = hooks.damage_state(self, other, inflictor_owner);
+                    state.root_immune = rule == HitRule::RootImmune;
+                    self.with_damage_target_state(other, state, |t, in_group, mount_of| {
+                        damage_sub_obj(t, other_sub, amount, &mut list, in_group, mount_of);
+                    });
+                }
+            },
         }
         self.apply_damage_list_hooked(other, &list, hooks);
     }
@@ -512,10 +517,27 @@ impl World {
         let mut list = DamageList::new(cause, shooter, inflictor_owner);
         let m = ProjectileArch::of(&arch).unwrap_or_default();
         let _ = point;
-        let state = hooks.damage_state(self, target, inflictor_owner);
-        self.with_damage_target_state(target, state, |t, in_group, mount_of| {
-            damage::munition_hit(t, &m, sub, &mut list, in_group, mount_of);
-        });
+        match hooks.hit_rule(
+            self,
+            target,
+            Hit::Munition {
+                seeker: m.seeker != 0,
+            },
+        ) {
+            HitRule::Ignore => {}
+            HitRule::Destroy => list.destroyed = true,
+            rule => {
+                let immune = rule == HitRule::RootImmune;
+                if immune && sub == SUBOBJ_ID_ROOT {
+                    hooks.root_hit_ignored(self, target, &list);
+                }
+                let mut state = hooks.damage_state(self, target, inflictor_owner);
+                state.root_immune = immune;
+                self.with_damage_target_state(target, state, |t, in_group, mount_of| {
+                    damage::munition_hit(t, &m, sub, &mut list, in_group, mount_of);
+                });
+            }
+        }
         let (hull_before, shield_before) = self.objects.get(target).map_or((0.0, None), |t| {
             let shield = t.equipped.as_deref().and_then(|eq| {
                 eq.equipment
@@ -618,6 +640,7 @@ impl World {
             player_group_scale: g.player_collision_group_hit_pts_scale,
             shield_hull_damage_factor: self.data.constants.shield.hull_damage_factor,
             death_fuse_burning: state.death_fuse_burning,
+            root_immune: state.root_immune,
             explosion_resistance: self
                 .data
                 .archetypes
@@ -927,10 +950,23 @@ impl World {
                 }
             }
             let mut list = DamageList::new(cause, inflictor, inflictor_owner);
-            let state = hooks.damage_state(self, h, inflictor_owner);
+            let rule = hooks.hit_rule(self, h, Hit::Explosion);
+            if rule == HitRule::Ignore {
+                continue;
+            }
+            let mut state = hooks.damage_state(self, h, inflictor_owner);
+            state.root_immune = rule == HitRule::RootImmune;
+            let mut hull_reached = false;
             self.with_damage_target_state(h, state, |t, in_group, mount_of| {
-                damage::explosion_hit(t, blast, &spheres, &mut list, in_group, mount_of);
+                hull_reached =
+                    damage::explosion_hit(t, blast, &spheres, &mut list, in_group, mount_of);
             });
+            if hull_reached && state.root_immune {
+                hooks.root_hit_ignored(self, h, &list);
+            }
+            if rule == HitRule::Destroy {
+                list.destroyed = true;
+            }
             self.apply_damage_list_hooked(h, &list, hooks);
         }
     }
@@ -977,7 +1013,11 @@ pub fn damage_sub_obj(
     mount_of: &dyn Fn(SubObjId) -> Option<neuron_core::scene::InstanceId>,
 ) {
     if sub == SUBOBJ_ID_ROOT || sub == crate::equip::SUBOBJ_ID_NONE {
-        damage::damage_hull(t, amount, list);
+        // `Solar::damage_sub_obj` ignores a root hit on an indestructible
+        // solar.
+        if !(t.root_immune && sub == SUBOBJ_ID_ROOT) {
+            damage::damage_hull(t, amount, list);
+        }
         return;
     }
     if neuron_core::id::sub_object::is_arch_group_id(sub) {

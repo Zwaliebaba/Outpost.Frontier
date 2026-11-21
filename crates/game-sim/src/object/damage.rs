@@ -258,6 +258,10 @@ pub struct DamageTarget<'a> {
     pub shield_hull_damage_factor: f32,
     /// A death fuse burns.
     pub death_fuse_burning: bool,
+    /// The root takes no damage (an indestructible solar's
+    /// `damage_sub_obj`, `munition_hit` and `explosion_hit_hull`, decision
+    /// O46).
+    pub root_immune: bool,
     /// The archetype's `explosion_resistance` (explosion damage on the
     /// hull and the power).
     pub explosion_resistance: f32,
@@ -688,7 +692,10 @@ pub fn munition_hit(
     mount_of: &dyn Fn(SubObjId) -> Option<InstanceId>,
 ) {
     if sub_obj_id == SUBOBJ_ID_ROOT || sub_obj_id == SUBOBJ_ID_NONE {
-        damage_hull(t, munition.hull_damage, list);
+        // `Solar::munition_hit` on an indestructible root: the energy only.
+        if !(t.root_immune && sub_obj_id == SUBOBJ_ID_ROOT) {
+            damage_hull(t, munition.hull_damage, list);
+        }
     } else if is_arch_group_id(sub_obj_id) {
         if t.group(sub_obj_id).is_none() {
             return;
@@ -792,7 +799,8 @@ fn sphere_distance(
 
 /// `EqObj::explosion_hit`: a functioning shield absorbs the whole blast
 /// (`explosion_hit_shield`); otherwise the hull, the attached items and
-/// collision groups, and the power take their bands' share.
+/// collision groups, and the power take their bands' share. True when
+/// the hull pass ran (no functioning shield absorbed the blast).
 pub fn explosion_hit(
     t: &DamageTarget<'_>,
     blast: &Blast,
@@ -800,7 +808,7 @@ pub fn explosion_hit(
     list: &mut DamageList,
     in_group: &dyn Fn(&ArchGroup, Option<InstanceId>) -> bool,
     mount_of: &dyn Fn(SubObjId) -> Option<InstanceId>,
-) {
+) -> bool {
     let (radius_sq, middle, inner) = bands(blast);
     let third = e(1.0f32 / 3.0);
     // `explosion_hit_shield`.
@@ -847,7 +855,7 @@ pub fn explosion_hit(
         );
     }
     if shielded {
-        return;
+        return false;
     }
     // `explosion_hit_hull`.
     let (radius, center) = spheres.hull;
@@ -857,7 +865,9 @@ pub fn explosion_hit(
         middle,
         inner,
     );
-    if band != 0 {
+    // `Solar::explosion_hit_hull` of an indestructible solar does no hull
+    // damage.
+    if band != 0 && !t.root_immune {
         let amount = r(f64::from(band) * third * e(blast.hull_damage));
         damage_hull(t, r(e(t.explosion_resistance) * e(amount)), list);
     }
@@ -915,7 +925,7 @@ pub fn explosion_hit(
     }
     // `explosion_hit_power`.
     if t.max_power < 0.0 || blast.energy_damage == 0.0 {
-        return;
+        return true;
     }
     let (radius, center) = spheres.physical;
     let band = explosion_band(
@@ -925,13 +935,14 @@ pub fn explosion_hit(
         inner,
     );
     if band == 0 {
-        return;
+        return true;
     }
     damage_power(
         t,
         r(f64::from(band) * third * e(blast.energy_damage) * e(t.explosion_resistance)),
         list,
     );
+    true
 }
 
 #[cfg(test)]
@@ -959,6 +970,7 @@ mod tests {
             player_group_scale: 1.0,
             shield_hull_damage_factor: 0.5,
             death_fuse_burning: false,
+            root_immune: false,
             explosion_resistance: 1.0,
             shield_modifier: f,
         }
@@ -1052,7 +1064,7 @@ mod tests {
             ..BlastSpheres::default()
         };
         let mut l = DamageList::new(CAUSE_EXPLOSION, 7, 0);
-        explosion_hit(&t, &blast, &spheres, &mut l, &|_, _| false, &|_| None);
+        let _ = explosion_hit(&t, &blast, &spheres, &mut l, &|_, _| false, &|_| None);
         assert_eq!(l.hit_pts_left(SUBOBJ_ID_ROOT), 10.0);
         assert_eq!(l.hit_pts_left(SUBOBJ_ID_POWER), 20.0);
     }
