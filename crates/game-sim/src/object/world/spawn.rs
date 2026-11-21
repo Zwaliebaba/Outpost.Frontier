@@ -172,7 +172,8 @@ impl Default for SolarSpawn {
     }
 }
 
-/// What a loot container is made from.
+/// What a loot container is made from (`CLoot::CreateParms` as
+/// `StarSystem::create_loot` fills it).
 #[derive(Clone, Debug, PartialEq)]
 pub struct LootSpawn {
     /// The container archetype (an equipment `LootCrate` or the contents'
@@ -190,6 +191,41 @@ pub struct LootSpawn {
     pub position: Vector,
     /// The velocity.
     pub velocity: Vector,
+    /// The id; `None` allocates one.
+    pub id: Option<u32>,
+    /// The container's hit points; negative for the archetype's.
+    pub hit_pts: f32,
+    /// The orientation.
+    pub orientation: Matrix,
+    /// The spin (world space).
+    pub angular_velocity: Vector,
+    /// `NameId`.
+    pub name_id: i32,
+    /// `bTemporary` (mission loot).
+    pub temporary: bool,
+    /// `bCanAiTractor`.
+    pub can_ai_tractor: bool,
+}
+
+impl Default for LootSpawn {
+    fn default() -> Self {
+        Self {
+            archetype: 0,
+            contents: 0,
+            units: 0,
+            contents_hit_pts: 0.0,
+            owner: 0,
+            position: Vector::ZERO,
+            velocity: Vector::ZERO,
+            id: None,
+            hit_pts: -1.0,
+            orientation: Matrix::IDENTITY,
+            angular_velocity: Vector::ZERO,
+            name_id: 0,
+            temporary: false,
+            can_ai_tractor: true,
+        }
+    }
 }
 
 /// What a projectile is made from (`FServerBulletRecord`,
@@ -1475,9 +1511,22 @@ impl World {
             safe,
         ));
         let mut obj = self.base_object(ObjectKind::Loot, &arch.root, data);
+        if let KindData::Loot(l) = &mut obj.data {
+            l.name_id = s.name_id;
+            l.temporary = s.temporary;
+            l.can_ai_tractor = s.can_ai_tractor;
+        }
         obj.simple.type_bits = 0x1000_0000;
-        let id = self.allocate_id();
-        World::init_simple(&mut obj, system, id, 0, -1.0, s.position, Matrix::IDENTITY);
+        let id = s.id.unwrap_or_else(|| self.allocate_id());
+        World::init_simple(
+            &mut obj,
+            system,
+            id,
+            0,
+            s.hit_pts,
+            s.position,
+            s.orientation,
+        );
         let name = match &obj.data {
             KindData::Loot(l) => l.body_name(id),
             _ => Vec::new(),
@@ -1494,7 +1543,7 @@ impl World {
             inertia: None,
         };
         self.build_body(h, parms, None, false);
-        self.add_initial_velocity(h, s.velocity, Vector::ZERO);
+        self.add_initial_velocity(h, s.velocity, s.angular_velocity);
         Ok(h)
     }
 

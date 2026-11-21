@@ -488,18 +488,7 @@ impl AiWorld for World {
     /// the hardpoint in world space, through the world transform of the
     /// instance it sits on.
     fn hardpoint(&self, h: ObjHandle, name: &[u8]) -> Option<(Vector, Matrix)> {
-        let o = self.get(h)?;
-        let (found, data) = self.find_hardpoint(o.engine.instance, name)?;
-        let instance = self.scene.instance_transform(Some(found));
-        let rotated = neuron_core::math::transform_matrix(&instance.rotation, data.position());
-        let t = instance.translation;
-        let position = Vector::new(
-            r(e(rotated.x) + e(t.x)),
-            r(e(rotated.y) + e(t.y)),
-            r(e(rotated.z) + e(t.z)),
-        );
-        let orientation = neuron_core::math::mul_matrix(&instance.rotation, &data.orientation());
-        Some((position, orientation))
+        self.hardpoint_world(h, name)
     }
 
     /// `IObjInspectImpl::has_dock_hardpoints` (`common_iobjinspectimpl.cpp:1227`).

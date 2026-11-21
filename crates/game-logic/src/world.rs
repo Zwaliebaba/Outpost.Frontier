@@ -35,7 +35,7 @@
 use std::collections::BTreeMap;
 
 use game_sim::object::damage::DamageList;
-use game_sim::object::world::{DamageState, ServerHooks};
+use game_sim::object::world::{DamageState, Hit, HitRule, ServerHooks};
 use game_sim::object::{ObjHandle, ObjectKind, World};
 use neuron_core::math::{Matrix, Vector};
 use neuron_core::physics::CreateParms;
@@ -390,6 +390,18 @@ impl ServerHooks for Hooks<'_> {
         crate::objects::damage_state(&self.logic.objects, object, inflictor_owner)
     }
 
+    fn hit_rule(&mut self, world: &World, object: ObjHandle, hit: Hit) -> HitRule {
+        crate::objects::hit_rule(world, object, hit)
+    }
+
+    fn root_hit_ignored(&mut self, world: &mut World, object: ObjHandle, list: &DamageList) {
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        crate::objects::root_hit_ignored(&mut cx, object, list);
+    }
+
     fn before_damage_list(
         &mut self,
         world: &mut World,
@@ -410,7 +422,27 @@ impl ServerHooks for Hooks<'_> {
             world,
             logic: self.logic,
         };
+        if cx
+            .world
+            .get(object)
+            .is_some_and(|o| o.kind == ObjectKind::Loot)
+        {
+            crate::loot::apply_contents(&mut cx, object, list);
+        }
         crate::objects::end_damage_list(&mut cx, object, list);
+    }
+
+    fn object_after_update(&mut self, world: &mut World, object: ObjHandle, dt: f32) {
+        if world
+            .get(object)
+            .is_some_and(|o| o.kind == ObjectKind::Loot)
+        {
+            let mut cx = Cx {
+                world,
+                logic: self.logic,
+            };
+            crate::loot::after_update(&mut cx, object, dt);
+        }
     }
 
     fn damage_list_done(&mut self, world: &mut World, object: ObjHandle) {
@@ -426,13 +458,12 @@ impl ServerHooks for Hooks<'_> {
         }
     }
 
-    fn destroy(&mut self, world: &mut World, object: ObjHandle, kind: i32, _killer: u32) -> bool {
+    fn destroy(&mut self, world: &mut World, object: ObjHandle, kind: i32, killer: u32) -> bool {
         let mut cx = Cx {
             world,
             logic: self.logic,
         };
-        crate::objects::destroy(&mut cx, object, kind);
-        true
+        crate::objects::destroy(&mut cx, object, kind, killer)
     }
 
     fn after_reap(&mut self, world: &mut World, system: u32) {
