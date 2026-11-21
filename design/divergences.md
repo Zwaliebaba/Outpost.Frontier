@@ -276,7 +276,7 @@ With P3.3's replication fan-outs (`game-logic::replication`) D660 and
 D661 were proposed; the owner accepted them on 2026-11-21.
 
 With P3.3's `pub::` families (`game-logic::api`) D670 to D675 were
-proposed.
+proposed; the owner accepted them on 2026-11-21.
 
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)
