@@ -230,14 +230,23 @@ impl PhysicsWorld {
                         .gravity_controller_step(event.delta_time, [0.0; 3]);
                 }
             }
-            ControllerKind::External { key, .. } => {
-                if let Some(slot) = self.cores.get_mut(core) {
+            ControllerKind::External { key, handle } => {
+                let beam = if let Some(slot) = self.cores.get_mut(core) {
                     let mut context = ControllerContext {
                         event,
                         current_time: now,
                         core: &mut slot.core,
+                        beam: None,
                     };
                     host.do_simulation_controller(key, &mut context);
+                    context.beam
+                } else {
+                    None
+                };
+                if let Some((position, orientation)) = beam
+                    && let Some(&body) = self.controllers.get(handle.0)
+                {
+                    self.beam(body, position, &orientation, false);
                 }
             }
             ControllerKind::Golem(body) => {

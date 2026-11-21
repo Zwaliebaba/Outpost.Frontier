@@ -41,7 +41,10 @@ pub(crate) fn run_controller(
     };
     let flight = &mut ship.flight;
     match which {
-        ControllerRef::Ship | ControllerRef::Guided | ControllerRef::Mine => {}
+        ControllerRef::Ship
+        | ControllerRef::Guided
+        | ControllerRef::Mine
+        | ControllerRef::JumpIn => {}
         ControllerRef::Steering => {
             steering_controller(&flight.steering, &flight.arch, &orientation, dt, pusher);
         }
@@ -120,6 +123,10 @@ impl ControllerHost for Host<'_> {
         }
         if which == ControllerRef::Mine {
             super::mine::mine_controller(obj, dt, context);
+            return;
+        }
+        if which == ControllerRef::JumpIn {
+            super::jump::jump_in_controller(obj, dt, context);
             return;
         }
         run_controller(obj, which, self.consts, dt, context);
@@ -395,6 +402,14 @@ pub trait ServerHooks {
         let _ = (world, system);
         true
     }
+
+    /// A ship's `JumpInAction` arrived in `system`: the jumping object's
+    /// `IObjAffect::slot_74(system)`, which on the server's `Ship` tells
+    /// the bus (`JumpInComplete`) and ends the jump's invincibility.
+    /// Nothing without a server.
+    fn jump_in_complete(&mut self, world: &mut World, object: ObjHandle, system: u32) {
+        let _ = (world, object, system);
+    }
 }
 
 /// A sensor of `CEqObj::update`'s list that updates after the list's
@@ -509,6 +524,7 @@ impl World {
             self.move_beams(system, step);
             self.step_physics(system, step);
             self.deliver_controller_events(system, hooks);
+            self.deliver_jump_ins(system, hooks);
             self.phantom_events(system, hooks);
             self.process_collisions(system, hooks);
             self.reap();
@@ -914,9 +930,13 @@ impl World {
         self.update_docking_animations(h);
     }
 
-    /// `CShip::update`: zones, `CEqObj::update`, the wake-up and the
-    /// damping (drag over mass and inertia), the target check.
+    /// `CShip::update`: the actions (`ActionDB::update`, the jump-in only),
+    /// zones, `CEqObj::update`, the wake-up and the damping (drag over mass
+    /// and inertia), the target check.
     fn update_ship(&mut self, h: ObjHandle, dt: f32, flags: u32, hooks: &mut dyn ServerHooks) {
+        if flags & update_flags::NO_ACTIONS == 0 {
+            self.update_actions(h, hooks);
+        }
         self.update_zones(h);
         self.update_equipped(h, dt, flags, hooks);
         if flags & update_flags::NO_DYNAMICS == 0 {
@@ -1026,6 +1046,7 @@ impl World {
         for h in moved {
             self.sync_instance(h);
         }
+        self.finish_jump_ins(system);
         let _ = StepMode::SinglePlayer;
     }
 }

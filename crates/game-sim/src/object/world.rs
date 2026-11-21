@@ -37,6 +37,7 @@ mod combat;
 mod descs;
 mod fields;
 mod guided;
+mod jump;
 mod launch;
 mod loot_drop;
 mod mine;
@@ -97,6 +98,8 @@ pub enum ControllerRef {
     Guided,
     /// The server's `Mine` wrapper (a seeking mine's push, `arm`).
     Mine,
+    /// A ship's `JumpInAction` (the eased approach to its arrival point).
+    JumpIn,
 }
 
 /// The behaviour manager's tick (`IBehaviorManager::UpdateBehaviorTick`),
@@ -200,6 +203,14 @@ pub enum WorldEvent {
         equip: SubObjId,
         /// The projectile's id: 0 for a bullet, which has none.
         bullet: u32,
+    },
+    /// A ship's `JumpInAction` arrived (`IObjAffect::slot_74` with the
+    /// system the ship is in).
+    JumpInComplete {
+        /// The ship's id.
+        ship: u32,
+        /// The system's id.
+        system: u32,
     },
 }
 

@@ -3,7 +3,10 @@
 //! (`SpaceObj_BuildTransportLoadout`, `Server\SrvMisc.cpp`). The other
 //! `SpaceObj` functions arrive with the parts that own their state; the
 //! dock functions (`DockRequest`, `Dock`, `InstantDock`) work on
-//! [`crate::dock`].
+//! [`crate::dock`], the transfers (`JumpIn`, `Relocate`, `:2950-3025`) on
+//! [`crate::world`]'s `remove_ship`, `add_ship` and `arrive_ship`.
+//! `Launch`, whose `StarSystem::launch` runs `CShip::launch` and its launch
+//! action, is not ported yet.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -398,4 +401,108 @@ pub fn instant_dock(cx: &mut Cx<'_>, ship: u32, target: u32, port: i32) -> Resul
     let land = !matches!(dock_type, 3..=5);
     crate::world::queue_dock(cx, system, Some(ship_h), Some(host), base, land);
     Err(PubError::BAD_ID)
+}
+
+/// `pub::SpaceObj::JumpIn(Ship, Gate)`: the ship arrives through the gate
+/// (a jump gate, a jump hole or an airlock). A ship in another system
+/// leaves it ([`crate::world::remove_ship`]); one in transit leaves
+/// transit; the gate chooses the arrival pose
+/// ([`crate::transfer::choose_system_arrival_location`]); a ship from
+/// elsewhere enters the gate's system ([`crate::world::add_ship`]); then the
+/// ship arrives there through the gate ([`crate::world::arrive_ship`]: an
+/// NPC's jumps in, the players who see it get the switch-in). A ship
+/// already in the gate's system only arrives.
+///
+/// # Errors
+///
+/// -4 for a ship id whose low 30 bits are 0; -2 when the ship is not found
+/// or destroyed; -3 when the gate is not found or destroyed, and, where the
+/// C++ calls `Solar`'s method on another object or adds the ship to the
+/// null system of a gate in transit, for a gate that is not a solar or is
+/// in transit (D684).
+pub fn jump_in(cx: &mut Cx<'_>, ship: u32, gate: u32) -> Result<(), PubError> {
+    if ship & 0x3fff_ffff == 0 {
+        return Err(PubError(-4));
+    }
+    let Some((ship_h, ship_system)) = crate::transfer::find_live(cx, ship) else {
+        return Err(PubError::BAD_ID);
+    };
+    let Some((gate_h, gate_system)) = crate::transfer::find_live(cx, gate) else {
+        return Err(PubError::NOT_FOUND);
+    };
+    let solar = cx
+        .world
+        .get(gate_h)
+        .is_some_and(|o| o.kind == game_sim::object::ObjectKind::Solar);
+    let Some(gate_system) = gate_system.filter(|_| solar) else {
+        return Err(PubError::NOT_FOUND);
+    };
+    // `Server_TakeInTransit` for a ship in transit: the world keeps its
+    // parameters until it enters a system.
+    if ship_system.is_some_and(|s| s != gate_system) {
+        let _ = crate::world::remove_ship(cx, ship_h);
+    }
+    let (position, orientation) = crate::transfer::choose_system_arrival_location(cx, gate_h);
+    if ship_system != Some(gate_system)
+        && !crate::world::add_ship(cx, gate_system, ship_h, position, orientation)
+    {
+        // A system that is not loaded keeps the ship in transit (D685).
+        return Ok(());
+    }
+    crate::world::arrive_ship(cx, gate_system, ship_h, Some(gate_h), position, orientation);
+    Ok(())
+}
+
+/// `pub::SpaceObj::Relocate(Object, System, Pos, Orient)`: the object moves
+/// to `position` and `orientation` in `system`, or into transit for a
+/// system id whose low 30 bits are 0 or that has no entry. An object in
+/// another system leaves it ([`crate::world::remove_ship`]); into transit
+/// it stays there, keeping its parameters (`Server_PushInTransit`); in its
+/// own system it is beamed to the pose (`beam_object`); otherwise it
+/// enters the system ([`crate::world::add_ship`]) and a ship's control
+/// exclusion is cleared. A system that is not loaded keeps the object in
+/// transit (D685); an object that is not a ship leaves and enters its own
+/// kind's list (D686).
+///
+/// # Errors
+///
+/// -4 for an object id whose low 30 bits are 0; -2 when the object is not
+/// found or destroyed.
+pub fn relocate(
+    cx: &mut Cx<'_>,
+    object: u32,
+    system: u32,
+    position: Vector,
+    orientation: Matrix,
+) -> Result<(), PubError> {
+    if object & 0x3fff_ffff == 0 {
+        return Err(PubError(-4));
+    }
+    let Some((h, own)) = crate::transfer::find_live(cx, object) else {
+        return Err(PubError::BAD_ID);
+    };
+    let target = crate::transfer::lookup_system(cx, system);
+    // `Server_TakeInTransit` for an object in transit.
+    if own.is_some() && target != own {
+        let _ = crate::world::remove_ship(cx, h);
+    }
+    let Some(target) = target else {
+        return Ok(());
+    };
+    if own == Some(target) {
+        cx.world.beam_object(h, position, orientation);
+        return Ok(());
+    }
+    if !crate::world::add_ship(cx, target, h, position, orientation) {
+        return Ok(());
+    }
+    if let Some(o) = cx
+        .world
+        .get_mut(h)
+        .filter(|o| o.kind == game_sim::object::ObjectKind::Ship)
+        && let Some(eq) = o.equipped.as_deref_mut()
+    {
+        eq.control_exclusion = 0;
+    }
+    Ok(())
 }

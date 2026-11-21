@@ -43,9 +43,11 @@
 //!   ([`go_tradelane`], [`stop_tradelane`]), a ship's group
 //!   ([`group_changed`]) and another ship's cargo
 //!   ([`remote_cargo_update`]).
-//! - **Leaving and landing**: a ship that docks leaves every observer
-//!   ([`ship_left_for_dock`]; the player's own ship sets the latch), a
-//!   ship that lands lands on the clients that had it and on its owner's
+//! - **Leaving, arriving and landing**: a ship that docks leaves every
+//!   observer ([`ship_left_for_dock`]; the player's own ship sets the
+//!   latch), a ship that arrives through a jump object switches in on the
+//!   clients that can see it ([`ship_switched_in`]), a ship that lands
+//!   lands on the clients that had it and on its owner's
 //!   ([`ship_landed`]).
 //! - **A client's own object updates** ([`client_object_update`]): the
 //!   position bound, the sample to the ship's remote correction and the
@@ -83,7 +85,7 @@ use game_sim::protocol::records::{
 use game_sim::protocol::to_client::{
     ActivateObject, BurnFuse, CreateCounter, CreateGuided, CreateLoot, CreateMine, CreateShip,
     CreateShipOwner, CreateSolar, DamageObject, DestroyObject, Land, LootRecord, SendComm,
-    SetReputation, SystemSwitchOut,
+    SetReputation, SystemSwitchIn, SystemSwitchOut,
 };
 use neuron_core::id::sub_object::{is_arch_group_id, is_equip_id};
 use neuron_core::math::{Matrix, Quaternion, Vector, matrix_to_quaternion};
@@ -2203,6 +2205,37 @@ pub fn ship_left_for_dock(cx: &mut Cx<'_>, system: u32, ship: ObjHandle, dock: O
         let dock_id = cx.world.get(dock).map_or(0, |o| o.simple.id);
         let ship_id = cx.world.get(ship).map_or(0, |o| o.simple.id);
         object_left_system(cx, system, index, ship_id, dock_id);
+        index += 1;
+    }
+}
+
+/// `StarSystem::arrive_ship`'s observer part: every player of the system
+/// that can see the ship ([`is_object_visible`]) gets
+/// `SYSTEM_SWITCH_IN` with the ship, the jump object's type bits (0
+/// without one), the arrival position and the orientation as a quaternion
+/// (`Server_MatrixToQuat`), one record for all.
+pub fn ship_switched_in(
+    cx: &mut Cx<'_>,
+    system: u32,
+    ship: ObjHandle,
+    jump_bits: u32,
+    position: Vector,
+    orientation: &Matrix,
+) {
+    let record = SystemSwitchIn {
+        field_00: cx.world.get(ship).map_or(0, |o| o.simple.id),
+        field_04: jump_bits,
+        position: xyz(position),
+        orientation: wxyz(quat(orientation)),
+    };
+    let mut index = 0;
+    while index < observer_count(cx, system) {
+        let player = observer(cx, system, index)
+            .filter(|view| is_object_visible(cx.world, cx.logic, view, Some(ship)))
+            .map(|view| view.player);
+        if let Some(player) = player {
+            send_server(cx.logic, player, record.clone());
+        }
         index += 1;
     }
 }

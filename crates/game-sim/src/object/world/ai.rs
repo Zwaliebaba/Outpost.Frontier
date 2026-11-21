@@ -1061,11 +1061,14 @@ impl World {
         }
     }
 
-    fn ship_data(&self, h: ObjHandle) -> Option<&crate::object::ship::ShipData> {
+    pub(crate) fn ship_data(&self, h: ObjHandle) -> Option<&crate::object::ship::ShipData> {
         self.get(h).and_then(|o| o.as_ship())
     }
 
-    fn ship_data_mut(&mut self, h: ObjHandle) -> Option<&mut crate::object::ship::ShipData> {
+    pub(crate) fn ship_data_mut(
+        &mut self,
+        h: ObjHandle,
+    ) -> Option<&mut crate::object::ship::ShipData> {
         self.get_mut(h).and_then(|o| o.as_ship_mut())
     }
 
