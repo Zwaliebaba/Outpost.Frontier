@@ -397,7 +397,7 @@ jobs:
         # including when the runner cannot create a Direct3D 8 HAL device. It
         # runs whenever the harness built, so its log is there even when an
         # earlier comparison failed.
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.cpp-bin.outputs.cache-hit == 'true') }}
         shell: pwsh
         run: |
           $out = "$PWD\oracle-out-render"
