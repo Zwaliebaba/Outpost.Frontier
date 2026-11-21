@@ -129,8 +129,51 @@ pub struct VibeDb {
     /// Loading mode (`BeginStaticLoad` until `EndStaticLoad`).
     loading: bool,
     /// The slot the last lookup returned (`GStaticVibeHit`). The sort moves
-    /// records but not this index, as the C++ keeps its pointer.
-    hit: Option<usize>,
+    /// records but not this index, as the C++ keeps its pointer. Shared
+    /// mutable, so that a lookup through a shared store (the AI's
+    /// `get_toughness`) moves it as every lookup of the reference does.
+    hit: HitCache,
+}
+
+/// `GStaticVibeHit` as an index that a lookup through `&VibeDb` can move
+/// (the store is shared read-only by the loaded game data).
+#[derive(Debug)]
+struct HitCache(std::sync::atomic::AtomicUsize);
+
+impl HitCache {
+    const NONE: usize = usize::MAX;
+
+    fn get(&self) -> Option<usize> {
+        let index = self.0.load(std::sync::atomic::Ordering::Relaxed);
+        (index != Self::NONE).then_some(index)
+    }
+
+    fn set(&self, index: Option<usize>) {
+        self.0.store(
+            index.unwrap_or(Self::NONE),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+    }
+}
+
+impl Default for HitCache {
+    fn default() -> Self {
+        Self(std::sync::atomic::AtomicUsize::new(Self::NONE))
+    }
+}
+
+impl Clone for HitCache {
+    fn clone(&self) -> Self {
+        Self(std::sync::atomic::AtomicUsize::new(
+            self.0.load(std::sync::atomic::Ordering::Relaxed),
+        ))
+    }
+}
+
+impl PartialEq for HitCache {
+    fn eq(&self, other: &Self) -> bool {
+        self.get() == other.get()
+    }
 }
 
 /// The key comparator of the sort and of `bsearch`: the wrapping
@@ -153,7 +196,7 @@ impl VibeDb {
     /// `FreeStatic`: every slot dropped, the cache cleared.
     pub fn free_static(&mut self) {
         self.slots.clear();
-        self.hit = None;
+        self.hit.set(None);
     }
 
     /// `BeginStaticLoad`.
@@ -173,8 +216,8 @@ impl VibeDb {
     /// `FindStaticVibe`: the cached slot when its key matches, else a linear
     /// scan while loading or `bsearch` after; the result (a miss included)
     /// becomes the cache.
-    pub fn find(&mut self, key: i32) -> Option<usize> {
-        if let Some(index) = self.hit
+    pub fn find(&self, key: i32) -> Option<usize> {
+        if let Some(index) = self.hit.get()
             && self.slots.get(index).is_some_and(|slot| slot.key == key)
         {
             return Some(index);
@@ -184,7 +227,7 @@ impl VibeDb {
         } else {
             bsearch(&self.slots, |slot| key_diff(key, slot.key))
         };
-        self.hit = found;
+        self.hit.set(found);
         found
     }
 
@@ -215,7 +258,7 @@ impl VibeDb {
                         key,
                         value: VibeValue::default(),
                     });
-                    self.hit = Some(self.slots.len() - 1);
+                    self.hit.set(Some(self.slots.len() - 1));
                 }
             }
         }
@@ -429,7 +472,7 @@ impl Vibes {
         }
     }
 
-    fn find(&mut self, key: i32) -> Option<Slot> {
+    fn find(&self, key: i32) -> Option<Slot> {
         if self.dynamic.contains_key(&key) {
             return Some(Slot::Dynamic(key));
         }
@@ -602,8 +645,8 @@ impl Vibes {
         0
     }
 
-    /// `Vibe::GetRank`.
-    pub fn rank(&mut self, key: i32) -> (i32, u32) {
+    /// `Vibe::GetRank` (the static store's lookup cache moves).
+    pub fn rank(&self, key: i32) -> (i32, u32) {
         match self.find(key) {
             Some(slot) => (0, self.value(slot).rank),
             None => (-2, 0),

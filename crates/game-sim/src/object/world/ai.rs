@@ -112,7 +112,7 @@ impl World {
             is_player: ship_data.is_some_and(|s| s.is_player),
             is_dying: i.dead,
             is_targetable: i.targetable,
-            toughness: 0,
+            toughness: self.toughness(h),
             behavior_id: eq.map_or(-1, |e| e.behavior_index),
             // `CShip::get_max_bank_angle`: the ship archetype's.
             max_bank_angle: ship_data
@@ -133,6 +133,28 @@ impl World {
 }
 
 impl World {
+    /// `IObjInspectImpl::get_toughness`: for an equipped object (a ship or
+    /// a solar) the rank of its reputation group (`Vibe::GetRank` of
+    /// `CEqObj::VibeId`, 0 when the group is unknown) as an `int`, which
+    /// is the solar archetype's `toughness` for a solar of a system file
+    /// (`SolarReps`), the `CShip::CreateParms::Rank` a ship was made with
+    /// (`CShip::init`) or what `pub::Reputation::SetRank` set since; 0 for
+    /// anything else.
+    #[must_use]
+    pub fn toughness(&self, h: ObjHandle) -> i32 {
+        let Some(o) = self.get(h) else {
+            return 0;
+        };
+        if !o.kind.is(crate::object::class::EQ_OBJ) {
+            return 0;
+        }
+        let Some(eq) = o.as_equipped() else {
+            return 0;
+        };
+        let (_, rank) = self.vibes.rank(eq.vibe);
+        i32::from_ne_bytes(rank.to_ne_bytes())
+    }
+
     /// `PhySys::GetRadiusR(Object, false)` for a body without phantoms:
     /// the core's radius and `PhySys::GetCenterOfMass` (the surface's mass
     /// centre through the body's object frame now, with the reference's
