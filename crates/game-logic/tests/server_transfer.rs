@@ -5,7 +5,9 @@
 //! gate with the world's `JumpInAction`), a player's gate jump
 //! (`IServerImpl::SystemSwitchOutComplete` with the players' system switch
 //! and `JumpInComplete`), `JumpIn` and `Relocate` and their result codes,
-//! and single player's unload of the system left. Expected values follow
+//! the same reports arriving as the client's packets through the server's
+//! receive path (`game-logic::receive`), and single player's unload of the
+//! system left. Expected values follow
 //! the C++ (`Server/IServerImpl.cpp`, `server_classes.cpp`,
 //! `server_gameobject.cpp`, `server_pub.cpp`,
 //! `Common/common_launchaction.cpp`).
@@ -19,12 +21,13 @@ use game_logic::api::PubError;
 use game_logic::api::space_obj::{self, ShipInfo};
 use game_logic::events::ControllerMessage;
 use game_logic::server::{ClientSink, CreateParams, Cx, Logic};
-use game_logic::{transfer, world};
+use game_logic::{receive, transfer, world};
 use game_sim::data::config::{DataConfig, GameData};
 use game_sim::object::world::{Assets, ControllerRef, ShipSpawn, WorldConfig};
 use game_sim::object::{KindData, ObjHandle, World};
-use game_sim::protocol::ToClient;
 use game_sim::protocol::to_client::ServerMessage;
+use game_sim::protocol::to_server::{ExitBase, JumpInComplete, SystemSwitchOutComplete};
+use game_sim::protocol::{ClientMessage, ToClient, ToServer, WireContext, WireReader, WireWriter};
 use neuron_core::id::create_id;
 use neuron_core::math::{Matrix, Transform, Vector, matrix_to_quaternion, transform_xform};
 use neuron_core::physics::StepMode;
@@ -776,4 +779,82 @@ fn single_player_unloads_the_system_left() {
             && matches!(m, ServerMessage::SystemSwitchIn(s) if s.field_00 == ship_id)),
         "{sent:?}"
     );
+}
+
+/// A client packet as the server receives it: encoded by the client,
+/// decoded from the bytes, then delivered with the session it came from.
+fn receive(cx: &mut Cx<'_>, session: u32, message: ClientMessage) -> bool {
+    let bytes = ToServer::Client(message);
+    let mut writer = WireWriter::new();
+    bytes.encode(&WireContext::CLIENT, &mut writer).unwrap();
+    let bytes = writer.into_bytes();
+    let decoded = ToServer::decode(&WireContext::CLIENT, &mut WireReader::new(&bytes)).unwrap();
+    receive::deliver(cx, session, &decoded)
+}
+
+#[test]
+fn a_players_jump_reports_arrive_as_packets() {
+    let sink = Shared::default();
+    let Some((mut world, mut logic)) =
+        setup("a player's jump packets", WorldConfig::default(), &sink)
+    else {
+        return;
+    };
+    let (he01, he02) = (create_id(b"he01"), create_id(b"he02"));
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    content(&mut cx);
+    let ship = player(&mut cx, 1, he01, Vector::new(-83176.0, 0.0, 43500.0));
+    player(&mut cx, 2, he01, Vector::new(-83176.0, 0.0, 42500.0));
+    player(&mut cx, 3, he02, Vector::new(60500.0, 0.0, -43000.0));
+    let ship_id = id(&cx, ship);
+    let gate = solar(&cx, b"he01_to_he02");
+    let gate_id = id(&cx, gate);
+    let arrival_id = id(&cx, world_dest_gate(&cx, he02, create_id(b"he02_to_he01")));
+    tick(&mut cx, 0.01);
+    game_logic::dock::complete_dock(&mut cx, he01, ship, gate);
+    let _ = (heard(), sink.take());
+
+    // `FLPACKET_CLIENT_SYSTEM_SWITCH_OUT_COMPLETE` carries the ship;
+    // `SystemSwitchOutComplete` takes the session the packet came from, so
+    // session 2's report of player 1's ship changes nothing.
+    let switch_out =
+        || ClientMessage::SystemSwitchOutComplete(SystemSwitchOutComplete { value: ship_id });
+    assert!(receive(&mut cx, 2, switch_out()));
+    assert!(heard().is_empty() && sink.take().is_empty());
+    assert!(receive(&mut cx, 1, switch_out()));
+    let at = cx.world.get(ship).unwrap().engine.position;
+    assert_eq!(
+        heard(),
+        [
+            format!("Msg0x25 {ship_id} {gate_id} {he01}"),
+            format!("SystemExit {he01} {he02} 1"),
+            format!(
+                "SystemEnter {he02} {he01} 1 {arrival_id} {} {} {}",
+                at.x, at.y, at.z
+            ),
+        ]
+    );
+    assert!(cx.logic.server_world.system(he02).unwrap().has_player(1));
+    assert!(cx.logic.objects.get(ship).unwrap().invincible);
+
+    // `FLPACKET_CLIENT_JUMPINCOMPLETE`: `JumpInComplete(Field_0x00,
+    // Field_0x04)`, the argument and the object, whatever the session.
+    let jump_in = |field_00: u32, field_04: u32| {
+        ClientMessage::JumpInComplete(JumpInComplete { field_00, field_04 })
+    };
+    assert!(receive(&mut cx, 2, jump_in(he02, 0x7fff_0001)));
+    assert!(heard().is_empty(), "no such object");
+    assert!(receive(&mut cx, 2, jump_in(he02, ship_id)));
+    assert_eq!(heard(), [format!("JumpInComplete {he02} {ship_id}")]);
+    assert!(!cx.logic.objects.get(ship).unwrap().invincible);
+
+    // A packet without a route yet is not delivered.
+    assert!(!receive(
+        &mut cx,
+        1,
+        ClientMessage::ExitBase(ExitBase { value: 0 })
+    ));
 }

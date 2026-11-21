@@ -1237,3 +1237,103 @@ fn a_server_shot_and_a_jettison_reach_the_creators() {
         assert_eq!((j.object_id, j.item_id, j.count), (hauler_id, 0x400, 2));
     }
 }
+
+#[test]
+fn a_clients_update_object_packet_reaches_sp_obj_update() {
+    use game_logic::receive;
+    use game_sim::protocol::common::UpdateObject;
+    use game_sim::protocol::{ToServer, WireContext, WireReader, WireWriter, expand_orientation};
+    use neuron_core::net::wire::quantise::{expand_unit, quantise_unit};
+
+    let sink = Shared::default();
+    let Some((mut world, mut logic)) = setup("the update packet", false, &sink) else {
+        return;
+    };
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    for session in 1..=3 {
+        join(&mut cx, session, he01());
+    }
+    cx.world.load_system(he01());
+    let own1 = fighter(&mut cx, he01(), 1, Vector::new(15000.0, 3000.0, -25000.0));
+    set_ship(&mut cx, 1, own1);
+    let own1_id = id(&cx, own1);
+    for session in 1..=3 {
+        world::add_player(&mut cx, he01(), session);
+    }
+    replication::begin_remote_control(&mut cx, own1);
+    created_for(&mut cx, he01(), 3, own1);
+    let _ = sink.take();
+
+    // The client's `FLPACKET_COMMON_UPDATEOBJECT`, encoded and decoded.
+    let sent = UpdateObject {
+        flags: 3,
+        object_id: own1_id,
+        position: [15000.0, 3000.0, -24990.0],
+        orientation: quantise_orientation([0.6, 0.8, 0.0, 0.0]),
+        extra: quantise_unit(0.5),
+        update_time: 12.25,
+    };
+    let mut writer = WireWriter::new();
+    ToServer::Common(CommonMessage::UpdateObject(sent.clone()))
+        .encode(&WireContext::CLIENT, &mut writer)
+        .unwrap();
+    let bytes = writer.into_bytes();
+    let decoded = ToServer::decode(&WireContext::CLIENT, &mut WireReader::new(&bytes)).unwrap();
+
+    // `DispatchClientPacket`'s `SSPObjUpdateInfo`: each byte × 1/127, the
+    // time widened, the fifth value's float bits, the first byte.
+    let [w, x, y, z] = expand_orientation(sent.orientation);
+    let info = receive::object_update(&sent);
+    assert_eq!(
+        info,
+        ObjectUpdate {
+            object_id: own1_id,
+            orientation: Quaternion { w, x, y, z },
+            position: Vector::new(15000.0, 3000.0, -24990.0),
+            timestamp: 12.25,
+            field_28: expand_unit(sent.extra).to_bits(),
+            field_2c: 3,
+        }
+    );
+
+    // Delivered from session 1: player 3's client gets the record again
+    // (the expanded values quantised once more), player 2's record takes
+    // the sample, the sender hears nothing.
+    let samples = |cx: &Cx<'_>, session: u32| {
+        view(cx, he01(), session)
+            .find(own1)
+            .unwrap()
+            .simulation
+            .sample_count()
+    };
+    let before = samples(&cx, 2);
+    assert!(receive::deliver(&mut cx, 1, &decoded));
+    let got = common(&sink.take(), |m| match m {
+        CommonMessage::UpdateObject(x) => Some(x.clone()),
+        _ => None,
+    });
+    assert_eq!(recipients(&got), [3]);
+    assert_eq!(
+        got[0].1,
+        UpdateObject {
+            flags: 3,
+            object_id: own1_id,
+            position: sent.position,
+            orientation: quantise_orientation([w, x, y, z]),
+            extra: quantise_unit(expand_unit(sent.extra)),
+            update_time: 12.25,
+        }
+    );
+    assert_eq!(samples(&cx, 2), before + 1);
+    assert_eq!(
+        view(&cx, he01(), 2)
+            .find(own1)
+            .unwrap()
+            .simulation
+            .latest_update(),
+        info.position
+    );
+}
