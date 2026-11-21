@@ -141,9 +141,14 @@ the original data (decision O15); `NeuronComponents.ini` and
 folder). Keep the output folder outside the repository.
 
 The headless mode shows each of the nine fixed scenes for 30 frames at
-1/30 s and writes one BMP per scene and `report.txt`:
+1/30 s and writes one BMP per scene and `report.txt`. Build the text
+catalogs first: the viewer gives them to the interface, as the game's
+client does, and reads them from `target\catalogs` (`--catalogs` names
+another folder); without them the page's captions are empty, and the
+report's third line says which modules are missing:
 
 ```powershell
+cargo xtask catalog
 cargo run --locked --release -p neuron-client --example model_viewer -- `
   --data outdir\data --headless --out C:\viewer-out
 # Again on the GPU instead of WARP:
@@ -182,10 +187,14 @@ profile by its `msg`.
 What to look at: the ship, the station and the character are lit and
 textured and the character moves; the effect animates; the sound and the
 voice line are heard; the `menu` scene draws the page's widgets over the
-scene: the buttons' captions and the labels as rich text, the character
-list's two framed boxes and its scroll bar with the slider shapes of
-`UITextures.ini`, and the arrow cursor at the software cursor (the list
-and the character's fields stay empty: P5.2's screen fills them). The
+scene: the buttons' captions as rich text, the character list's two
+framed boxes and its scroll bar with the slider shapes of
+`UITextures.ini`, and the arrow cursor at the software cursor (the
+title, the four labels, the list and the character's fields stay empty:
+the page gives them no text, and P5.2's screen fills them). The effect's
+debris particles draw as plain squares: they ask for the texture
+`debris2`, which no texture library of the shipped data holds, and the
+reference binds no texture for them either (owner run of 2026-11-21). The
 report lists where each widget sits and, per scene, the interface pass's
 draws (control meshes, text tiles, the cursor). Send back `report.txt` and
 the BMP files, and say what looks wrong (black or untextured models, wrong

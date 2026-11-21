@@ -12,6 +12,8 @@ pub struct Args {
     /// Where `NeuronComponents.ini` and `OutpostFrontier.ini` are; the data
     /// root's parent when not given.
     pub ini: Option<PathBuf>,
+    /// The text catalogs (`cargo xtask catalog`'s output).
+    pub catalogs: PathBuf,
     pub width: u32,
     pub height: u32,
     /// Run the scenes without a window and write screenshots.
@@ -39,6 +41,8 @@ model_viewer: the Gate G4 viewer over neuron-client's engine
                       synthetic scene runs
   --ini DIR           where NeuronComponents.ini and OutpostFrontier.ini are
                       (default: the data root's parent)
+  --catalogs DIR      the text catalogs `cargo xtask catalog` builds
+                      (default target\\catalogs)
   --size WxH          the back buffer (default 1024x768)
   --headless          no window: run each scene, write screenshots
   --out DIR           the headless output directory (default viewer-out)
@@ -61,6 +65,10 @@ Window keys: Tab or Right / Left next and previous scene, 1-9 a scene,
 A D W S orbit, Q E or the wheel zoom, left drag orbits, R reframe,
 Space spin, N next animation, P play the sound again, Esc quit.";
 
+/// Where `cargo xtask catalog` writes the catalogs, from the repository
+/// root.
+pub const DEFAULT_CATALOGS: &str = "target/catalogs";
+
 fn split(value: &str) -> Vec<String> {
     value.split(',').map(str::to_owned).collect()
 }
@@ -74,6 +82,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let mut out = Args {
         data: None,
         ini: None,
+        catalogs: PathBuf::from(DEFAULT_CATALOGS),
         width: 1024,
         height: 768,
         headless: false,
@@ -94,6 +103,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             "--audio" => out.audio = true,
             "--data" => out.data = Some(PathBuf::from(value()?)),
             "--ini" => out.ini = Some(PathBuf::from(value()?)),
+            "--catalogs" => out.catalogs = PathBuf::from(value()?),
             "--out" => out.out = Some(PathBuf::from(value()?)),
             "--adapter" => {
                 let v = value()?;

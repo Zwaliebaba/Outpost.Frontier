@@ -304,8 +304,9 @@ relative to `CppSource/`.
       rasterisers.
     - The frame passes when at most `p` of its pixels do not match and the
       mean error over all pixels is at most `m`.
-    - Starting numbers, approved on 2026-11-18 and confirmed after the
-      first real replays: `t = 8`, `p = 0.5 %`, `m = 1.5`. A failing frame writes a
+    - The numbers, approved on 2026-11-18 as starting numbers and confirmed
+      by the owner on 2026-11-19 after the first real replays (owner answer
+      7): `t = 8`, `p = 0.5 %`, `m = 1.5`. A failing frame writes a
       difference image beside the test output.
 15. **Synthetic traces in CI.** Hand-made traces in the version 1 format,
     each exercising one state group (blend, depth, alpha test, fog, the
@@ -454,3 +455,16 @@ relative to `CppSource/`.
 6. The shader emulates texture stages 0 and 1; the model stores all eight.
    The shader is extended if a version 1 trace shows a draw that enables
    stage 2.
+
+## Owner answer (2026-11-19)
+
+7. The image metric of point 14 is confirmed with its starting numbers,
+   `t = 8`, `p = 0.5 %` and `m = 1.5`, for judging Gate G4. The first real
+   replays (the owner run of [g4-runbook.md](../g4-runbook.md): the menu,
+   space and base traces of the C++ client, two frames each, on WARP and on
+   the owner's GPU) passed with at most 25 of 786,432 pixels over `t`
+   (0.003 %) and a mean error under 0.01, and the synthetic traces with
+   none over `t`; a frame whose rendering was wrong (a fade quad at the
+   wrong opacity, stray triangles) failed with more than half its pixels
+   over. Tighter numbers would add no confidence and would trade the
+   margin for rasteriser differences between adapters.

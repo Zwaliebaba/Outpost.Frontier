@@ -116,7 +116,7 @@ fn run(args: &Args) -> Result<(), String> {
         None => None,
     };
     if !args.headless {
-        return window::run(config, adapter, &scenes);
+        return window::run(config, adapter, &scenes, &args.catalogs);
     }
     let backend = match adapter {
         Some(AdapterChoice::Hardware) => "Direct3D 12 on the hardware adapter",
@@ -124,13 +124,18 @@ fn run(args: &Args) -> Result<(), String> {
     };
     let engine = create_engine(config, adapter, None).map_err(|e| e.to_string())?;
     let mut viewer = viewer::Viewer::new(engine);
+    let catalogs = viewer.load_catalogs(&args.catalogs);
     let out = out_dir(args);
     let (_, runs) = headless::run(
         &mut viewer,
         &scenes,
         args.frames,
         &out,
-        &header(args, backend),
+        &format!(
+            "{}
+{catalogs}",
+            header(args, backend)
+        ),
     )
     .map_err(|e| format!("{}: {e}", out.display()))?;
     println!("report: {}", out.join("report.txt").display());
@@ -151,8 +156,13 @@ fn run(args: &Args) -> Result<(), String> {
     let engine = neuron_client::engine::Engine::new(config, RecordingBackend::default())
         .map_err(|e| e.to_string())?;
     let mut viewer = viewer::Viewer::new(engine);
+    let catalogs = viewer.load_catalogs(&args.catalogs);
     let out = out_dir(args);
-    let header = header(args, "the recording backend (no images)");
+    let header = format!(
+        "{}
+{catalogs}",
+        header(args, "the recording backend (no images)")
+    );
     let (_, runs) = headless::run(&mut viewer, &scenes, args.frames, &out, &header)
         .map_err(|e| format!("{}: {e}", out.display()))?;
     println!("report: {}", out.join("report.txt").display());

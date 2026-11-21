@@ -96,6 +96,7 @@ pub fn run(
     mut config: EngineConfig,
     adapter: Option<AdapterChoice>,
     scenes: &[Scene],
+    catalogs: &std::path::Path,
 ) -> Result<(), String> {
     let mode = DisplayMode {
         width: config.mode.width,
@@ -111,6 +112,7 @@ pub fn run(
         println!("engine: {notice}");
     }
     let mut viewer = Viewer::new(engine);
+    println!("{}", viewer.load_catalogs(catalogs));
     let mut index = 0;
     show(&mut viewer, &scenes[index]);
     let start = Instant::now();
