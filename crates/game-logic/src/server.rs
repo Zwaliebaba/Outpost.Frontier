@@ -190,6 +190,8 @@ pub struct Logic {
     /// `pub::GF::GetBasePosition`'s one-entry cache: the base and its
     /// position.
     pub gf_base_position: Option<(u32, neuron_core::math::Vector)>,
+    /// The server's state of the world's objects (record 0007 point 1).
+    pub objects: crate::objects::ServerObjects,
     /// The client's performance slider (`GRtcSliderValue`, 0 until set),
     /// which a single-player server reads.
     pub rtc_slider: f32,
@@ -281,6 +283,7 @@ impl Logic {
             server_world: crate::world::ServerWorld::default(),
             gf_base_position: None,
             rtc_slider: 0.0,
+            objects: crate::objects::ServerObjects::default(),
         }
     }
 }

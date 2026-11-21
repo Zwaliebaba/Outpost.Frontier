@@ -129,14 +129,91 @@ impl Object {
     }
 }
 
-/// The server's parts of a system frame (decision record 0007, point 2):
-/// the wrapper's update around each object's own, the dock queue after
-/// the deferred deletes, and whether the frame steps the physics.
-/// `game-logic` implements it; the world alone uses [`NoServerHooks`].
+/// The server's state of an object that the damage computation reads
+/// (`GameObject::is_damage_blocked`'s invincibility, the difficulty scale,
+/// `is_death_fuse_burning`): none without a server.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DamageState {
+    /// The largest fraction of its hit points the object may lose
+    /// (`InvincibleTimer`), when it is invincible.
+    pub invincible: Option<f32>,
+    /// The difficulty scale of damage to it.
+    pub difficulty_scale: Option<f32>,
+    /// Its death fuse burns.
+    pub death_fuse_burning: bool,
+}
+
+/// The server's parts of a system frame (decision record 0007, point 2,
+/// amended 2026-11-21): the wrapper's update around each object's own,
+/// the server's side of applying a damage list and of destroying an
+/// object, the dock queue after the deferred deletes, and whether the
+/// frame steps the physics. `game-logic` implements it; the world alone
+/// uses [`NoServerHooks`].
 pub trait ServerHooks {
-    /// `GameObject::update`'s server part, before the object's own update.
-    fn object_update(&mut self, world: &mut World, object: ObjHandle, dt: f32) {
+    /// `GameObject::update`'s server part before the object's own update.
+    /// False skips the own update (a ship in its death sequence).
+    fn object_update(&mut self, world: &mut World, object: ObjHandle, dt: f32) -> bool {
         let _ = (world, object, dt);
+        true
+    }
+
+    /// The server part after the object's own update (a ship's jettison
+    /// and zone damage; loot, mines and counter-measures).
+    fn object_after_update(&mut self, world: &mut World, object: ObjHandle, dt: f32) {
+        let _ = (world, object, dt);
+    }
+
+    /// The server's state the damage computation reads for `object`, hit
+    /// by a list whose inflictor belongs to `inflictor_owner` (0 for an
+    /// NPC): `is_damage_blocked` reads the player invincibility for a
+    /// player's damage and the general one otherwise.
+    fn damage_state(
+        &mut self,
+        world: &World,
+        object: ObjHandle,
+        inflictor_owner: u32,
+    ) -> DamageState {
+        let _ = (world, object, inflictor_owner);
+        DamageState::default()
+    }
+
+    /// `GameObject::apply_damage_list` before the entries are written:
+    /// false keeps the list from the object (the damage-callback latch
+    /// queues it). The server may change the list.
+    fn before_damage_list(
+        &mut self,
+        world: &mut World,
+        object: ObjHandle,
+        list: &mut crate::object::damage::DamageList,
+    ) -> bool {
+        let _ = (world, object, list);
+        true
+    }
+
+    /// After the entries are written, before a destroyed object is
+    /// destroyed: the server's dispatches. Clearing `destroyed` keeps the
+    /// object (`is_damage_blocked`).
+    fn after_damage_list(
+        &mut self,
+        world: &mut World,
+        object: ObjHandle,
+        list: &mut crate::object::damage::DamageList,
+    ) {
+        let _ = (world, object, list);
+    }
+
+    /// The end of `apply_damage_list`, after a destroyed object's
+    /// destruction (`set_in_damage_callback(false)`, which applies the
+    /// damage queued meanwhile).
+    fn damage_list_done(&mut self, world: &mut World, object: ObjHandle) {
+        let _ = (world, object);
+    }
+
+    /// The server's `destroy(kind, killer)` before the world marks the
+    /// object dead: false keeps it alive.
+    fn destroy(&mut self, world: &mut World, object: ObjHandle, kind: i32, killer: u32) -> bool {
+        let _ = (world, object, kind, killer);
+        true
     }
 
     /// After a sub-step's deferred deletes: `StarSystem_Update`'s dock
@@ -256,15 +333,17 @@ impl World {
             self.move_beams(system, step);
             self.step_physics(system, step);
             self.phantom_events(system);
-            self.process_collisions(system);
+            self.process_collisions(system, hooks);
             self.reap();
         }
     }
 
     fn tick_list(&mut self, system: u32, list: TickList, dt: f32, hooks: &mut dyn ServerHooks) {
         for h in self.list(system, list) {
-            hooks.object_update(self, h, dt);
-            self.update_object(h, dt, 0);
+            if hooks.object_update(self, h, dt) {
+                self.update_object_hooked(h, dt, 0, hooks);
+            }
+            hooks.object_after_update(self, h, dt);
         }
     }
 
@@ -303,8 +382,10 @@ impl World {
             }
         }
         for h in chosen {
-            hooks.object_update(self, h, dt);
-            self.update_object(h, dt, 0);
+            if hooks.object_update(self, h, dt) {
+                self.update_object_hooked(h, dt, 0, hooks);
+            }
+            hooks.object_after_update(self, h, dt);
         }
     }
 
@@ -355,6 +436,18 @@ impl World {
 
     /// The object's `update(dt, flags)`.
     pub fn update_object(&mut self, h: ObjHandle, dt: f32, flags: u32) {
+        self.update_object_hooked(h, dt, flags, &mut NoServerHooks);
+    }
+
+    /// [`World::update_object`] with the server's hooks on its damage and
+    /// destruction paths.
+    pub fn update_object_hooked(
+        &mut self,
+        h: ObjHandle,
+        dt: f32,
+        flags: u32,
+        hooks: &mut dyn ServerHooks,
+    ) {
         let Some(obj) = self.objects.get(h) else {
             return;
         };
@@ -386,16 +479,16 @@ impl World {
                     world.set_collision_group(body, &name);
                 }
             }
-            crate::object::ObjectKind::Guided => self.update_guided(h, dt),
-            crate::object::ObjectKind::Asteroid => self.update_field_mine(h, dt),
+            crate::object::ObjectKind::Guided => self.update_guided(h, dt, hooks),
+            crate::object::ObjectKind::Asteroid => self.update_field_mine(h, dt, hooks),
             crate::object::ObjectKind::Beam
             | crate::object::ObjectKind::Mine
-            | crate::object::ObjectKind::CounterMeasure => self.update_projectile(h, dt),
+            | crate::object::ObjectKind::CounterMeasure => self.update_projectile(h, dt, hooks),
             _ => {}
         }
     }
 
-    fn update_projectile(&mut self, h: ObjHandle, dt: f32) {
+    fn update_projectile(&mut self, h: ObjHandle, dt: f32, hooks: &mut dyn ServerHooks) {
         let Some(o) = self.objects.get_mut(h) else {
             return;
         };
@@ -420,7 +513,7 @@ impl World {
         if !alive {
             // The server's projectile wrappers answer false once the
             // lifetime ran out; the step deletes them.
-            self.destroy(h, 0);
+            self.destroy_hooked(h, 0, 0, hooks);
         }
     }
 

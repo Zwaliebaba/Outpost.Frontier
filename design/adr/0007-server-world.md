@@ -129,6 +129,22 @@ chat and groups (P3.2), and the markets (P3.3).
    single player, where the client side also steps the world (record
    0002), the server hooks run only in the server's pass.
 
+   *Amended by the owner on 2026-11-21 (P3.3's object part).* The C++
+   wrappers do not all run before their `CObject`: `Ship::update` runs
+   server logic on both sides of it and skips it during a death sequence,
+   and `Loot`, `Mine` and `CounterMeasure` update the `CObject` first. So
+   `object_update` answers whether the object's own update runs, and
+   `object_after_update` runs after it. The damage and destruction paths
+   inside game-sim get server seams too, passed the same way as the step's
+   hooks (`World::step_with` and the public `_hooked` entry points):
+   - `damage_state` gives the damage computation the object's
+     invincibility for the list's inflictor, the difficulty scale and the
+     death fuse;
+   - `before_damage_list`, `after_damage_list` (which may cancel the
+     destruction) and `damage_list_done` wrap `apply_damage_list`;
+   - `destroy(kind, killer)` runs the server's `destroy` before the world
+     marks the object dead, and may keep it.
+
 3. **A `StarSystem` in `game-logic::world` holds what the world does
    not.** `ServerWorld { systems: BTreeMap<u32, StarSystem> }` in `Logic`
    has one entry per Universe system, made at startup as `SysDB_Initialize`

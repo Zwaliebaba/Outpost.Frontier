@@ -28,6 +28,8 @@ use crate::object::asteroid::{AsteroidData, MineArm};
 use crate::object::field::{Cube, FieldRuntime};
 use crate::object::{KindData, ObjHandle, damage};
 
+use super::ServerHooks;
+
 use super::{TickList, World, WorldEvent};
 
 fn e(v: f32) -> f64 {
@@ -466,7 +468,7 @@ impl World {
     /// (`StarSystem::explode` with cause 7 when the explosion has a radius
     /// and an effect, then the mine-explosion message either way) and the
     /// timer starts again.
-    pub(crate) fn update_field_mine(&mut self, h: ObjHandle, dt: f32) {
+    pub(crate) fn update_field_mine(&mut self, h: ObjHandle, dt: f32, hooks: &mut dyn ServerHooks) {
         let Some(o) = self.objects.get_mut(h) else {
             return;
         };
@@ -503,7 +505,7 @@ impl World {
                     hull_damage: x.hull_damage,
                     energy_damage: x.energy_damage,
                 };
-                self.explode_caused(system, &blast, CAUSE_MINE, id, None, x.impulse);
+                self.explode_caused_hooked(system, &blast, CAUSE_MINE, id, None, x.impulse, hooks);
             }
         }
         self.events

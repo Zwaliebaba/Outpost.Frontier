@@ -15,7 +15,7 @@ use crate::object::damage::{self, CAUSE_GUN, DamageList, DamageTarget, GroupStat
 use crate::object::{KindData, ObjHandle, ObjectKind, class};
 
 use super::spawn::ProjectileSpawn;
-use super::{TickList, World, WorldEvent};
+use super::{DamageState, NoServerHooks, ServerHooks, TickList, World, WorldEvent};
 
 fn e(v: f32) -> f64 {
     f64::from(v)
@@ -294,7 +294,7 @@ impl World {
     /// `StarSystem_ProcessCollisions`: every bullet's ray
     /// (`PhySys::GenerateCollisions`), then every collision event, each side
     /// reporting itself (`on_collision`).
-    pub(crate) fn process_collisions(&mut self, system: u32) {
+    pub(crate) fn process_collisions(&mut self, system: u32, hooks: &mut dyn ServerHooks) {
         for h in self.list(system, TickList::Beams) {
             let Some(o) = self.objects.get(h) else {
                 continue;
@@ -349,8 +349,8 @@ impl World {
             if a == b {
                 continue;
             }
-            self.on_collision(a, sub_a, b, sub_b, ev.point);
-            self.on_collision(b, sub_b, a, sub_a, ev.point);
+            self.on_collision(a, sub_a, b, sub_b, ev.point, hooks);
+            self.on_collision(b, sub_b, a, sub_a, ev.point, hooks);
         }
     }
 
@@ -399,6 +399,7 @@ impl World {
         other: ObjHandle,
         other_sub: SubObjId,
         point: Vector,
+        hooks: &mut dyn ServerHooks,
     ) {
         let (Some(o), Some(other_obj)) = (self.objects.get(h), self.objects.get(other)) else {
             return;
@@ -406,7 +407,7 @@ impl World {
         // `Guided::on_collision` runs whether or not the other side's
         // report destroyed the missile first.
         if o.kind == ObjectKind::Guided {
-            self.guided_collision(h, other, other_sub);
+            self.guided_collision(h, other, other_sub, hooks);
             return;
         }
         if o.dead {
@@ -415,8 +416,8 @@ impl World {
         if let KindData::Beam(b) = &o.data {
             let (munition, shooter) = (b.munition, b.projectile.owner_id);
             let target_id = other_obj.simple.id;
-            self.munition_collision(other, shooter, munition, other_sub, point);
-            self.destroy(h, target_id);
+            self.munition_collision_hooked(other, shooter, munition, other_sub, point, hooks);
+            self.destroy_hooked(h, 1, target_id, hooks);
             return;
         }
         let other_id = other_obj.simple.id;
@@ -455,11 +456,14 @@ impl World {
             ObjectKind::Beam => return,
             // `Guided::damage_sub_obj` (and `Mine`'s) destroys.
             ObjectKind::Guided | ObjectKind::Mine => list.destroyed = true,
-            _ => self.with_damage_target(other, |t, in_group, mount_of| {
-                damage_sub_obj(t, other_sub, amount, &mut list, in_group, mount_of);
-            }),
+            _ => {
+                let state = hooks.damage_state(self, other, inflictor_owner);
+                self.with_damage_target_state(other, state, |t, in_group, mount_of| {
+                    damage_sub_obj(t, other_sub, amount, &mut list, in_group, mount_of);
+                });
+            }
         }
-        self.apply_damage_list(other, &list);
+        self.apply_damage_list_hooked(other, &list, hooks);
     }
 
     /// `StarSystem::munition_collision`: the target's `munition_hit` fills a
@@ -472,6 +476,19 @@ impl World {
         munition: u32,
         sub: SubObjId,
         point: Vector,
+    ) {
+        self.munition_collision_hooked(target, shooter, munition, sub, point, &mut NoServerHooks);
+    }
+
+    /// [`World::munition_collision`] with the server's hooks.
+    pub fn munition_collision_hooked(
+        &mut self,
+        target: ObjHandle,
+        shooter: u32,
+        munition: u32,
+        sub: SubObjId,
+        point: Vector,
+        hooks: &mut dyn ServerHooks,
     ) {
         let Some(t) = self.objects.get(target) else {
             return;
@@ -495,7 +512,8 @@ impl World {
         let mut list = DamageList::new(cause, shooter, inflictor_owner);
         let m = ProjectileArch::of(&arch).unwrap_or_default();
         let _ = point;
-        self.with_damage_target(target, |t, in_group, mount_of| {
+        let state = hooks.damage_state(self, target, inflictor_owner);
+        self.with_damage_target_state(target, state, |t, in_group, mount_of| {
             damage::munition_hit(t, &m, sub, &mut list, in_group, mount_of);
         });
         let (hull_before, shield_before) = self.objects.get(target).map_or((0.0, None), |t| {
@@ -518,13 +536,30 @@ impl World {
             hull_before,
             shield_before,
         });
-        self.apply_damage_list(target, &list);
+        self.apply_damage_list_hooked(target, &list, hooks);
     }
 
-    /// Builds the [`DamageTarget`] of an object and runs `f` with it.
+    /// Builds the [`DamageTarget`] of an object, without server state, and
+    /// runs `f` with it.
     pub fn with_damage_target(
         &self,
         h: ObjHandle,
+        f: impl FnOnce(
+            &DamageTarget<'_>,
+            &dyn Fn(&damage::ArchGroup, Option<neuron_core::scene::InstanceId>) -> bool,
+            &dyn Fn(SubObjId) -> Option<neuron_core::scene::InstanceId>,
+        ),
+    ) {
+        self.with_damage_target_state(h, DamageState::default(), f);
+    }
+
+    /// [`World::with_damage_target`] with the server's state of the object
+    /// ([`ServerHooks::damage_state`]): its invincibility, the difficulty
+    /// scale and whether its death fuse burns.
+    pub fn with_damage_target_state(
+        &self,
+        h: ObjHandle,
+        state: DamageState,
         f: impl FnOnce(
             &DamageTarget<'_>,
             &dyn Fn(&damage::ArchGroup, Option<neuron_core::scene::InstanceId>) -> bool,
@@ -571,8 +606,8 @@ impl World {
             hit_pts: o.simple.hit_pts,
             max_hit_pts: o.simple.max_hit_pts,
             owner_player: o.simple.owner_player,
-            difficulty_scale: None,
-            invincible: None,
+            difficulty_scale: state.difficulty_scale,
+            invincible: state.invincible,
             equipment,
             groups,
             power,
@@ -582,7 +617,7 @@ impl World {
             player_attached_equip_scale: g.player_attached_equip_hit_pts_scale,
             player_group_scale: g.player_collision_group_hit_pts_scale,
             shield_hull_damage_factor: self.data.constants.shield.hull_damage_factor,
-            death_fuse_burning: false,
+            death_fuse_burning: state.death_fuse_burning,
             explosion_resistance: self
                 .data
                 .archetypes
@@ -615,6 +650,28 @@ impl World {
     /// equipment): the root, power, group and equipment entries, then the
     /// object's destruction when the list says so.
     pub fn apply_damage_list(&mut self, h: ObjHandle, list: &DamageList) {
+        self.apply_damage_list_hooked(h, list, &mut NoServerHooks);
+    }
+
+    /// [`World::apply_damage_list`] with the server's hooks: the server
+    /// sees the list first and may keep it (`is_damage_blocked`, the
+    /// damage-callback latch), then the entries are written, then the
+    /// server's part runs (its dispatches), then a destroyed object is
+    /// destroyed (`destroy(1, inflictor)`).
+    pub fn apply_damage_list_hooked(
+        &mut self,
+        h: ObjHandle,
+        list: &DamageList,
+        hooks: &mut dyn ServerHooks,
+    ) {
+        if self.objects.get(h).is_none_or(|o| o.dead) {
+            return;
+        }
+        let mut owned = list.clone();
+        if !hooks.before_damage_list(self, h, &mut owned) {
+            return;
+        }
+        let list = &owned.clone();
         let now = self.time;
         let Some(o) = self.objects.get_mut(h) else {
             return;
@@ -664,9 +721,11 @@ impl World {
         }
         let weapons_offline = o.equipped.as_deref().is_some_and(|e| e.weapons_offline);
         self.sync_shield_collisions(h);
-        if list.destroyed && !weapons_offline {
-            self.kill(h, list.inflictor_id);
+        hooks.after_damage_list(self, h, &mut owned);
+        if owned.destroyed && !weapons_offline {
+            self.kill(h, owned.inflictor_id, hooks);
         }
+        hooks.damage_list_done(self, h);
     }
 
     /// The sphere of an object's body (centre of mass and the core's
@@ -725,7 +784,30 @@ impl World {
         skip: Option<ObjHandle>,
         impulse: f32,
     ) {
-        self.explode_damage(system, blast, cause, inflictor, skip);
+        self.explode_caused_hooked(
+            system,
+            blast,
+            cause,
+            inflictor,
+            skip,
+            impulse,
+            &mut NoServerHooks,
+        );
+    }
+
+    /// [`World::explode_caused`] with the server's hooks.
+    #[allow(clippy::too_many_arguments)]
+    pub fn explode_caused_hooked(
+        &mut self,
+        system: u32,
+        blast: &damage::Blast,
+        cause: damage::DamageCause,
+        inflictor: u32,
+        skip: Option<ObjHandle>,
+        impulse: f32,
+        hooks: &mut dyn ServerHooks,
+    ) {
+        self.explode_damage(system, blast, cause, inflictor, skip, hooks);
         if impulse == 0.0 {
             return;
         }
@@ -778,6 +860,7 @@ impl World {
         cause: damage::DamageCause,
         inflictor: u32,
         skip: Option<ObjHandle>,
+        hooks: &mut dyn ServerHooks,
     ) {
         let candidates: Vec<ObjHandle> = self
             .objects_in(system)
@@ -844,10 +927,11 @@ impl World {
                 }
             }
             let mut list = DamageList::new(cause, inflictor, inflictor_owner);
-            self.with_damage_target(h, |t, in_group, mount_of| {
+            let state = hooks.damage_state(self, h, inflictor_owner);
+            self.with_damage_target_state(h, state, |t, in_group, mount_of| {
                 damage::explosion_hit(t, blast, &spheres, &mut list, in_group, mount_of);
             });
-            self.apply_damage_list(h, &list);
+            self.apply_damage_list_hooked(h, &list, hooks);
         }
     }
 
