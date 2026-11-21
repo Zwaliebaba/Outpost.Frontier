@@ -673,6 +673,50 @@ pub struct InstantTradeLaneOp {
     pub speed: f32,
 }
 
+/// `pub::AI::DirectiveTrailOp` (0x1c bytes).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TrailOp {
+    /// +0x0c the object to trail (`validate`: not 0).
+    pub target: u32,
+    /// +0x10 the trail distance (150).
+    pub distance: f32,
+    /// +0x14 (0).
+    pub field_14: f32,
+    /// +0x18 (0).
+    pub field_18: f32,
+}
+
+impl Default for TrailOp {
+    /// `DirectiveTrailOp::DirectiveTrailOp`.
+    fn default() -> Self {
+        Self {
+            target: 0,
+            distance: 150.0,
+            field_14: 0.0,
+            field_18: 0.0,
+        }
+    }
+}
+
+/// `pub::AI::DirectiveTractorBeamOp` (0x14 bytes).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TractorBeamOp {
+    /// +0x0c the object to tractor in (`validate`: not 0).
+    pub target: u32,
+    /// +0x10 (1), which `LootBehavior` keeps when the object is gone.
+    pub field_10: u8,
+}
+
+impl Default for TractorBeamOp {
+    /// `DirectiveTractorBeamOp::DirectiveTractorBeamOp`.
+    fn default() -> Self {
+        Self {
+            target: 0,
+            field_10: 1,
+        }
+    }
+}
+
 /// A directive operation (`pub::AI::BaseOp`), the argument of slot 10.
 /// Kinds without a ported reader keep their op type only.
 #[derive(Clone, Debug, PartialEq)]
@@ -681,8 +725,14 @@ pub enum DirectiveOp {
     Goto(GotoOp),
     /// `DirectiveFollowOp` (4).
     Follow(FollowOp),
+    /// `DirectiveTrailOp` (5).
+    Trail(TrailOp),
     /// `DirectiveFaceOp` (7).
     Face(FaceOp),
+    /// `DirectiveTractorBeamOp` (9).
+    TractorBeam(TractorBeamOp),
+    /// `DirectiveEvadeOp` (10): the threat to evade.
+    Evade(u32),
     /// `DirectiveDrasticEvadeOp` (11).
     DrasticEvade(DrasticEvadeOp),
     /// `DirectiveDockOp` (13).
@@ -710,7 +760,10 @@ impl DirectiveOp {
         match self {
             Self::Goto(_) => 3,
             Self::Follow(_) => 4,
+            Self::Trail(_) => 5,
             Self::Face(_) => 7,
+            Self::TractorBeam(_) => 9,
+            Self::Evade(_) => 10,
             Self::DrasticEvade(_) => 11,
             Self::Dock(_) => 13,
             Self::Launch(_) => 14,
