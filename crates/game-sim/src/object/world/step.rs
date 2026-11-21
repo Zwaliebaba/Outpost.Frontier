@@ -44,7 +44,8 @@ pub(crate) fn run_controller(
         ControllerRef::Ship
         | ControllerRef::Guided
         | ControllerRef::Mine
-        | ControllerRef::JumpIn => {}
+        | ControllerRef::JumpIn
+        | ControllerRef::Launch => {}
         ControllerRef::Steering => {
             steering_controller(&flight.steering, &flight.arch, &orientation, dt, pusher);
         }
@@ -127,6 +128,10 @@ impl ControllerHost for Host<'_> {
         }
         if which == ControllerRef::JumpIn {
             super::jump::jump_in_controller(obj, dt, context);
+            return;
+        }
+        if which == ControllerRef::Launch {
+            super::launch_action::launch_controller(obj, dt, context);
             return;
         }
         run_controller(obj, which, self.consts, dt, context);
@@ -409,6 +414,14 @@ pub trait ServerHooks {
     /// Nothing without a server.
     fn jump_in_complete(&mut self, world: &mut World, object: ObjHandle, system: u32) {
         let _ = (world, object, system);
+    }
+
+    /// A ship's `LaunchAction` completed: the launching object's
+    /// `IObjAffect::slot_70(base)` with the id of the object it launched
+    /// from, which on the server's `Ship` ends the launch invincibility and
+    /// tells the bus (`LaunchComplete`). Nothing without a server.
+    fn launch_complete(&mut self, world: &mut World, object: ObjHandle, base: u32) {
+        let _ = (world, object, base);
     }
 }
 
@@ -917,6 +930,7 @@ impl World {
         // Equipment events go to the listeners.
         self.deliver_equip_events(h, hooks);
         self.sync_shield_collisions(h);
+        let results = self.directive_results(h);
         if behavior && let Some(mut hook) = self.take_behavior() {
             hook.update_behavior_tick(self, h, dt);
             self.put_behavior(Some(hook));
@@ -927,12 +941,16 @@ impl World {
         if !requests.is_empty() {
             hooks.server_requests(self, requests);
         }
+        // The launch action's directive callback, which the tick's
+        // `NotifyDirectiveCallbacks` calls at its end in the reference
+        // (D722).
+        self.launch_directive_callbacks(h, results, hooks);
         self.update_docking_animations(h);
     }
 
-    /// `CShip::update`: the actions (`ActionDB::update`, the jump-in only),
-    /// zones, `CEqObj::update`, the wake-up and the damping (drag over mass
-    /// and inertia), the target check.
+    /// `CShip::update`: the actions (`ActionDB::update`: the jump-in and
+    /// the launch), zones, `CEqObj::update`, the wake-up and the damping
+    /// (drag over mass and inertia), the target check.
     fn update_ship(&mut self, h: ObjHandle, dt: f32, flags: u32, hooks: &mut dyn ServerHooks) {
         if flags & update_flags::NO_ACTIONS == 0 {
             self.update_actions(h, hooks);

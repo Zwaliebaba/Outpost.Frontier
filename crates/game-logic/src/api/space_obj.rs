@@ -28,7 +28,7 @@
 //! | `DockRequest` | 2710 | [`dock_request`] |
 //! | `Dock` | 2749 | [`dock`] |
 //! | `InstantDock` | 2836 | [`instant_dock`] |
-//! | `Launch` | 2904 | [`launch`], without `CShip::launch` (its `LaunchAction` is not ported; D704) |
+//! | `Launch` | 2904 | [`launch`] |
 //! | `JumpIn` | 2949 | [`jump_in`] |
 //! | `Relocate` | 2993 | [`relocate`] |
 //! | `SendComm` | 3050 | [`send_comm`] |
@@ -895,13 +895,17 @@ pub fn launch(cx: &mut Cx<'_>, ship: u32, dock: u32, launch_type: i32) -> Result
 }
 
 /// `StarSystem::launch(Ship, Dock, Type)`: a player's ship is reported and
-/// left; an NPC ship gets its launch invincibility
-/// ([`crate::ship::apply_launch_invincibility`]). `CShip::launch`, which
-/// starts the ship's `LaunchAction` out of the dock's port, is not ported
-/// (D704); an object that is not a ship, which the C++ reads through the
-/// null narrowing, does nothing (D703).
+/// left; an NPC ship launches (`CShip::launch`, [`World::launch`]: its
+/// `LaunchAction` flies it out of a docking ring or gives its AI the
+/// launch directive from a station) and gets its launch invincibility
+/// ([`crate::ship::apply_launch_invincibility`]), which the action's end
+/// lifts (`Ship::slot_70`, [`crate::ship::launch_complete`], through
+/// [`game_sim::object::world::ServerHooks::launch_complete`]). An object
+/// that is not a ship, which the C++ reads through the null narrowing,
+/// does nothing (D703); a dock without equipment starts no action (D721).
+///
+/// [`World::launch`]: game_sim::object::World::launch
 fn launch_from(cx: &mut Cx<'_>, ship: ObjHandle, dock: ObjHandle, launch_type: i32) {
-    let _ = (dock, launch_type);
     if cx
         .world
         .get(ship)
@@ -917,6 +921,7 @@ fn launch_from(cx: &mut Cx<'_>, ship: ObjHandle, dock: ObjHandle, launch_type: i
     if !is_ship(cx, ship) {
         return;
     }
+    cx.world.launch(ship, dock, launch_type);
     crate::ship::apply_launch_invincibility(cx, ship);
 }
 

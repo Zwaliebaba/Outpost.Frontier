@@ -125,9 +125,54 @@ pub struct ShipData {
     pub jumped_out: bool,
     /// +0x2b0 the bay door animation (`BayAnim`), `None` (-1) without one.
     pub bay_anim: Option<super::anim::Playback>,
-    /// The jump-in action in the ship's `ActionDB` (`JumpInAction`, the
-    /// only action the port has), from `CShip::jump_in` until it completes.
+    /// The jump-in action in the ship's `ActionDB` (`JumpInAction`), from
+    /// `CShip::jump_in` until it completes.
     pub jump_in: Option<JumpIn>,
+    /// The launch action in the ship's `ActionDB` (`LaunchAction`), from
+    /// `CShip::launch` until it completes.
+    pub launch: Option<Launch>,
+}
+
+/// `LaunchAction` (0x78 bytes, `Common/common_launchaction.cpp:61`): a
+/// ship leaving a dock. From a docking ring it is beamed along the launch
+/// point's axis for three seconds with its collisions off; from a station
+/// or a capital ship the AI flies it out (`DirectiveLaunchOp`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Launch {
+    /// +0x24 the id of the object launched from (`BaseObj->Id`, read when
+    /// the launch completes).
+    pub base: u32,
+    /// +0x28 the base's type bits (`LaunchFlags`).
+    pub flags: u32,
+    /// +0x2c the launch point's index (`LaunchType`; 1 from a docking
+    /// ring).
+    pub launch_type: i32,
+    /// +0x30 the time the controller has run (`CoastElapsed`).
+    pub coast_elapsed: f32,
+    /// +0x34 the end of the launch path (`LaunchPos`).
+    pub position: Vector,
+    /// +0x40 the launch orientation's third column (`LaunchDir`).
+    pub direction: Vector,
+    /// +0x4c the base's archetype has no docking camera
+    /// (`bNoDockingCamera`): the ship is beamed to the end at once.
+    pub no_docking_camera: bool,
+    /// +0x4d the launch is over (`bUpdateComplete`).
+    pub complete: bool,
+    /// +0x50 the launch orientation (`LaunchOrient`).
+    pub orientation: Matrix,
+    /// +0x74 the coast's distance (`CoastTimer`, `launch_coast_time * 80`).
+    pub coast_timer: f32,
+    /// The launch waits for the AI's directive (`set_directive_callback`).
+    pub directive: bool,
+}
+
+impl Launch {
+    /// `LaunchAction::update`'s and `Start`'s test: the immediate launch
+    /// out of a docking ring (`LaunchFlags & 0x20`).
+    #[must_use]
+    pub fn is_physical(&self) -> bool {
+        self.flags & 0x20 != 0
+    }
 }
 
 /// `JumpInAction` (0x68 bytes, `Common/common_launchaction.cpp:490`): a

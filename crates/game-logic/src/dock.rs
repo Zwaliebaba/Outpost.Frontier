@@ -41,12 +41,15 @@
 //!   groups and costume, and grants the launch invincibility when it
 //!   launched from an object.
 //!
+//! An NPC's launch (`pub::SpaceObj::Launch`, `StarSystem::launch`) is in
+//! [`crate::api::space_obj::launch`], over game-sim's `CShip::launch` and
+//! its `LaunchAction`; its end lifts the launch invincibility
+//! ([`crate::ship::launch_complete`]).
+//!
 //! Left to other parts: the behaviour events of a dock (event 5 to the
 //! requesting ship's followers in `pub::SpaceObj::Dock`, event 3 to every
 //! NPC ship's manager in `complete_dock`: the behaviour manager's server
-//! link, `IBehaviorManager::Slot00`); an NPC's launch
-//! (`pub::SpaceObj::Launch`, `StarSystem::launch`), which runs `CShip::
-//! launch` and its launch action, not ported.
+//! link, `IBehaviorManager::Slot00`).
 
 use game_sim::equip::types;
 use game_sim::object::world::ServerRequest;

@@ -39,6 +39,7 @@ mod fields;
 mod guided;
 mod jump;
 mod launch;
+mod launch_action;
 mod loot_drop;
 mod mine;
 mod phantom;
@@ -73,6 +74,7 @@ pub use ai::ManagerHook;
 pub use animate::ActivateResult;
 pub use cargo::{ScanResult, ScannedEquip};
 pub use combat::damage_sub_obj;
+pub use launch_action::{LAUNCH_ACTION_CALLBACK, LAUNCH_COAST_TIME, LAUNCH_DECEL_TIME};
 pub use sensors::{EquipStatus, EquipmentVal, equipment_val};
 pub(crate) use spawn::shield_status;
 pub use spawn::{LootSpawn, ProjectileSpawn, ShipSpawn, SolarSpawn, SpawnError};
@@ -100,6 +102,8 @@ pub enum ControllerRef {
     Mine,
     /// A ship's `JumpInAction` (the eased approach to its arrival point).
     JumpIn,
+    /// A ship's `LaunchAction` (the path out of a docking ring).
+    Launch,
 }
 
 /// The behaviour manager's tick (`IBehaviorManager::UpdateBehaviorTick`),
@@ -211,6 +215,14 @@ pub enum WorldEvent {
         ship: u32,
         /// The system's id.
         system: u32,
+    },
+    /// A ship's `LaunchAction` completed (`IObjAffect::slot_70` with the
+    /// object launched from).
+    LaunchComplete {
+        /// The ship's id.
+        ship: u32,
+        /// The id of the object it launched from.
+        base: u32,
     },
 }
 
