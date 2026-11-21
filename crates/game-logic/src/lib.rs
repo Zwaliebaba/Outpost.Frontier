@@ -10,6 +10,7 @@ pub mod client;
 pub mod events;
 pub mod group;
 pub mod login;
+pub mod loot;
 pub mod objects;
 pub mod player;
 pub mod save_writer;

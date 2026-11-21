@@ -48,7 +48,6 @@ impl World {
         let Some(o) = self.get(h) else {
             return;
         };
-        let (system, position, id) = (o.physical.system, o.engine.position, o.simple.id);
         let a = &self.data.archetypes;
         let explosion_arch = match o.kind {
             crate::object::ObjectKind::Ship => a
@@ -62,10 +61,47 @@ impl World {
             _ => None,
         }
         .unwrap_or(0);
+        let id = o.simple.id;
+        self.explode_archetype(h, explosion_arch, id, Some(h), hooks);
+    }
+
+    /// `Loot::explode_on_destroy`: the container's explosion at its
+    /// position, with no inflictor and nothing skipped (cause 4).
+    pub fn explode_loot_hooked(&mut self, h: ObjHandle, hooks: &mut dyn ServerHooks) {
+        let Some(o) = self.get(h) else {
+            return;
+        };
+        let explosion_arch = self
+            .data
+            .archetypes
+            .equipment
+            .get(&o.archetype)
+            .map_or(0, |e| e.root.explosion_arch);
+        self.explode_archetype(h, explosion_arch, 0, None, hooks);
+    }
+
+    fn explode_archetype(
+        &mut self,
+        h: ObjHandle,
+        explosion_arch: u32,
+        inflictor: u32,
+        skip: Option<ObjHandle>,
+        hooks: &mut dyn ServerHooks,
+    ) {
+        let Some(o) = self.get(h) else {
+            return;
+        };
+        let (system, position) = (o.physical.system, o.engine.position);
         if explosion_arch == 0 {
             return;
         }
-        let Some(explosion) = a.explosions.get(&explosion_arch).cloned() else {
+        let Some(explosion) = self
+            .data
+            .archetypes
+            .explosions
+            .get(&explosion_arch)
+            .cloned()
+        else {
             return;
         };
         let epsilon = 0.0001f64;
@@ -88,11 +124,112 @@ impl World {
             system,
             &blast,
             damage::CAUSE_EXPLOSION,
-            id,
-            Some(h),
+            inflictor,
+            skip,
             explosion.impulse,
             hooks,
         );
+    }
+
+    /// `Loot::split_stack`: a cargo-pod container holding more units than
+    /// its contents' `units_per_container` breaks into at most five
+    /// containers at its position, each with the container's velocity plus
+    /// a random kick of up to 20 m/s and a random spin (five draws each).
+    pub fn loot_split(&mut self, h: ObjHandle) -> Vec<LootSpawn> {
+        let Some(o) = self.get(h) else {
+            return Vec::new();
+        };
+        let crate::object::KindData::Loot(l) = &o.data else {
+            return Vec::new();
+        };
+        let a = &self.data.archetypes;
+        let pod = a.equipment.get(&o.archetype).is_some_and(|c| {
+            matches!(
+                c.kind,
+                crate::data::archetype::equipment::EquipmentKind::CargoPod(_)
+            )
+        });
+        if !pod {
+            return Vec::new();
+        }
+        let Some(contents) = a.equipment.get(&l.contents_arch).cloned() else {
+            return Vec::new();
+        };
+        let (orientation, position, owner) = (o.engine.orientation, o.engine.position, o.simple.id);
+        let (contents_hit_pts, mut remaining) = (l.contents_hit_pts, l.units);
+        let per_container = contents.units_per_container as u32;
+        if !(per_container < remaining) {
+            return Vec::new();
+        }
+        let appearance = match &contents.kind {
+            crate::data::archetype::equipment::EquipmentKind::Commodity {
+                loot_appearance, ..
+            } => loot_appearance
+                .and_then(|id| self.data.archetypes.equipment.get(&id).cloned())
+                .unwrap_or_else(|| contents.clone()),
+            _ => contents.clone(),
+        };
+        let mut out = Vec::new();
+        let mut index = 0;
+        while remaining != 0 && index <= 4 {
+            index += 1;
+            let id = self.allocate_id();
+            let count = remaining.min(per_container);
+            let base_velocity = self.velocity(h);
+            let speed = f64::from(self.rng.rand()) * (1.0 / 32768.0);
+            let dir = self.random_on_unit_sphere();
+            let speed2 = speed + speed;
+            let push = Vector::new(
+                r(speed2 * e(dir.x)),
+                r(speed2 * e(dir.y)),
+                r(speed2 * e(dir.z)),
+            );
+            let kick = Vector::new(
+                r(e(push.x) * 10.0),
+                r(e(push.y) * 10.0),
+                r(e(push.z) * 10.0),
+            );
+            let velocity = Vector::new(
+                r(e(kick.x) + e(base_velocity.x)),
+                r(e(kick.y) + e(base_velocity.y)),
+                r(e(kick.z) + e(base_velocity.z)),
+            );
+            let m = orientation.m;
+            let spin_a = r(f64::from(self.rng.rand()) * (1.0 / 32768.0) * 0.8 - 0.4);
+            let spin_x = [
+                r(e(m[0][0]) * e(spin_a)),
+                r(e(m[1][0]) * e(spin_a)),
+                r(e(m[2][0]) * e(spin_a)),
+            ];
+            let spin_b = r(f64::from(self.rng.rand()) * (1.0 / 32768.0) * 0.8 - 0.4);
+            let spin_z = [
+                r(e(m[0][2]) * e(spin_b)),
+                r(e(m[1][2]) * e(spin_b)),
+                r(e(m[2][2]) * e(spin_b)),
+            ];
+            out.push(LootSpawn {
+                archetype: appearance.root.nickname,
+                contents: contents.root.nickname,
+                units: count,
+                contents_hit_pts,
+                owner,
+                position,
+                velocity,
+                id: Some(id),
+                hit_pts: appearance.root.hit_pts,
+                orientation,
+                angular_velocity: Vector::new(
+                    r(e(spin_x[0]) + e(spin_z[0])),
+                    r(e(spin_x[1]) + e(spin_z[1])),
+                    r(e(spin_x[2]) + e(spin_z[2])),
+                ),
+                name_id: 0,
+                temporary: false,
+                can_ai_tractor: true,
+            });
+            remaining -= count;
+        }
+        out
     }
 
     /// `collect_droppable_equip`: every item, external list first, that is

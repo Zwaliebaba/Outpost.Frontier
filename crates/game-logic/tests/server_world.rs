@@ -243,7 +243,10 @@ fn single_player_unloads_on_landing() {
     world::step_system(&mut cx, he02, 0.1);
     let lines = heard();
     assert!(lines[0].starts_with("Msg0x27"), "{lines:?}");
-    assert_eq!(lines[1], "ObjectDestroyed", "the player's ship leaves with the player");
+    assert_eq!(
+        lines[1], "ObjectDestroyed",
+        "the player's ship leaves with the player"
+    );
     assert_eq!(lines[2], format!("SystemUnloaded {he02}"));
     let sys = cx.logic.server_world.system(he02).unwrap();
     assert!(!sys.loaded && sys.observers.is_empty());

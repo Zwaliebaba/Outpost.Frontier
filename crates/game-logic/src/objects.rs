@@ -69,6 +69,8 @@ pub struct ServerObject {
     pub pending_damage: DamageList,
     /// `EqObj::bDeathFuseLit`: `destroy`'s death-fuse branch ran once.
     pub death_fuse_lit: bool,
+    /// A loot container's own state (`Loot`).
+    pub loot: Option<crate::loot::LootState>,
 }
 
 impl Default for ServerObject {
@@ -84,6 +86,7 @@ impl Default for ServerObject {
             in_damage_callback: false,
             pending_damage: DamageList::new(PENDING_CAUSE, 0, 0),
             death_fuse_lit: false,
+            loot: None,
         }
     }
 }
@@ -329,6 +332,20 @@ fn on_object_destroyed(cx: &mut Cx<'_>, session: u32, id: u32, kind: i32) {
     );
 }
 
+/// `GameObject::destroy`: the hit points to 0, `on_object_destroyed`, the
+/// destroyed latch (`destroy_notify`).
+pub fn base_destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32) {
+    let Some(o) = cx.world.get_mut(h) else {
+        return;
+    };
+    o.simple.hit_pts = 0.0;
+    let (session, id) = (o.simple.owner_player, o.simple.id);
+    on_object_destroyed(cx, session, id, kind);
+    if let Some(o) = cx.logic.objects.entry(cx.world, h) {
+        o.destroyed = true;
+    }
+}
+
 /// The server's `destroy(kind, killer)` of an object (the world's
 /// `destroy` hook). True lets the world mark it dead.
 ///
@@ -357,14 +374,11 @@ pub fn destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32, killer: u32) -> bool {
         o.engine.position,
     );
     let is_player = o.as_ship().is_some_and(|s| s.is_player);
+    if o.kind == ObjectKind::Loot {
+        return crate::loot::destroy(cx, h, kind, killer);
+    }
     if !equipped {
-        if let Some(o) = cx.world.get_mut(h) {
-            o.simple.hit_pts = 0.0;
-        }
-        on_object_destroyed(cx, session, id, kind);
-        if let Some(o) = cx.logic.objects.entry(cx.world, h) {
-            o.destroyed = true;
-        }
+        base_destroy(cx, h, kind);
         return true;
     }
     let lit = cx

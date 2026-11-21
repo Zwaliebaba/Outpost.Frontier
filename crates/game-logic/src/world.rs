@@ -410,7 +410,27 @@ impl ServerHooks for Hooks<'_> {
             world,
             logic: self.logic,
         };
+        if cx
+            .world
+            .get(object)
+            .is_some_and(|o| o.kind == ObjectKind::Loot)
+        {
+            crate::loot::apply_contents(&mut cx, object, list);
+        }
         crate::objects::end_damage_list(&mut cx, object, list);
+    }
+
+    fn object_after_update(&mut self, world: &mut World, object: ObjHandle, dt: f32) {
+        if world
+            .get(object)
+            .is_some_and(|o| o.kind == ObjectKind::Loot)
+        {
+            let mut cx = Cx {
+                world,
+                logic: self.logic,
+            };
+            crate::loot::after_update(&mut cx, object, dt);
+        }
     }
 
     fn damage_list_done(&mut self, world: &mut World, object: ObjHandle) {
