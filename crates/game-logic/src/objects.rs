@@ -82,6 +82,9 @@ pub struct ServerObject {
     pub server_equip: Vec<crate::ship::ServerEquip>,
     /// A ship's own state (`Ship`).
     pub ship: Option<crate::ship::ShipState>,
+    /// `EqObj::DockQueue`: the dock requests the object hosts, in order
+    /// ([`crate::dock`]).
+    pub dock_queue: Vec<crate::dock::DockRequest>,
 }
 
 impl Default for ServerObject {
@@ -101,6 +104,7 @@ impl Default for ServerObject {
             loot: None,
             server_equip: Vec::new(),
             ship: None,
+            dock_queue: Vec::new(),
         }
     }
 }
@@ -445,14 +449,15 @@ pub fn base_destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32) {
 ///   an NPC destroyed by damage sends `DeathFuseLit`, and a positive
 ///   answer (the death conversation's length) lights `death_comm` with
 ///   that lifetime; once it is lit the object loses its behaviour manager
-///   (`CEqObj::disconnect`) and stays, until the fuse destroys it. The
-///   behaviour event 7 and the dock queue's entries come with the
-///   behaviour manager's server link and the docking part. A player's
+///   (`CEqObj::disconnect`), its queued docks their always-updated entries
+///   ([`crate::dock::release_always_update`]), and it stays until the fuse
+///   destroys it. The behaviour event 7 comes with the behaviour manager's
+///   server link. A player's
 ///   ship destroyed by damage on a multiplayer server is announced to
 ///   every session (group notice 0x14). Then the hit points
 ///   go to 0, `ObjectDestroyed` carries what a destroyed-by-damage object
-///   drops (Content may change it), `on_object_destroyed` and the latch
-///   follow, and an object destroyed by damage explodes and, unless it is
+///   drops (Content may change it), `on_object_destroyed`, the queued
+///   docks' release (`destroy_notify`) and the latch follow, and an object destroyed by damage explodes and, unless it is
 ///   a player's on a multiplayer server, drops its loot.
 pub fn destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32, killer: u32) -> bool {
     let Some(o) = cx.world.get(h) else {
@@ -493,6 +498,9 @@ pub fn destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32, killer: u32) -> bool {
                         lifetime,
                     )
                 {
+                    // The behaviour event 7 comes with the behaviour
+                    // manager's server link.
+                    crate::dock::release_always_update(cx, h);
                     cx.world.drop_behavior_manager(h);
                     return false;
                 }
@@ -528,6 +536,8 @@ pub fn destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32, killer: u32) -> bool {
         _ => Vec::new(),
     };
     on_object_destroyed(cx, session, id, kind);
+    // `EqObj::destroy_notify`: the queued docks' always-updated entries.
+    crate::dock::release_always_update(cx, h);
     if let Some(o) = cx.logic.objects.entry(cx.world, h) {
         o.destroyed = true;
     }

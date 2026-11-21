@@ -30,8 +30,8 @@
 //!   (an NPC's on a multiplayer server). The list is announced after the
 //!   frame ([`crate::world::physics_update`]).
 //!
-//! Left to other parts: the dock queue's tick (`process_dock_queue`,
-//! docking); the cargo decay (`decay_cargo`, which needs the server's
+//! The dock queue's tick and `complete_dock`, which starts a death
+//! sequence, are in [`crate::dock`]. Left to other parts: the cargo decay (`decay_cargo`, which needs the server's
 //! `apply_equip_entry` for a stack); the jettison (`tick_jettison`,
 //! `compute_jettison_launch` and the jettison command that fills it, with
 //! the cargo commands); the server equipment's firing (`fire`,
@@ -153,6 +153,12 @@ pub struct ShipState {
     /// The ship's own update ran this frame, so the zone damage follows it
     /// (`Ship::update`'s arm outside a death sequence).
     pub after_update_pending: bool,
+    /// `Field_0x98`: the ship has a request in progress
+    /// ([`crate::dock::request`]).
+    pub request_busy: bool,
+    /// `PendingRequest != null`: the request has a callback (the AI
+    /// behaviour that made it), which its answer reaches.
+    pub request_callback: bool,
 }
 
 /// `Ship::FEquipState`: the equipment id maker and the data word a ship
@@ -248,6 +254,19 @@ pub fn ship_state<'c>(cx: &'c mut Cx<'_>, h: ObjHandle) -> Option<&'c mut ShipSt
 /// player's in single player. `None` when no ship is made or found (the
 /// C++ reads through the null; D619).
 pub fn create_ship(cx: &mut Cx<'_>, system: u32, req: &ShipCreateRequest) -> Option<ObjHandle> {
+    create_ship_with_groups(cx, system, req, None)
+}
+
+/// [`create_ship`] with the request's collision groups
+/// (`CShipCreateInfo::CollisionGroups`, `CEqObj::load_arch_groups`): a
+/// player's launch passes the slot's, so only the groups it lists exist,
+/// each at its health; `None` gives every group undamaged.
+pub fn create_ship_with_groups(
+    cx: &mut Cx<'_>,
+    system: u32,
+    req: &ShipCreateRequest,
+    groups: Option<&[crate::character_file::CollisionGroupDesc]>,
+) -> Option<ObjHandle> {
     let h = if req.owner_player != 0 && cx.world.config().single_player {
         cx.world
             .find(req.id)
@@ -267,6 +286,7 @@ pub fn create_ship(cx: &mut Cx<'_>, system: u32, req: &ShipCreateRequest) -> Opt
             group_name_id: req.group_name_id,
             using_tradelane: req.using_tradelane,
             rank: req.rank,
+            collision_groups: groups.map(|g| g.iter().map(|d| (d.id, d.health)).collect()),
             ..ShipSpawn::new(
                 req.archetype,
                 req.loadout,
@@ -484,14 +504,23 @@ fn apply(cx: &mut Cx<'_>, h: ObjHandle, list: &DamageList) {
 /// `EqObj::update`: false for a destroyed object (`GameObject::update`);
 /// with its weapons offline, a hull without health and undamaged for more
 /// than 60 s, and every disabled launcher undamaged for more than 60 s,
-/// get their maximum hit points back (cause 0x1a); each server equipment
-/// wrapper updates; the fuses burn. False when the object is destroyed
-/// by then. The dock queue's tick and the cargo decay are their parts'.
+/// get their maximum hit points back (cause 0x1a); the dock queue is
+/// worked through ([`crate::dock::process_dock_queue`]); each server
+/// equipment wrapper updates; the fuses burn. False when the object is
+/// destroyed by then. The cargo decay is its part's.
 pub fn eq_obj_update(cx: &mut Cx<'_>, h: ObjHandle, dt: f32) -> bool {
     if cx.logic.objects.get(h).is_some_and(|o| o.destroyed) {
         return false;
     }
     weapons_offline_repair(cx, h);
+    if cx
+        .logic
+        .objects
+        .get(h)
+        .is_some_and(|o| !o.dock_queue.is_empty())
+    {
+        crate::dock::process_dock_queue(cx, h);
+    }
     let count = cx.logic.objects.get(h).map_or(0, |o| o.server_equip.len());
     for index in 0..count {
         let kind = cx

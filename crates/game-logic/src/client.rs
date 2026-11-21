@@ -13,8 +13,8 @@ use game_sim::protocol::common::{
 use game_sim::protocol::fmtstr::FmtStr;
 use game_sim::protocol::records::{CollisionGroup, EquipRecord};
 use game_sim::protocol::to_client::{
-    MiscObjUpdate, PlayerList, SetAddItem, SetCash, SetCollisionGroups, SetEquipment,
-    SetHullStatus, SetRemoveItem, SetShipArch,
+    Launch, MiscObjUpdate, PlayerList, RequestCreateShipResp, RequestReturned, SetAddItem, SetCash,
+    SetCollisionGroups, SetEquipment, SetHullStatus, SetRemoveItem, SetShipArch,
 };
 
 use crate::character_file::CollisionGroupDesc;
@@ -284,6 +284,80 @@ pub fn clear_mission_objectives(cx: &mut Cx<'_>, client: u32) {
         text_a: empty.clone(),
         text_b: empty,
         objectives: Vec::new(),
+    };
+    send(cx, client, message);
+}
+
+/// `SendServerRequestReturned` (slot +0x14c, ch2 0x44): the object, and the
+/// request type, response and third argument as bytes.
+pub fn request_returned(
+    cx: &mut Cx<'_>,
+    client: u32,
+    object: u32,
+    kind: i32,
+    response: i32,
+    arg: i32,
+) {
+    let message = RequestReturned {
+        object_id: object,
+        request_type: kind as u8,
+        response: response as u8,
+        field_26: arg as u8,
+    };
+    send(cx, client, message);
+}
+
+/// `SendServerRequestCreateShipResp` (slot +0x0f4, ch2 0x27): the success
+/// byte and the ship.
+pub fn request_create_ship_resp(cx: &mut Cx<'_>, client: u32, success: bool, ship: u32) {
+    let message = RequestCreateShipResp {
+        field_00: u8::from(success),
+        field_04: ship,
+    };
+    send(cx, client, message);
+}
+
+/// `SendServerLaunch` (slot +0x0f0, ch2 0x07): the ship, the launch object
+/// and point, the position and the orientation.
+pub fn launch(
+    cx: &mut Cx<'_>,
+    client: u32,
+    ship: u32,
+    object: u32,
+    kind: i32,
+    position: neuron_core::math::Vector,
+    orientation: neuron_core::math::Quaternion,
+) {
+    let message = Launch {
+        field_00: ship,
+        field_04: object,
+        field_08: kind as u32,
+        position: [position.x, position.y, position.z],
+        orientation: [orientation.w, orientation.x, orientation.y, orientation.z],
+    };
+    send(cx, client, message);
+}
+
+/// `SendServerMiscObjUpdateObjectGroup` (slot +0x1c4, ch2 0x54, mask 0x09):
+/// the object and its group.
+pub fn misc_obj_update_object_group(cx: &mut Cx<'_>, client: u32, object: u32, group: u32) {
+    let message = MiscObjUpdate {
+        flags: 0x08 | 0x01,
+        field_28: object,
+        field_34: group,
+        ..MiscObjUpdate::default()
+    };
+    send(cx, client, message);
+}
+
+/// `SendServerMiscObjUpdateAffiliation` (slot +0x1d0, ch2 0x54, mask 0x28):
+/// the object and its affiliation.
+pub fn misc_obj_update_affiliation(cx: &mut Cx<'_>, client: u32, object: u32, affiliation: u32) {
+    let message = MiscObjUpdate {
+        flags: 0x08 | 0x20,
+        field_28: object,
+        field_54: affiliation,
+        ..MiscObjUpdate::default()
     };
     send(cx, client, message);
 }

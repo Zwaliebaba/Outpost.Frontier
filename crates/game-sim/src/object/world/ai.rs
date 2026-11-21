@@ -137,7 +137,7 @@ impl World {
     /// the core's radius and `PhySys::GetCenterOfMass` (the surface's mass
     /// centre through the body's object frame now, with the reference's
     /// roundings); the object's sphere without a body.
-    fn physical_sphere(&self, h: ObjHandle) -> (f32, Vector) {
+    pub(crate) fn physical_sphere(&self, h: ObjHandle) -> (f32, Vector) {
         let Some(o) = self.get(h) else {
             return (0.0, Vector::ZERO);
         };
@@ -864,6 +864,33 @@ impl AiWorld for World {
             | AiCommand::SetFollowOffset(_)
             | AiCommand::AddFollowFollower(_)
             | AiCommand::RemoveFollowFollower(_) => return self.formation_command(h, command),
+            // `Ship::slot_5c` and `slot_60` are the server's: the request
+            // goes to it after the behaviour tick
+            // ([`super::ServerHooks::server_requests`]); both answer 0.
+            AiCommand::Request {
+                kind,
+                target,
+                second,
+                flag,
+            } => {
+                self.push_server_request(super::ServerRequest::Request {
+                    ship: h,
+                    kind,
+                    target,
+                    second,
+                    flag,
+                });
+                return 0;
+            }
+            AiCommand::CancelRequest { kind, target, arg } => {
+                self.push_server_request(super::ServerRequest::Cancel {
+                    ship: h,
+                    kind,
+                    target,
+                    arg,
+                });
+                return 0;
+            }
             // Trade lane and the unnamed slots are not world commands yet.
             _ => return -2,
         };
@@ -1251,6 +1278,34 @@ impl World {
         }
         self.finish_manager_call(h, manager);
         true
+    }
+
+    /// `Ship::request_returned`'s callback arm: the server's answer to the
+    /// request the ship's behaviour made, to the requesting behaviour's
+    /// `OnResult` (`BehaviorManager::request_returned`). `None` when the
+    /// ship has no manager with a pending request (the answer reaches no
+    /// behaviour); otherwise whether the behaviour keeps the request.
+    pub fn request_returned(
+        &mut self,
+        h: ObjHandle,
+        kind: i32,
+        response: i32,
+        arg: i32,
+    ) -> Option<bool> {
+        if self
+            .behavior_managers
+            .get(&h)
+            .is_none_or(|m| m.state.pending_request.is_none())
+        {
+            return None;
+        }
+        let mut manager = self.behavior_managers.remove(&h)?;
+        manager.request_returned(self, h, kind, response, arg);
+        let kept = manager.state.pending_request.is_some();
+        let outbox = std::mem::take(&mut manager.state.outbox);
+        self.finish_manager_call(h, manager);
+        self.deliver_notifications(outbox);
+        Some(kept)
     }
 
     /// `CEqObj::disconnect(IObjRW*)` with the object's own wrapper: its
