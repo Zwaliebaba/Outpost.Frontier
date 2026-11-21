@@ -286,7 +286,9 @@ With P3.3's `pub::` families, second part (`game-logic::api`) D690 to
 D696 were proposed; the owner accepted them on 2026-11-21.
 
 With P3.3's `pub::SpaceObj` (`game-logic::api::space_obj`) D700 to D709
-were proposed.
+were proposed; the owner accepted them on 2026-11-21, D704 as a
+temporary row that the port of `CShip::launch` and its `LaunchAction`
+removes.
 
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)
