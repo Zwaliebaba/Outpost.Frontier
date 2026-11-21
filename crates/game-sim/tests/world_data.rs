@@ -1106,3 +1106,55 @@ fn a_turret_joint_takes_the_narrower_hardpoint_limits() {
     assert_eq!(turret.yaw, Some((-2.792_529_8, 2.792_52)));
     assert_eq!(turret.pitch, Some((0.0, 1.570_779_9)));
 }
+
+/// The armed field mines of a system and their intruder counts.
+fn mine_counts(world: &game_sim::object::World, system: u32) -> Vec<i32> {
+    rocks(world, system)
+        .into_iter()
+        .filter_map(|h| match &world.get(h)?.data {
+            game_sim::object::KindData::Asteroid(a) => a.armed.as_ref().map(|m| m.intruders),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `MedMine::deleted` uncounts a ship that is destroyed inside a mine's
+/// phantom: the leave event comes after the world has reaped the ship's
+/// object, and the mine still drops its count (the C++ reads the class of
+/// the object while it is being deleted).
+#[test]
+fn a_field_mine_uncounts_a_ship_destroyed_inside_it() {
+    let Some(mut world) = support::world::world(WorldConfig::default()) else {
+        println!("outdir/ is missing: no mine field");
+        return;
+    };
+    // he01's Zone_he01_zone21 is filled with mine_spike1 mines (its centre
+    // is excluded; 8 km south of it the cubes fill).
+    let system = create_id(b"he01");
+    world.load_system(system);
+    assert!(world.load_asteroid_fields(system) > 0);
+    let ship = fighter(&mut world, system, Vector::new(81640.0, 0.0, -5950.0));
+    let mut counted = false;
+    for _ in 0..60 {
+        world.step(system, 1.0 / 30.0);
+        if mine_counts(&world, system).iter().any(|&n| n > 0) {
+            counted = true;
+            break;
+        }
+    }
+    let armed = mine_counts(&world, system).len();
+    println!("{armed} armed mines; the ship counted: {counted}");
+    assert!(armed > 0, "the field arms its mines around the ship");
+    assert!(counted, "a mine's phantom counts the ship");
+    world.destroy(ship, 0);
+    for _ in 0..3 {
+        world.step(system, 1.0 / 30.0);
+    }
+    assert!(world.get(ship).is_none_or(|o| o.dead));
+    let counts = mine_counts(&world, system);
+    assert!(!counts.is_empty(), "the mines are still there");
+    assert!(
+        counts.iter().all(|&n| n == 0),
+        "every mine uncounted the destroyed ship: {counts:?}"
+    );
+}
