@@ -270,6 +270,7 @@ fn scanner_lists_and_tractor_pulls() {
                 owner: 0,
                 position: Vector::new(15000.0, 3000.0, -25060.0),
                 velocity: Vector::ZERO,
+                ..LootSpawn::default()
             },
         )
         .expect("loot spawns");
@@ -659,6 +660,7 @@ fn the_ai_reads_loot_and_the_hold_and_points_the_tractor() {
                 owner: 0,
                 position: Vector::new(15000.0, 3000.0, -25060.0),
                 velocity: Vector::ZERO,
+                ..LootSpawn::default()
             },
         )
         .expect("loot spawns");
@@ -919,6 +921,7 @@ fn cargo_capacities_and_the_tractor_refusals() {
                 owner: 0,
                 position: Vector::new(15000.0, 3000.0, -25060.0),
                 velocity: Vector::ZERO,
+                ..LootSpawn::default()
             },
         )
         .expect("loot spawns")

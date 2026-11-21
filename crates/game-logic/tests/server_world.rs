@@ -142,10 +142,22 @@ fn multiplayer_systems_load_step_and_transfer() {
     world::queue_dock(&mut cx, he01, Some(npc), None, base, true);
     world::queue_dock(&mut cx, he01, Some(landing), None, base, true);
     sink.0.borrow_mut().clear();
+    let _ = heard();
     assert_eq!(world::step_system(&mut cx, he01, 0.1), 1);
+    // Each landing's `Msg0x27`; the NPC's destruction (kind 0) and the
+    // player's ship destroyed with its removal from the system announce
+    // themselves with `ObjectDestroyed`.
     let lines = heard();
-    assert_eq!(lines.len(), 2, "{lines:?}");
-    assert!(lines.iter().all(|l| *l == format!("Msg0x27 {base} true")));
+    assert_eq!(
+        lines,
+        [
+            format!("Msg0x27 {base} true"),
+            "ObjectDestroyed".to_owned(),
+            format!("Msg0x27 {base} true"),
+            "ObjectDestroyed".to_owned(),
+        ],
+        "{lines:?}"
+    );
     assert!(
         cx.world.get(npc).is_none_or(|o| o.dead),
         "the NPC is destroyed"
@@ -231,7 +243,8 @@ fn single_player_unloads_on_landing() {
     world::step_system(&mut cx, he02, 0.1);
     let lines = heard();
     assert!(lines[0].starts_with("Msg0x27"), "{lines:?}");
-    assert_eq!(lines[1], format!("SystemUnloaded {he02}"));
+    assert_eq!(lines[1], "ObjectDestroyed", "the player's ship leaves with the player");
+    assert_eq!(lines[2], format!("SystemUnloaded {he02}"));
     let sys = cx.logic.server_world.system(he02).unwrap();
     assert!(!sys.loaded && sys.observers.is_empty());
     assert!(!cx.world.system_loaded(he02));

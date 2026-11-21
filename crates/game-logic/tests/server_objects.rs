@@ -106,6 +106,16 @@ fn server_state_on_the_damage_and_destruction_paths() {
             ControllerMessage::SpaceExit { system, player } => {
                 format!("SpaceExit {system} {player}")
             }
+            ControllerMessage::ObjectDestroyed(e) => format!(
+                "ObjectDestroyed {} {} kind {} drops {}",
+                e.id,
+                e.killer,
+                e.kind,
+                e.dropped_equip.len()
+            ),
+            ControllerMessage::LootSpawned { source, count, .. } => {
+                format!("LootSpawned {source} {count}")
+            }
             other => other.name().to_owned(),
         };
         HEARD.with(|h| h.borrow_mut().push(line));
@@ -126,10 +136,44 @@ fn server_state_on_the_damage_and_destruction_paths() {
     let shooter = fighter(&mut cx, he01, 0, -24000.0);
     let shooter_id = cx.world.get(shooter).unwrap().simple.id;
 
-    // An unprotected ship is destroyed by enough shots.
+    // An unprotected NPC is destroyed by enough shots: its death-fuse
+    // notice, `ObjectDestroyed` with what it drops, its explosion, and a
+    // loot container for each dropped item (at most six).
     let plain = fighter(&mut cx, he01, 0, -25000.0);
+    let plain_id = cx.world.get(plain).unwrap().simple.id;
+    let _ = HEARD.with(|h| std::mem::take(&mut *h.borrow_mut()));
+    let before = cx.world.objects_in(he01).len();
     shots(&mut cx, plain, shooter_id, 200);
     assert!(cx.world.get(plain).unwrap().dead, "200 shots destroy it");
+    let heard = HEARD.with(|h| std::mem::take(&mut *h.borrow_mut()));
+    assert_eq!(heard[0], "DeathFuseLit");
+    let destroyed = heard
+        .iter()
+        .find(|l| l.starts_with("ObjectDestroyed"))
+        .expect("ObjectDestroyed");
+    assert!(destroyed.starts_with(&format!("ObjectDestroyed {plain_id} {shooter_id} kind 1")));
+    let drops: usize = destroyed.rsplit(' ').next().unwrap().parse().unwrap();
+    let spawned = heard
+        .iter()
+        .filter(|l| l.starts_with("LootSpawned"))
+        .count();
+    assert!(drops > 0, "a fighter drops lootable equipment");
+    assert!(
+        spawned >= drops.min(6) && spawned <= 6,
+        "{spawned} containers for {drops} items"
+    );
+    let loot = cx
+        .world
+        .objects_in(he01)
+        .into_iter()
+        .filter(|&h| {
+            cx.world
+                .get(h)
+                .is_some_and(|o| o.kind == game_sim::object::ObjectKind::Loot)
+        })
+        .count();
+    assert_eq!(loot, spawned);
+    assert_eq!(cx.world.objects_in(he01).len(), before + spawned);
     assert!(cx.logic.objects.get(plain).unwrap().destroyed, "the latch");
     assert_eq!(cx.world.get(plain).unwrap().simple.hit_pts, 0.0);
 
@@ -177,7 +221,11 @@ fn server_state_on_the_damage_and_destruction_paths() {
     let slot = cx.logic.players.get(1).unwrap();
     assert_eq!((slot.ship_object_id, slot.relative_health), (0, 0.0));
     let heard = HEARD.with(|h| std::mem::take(&mut *h.borrow_mut()));
-    assert_eq!(heard, [format!("SpaceExit {he01} 1")]);
+    // `ObjectDestroyed` first; a multiplayer player's ship drops no loot.
+    assert_eq!(heard.len(), 2, "{heard:?}");
+    assert!(heard[0].starts_with(&format!("ObjectDestroyed {own_id} {shooter_id} kind 1")));
+    assert_eq!(heard[1], format!("SpaceExit {he01} 1"));
+    // Every session hears the player's death (group notice 0x14).
 
     // The reap drops the entries of reaped objects.
     let before = cx.logic.objects.len();

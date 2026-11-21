@@ -426,13 +426,12 @@ impl ServerHooks for Hooks<'_> {
         }
     }
 
-    fn destroy(&mut self, world: &mut World, object: ObjHandle, kind: i32, _killer: u32) -> bool {
+    fn destroy(&mut self, world: &mut World, object: ObjHandle, kind: i32, killer: u32) -> bool {
         let mut cx = Cx {
             world,
             logic: self.logic,
         };
-        crate::objects::destroy(&mut cx, object, kind);
-        true
+        crate::objects::destroy(&mut cx, object, kind, killer)
     }
 
     fn after_reap(&mut self, world: &mut World, system: u32) {
