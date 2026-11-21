@@ -17,7 +17,7 @@ use neuron_core::ini::IniReader;
 use neuron_core::rng::CrtRand;
 
 use super::string_cache::{CacheString, StringCache};
-use super::{DataSource, Reports, lossy, open_ini, value_f32};
+use super::{DataSource, Reports, lossy, not_below, open_ini, value_f32};
 
 const PETAL_SOURCE: &str = "Common\\PetalDB.cpp";
 const WEAPON_MOD_SOURCE: &str = "Common\\WeaponModDB.cpp";
@@ -286,6 +286,17 @@ impl FuseAction {
         true
     }
 
+    /// `CopyArchProperties` on a fresh action: the archetype part only
+    /// (the times); the copy starts untriggered.
+    #[must_use]
+    pub fn arch_copy(&self) -> Self {
+        Self {
+            at_t: self.at_t,
+            at_t_end: self.at_t_end,
+            ..Self::default()
+        }
+    }
+
     /// `IsTriggered(sub_obj)`.
     #[must_use]
     pub fn is_triggered_for(&self, sub_obj: u16) -> bool {
@@ -326,6 +337,25 @@ impl FuseAction {
     }
 }
 
+/// An action a [`Fuse`] holds: the `FuseAction` base with whatever its
+/// owner adds (the server's action kinds, `game-logic::fuses`).
+pub trait FuseActionBase {
+    /// The base.
+    fn base(&self) -> &FuseAction;
+    /// The base, mutably.
+    fn base_mut(&mut self) -> &mut FuseAction;
+}
+
+impl FuseActionBase for FuseAction {
+    fn base(&self) -> &FuseAction {
+        self
+    }
+
+    fn base_mut(&mut self) -> &mut FuseAction {
+        self
+    }
+}
+
 /// `FFuseBurn`: one ignition and the part of the fuse it has burnt.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FuseBurn {
@@ -339,11 +369,54 @@ pub struct FuseBurn {
     pub lower: f32,
     /// Burnt up to here.
     pub upper: f32,
+    /// The burn's place in lighting order: a walk over the burns follows
+    /// it while the list changes, as the C++ list walk follows its node.
+    pub serial: u32,
+}
+
+/// An action a burn reaches ([`Fuse::next_trigger`]): `Trigger(source,
+/// sub_obj)` is due on the action at index `action`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BurnTrigger {
+    /// The action's index in [`Fuse::actions`].
+    pub action: usize,
+    /// The burn's source.
+    pub source: u32,
+    /// The burn's sub-object.
+    pub sub_obj: u16,
+}
+
+/// Where `Burn`'s trigger pass is ([`Fuse::next_trigger`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BurnWalk {
+    current: Option<BurnCursor>,
+    started: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct BurnCursor {
+    serial: u32,
+    source: u32,
+    sub_obj: u16,
+    next: usize,
+    end: usize,
+}
+
+/// `UnBurn`'s walk over the actions of one burn ([`Fuse::begin_unburn`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UnburnWalk {
+    serial: u32,
+    /// The burn's sub-object.
+    pub sub_obj: u16,
+    next: usize,
+    end: usize,
 }
 
 /// `Fuse`: actions keyed by trigger time and the burns running on them.
+/// `A` is the action type: the bare [`FuseAction`], or an owner's action
+/// built on it.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Fuse {
+pub struct Fuse<A = FuseAction> {
     /// `name`.
     pub nickname: u32,
     /// `lifetime` in seconds.
@@ -351,14 +424,16 @@ pub struct Fuse {
     /// `death_fuse`.
     pub death_fuse: bool,
     /// The actions by trigger time; equal times keep insertion order.
-    pub actions: Vec<(f32, FuseAction)>,
+    pub actions: Vec<(f32, A)>,
     /// Actions still to be randomised.
     pub needs_randomize: bool,
-    /// The burns.
+    /// The burns, in lighting order.
     pub burns: Vec<FuseBurn>,
+    /// The serial the next burn gets.
+    pub next_burn_serial: u32,
 }
 
-impl Fuse {
+impl<A: FuseActionBase> Fuse<A> {
     /// `Fuse(nickname, lifetime)`.
     #[must_use]
     pub fn new(nickname: u32, lifetime: f32) -> Self {
@@ -369,13 +444,16 @@ impl Fuse {
             actions: Vec::new(),
             needs_randomize: false,
             burns: Vec::new(),
+            next_burn_serial: 0,
         }
     }
 
     /// Inserts an action under its time, after equal times (the multimap).
-    pub fn add_action(&mut self, action: FuseAction) {
-        let key = action.at_t;
-        let at = self.actions.partition_point(|(k, _)| *k <= key);
+    pub fn add_action(&mut self, action: A) {
+        let key = action.base().at_t;
+        let at = self
+            .actions
+            .partition_point(|(k, _)| not_below(f64::from(key), f64::from(*k)));
         self.actions.insert(at, (key, action));
     }
 
@@ -396,6 +474,22 @@ impl Fuse {
             }
         }
         true
+    }
+
+    /// `Fuse(const Fuse&)`: the values, and every action through `clone`
+    /// (the action's own copy, `Slot04`) under the original's key; the
+    /// burns are not copied.
+    #[must_use]
+    pub fn copy_with(&self, clone: impl Fn(&A) -> A) -> Self {
+        Self {
+            nickname: self.nickname,
+            lifetime: self.lifetime,
+            death_fuse: self.death_fuse,
+            actions: self.actions.iter().map(|(k, a)| (*k, clone(a))).collect(),
+            needs_randomize: self.needs_randomize,
+            burns: Vec::new(),
+            next_burn_serial: 0,
+        }
     }
 
     /// `IsBurning`.
@@ -428,20 +522,49 @@ impl Fuse {
         {
             return false;
         }
+        let serial = self.next_burn_serial;
+        self.next_burn_serial = self.next_burn_serial.wrapping_add(1);
         self.burns.push(FuseBurn {
             source,
             sub_obj,
             ignite_t: at_t,
             lower: at_t,
             upper: at_t,
+            serial,
         });
         true
     }
 
-    /// `Burn(dt)`: widens every burn and triggers the actions it covers.
+    /// `lower_bound(lower)` to `upper_bound(upper)` over the action keys.
+    fn action_range(&self, lower: f32, upper: f32) -> (usize, usize) {
+        let first = self.actions.partition_point(|(k, _)| *k < lower);
+        let last = self
+            .actions
+            .partition_point(|(k, _)| not_below(f64::from(upper), f64::from(*k)));
+        (first, last.max(first))
+    }
+
+    /// `Burn(dt)` without the actions' own work: every burn widens, then
+    /// each burn marks the actions in its range not yet triggered for its
+    /// sub-object. An owner whose actions act ([`Fuse::widen`],
+    /// [`Fuse::next_trigger`]) walks the same pass itself.
     pub fn burn(&mut self, dt: f32) {
-        if self.burns.is_empty() {
+        if !self.widen(dt) {
             return;
+        }
+        let mut walk = BurnWalk::default();
+        while let Some(t) = self.next_trigger(&mut walk) {
+            if let Some((_, action)) = self.actions.get_mut(t.action) {
+                action.base_mut().trigger(t.sub_obj);
+            }
+        }
+    }
+
+    /// `Burn`'s first pass: every burn's window widens by `dt` over the
+    /// lifetime, held to [0, 1]. False (and nothing done) without burns.
+    pub fn widen(&mut self, dt: f32) -> bool {
+        if self.burns.is_empty() {
+            return false;
         }
         let step = (f64::from(dt) / f64::from(self.lifetime)) as f32;
         for b in &mut self.burns {
@@ -450,32 +573,117 @@ impl Fuse {
             let upper = f64::from(step) + f64::from(b.upper);
             b.upper = if upper > 1.0 { 1.0 } else { upper as f32 };
         }
-        for b in &self.burns {
-            for (key, action) in &mut self.actions {
-                if *key >= b.lower && *key <= b.upper && !action.is_triggered_for(b.sub_obj) {
-                    action.trigger(b.sub_obj);
+        true
+    }
+
+    /// `Burn`'s second pass, one action at a time, in the C++ order (the
+    /// burns in lighting order, each burn's actions by key): the next
+    /// action not triggered for the walk's burn's sub-object. The caller
+    /// does the action's `Trigger` (which may light or unlight burns of
+    /// this fuse) and marks it ([`FuseAction::trigger`]); the next call
+    /// goes on from there. A burn's range is taken when the walk reaches
+    /// it, a burn lit meanwhile is reached in its turn, and when the
+    /// walk's burn has been removed the walk goes on with the burns lit
+    /// after it.
+    pub fn next_trigger(&self, walk: &mut BurnWalk) -> Option<BurnTrigger> {
+        loop {
+            if let Some(cursor) = &mut walk.current {
+                if !self.burns.iter().any(|b| b.serial == cursor.serial) {
+                    cursor.next = cursor.end;
+                }
+                while cursor.next < cursor.end {
+                    let index = cursor.next;
+                    cursor.next += 1;
+                    let Some((_, action)) = self.actions.get(index) else {
+                        continue;
+                    };
+                    if !action.base().is_triggered_for(cursor.sub_obj) {
+                        return Some(BurnTrigger {
+                            action: index,
+                            source: cursor.source,
+                            sub_obj: cursor.sub_obj,
+                        });
+                    }
                 }
             }
+            let at = match (&walk.current, walk.started) {
+                (Some(cursor), _) => {
+                    let serial = cursor.serial;
+                    self.burns.partition_point(|b| b.serial <= serial)
+                }
+                (None, false) => 0,
+                (None, true) => return None,
+            };
+            walk.started = true;
+            let Some(b) = self.burns.get(at) else {
+                walk.current = None;
+                return None;
+            };
+            let (next, end) = self.action_range(b.lower, b.upper);
+            walk.current = Some(BurnCursor {
+                serial: b.serial,
+                source: b.source,
+                sub_obj: b.sub_obj,
+                next,
+                end,
+            });
+        }
+    }
+
+    /// `UnBurn`'s search: the burn of `sub_obj` lit at `at_t`, with the
+    /// range of actions it covers, or `None`.
+    #[must_use]
+    pub fn begin_unburn(&self, sub_obj: u16, at_t: f32) -> Option<UnburnWalk> {
+        let b = self
+            .burns
+            .iter()
+            .find(|b| b.sub_obj == sub_obj && b.ignite_t == at_t)?;
+        let (next, end) = self.action_range(b.lower, b.upper);
+        Some(UnburnWalk {
+            serial: b.serial,
+            sub_obj,
+            next,
+            end,
+        })
+    }
+
+    /// The next action of an `UnBurn` walk that reports itself triggered;
+    /// the caller does its `UnTrigger` (which may unlight burns).
+    pub fn next_untrigger(&self, walk: &mut UnburnWalk) -> Option<usize> {
+        while walk.next < walk.end {
+            let index = walk.next;
+            walk.next += 1;
+            if self
+                .actions
+                .get(index)
+                .is_some_and(|(_, a)| a.base().triggered)
+            {
+                return Some(index);
+            }
+        }
+        None
+    }
+
+    /// `UnBurn`'s end: the burn leaves the list, once (a burn an action's
+    /// `UnTrigger` already removed stays removed).
+    pub fn finish_unburn(&mut self, walk: &UnburnWalk) {
+        if let Some(index) = self.burns.iter().position(|b| b.serial == walk.serial) {
+            self.burns.remove(index);
         }
     }
 
     /// `UnBurn`: removes the burn lit at `at_t` and untriggers what it
     /// covers; `false` when there is none.
     pub fn unburn(&mut self, sub_obj: u16, at_t: f32) -> bool {
-        let Some(index) = self
-            .burns
-            .iter()
-            .position(|b| b.sub_obj == sub_obj && b.ignite_t == at_t)
-        else {
+        let Some(mut walk) = self.begin_unburn(sub_obj, at_t) else {
             return false;
         };
-        let b = self.burns[index];
-        for (key, action) in &mut self.actions {
-            if *key >= b.lower && *key <= b.upper && action.triggered {
-                action.untrigger(b.sub_obj);
+        while let Some(index) = self.next_untrigger(&mut walk) {
+            if let Some((_, action)) = self.actions.get_mut(index) {
+                action.base_mut().untrigger(walk.sub_obj);
             }
         }
-        self.burns.remove(index);
+        self.finish_unburn(&walk);
         true
     }
 
@@ -487,10 +695,12 @@ impl Fuse {
         }
         let mut index = 0;
         while index < self.actions.len() {
-            if self.actions[index].1.should_randomize() {
+            if self.actions[index].1.base().should_randomize() {
                 let (_, mut action) = self.actions.remove(index);
-                let key = action.randomize(rand);
-                let at = self.actions.partition_point(|(k, _)| *k <= key);
+                let key = action.base_mut().randomize(rand);
+                let at = self
+                    .actions
+                    .partition_point(|(k, _)| not_below(f64::from(key), f64::from(*k)));
                 self.actions.insert(at, (key, action));
                 if at <= index {
                     index += 1;
@@ -533,6 +743,50 @@ mod tests {
         assert!(fuse.unburn(3, 0.4));
         assert!(!fuse.actions[0].1.is_triggered_for(3));
         assert!(fuse.actions[0].1.triggered);
+    }
+
+    fn at(t: f32) -> FuseAction {
+        FuseAction {
+            at_t: t,
+            ..FuseAction::default()
+        }
+    }
+
+    #[test]
+    fn the_trigger_walk_follows_the_burns_as_they_change() {
+        let mut fuse = Fuse::new(1, 1.0);
+        for t in [0.1, 0.3, 0.3, 0.6] {
+            fuse.add_action(at(t));
+        }
+        assert!(fuse.ignite_at(7, 1, 0.0));
+        assert!(fuse.ignite_at(8, 2, 0.5));
+        assert!(fuse.widen(0.2));
+        let mut walk = BurnWalk::default();
+        let first = fuse.next_trigger(&mut walk).unwrap();
+        assert_eq!((first.action, first.source, first.sub_obj), (0, 7, 1));
+        fuse.actions[0].1.trigger(1);
+        // A burn lit during the walk is reached in its turn, with its own
+        // (unwidened) window.
+        assert!(fuse.ignite_at(9, 3, 0.3));
+        let second = fuse.next_trigger(&mut walk).unwrap();
+        assert_eq!((second.action, second.sub_obj), (1, 2), "0.3 for sub 2");
+        // Removing the walked burn: the walk goes on with the next one.
+        assert!(fuse.unburn(2, 0.5));
+        let third = fuse.next_trigger(&mut walk).unwrap();
+        assert_eq!((third.action, third.source, third.sub_obj), (1, 9, 3));
+        let fourth = fuse.next_trigger(&mut walk).unwrap();
+        assert_eq!(
+            (fourth.action, fourth.sub_obj),
+            (2, 3),
+            "equal keys in order"
+        );
+        assert!(fuse.next_trigger(&mut walk).is_none());
+        assert!(fuse.next_trigger(&mut walk).is_none());
+        // The copy has the actions, untriggered, and no burns.
+        let copy = fuse.copy_with(FuseAction::arch_copy);
+        assert!(copy.burns.is_empty());
+        assert!(copy.actions.iter().all(|(_, a)| !a.triggered));
+        assert_eq!(copy.actions.len(), 4);
     }
 
     #[test]

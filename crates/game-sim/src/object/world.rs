@@ -490,6 +490,15 @@ impl World {
         self
     }
 
+    /// The data root's files (`GetFileSysPath`), for the server's own
+    /// loaders (the fuse database); `None` without assets.
+    #[must_use]
+    pub fn data_source(&self) -> Option<&dyn crate::data::DataSource> {
+        self.assets
+            .as_ref()
+            .map(|a| &a.host as &dyn crate::data::DataSource)
+    }
+
     /// The game data.
     #[must_use]
     pub fn data(&self) -> &GameData {

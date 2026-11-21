@@ -22,7 +22,7 @@ use game_sim::object::world::{DamageState, Hit, HitRule};
 use game_sim::object::{ObjHandle, ObjectKind, World};
 use neuron_server::controller::ControllerId;
 
-use crate::events::{ControllerMessage, DeathFuseLit, ObjectDestroyed};
+use crate::events::{ControllerMessage, ObjectDestroyed};
 use crate::server::Cx;
 
 const GAMEOBJ: &str = "Server\\space\\Gameobj.cpp";
@@ -67,8 +67,12 @@ pub struct ServerObject {
     pub in_damage_callback: bool,
     /// `PendingDamage`: damage set while a list was being applied.
     pub pending_damage: DamageList,
-    /// `EqObj::bDeathFuseLit`: `destroy`'s death-fuse branch ran once.
+    /// `EqObj::bDeathFuseLit`: `destroy`'s death-fuse branch ran, or a
+    /// fuse with a `destroy_root` was lit.
     pub death_fuse_lit: bool,
+    /// `EqObj::Fuses`: the fuses the object has lit, in lighting order
+    /// (never removed).
+    pub fuses: Vec<crate::fuses::ServerFuse>,
     /// A loot container's own state (`Loot`).
     pub loot: Option<crate::loot::LootState>,
 }
@@ -86,6 +90,7 @@ impl Default for ServerObject {
             in_damage_callback: false,
             pending_damage: DamageList::new(PENDING_CAUSE, 0, 0),
             death_fuse_lit: false,
+            fuses: Vec::new(),
             loot: None,
         }
     }
@@ -184,6 +189,11 @@ impl ServerObjects {
         Some(self.entries.entry(h).or_default())
     }
 
+    /// The entry of an object, if the server has one, mutably.
+    pub fn entry_mut(&mut self, h: ObjHandle) -> Option<&mut ServerObject> {
+        self.entries.get_mut(&h)
+    }
+
     /// Drops the entries of objects the world has reaped.
     pub fn sweep(&mut self, world: &World) {
         self.entries.retain(|h, _| world.get(*h).is_some());
@@ -219,7 +229,7 @@ pub fn damage_state(objects: &ServerObjects, h: ObjHandle, inflictor_owner: u32)
     DamageState {
         invincible: blocked.then_some(o.invincible_timer),
         difficulty_scale: None,
-        death_fuse_burning: false,
+        death_fuse_burning: crate::fuses::is_death_fuse_burning(objects, h),
         root_immune: false,
     }
 }
@@ -316,17 +326,18 @@ pub fn begin_damage_list(cx: &mut Cx<'_>, h: ObjHandle, list: &DamageList) {
 }
 
 /// `apply_damage_list`'s test before the destruction: a destroyed list
-/// does not destroy an object that is already destroyed or whose damage
-/// is blocked.
+/// does not destroy an object that is already destroyed, whose damage is
+/// blocked, or whose death fuse burns while the cause is below 0x10.
 pub fn end_damage_list(cx: &mut Cx<'_>, h: ObjHandle, list: &mut DamageList) {
     if !list.destroyed {
         return;
     }
-    let keep = cx
-        .logic
-        .objects
-        .get(h)
-        .is_some_and(|o| o.destroyed || o.is_damage_blocked(list.cause, list.inflictor_owner));
+    let fuse_holds = list.cause < 0x10 && crate::fuses::is_death_fuse_burning(&cx.logic.objects, h);
+    let keep =
+        fuse_holds
+            || cx.logic.objects.get(h).is_some_and(|o| {
+                o.destroyed || o.is_damage_blocked(list.cause, list.inflictor_owner)
+            });
     if keep {
         list.destroyed = false;
     }
@@ -420,12 +431,16 @@ pub fn base_destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32) {
 ///
 /// - `GameObject::destroy` for objects without equipment: the hit points
 ///   to 0, `on_object_destroyed`, the destroyed latch.
-/// - `EqObj::destroy` for ships and solars. The first call lights the
-///   death fuse branch once: an NPC destroyed by damage sends
-///   `DeathFuseLit`, whose answer is the death conversation's length (the
-///   fuse it lights comes with the fuse work; until then destruction goes
-///   on); a player's ship destroyed by damage on a multiplayer server is
-///   announced to every session (group notice 0x14). Then the hit points
+/// - `EqObj::destroy` for ships and solars. The first call (unless a fuse
+///   with a `destroy_root` was lit before) runs the death fuse branch once:
+///   an NPC destroyed by damage sends `DeathFuseLit`, and a positive
+///   answer (the death conversation's length) lights `death_comm` with
+///   that lifetime; once it is lit the object loses its behaviour manager
+///   (`CEqObj::disconnect`) and stays, until the fuse destroys it. The
+///   behaviour event 7 and the dock queue's entries come with the
+///   behaviour manager's server link and the docking part. A player's
+///   ship destroyed by damage on a multiplayer server is announced to
+///   every session (group notice 0x14). Then the hit points
 ///   go to 0, `ObjectDestroyed` carries what a destroyed-by-damage object
 ///   drops (Content may change it), `on_object_destroyed` and the latch
 ///   follow, and an object destroyed by damage explodes and, unless it is
@@ -435,11 +450,10 @@ pub fn destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32, killer: u32) -> bool {
         return true;
     };
     let equipped = matches!(o.kind, ObjectKind::Ship | ObjectKind::Solar) && o.equipped.is_some();
-    let (session, id, system, type_bits, position) = (
+    let (session, id, system, position) = (
         o.simple.owner_player,
         o.simple.id,
         o.physical.system,
-        o.simple.type_bits,
         o.engine.position,
     );
     let is_player = o.as_ship().is_some_and(|s| s.is_player);
@@ -458,15 +472,21 @@ pub fn destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32, killer: u32) -> bool {
     if lit == Some(false) {
         if session == 0 {
             if kind == 1 {
-                let mut message = ControllerMessage::DeathFuseLit(DeathFuseLit {
-                    system,
-                    object: id,
-                    object_type: type_bits,
-                    lifetime: 0.0,
-                });
-                let _ = cx.dispatch(ControllerId::BROADCAST, &mut message);
-                // A positive lifetime lights `DEATH_COMM_FUSE` (the fuse
-                // work); without fuses the destruction goes on.
+                let lifetime = crate::fuses::send_death_fuse_lit(cx, h);
+                if lifetime > 0.0
+                    && crate::fuses::light_fuse(
+                        cx,
+                        h,
+                        killer,
+                        crate::fuses::death_comm_fuse(),
+                        game_sim::equip::SUBOBJ_ID_NONE,
+                        0.0,
+                        lifetime,
+                    )
+                {
+                    cx.world.drop_behavior_manager(h);
+                    return false;
+                }
             }
         } else if !cx.world.config().single_player && kind == 1 && is_player {
             let sessions: Vec<u32> = cx.logic.players.active_ids().collect();
