@@ -772,18 +772,13 @@ impl AiWorld for World {
             AiCommand::SetStrafe(d) => Command::SetStrafeDir(StrafeDir::from_value(d.value())),
             AiCommand::SetTarget { target, subtarget } => Command::SetTarget(target, subtarget),
             AiCommand::FireGuns { equipment, target } => {
-                // `EqObj::slot_34` without an aim point fires forward.
-                if target.is_none() {
-                    if self.get(h).is_none_or(|o| o.dead) {
-                        return -2;
-                    }
-                    self.fire(h, &equipment, None);
-                    return 0;
+                // `EqObj::slot_34` without an aim point fires forward; the
+                // server's part of the shot follows the tick.
+                if self.get(h).is_none_or(|o| o.dead) {
+                    return -2;
                 }
-                Command::Fire {
-                    guns: equipment,
-                    target: target.unwrap_or_default(),
-                }
+                self.fire_for_ai(h, &equipment, target);
+                return 0;
             }
             AiCommand::ActivateEquip { equipment, on } => Command::ActivateEquip(equipment, on),
             AiCommand::EngageCruise { engage, instant } => {

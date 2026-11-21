@@ -8,10 +8,12 @@ on:
   pull_request:
   workflow_dispatch:
 
-# A newer push to the same pull request or branch replaces a run in progress.
 concurrency:
   group: rust-ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Only a pull request's newer push replaces its run. A run on main finishes, queued
+  # behind the one before it: it checks the merged code and saves the caches the pull
+  # requests restore, which a merge every half hour cancelled before the save.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

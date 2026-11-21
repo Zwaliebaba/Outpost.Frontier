@@ -241,7 +241,8 @@ pub fn request_returned(cx: &mut Cx<'_>, ship: ObjHandle, kind: i32, response: i
 }
 
 /// The AI's requests of a behaviour tick (`ServerHooks::server_requests`):
-/// each a `slot_5c` with the behaviour as its callback, or a `slot_60`.
+/// each a `slot_5c` with the behaviour as its callback, a `slot_60`, or
+/// the server's part of a shot ([`crate::equip_fire::ai_fired`]).
 pub fn server_requests(cx: &mut Cx<'_>, requests: Vec<ServerRequest>) {
     for r in requests {
         match r {
@@ -262,6 +263,12 @@ pub fn server_requests(cx: &mut Cx<'_>, requests: Vec<ServerRequest>) {
             } => {
                 cancel_request(cx, ship, kind, target, arg);
             }
+            ServerRequest::Fired {
+                ship,
+                aim,
+                results,
+                guided,
+            } => crate::equip_fire::ai_fired(cx, ship, aim, &results, &guided),
         }
     }
 }

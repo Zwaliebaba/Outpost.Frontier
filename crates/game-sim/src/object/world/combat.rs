@@ -121,12 +121,37 @@ impl World {
         guns: &[SubObjId],
         aim: Option<Vector>,
     ) -> Vec<(SubObjId, FireResult)> {
+        self.fire_made(h, guns, aim).0
+    }
+
+    /// [`World::fire`] from the AI (`AiCommand::FireGuns`): the shot, then
+    /// the server's part of it after the behaviour tick
+    /// ([`super::ServerRequest::Fired`]).
+    pub(crate) fn fire_for_ai(&mut self, h: ObjHandle, guns: &[SubObjId], aim: Option<Vector>) {
+        let (results, guided) = self.fire_made(h, guns, aim);
+        self.push_server_request(super::ServerRequest::Fired {
+            ship: h,
+            aim,
+            results,
+            guided,
+        });
+    }
+
+    /// [`World::fire`] with the guided munitions it made and their guns.
+    #[allow(clippy::type_complexity)]
+    fn fire_made(
+        &mut self,
+        h: ObjHandle,
+        guns: &[SubObjId],
+        aim: Option<Vector>,
+    ) -> (Vec<(SubObjId, FireResult)>, Vec<(SubObjId, ObjHandle)>) {
         let mut out = Vec::new();
+        let mut made_guided = Vec::new();
         let Some(o) = self.objects.get(h) else {
-            return out;
+            return (out, made_guided);
         };
         if o.dead {
-            return out;
+            return (out, made_guided);
         }
         let system = o.physical.system;
         let owner_id = o.simple.id;
@@ -222,6 +247,9 @@ impl World {
                     self.create_bullet(system, &spawn)
                 };
                 if let Ok(b) = made {
+                    if m.seeker != 0 {
+                        made_guided.push((id, b));
+                    }
                     let bullet = self.objects.get(b).map_or(0, |o| o.simple.id);
                     self.events.push(WorldEvent::Fired {
                         shooter: owner_id,
@@ -234,7 +262,186 @@ impl World {
         if let Some(log) = self.fire_log.as_mut() {
             log.push((owner_id, out.clone()));
         }
-        out
+        (out, made_guided)
+    }
+
+    /// The launcher part of an object's gun or dropper.
+    fn launcher_of(&self, h: ObjHandle, id: SubObjId) -> Option<&crate::equip::launcher::Launcher> {
+        let equip = self
+            .objects
+            .get(h)?
+            .equipped
+            .as_deref()?
+            .equipment
+            .by_id(id)?;
+        match &equip.kind {
+            EquipKind::Gun(g) => Some(&g.launcher),
+            EquipKind::MineDropper(l) | EquipKind::CmDropper(l) => Some(l),
+            _ => None,
+        }
+    }
+
+    /// `CELauncher::Projectile`: what a gun, mine dropper or
+    /// counter-measure dropper fires.
+    #[must_use]
+    pub fn launcher_projectile(&self, h: ObjHandle, id: SubObjId) -> Option<ProjectileArch> {
+        self.launcher_of(h, id)?.projectile
+    }
+
+    /// `CELauncher::Fire` of one launcher (vt +0x90; `CEGun::CanFire` with
+    /// its muzzle cone for a gun, `CEMineDropper::CanFire` with its cruise
+    /// test for a mine dropper): the refire clock restarts unless the
+    /// refire delay refused the shot. `None` for an item that is no
+    /// launcher.
+    pub fn launcher_fire(
+        &mut self,
+        h: ObjHandle,
+        id: SubObjId,
+        target: Vector,
+    ) -> Option<FireResult> {
+        let cx = self.launch_context(h, id)?;
+        let equip = self
+            .objects
+            .get_mut(h)?
+            .equipped
+            .as_deref_mut()?
+            .equipment
+            .by_id_mut(id)?;
+        let (launcher, result) = match &mut equip.kind {
+            EquipKind::Gun(g) => return Some(g.fire(&cx, target)),
+            EquipKind::MineDropper(l) => {
+                let result = l.can_fire(&cx);
+                let result = if result == FireResult::Ok && cx.cruise_active {
+                    FireResult::Cruise
+                } else {
+                    result
+                };
+                (l, result)
+            }
+            EquipKind::CmDropper(l) => {
+                let result = l.can_fire(&cx);
+                (l, result)
+            }
+            _ => return None,
+        };
+        if result != FireResult::RefireDelay {
+            launcher.refire_elapsed = 0.0;
+        }
+        Some(result)
+    }
+
+    /// `CELauncher::AmmoNeedsMet`: the ammunition for every barrel is in
+    /// the hold (always for a projectile that needs none).
+    #[must_use]
+    pub fn launcher_ammo_needs_met(&self, h: ObjHandle, id: SubObjId) -> bool {
+        match (self.launch_context(h, id), self.launcher_of(h, id)) {
+            (Some(cx), Some(l)) => l.ammo_needs_met(cx.ammo),
+            _ => false,
+        }
+    }
+
+    /// `ConsumeFireResources` (`CELauncher`'s, and `CEGun`'s, which also
+    /// restarts the lock clock): `DrawAmmoFromCargo` (the first cargo stack
+    /// of the projectile loses one unit per barrel when the projectile
+    /// needs ammunition), then `DrawPower` per barrel.
+    pub fn launcher_consume_fire_resources(&mut self, h: ObjHandle, id: SubObjId) {
+        let Some(l) = self.launcher_of(h, id) else {
+            return;
+        };
+        let count = l.barrel_count() as u32;
+        let projectile = l.projectile;
+        let Some(eq) = self
+            .objects
+            .get_mut(h)
+            .and_then(|o| o.equipped.as_deref_mut())
+        else {
+            return;
+        };
+        let crate::object::Equipped {
+            equipment, power, ..
+        } = eq;
+        if let Some(p) = projectile
+            && p.requires_ammo
+        {
+            for slot in equipment.traverse(types::CARGO, false) {
+                if let Some(c) = equipment.get_mut(slot)
+                    && c.arch_id == p.nickname
+                {
+                    let max = c.arch.hit_pts;
+                    if let EquipKind::Cargo(cargo) = &mut c.kind {
+                        cargo.remove_from_stack(count, max);
+                    }
+                    break;
+                }
+            }
+        }
+        if let Some(equip) = equipment.by_id_mut(id) {
+            match &mut equip.kind {
+                EquipKind::Gun(g) => {
+                    g.launcher.draw_power(power);
+                    g.lock_elapsed = 0.0;
+                }
+                EquipKind::MineDropper(l) | EquipKind::CmDropper(l) => l.draw_power(power),
+                _ => {}
+            }
+        }
+    }
+
+    /// `CELauncher::ComputeLaunchInfo` (vt +0x98): one record per barrel, a
+    /// gun's with its dispersion (`rand()` draws) and its lock.
+    pub fn launcher_launch_info(
+        &mut self,
+        h: ObjHandle,
+        id: SubObjId,
+        target: Vector,
+    ) -> Vec<ProjLaunchInfo> {
+        let Some(cx) = self.launch_context(h, id) else {
+            return Vec::new();
+        };
+        let mut rng = std::mem::take(&mut self.rng);
+        let shots = match self
+            .objects
+            .get(h)
+            .and_then(|o| o.equipped.as_deref())
+            .and_then(|eq| eq.equipment.by_id(id))
+            .map(|e| &e.kind)
+        {
+            Some(EquipKind::Gun(g)) => g.launch_info(&cx, target, &mut rng),
+            Some(EquipKind::MineDropper(l) | EquipKind::CmDropper(l)) => (0..l.barrel_count())
+                .map(|b| l.launch_info_one_barrel(&cx, b, target))
+                .collect(),
+            _ => Vec::new(),
+        };
+        self.rng = rng;
+        shots
+    }
+
+    /// `GetAvgBarrelPosWS` and `GetAvgBarrelDirWS` of a launcher.
+    #[must_use]
+    pub fn launcher_barrel_average(&self, h: ObjHandle, id: SubObjId) -> Option<(Vector, Vector)> {
+        let cx = self.launch_context(h, id)?;
+        let barrels = &self.launcher_of(h, id)?.barrels;
+        Some((
+            cx.barrel_average(barrels, false),
+            cx.barrel_average(barrels, true),
+        ))
+    }
+
+    /// `CEGun::GetTarget`: the gun's lock target (while it exists) and
+    /// sub-target; `None` for an item that is no gun.
+    #[must_use]
+    pub fn gun_target(&self, h: ObjHandle, id: SubObjId) -> Option<(Option<ObjHandle>, SubObjId)> {
+        let equip = self
+            .objects
+            .get(h)?
+            .equipped
+            .as_deref()?
+            .equipment
+            .by_id(id)?;
+        match &equip.kind {
+            EquipKind::Gun(g) => Some((g.target.filter(|t| self.objects.contains(*t)), g.lock_sub)),
+            _ => None,
+        }
     }
 
     /// Starts (or stops) keeping every [`World::fire`] call's results
@@ -703,6 +910,7 @@ impl World {
         }
         let list = &owned.clone();
         let now = self.time;
+        let stack_rule = hooks.cargo_stack_rule(self, h);
         let Some(o) = self.objects.get_mut(h) else {
             return;
         };
@@ -735,9 +943,21 @@ impl World {
                     continue;
                 }
                 let status = super::spawn::shield_status(equip);
+                let max = equip.arch.hit_pts;
                 let crate::equip::Equip { kind, events, .. } = equip;
                 if let EquipKind::Shield(s) = kind {
                     s.set_hit_points(entry.hit_pts, status, now, events);
+                } else if let EquipKind::Cargo(c) = kind
+                    && stack_rule
+                    && c.count > 1
+                {
+                    // `EqObj::apply_equip_entry`: a spent unit of a stack
+                    // leaves it.
+                    if entry.hit_pts == 0.0 {
+                        c.remove_from_stack(1, max);
+                    } else {
+                        c.hit_pts = entry.hit_pts;
+                    }
                 } else {
                     equip.set_hit_points(entry.hit_pts);
                 }

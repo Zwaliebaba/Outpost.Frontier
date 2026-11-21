@@ -55,6 +55,10 @@ pub struct GunStats {
     pub cm_max_munition_range: f32,
 }
 
+/// `CShip::JETTISON_CLEARANCE_TIME` (`common_cship.cpp:2637`): the time a
+/// jettisoned item has to clear the bay before the next one goes.
+pub const JETTISON_CLEARANCE_TIME: f32 = 4.0;
+
 /// `BayState`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BayState {
