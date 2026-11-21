@@ -345,10 +345,13 @@ jobs:
             exit $LASTEXITCODE
           }
       - name: Save the oracle's outputs
+        # The key is the one the restore step computed on the clean checkout: hashing
+        # CppSource/ again here would take in the build's intermediate files (CppSource/obj/)
+        # and save under a key no later run asks for.
         if: ${{ success() && steps.oracle-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
-          key: oracle-v1-${{ hashFiles('CppSource/**', 'outdir/**', '.github/msvc-toolset.txt', '.github/scripts/**', 'crates/game-sim/tests/fixtures/g2_ensemble.txt', '.github/workflows/data.yml') }}
+          key: ${{ steps.oracle-cache.outputs.cache-primary-key }}
           path: |
             ${{ runner.temp }}/outpost-oracle
             ${{ runner.temp }}/outpost-sim

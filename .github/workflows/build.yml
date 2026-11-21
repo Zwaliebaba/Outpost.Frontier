@@ -212,10 +212,11 @@ jobs:
           & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo @pin
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Save the C++ build
+        # The restore step's key, hashed before the build wrote CppSource/obj/.
         if: ${{ success() && steps.cpp-bin.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
-          key: cpp-bin-v1-${{ hashFiles('CppSource/**', '.github/msvc-toolset.txt', '.github/scripts/**') }}
+          key: ${{ steps.cpp-bin.outputs.cache-primary-key }}
           path: bin
       - name: Run the oracle harness
         shell: pwsh
