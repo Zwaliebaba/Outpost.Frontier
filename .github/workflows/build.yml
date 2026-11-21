@@ -1,10 +1,17 @@
 name: Rust CI
 
 on:
+  # Pushes to main; a branch is checked through its pull request, so a push to
+  # it does not run the same jobs a second time.
   push:
-    branches: [main, "claude/**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
+
+# A newer push to the same pull request or branch replaces a run in progress.
+concurrency:
+  group: rust-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -19,6 +26,8 @@ jobs:
           persist-credentials: false
       - name: Prepare Rust
         run: rustup toolchain install
+      - name: Cache the Rust build
+        uses: Swatinem/rust-cache@v2
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Lint workspace
@@ -58,6 +67,8 @@ jobs:
           persist-credentials: false
       - name: Prepare Rust
         run: rustup toolchain install
+      - name: Cache the Rust build
+        uses: Swatinem/rust-cache@v2
       - name: Lint workspace
         run: cargo clippy --locked --workspace --all-targets --target host-tuple -- -D warnings
       - name: Test workspace
@@ -75,6 +86,8 @@ jobs:
           persist-credentials: false
       - name: Prepare Rust
         run: rustup toolchain install
+      - name: Cache the Rust build
+        uses: Swatinem/rust-cache@v2
       - name: Check crate graph, legacy APIs and unsafe placement
         run: cargo xtask check-policy
       - name: Install cargo-deny

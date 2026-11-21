@@ -12,7 +12,23 @@ on:
     - cron: "17 2 * * *"
   push:
     branches: [main]
+  # Pull requests that touch the port, the oracle or the data run here too, beside Rust CI.
+  pull_request:
+    paths:
+      - "crates/**"
+      - "apps/**"
+      - "xtask/**"
+      - "CppSource/**"
+      - "outdir/**"
+      - "Cargo.lock"
+      - ".github/workflows/data.yml"
+      - ".github/scripts/**"
   workflow_dispatch:
+
+# A newer push to the same pull request or branch replaces a run in progress.
+concurrency:
+  group: data-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -26,10 +42,27 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      - name: Restore the oracle's outputs
+        # The oracle's outputs depend only on the frozen C++ (CppSource/), the original data,
+        # the pinned toolset, the seed list and this file; a run whose inputs a run before it
+        # saw takes that run's outputs and skips the oracle's build and runs (about 40
+        # minutes). The checks that the oracle repeats itself ran when they were made.
+        id: oracle-cache
+        uses: actions/cache/restore@v4
+        with:
+          key: oracle-v1-${{ hashFiles('CppSource/**', 'outdir/**', '.github/msvc-toolset.txt', '.github/scripts/**', 'crates/game-sim/tests/fixtures/g2_ensemble.txt', '.github/workflows/data.yml') }}
+          path: |
+            ${{ runner.temp }}/outpost-oracle
+            ${{ runner.temp }}/outpost-sim
+            ${{ runner.temp }}/outpost-ensemble
+            ${{ runner.temp }}/outpost-systems
+            ${{ runner.temp }}/outpost-sim-summaries
+            ${{ runner.temp }}/oracle-dump.log
       - name: Build the oracle harness
         # Oracle builds Server.dll and SimClientStub.dll through its references; the
         # scenario oracle (Oracle.exe sim) also loads Content.dll and the engine DLLs
         # NEURONCOMPONENTSsrv.ini names, built here by name.
+        if: ${{ steps.oracle-cache.outputs.cache-hit != 'true' }}
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -40,10 +73,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo @pin
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Dump the original data with the oracle
+      - name: Prepare the dump root
         # The dump root holds DATA (a junction to outdir\data) and EXE (the
         # INI files at the top of outdir\), as design/reference-build.md
-        # section 7 describes. The dumps are not uploaded.
+        # section 7 describes; the Rust comparisons read it whether or not the
+        # oracle's outputs come from the cache.
         shell: pwsh
         run: |
           $root = "$env:RUNNER_TEMP\outpost-data"
@@ -52,6 +86,12 @@ jobs:
           Copy-Item outdir\*.ini "$root\EXE\"
           # P3.2: the character templates the saves kind reads next to the executable.
           Copy-Item outdir\*.fl "$root\EXE\"
+      - name: Dump the original data with the oracle
+        # Into outpost-oracle, over the dump root. The dumps are not uploaded.
+        if: ${{ steps.oracle-cache.outputs.cache-hit != 'true' }}
+        shell: pwsh
+        run: |
+          $root = "$env:RUNNER_TEMP\outpost-data"
           # P3.2: the account flow's restart file and new character read the templates
           # next to the running executable (GetModuleFileNameA), here Oracle.exe.
           Copy-Item outdir\*.fl bin\
@@ -61,37 +101,12 @@ jobs:
           $code = $LASTEXITCODE
           "Oracle.exe dump exited with $code" | Add-Content "$env:RUNNER_TEMP\oracle-dump.log"
           if ($code -ne 0) { exit $code }
-      - name: Prepare Rust
-        run: rustup toolchain install
-      - name: Compare the port with the oracle
-        shell: pwsh
-        run: |
-          $env:OUTPOST_DATA_DIR = "$env:RUNNER_TEMP\outpost-data"
-          $env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-oracle"
-          cargo test --locked --release -p neuron-core --tests -- data_dump_ --nocapture
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # The game databases of work package P2.1 (crates/game-sim/tests/data_dump.rs).
-          cargo test --locked --release -p game-sim --tests -- data_dump_ --nocapture
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # The scene scripts of work package P4.14 (crates/neuron-client/tests/data_dump.rs).
-          cargo test --locked --release -p neuron-client --tests -- data_dump_ --nocapture
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # The character save reader of work package P3.2 (crates/game-logic/tests/save_dump.rs).
-          cargo test --locked --release -p game-logic --tests -- data_dump_ --nocapture
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Keep the summaries
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: data-dump-summaries
-          path: ${{ runner.temp }}/outpost-oracle/rust-*.txt
-          if-no-files-found: ignore
       - name: Run the scenario oracle
         # Work package P2.3 (design/adr/0003-simulation-oracle.md, design/reference-build.md
         # section 10): every scenario in CppSource/Oracle/scenarios three times, each run in a
         # fresh process, on the original data in outdir/. The records stay on the runner; the
         # spread summaries (record 0003 point 9) and each run's session log are kept.
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.oracle-cache.outputs.cache-hit != 'true' }}
         shell: pwsh
         run: |
           $out = "$env:RUNNER_TEMP\outpost-sim"
@@ -182,7 +197,7 @@ jobs:
         # personality padding it copies holds stack garbage), and with
         # `comms off` no draw comes from Content's comm system. Each fight also runs once with
         # comms on: the records must be identical to the comms-off run before the first contact.
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.oracle-cache.outputs.cache-hit != 'true' }}
         shell: pwsh
         run: |
           $root = "$env:RUNNER_TEMP\outpost-repeat"
@@ -268,7 +283,7 @@ jobs:
         # (tick.jsonl, events.jsonl, the munition_hit and collision_damage records of calls.jsonl,
         # the head of ai.jsonl with the pilots' personalities and attitudes, session.jsonl); the
         # session logs go to the summaries.
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.oracle-cache.outputs.cache-hit != 'true' }}
         shell: pwsh
         run: |
           $ens = "$env:RUNNER_TEMP\outpost-ensemble"
@@ -316,6 +331,58 @@ jobs:
             Write-Host "Ensemble runs that failed: $($failed -join ', ')"
             exit 1
           }
+      - name: Load every system with the oracle
+        # Work package P3.3 (decision record 0007 point 11): Oracle.exe sim starts a multiplayer
+        # server, loads every system (StarSystem::load) and writes its solars
+        # (CppSource/Oracle/system_loads.txt, Server.dll's OracleDumpSystemLoads).
+        if: ${{ !cancelled() && steps.oracle-cache.outputs.cache-hit != 'true' }}
+        shell: pwsh
+        run: |
+          $out = "$env:RUNNER_TEMP\outpost-systems"
+          & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\system_loads.txt" $out
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content "$out\session.jsonl" -Tail 20 -ErrorAction SilentlyContinue
+            exit $LASTEXITCODE
+          }
+      - name: Save the oracle's outputs
+        if: ${{ success() && steps.oracle-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          key: oracle-v1-${{ hashFiles('CppSource/**', 'outdir/**', '.github/msvc-toolset.txt', '.github/scripts/**', 'crates/game-sim/tests/fixtures/g2_ensemble.txt', '.github/workflows/data.yml') }}
+          path: |
+            ${{ runner.temp }}/outpost-oracle
+            ${{ runner.temp }}/outpost-sim
+            ${{ runner.temp }}/outpost-ensemble
+            ${{ runner.temp }}/outpost-systems
+            ${{ runner.temp }}/outpost-sim-summaries
+            ${{ runner.temp }}/oracle-dump.log
+      - name: Prepare Rust
+        run: rustup toolchain install
+      - name: Cache the Rust build
+        uses: Swatinem/rust-cache@v2
+      - name: Compare the port with the oracle
+        shell: pwsh
+        run: |
+          $env:OUTPOST_DATA_DIR = "$env:RUNNER_TEMP\outpost-data"
+          $env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-oracle"
+          cargo test --locked --release -p neuron-core --tests -- data_dump_ --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The game databases of work package P2.1 (crates/game-sim/tests/data_dump.rs).
+          cargo test --locked --release -p game-sim --tests -- data_dump_ --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The scene scripts of work package P4.14 (crates/neuron-client/tests/data_dump.rs).
+          cargo test --locked --release -p neuron-client --tests -- data_dump_ --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The character save reader of work package P3.2 (crates/game-logic/tests/save_dump.rs).
+          cargo test --locked --release -p game-logic --tests -- data_dump_ --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Keep the summaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: data-dump-summaries
+          path: ${{ runner.temp }}/outpost-oracle/rust-*.txt
+          if-no-files-found: ignore
       - name: Replay the recorded PSIs through the port
         # Decision O20, replay layer: every psi.jsonl the scenarios wrote is replayed one PSI
         # at a time through neuron-core::physics (crates/neuron-core/tests/sim_replay.rs).
@@ -348,20 +415,13 @@ jobs:
           Copy-Item "$env:OUTPOST_ORACLE_DIR\rust-*-replay.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
           exit $failed
       - name: Compare the system loads
-        # Work package P3.3 (decision record 0007 point 11): Oracle.exe sim starts a multiplayer
-        # server, loads every system (StarSystem::load) and writes its solars
-        # (CppSource/Oracle/system_loads.txt, Server.dll's OracleDumpSystemLoads); the port loads
-        # them through game-logic::world and renders the same lines
+        # Work package P3.3 (decision record 0007 point 11): the port loads every system through
+        # game-logic::world and renders the lines the oracle wrote
         # (crates/game-logic/tests/system_loads.rs). Summary rust-system-loads.txt.
         if: ${{ !cancelled() }}
         shell: pwsh
         run: |
           $out = "$env:RUNNER_TEMP\outpost-systems"
-          & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\system_loads.txt" $out
-          if ($LASTEXITCODE -ne 0) {
-            Get-Content "$out\session.jsonl" -Tail 20 -ErrorAction SilentlyContinue
-            exit $LASTEXITCODE
-          }
           $env:OUTPOST_ORACLE_DIR = $out
           cargo test --locked --release -p game-logic --test system_loads -- --nocapture
           $code = $LASTEXITCODE
