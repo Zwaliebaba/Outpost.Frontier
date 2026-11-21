@@ -39,6 +39,7 @@ mod fields;
 mod guided;
 mod launch;
 mod loot_drop;
+mod mine;
 pub use guided::GuidedTrace;
 mod sensors;
 mod solar_read;
@@ -93,6 +94,8 @@ pub enum ControllerRef {
     Equip(SubObjId),
     /// The server's `Guided` wrapper (a missile's motor, `arm`).
     Guided,
+    /// The server's `Mine` wrapper (a seeking mine's push, `arm`).
+    Mine,
 }
 
 /// The behaviour manager's tick (`IBehaviorManager::UpdateBehaviorTick`),
@@ -827,10 +830,13 @@ impl World {
             }
             self.controllers.remove(key);
         }
-        // `~Guided`: `PhySys::DestroyPhantom`.
-        if let super::KindData::Guided(g) = &obj.data
-            && let (Some(phantom), Some(world)) = (g.phantom, self.physics.world_mut(system))
-        {
+        // `~Guided` and `~Mine`: `PhySys::DestroyPhantom`.
+        let phantom = match &obj.data {
+            super::KindData::Guided(g) => g.phantom,
+            super::KindData::Mine(m) => m.phantom,
+            _ => None,
+        };
+        if let (Some(phantom), Some(world)) = (phantom, self.physics.world_mut(system)) {
             world.destroy_phantom(phantom);
         }
         if let (Some(body), Some(world)) = (obj.physical.body, self.physics.world_mut(system)) {

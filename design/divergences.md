@@ -259,6 +259,12 @@ D619 to D621 were proposed; the owner accepted them on 2026-11-21.
 With P3.3's docking (`game-logic::dock`, `game-logic::api::space_obj`,
 `game-sim::object::world::launch`) D622 to D628 were proposed; the owner accepted them on 2026-11-21.
 
+With P3.3's munitions (`game-logic::munitions`) D630 and D631 were
+proposed; the owner accepted them on 2026-11-21. The server's mine and counter-measure wrappers now give mines
+their phantom, seeking and controller and let counter-measures divert
+missiles on a server, the gap D125 left open for P3.3; the bare world
+keeps D125's behaviour.
+
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)
 on 2026-11-19, as `TriMesh`'s editing mode (D358): no shipped model has
@@ -712,6 +718,8 @@ one, and it is ported when a caller needs it.
 | D626 | `game-logic::dock` (P3.3) | `Server_GetLaunchPosition` reads a slot's system with no `SysMap` entry, a base without its object (`No docking rings`) and a `starting_ring` the system lacks through null; `PlayerLaunch` loads an unknown ship archetype through null; `IServerImpl::Dock` queues a ship in transit on its null system | The launch point is the slot's initial position and orientation in each of those cases; a launch with an unknown archetype makes no ship (the player has joined the system and `PlayerLaunch` was sent); the forced landing of a ship in transit does nothing | Undefined behaviour in the reference | A save whose system, base or starting ring the data lacks, or whose ship archetype is unknown |
 | D627 | `game-logic::dock` (P3.3) | `EqObj::process_dock_queue` erases the node it walks after `complete_dock` or `queue_dock`; a `DockComplete` handler that dequeues that request (`pub::SpaceObj::Dock` with a negative port) leaves the walk on a freed node | The walk removes the request at its place, or, when the queue changed meanwhile, the first equal request, and goes on with the next | Undefined behaviour in the reference | Content cancelling a dock from its `DockComplete` handler only |
 | D628 | `game-sim::object::world::step` (P3.3) | `StarSystem_UpdateNearShips` fills a list of at most 2048 objects with the BSP's solars within 10 km of each player's ship, once per player, then the always-updated list (`ListD4`); its de-duplication drops only the first later repeat of each item, so a solar near three players updates twice | The near solars enter the list once whatever the number of players (as before P3.3's docking); the always-updated entries follow with their repeats and the reference's de-duplication (an object queued for three docks updates twice); the list has no cap | Technical decision T10 (the solar BSP is not built, record 0007's replication part) | A solar near two or more players while it hosts docks, or near three players, updates fewer times per sub-step than in the reference |
+| D630 | `game-logic::munitions` (P3.3) | `Mine::arm` makes no phantom only for a radius of exactly 0: a mine archetype with a negative `seek_dist` and a positive `detonation_dist` takes the seek distance as the radius and gets a ball phantom of negative radius through `PhySys::CreatePhantom` (a NaN `seek_dist` one of NaN radius) | A radius that is not positive (or NaN) makes no phantom | Undefined behaviour in the reference (an IVP ball of negative radius) | A mine archetype with a negative `seek_dist`, which no shipped mine has: it never latches a touch |
+| D631 | `game-logic::munitions` (P3.3) | `Mine::destroy` and `CounterMeasure::destroy` call `StarSystem::explode`, whose impulse pass pushes every root in range not owned by a player, the exploding mine or counter-measure included | The impulse pass skips the exploding object, as it does for a guided munition's detonation (`World::explode_caused_hooked` with the object as `skip`) | Technical decision (O43: the explosion is the world's; one skip for both passes) | None: the exploding object is destroyed, its body leaves the collisions at once and is removed before the next physics step |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32

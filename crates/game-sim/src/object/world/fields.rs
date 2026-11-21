@@ -375,6 +375,7 @@ impl World {
             a.armed = Some(MineArm {
                 phantom,
                 intruders: 0,
+                counted: Vec::new(),
                 explosion,
                 explosion_offset: offset,
                 recharge_time: recharge,
@@ -417,6 +418,20 @@ impl World {
         }) else {
             return false;
         };
+        if !ev.entered {
+            // `MedMine::deleted`: a ship's leave uncounts it. The C++ reads
+            // the leaving object's class during its deletion; here the
+            // object may be reaped already, so the key counted at the enter
+            // decides.
+            if let Some(KindData::Asteroid(a)) = self.objects.get_mut(mine).map(|o| &mut o.data)
+                && let Some(arm) = a.armed.as_mut()
+                && let Some(i) = arm.counted.iter().position(|k| *k == ev.user_key)
+            {
+                arm.counted.swap_remove(i);
+                arm.intruders -= 1;
+            }
+            return true;
+        }
         let intruder = ObjHandle::from_key(ev.user_key);
         let root = match self.objects.get(intruder).map(|o| &o.data) {
             Some(KindData::EquipmentObject {
@@ -445,21 +460,18 @@ impl World {
         let Some(arm) = a.armed.as_mut() else {
             return true;
         };
-        if ev.entered {
-            let d = Vector::new(
-                intruder_pos.x - mine_pos.x,
-                intruder_pos.y - mine_pos.y,
-                intruder_pos.z - mine_pos.z,
-            );
-            // `sqrtf` of the float sum, `1.0f / length`, float products.
-            let sum = ((e(d.x) * e(d.x) + e(d.y) * e(d.y)) + e(d.z) * e(d.z)) as f32;
-            let length = sum.sqrt();
-            let inverse = 1.0 / length;
-            arm.direction = Vector::new(inverse * d.x, inverse * d.y, inverse * d.z);
-            arm.intruders += 1;
-        } else {
-            arm.intruders -= 1;
-        }
+        let d = Vector::new(
+            intruder_pos.x - mine_pos.x,
+            intruder_pos.y - mine_pos.y,
+            intruder_pos.z - mine_pos.z,
+        );
+        // `sqrtf` of the float sum, `1.0f / length`, float products.
+        let sum = ((e(d.x) * e(d.x) + e(d.y) * e(d.y)) + e(d.z) * e(d.z)) as f32;
+        let length = sum.sqrt();
+        let inverse = 1.0 / length;
+        arm.direction = Vector::new(inverse * d.x, inverse * d.y, inverse * d.z);
+        arm.intruders += 1;
+        arm.counted.push(ev.user_key);
         true
     }
 

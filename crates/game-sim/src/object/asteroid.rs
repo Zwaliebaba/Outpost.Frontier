@@ -40,6 +40,10 @@ pub struct MineArm {
     pub phantom: PhantomHandle,
     /// +0x68 the ships in the phantom.
     pub intruders: i32,
+    /// The physics keys of the bodies `added` counted, so that `deleted`
+    /// uncounts one whose object the world has already reaped (the C++
+    /// reads the class of an object that is still being deleted).
+    pub counted: Vec<u64>,
     /// +0x78 the explosion archetype.
     pub explosion: u32,
     /// +0x84 the explosion's offset along the direction.

@@ -4,7 +4,9 @@
 //! `seek`), the fuse's phantom (`arm`, `added`), the hit
 //! (`on_collision`) and the detonation (`destroy` through
 //! `StarSystem::explode`). Moved into Phase 2 from P3.3 (owner,
-//! 2026-11-18); mines and counter-measures stay plain bodies (D125).
+//! 2026-11-18). Mines and counter-measures are plain bodies without a
+//! server (D125); the server's wrappers (`game-logic::munitions`) arm a
+//! mine through `world::mine`. `set_target` is the server's.
 
 use neuron_core::math::{Matrix, Vector, transform_matrix};
 
@@ -305,8 +307,9 @@ impl World {
     /// mine's phantom go to the mine ([`World::mine_phantom_event`]); an
     /// object entering a missile's fuse (`Guided::added`) latches the
     /// trigger with the id of its root (0 without one), unless it is the
-    /// missile's owner while the owner-safe time runs.
-    pub(crate) fn phantom_events(&mut self, system: u32) {
+    /// missile's owner while the owner-safe time runs; the others go to the
+    /// server ([`ServerHooks::phantom_event`]).
+    pub(crate) fn phantom_events(&mut self, system: u32, hooks: &mut dyn ServerHooks) {
         let events = match self.physics.world_mut(system) {
             Some(w) => w.take_phantom_events(),
             None => return,
@@ -320,17 +323,18 @@ impl World {
             if self.mine_phantom_event(system, &ev) {
                 continue;
             }
-            if !ev.entered {
-                continue;
-            }
             let Some(&missile) = missiles.iter().find(|m| {
                 matches!(
                     self.objects.get(**m).map(|o| &o.data),
                     Some(KindData::Guided(g)) if g.phantom == Some(ev.phantom)
                 )
             }) else {
+                hooks.phantom_event(self, system, &ev);
                 continue;
             };
+            if !ev.entered {
+                continue;
+            }
             let intruder = ObjHandle::from_key(ev.user_key);
             let root = match self.objects.get(intruder).map(|o| &o.data) {
                 Some(KindData::EquipmentObject {

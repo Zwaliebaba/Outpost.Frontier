@@ -221,6 +221,14 @@ pub struct MineData {
     pub acceleration: f32,
     /// `top_speed`.
     pub top_speed: f32,
+    /// The server's `Mine` wrapper +0x74: its phantom (`arm`), destroyed
+    /// with the mine.
+    pub phantom: Option<PhantomHandle>,
+    /// +0x80: the mine seeks (`bSeeking`); the mine's controller pushes it
+    /// towards [`MineData::seek_target`] only then.
+    pub seeking: bool,
+    /// +0x84: the point it seeks (`Target`), the closest intruder's.
+    pub seek_target: Vector,
 }
 
 /// `CCounterMeasure` with its archetype values.

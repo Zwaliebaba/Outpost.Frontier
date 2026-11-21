@@ -13,6 +13,7 @@ pub mod fuses;
 pub mod group;
 pub mod login;
 pub mod loot;
+pub mod munitions;
 pub mod objects;
 pub mod player;
 pub mod save_writer;

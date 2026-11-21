@@ -214,6 +214,7 @@ impl World {
                     orientation: shot.orient,
                     velocity: shot.velocity,
                     target: shot.lock,
+                    angular_velocity: Vector::ZERO,
                 };
                 let made = if m.seeker != 0 {
                     self.create_guided(system, &spawn)
@@ -443,6 +444,9 @@ impl World {
         });
         let _ = sub;
         // `StarSystem::collision_damage`.
+        if hooks.pvp_blocked(self, id, other) {
+            return;
+        }
         let Some(target) = self.objects.get(other) else {
             return;
         };
@@ -495,6 +499,9 @@ impl World {
         point: Vector,
         hooks: &mut dyn ServerHooks,
     ) {
+        if hooks.pvp_blocked(self, shooter, target) {
+            return;
+        }
         let Some(t) = self.objects.get(target) else {
             return;
         };
@@ -950,6 +957,9 @@ impl World {
             .and_then(|i| self.objects.get(i))
             .map_or(0, |o| o.simple.owner_player);
         for h in candidates {
+            if hooks.pvp_blocked(self, inflictor, h) {
+                continue;
+            }
             let hull = self.body_sphere(h);
             let reach = f64::from(blast.radius) + f64::from(hull.0);
             let d = [
