@@ -104,6 +104,28 @@ pub fn build_solar_tree(cx: &mut Cx<'_>, system: u32) {
         .insert(system, SolarTree { tree, solars });
 }
 
+/// `StarSystem::create_solar`'s single `Add` to the spatial partition: the
+/// solar `{solar, position, radius}` joins the system's tree (none for a
+/// system without one).
+pub fn add_to_solar_tree(cx: &mut Cx<'_>, system: u32, h: ObjHandle) {
+    let Some((position, radius)) = cx
+        .world
+        .get(h)
+        .map(|o| (o.engine.position, o.engine.radius))
+    else {
+        return;
+    };
+    let Some(tree) = cx.logic.solar_trees.trees.get_mut(&system) else {
+        return;
+    };
+    tree.solars.push(h);
+    tree.tree.add(SpatialEntry {
+        object: u32::try_from(tree.solars.len()).unwrap_or(u32::MAX),
+        position,
+        radius,
+    });
+}
+
 /// `LoadSystem`: the system loads (`StarSystem::add_player(0)`, which
 /// loads it and stops at the session id 0).
 ///

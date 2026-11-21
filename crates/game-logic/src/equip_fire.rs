@@ -617,6 +617,74 @@ pub fn set_thrusters_active(
     0
 }
 
+/// `Ship::slot_50(bEngage, bArg2, SourceClient)`, the cruise request:
+/// -3 for an object that is not a ship (`GameObject::slot_50`); -5
+/// outside a system or destroyed; a source of -1 is 0. Unless a client's
+/// request in single player (which is only relayed): when the first
+/// engine's cruise is not as asked, the server's own request to engage
+/// first switches the thrusters off (`slot_54(false, 0)`) and the engine
+/// engages or leaves cruise (`CEEngine::EngageCruise(bEngage, bArg2)`);
+/// the server's own request that changed nothing answers 0 at once. Then
+/// the observers hear of it (`notify_cruise`,
+/// [`crate::replication::cruise_changed`]). A ship without an engine,
+/// which the C++ reads through null, changes nothing (D708).
+pub fn engage_cruise(
+    cx: &mut Cx<'_>,
+    h: ObjHandle,
+    engage: bool,
+    arg2: bool,
+    source_client: i32,
+) -> i32 {
+    if cx
+        .world
+        .get(h)
+        .is_none_or(|o| o.kind != game_sim::object::ObjectKind::Ship || o.equipped.is_none())
+    {
+        return -3;
+    }
+    let Some(system) = owner_system(cx, h) else {
+        return -5;
+    };
+    if is_destroyed(cx, h) {
+        return -5;
+    }
+    let source = if source_client == -1 {
+        0
+    } else {
+        source_client
+    };
+    if !(cx.world.config().single_player && source != 0) {
+        let cruising = cx
+            .world
+            .get(h)
+            .and_then(|o| o.equipped.as_deref())
+            .and_then(|eq| eq.equipment.first(types::ENGINE))
+            .map(|e| matches!(&e.kind, EquipKind::Engine(s) if s.cruise_active));
+        let mut changed = false;
+        if let Some(cruising) = cruising
+            && cruising != engage
+        {
+            changed = true;
+            if engage && source == 0 {
+                set_thrusters_active(cx, h, false, 0);
+            }
+            cx.world.command(
+                h,
+                Command::EngageCruise {
+                    engage,
+                    instant: arg2,
+                },
+            );
+        }
+        if source == 0 && !changed {
+            return 0;
+        }
+    }
+    let id = cx.world.get(h).map_or(0, |o| o.simple.id);
+    crate::replication::cruise_changed(cx, system, id, engage, arg2, source);
+    0
+}
+
 /// `EqObj::slot_4c(&EquipId, bActivate, SourceClient)`: -5 outside a
 /// system or destroyed; a source of -1 is 0. Unless a client's request in
 /// single player: a missing or destroyed item is -2; switching an engine

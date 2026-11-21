@@ -2341,6 +2341,43 @@ pub fn equip_activated(
     }
 }
 
+/// `StarSystem::activate_object`'s notice of a docking point that changed:
+/// `ACTIVATEOBJECT` (the object, the flag, the point) to every player of
+/// the system for a solar, else to those who can see the object.
+pub fn object_activated(cx: &mut Cx<'_>, system: u32, h: ObjHandle, on: bool, index: u32) {
+    let Some((id, solar)) = cx
+        .world
+        .get(h)
+        .map(|o| (o.simple.id, o.is(game_sim::object::class::SOLAR)))
+    else {
+        return;
+    };
+    let players: Vec<u32> = cx
+        .logic
+        .server_world
+        .systems
+        .get(&system)
+        .map(|s| {
+            s.observers
+                .iter()
+                .filter(|v| solar || is_object_visible(cx.world, cx.logic, v, Some(h)))
+                .map(|v| v.player)
+                .collect()
+        })
+        .unwrap_or_default();
+    for player in players {
+        send_server(
+            cx.logic,
+            player,
+            ActivateObject {
+                object_id: id,
+                activate: u8::from(on),
+                field_08: index,
+            },
+        );
+    }
+}
+
 /// `StarSystem::notify_cruise` (`Ship::slot_50`): `ACTIVATECRUISE` with
 /// the engage byte and the second byte to every player but the source
 /// that can see the ship.

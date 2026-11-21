@@ -3,10 +3,10 @@
 //! Outputs are return values; a C++ result code is a [`PubError`].
 //!
 //! `pub::Market` lives in [`crate::bases`]. `pub::Reputation`, `Zone`,
-//! `System`, `Phantom`, `Controller`, `Audio` and `Player` are here in
-//! full, with the top-level getters ([`misc`]; `pub::Save` is open);
-//! `pub::AI` and the rest of `pub::SpaceObj` arrive with the parts that
-//! own their state.
+//! `System`, `Phantom`, `Controller`, `Audio`, `Player` and `SpaceObj`
+//! are here in full (`SpaceObj::Launch` without the launch action), with
+//! the top-level getters ([`misc`]; `pub::Save` is open); `pub::AI`
+//! arrives with the part that owns its state.
 
 pub mod audio;
 pub mod controller;

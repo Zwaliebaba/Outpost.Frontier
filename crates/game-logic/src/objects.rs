@@ -600,12 +600,33 @@ pub fn create_loot_mode(
     mode: u32,
     spawns: &[game_sim::object::world::LootSpawn],
 ) -> Vec<ObjHandle> {
+    create_loot_marked(cx, system, source, mode, spawns, &[])
+}
+
+/// [`create_loot_mode`] with each record's player to mark the container
+/// for (`FLootRecord::Field_0x18`, by index; a missing one is 0): a
+/// player whose low 30 bits are not 0 marks it (`mark_for_player(_, 1)`)
+/// before `LootSpawned`.
+pub fn create_loot_marked(
+    cx: &mut Cx<'_>,
+    system: u32,
+    source: u32,
+    mode: u32,
+    spawns: &[game_sim::object::world::LootSpawn],
+    marks: &[u32],
+) -> Vec<ObjHandle> {
     let mut made = Vec::new();
-    for spawn in spawns {
+    for (index, spawn) in spawns.iter().enumerate() {
         let Ok(h) = cx.world.spawn_loot(system, spawn) else {
             continue;
         };
-        let _ = cx.logic.objects.entry(cx.world, h);
+        let entry = cx.logic.objects.entry(cx.world, h);
+        let mark = marks.get(index).copied().unwrap_or(0);
+        if mark & 0x3fff_ffff != 0
+            && let Some(entry) = entry
+        {
+            entry.mark_for_player(mark, 1);
+        }
         let loot = cx.world.get(h).map_or(0, |o| o.simple.id);
         let good = cx.world.data().goods.arch_to_good(spawn.contents);
         let _ = cx.dispatch(
