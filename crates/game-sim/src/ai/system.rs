@@ -307,6 +307,28 @@ impl SystemManager {
             .update_attack_target_override(&mut env, &mut self.targets, &mut self.events);
     }
 
+    /// `Targeting.GetScanResponse(Type)` (`IBehaviorManager::
+    /// get_scan_response`): drops the AI target list and compares the
+    /// hostile power ratio with the personality's threshold.
+    pub fn scan_response<W: AiWorld + ?Sized>(
+        &mut self,
+        world: &mut W,
+        ship: W::Handle,
+        p: &Personality,
+        content_callback: bool,
+        directive: [i32; 3],
+    ) -> i32 {
+        let mut env = TargetEnv {
+            world,
+            ship,
+            personality: p,
+            content_callback,
+            directive,
+            leader: None,
+        };
+        TargetManager::scan_response(&mut env, &mut self.targets)
+    }
+
     /// `GunGroups.RunFireControlTick(target)`.
     pub fn run_fire_control_tick<W: AiWorld + AiRand + SpatialQueries + ?Sized>(
         &mut self,

@@ -105,6 +105,13 @@ pub fn op_dword(op: &DirectiveOp, offset: usize) -> u32 {
         (DirectiveOp::Follow(f), 0x18) => bits(f.offset.y),
         (DirectiveOp::Follow(f), 0x1c) => bits(f.offset.z),
         (DirectiveOp::Follow(f), 0x20) => bits(f.range),
+        (DirectiveOp::Trail(t), 0x0c) => t.target,
+        (DirectiveOp::Trail(t), 0x10) => bits(t.distance),
+        (DirectiveOp::Trail(t), 0x14) => bits(t.field_14),
+        (DirectiveOp::Trail(t), 0x18) => bits(t.field_18),
+        (DirectiveOp::TractorBeam(t), 0x0c) => t.target,
+        (DirectiveOp::TractorBeam(t), 0x10) => u32::from(t.field_10),
+        (DirectiveOp::Evade(threat), 0x0c) => *threat,
         _ => 0,
     }
 }

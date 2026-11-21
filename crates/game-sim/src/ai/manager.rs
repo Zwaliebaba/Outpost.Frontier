@@ -152,6 +152,10 @@ pub struct ManagerState {
     /// The directive results the callbacks would receive (`f11c`,
     /// `f118`), in order; the owner drains them.
     pub completed: Vec<(i32, i32)>,
+    /// +0xfc the five directive callbacks (`set_directive_callback`), as
+    /// the owner's handles of them (0 an empty slot); the results go to
+    /// [`ManagerState::completed`] (D194).
+    pub directive_callbacks: [u32; 5],
     /// Notifications for other objects' managers; the owner drains them.
     pub outbox: Vec<NotificationOut>,
     /// The formation leader's notifications a behaviour asked for
@@ -216,6 +220,7 @@ impl ManagerState {
             personality: Personality::default(),
             sys: SystemManager::default(),
             completed: Vec::new(),
+            directive_callbacks: [0; 5],
             outbox: Vec::new(),
             leader_notes: Vec::new(),
             stand_in_polls: 0,
@@ -599,6 +604,44 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
         if let Some(t) = creation_type {
             self.state.creation_type = t;
         }
+    }
+
+    /// `set_directive_callback(Callback)`: into the first slot that is
+    /// empty or holds it; dropped when all five hold others.
+    pub fn set_directive_callback(&mut self, callback: u32) {
+        if let Some(slot) = self
+            .state
+            .directive_callbacks
+            .iter_mut()
+            .find(|s| **s == 0 || **s == callback)
+        {
+            *slot = callback;
+        }
+    }
+
+    /// `clear_directive_callback(Callback)`: every slot that holds it is
+    /// emptied.
+    pub fn clear_directive_callback(&mut self, callback: u32) {
+        for slot in &mut self.state.directive_callbacks {
+            if *slot == callback {
+                *slot = 0;
+            }
+        }
+    }
+
+    /// `get_scan_response(Type)`: the target manager's answer
+    /// (`TargetManager::GetScanResponse`): 1 when the hostile power around
+    /// the ship is below its personality's loot-flee threshold, else 0.
+    /// The type only feeds the reference's unused `FindById`.
+    pub fn scan_response(&mut self, world: &mut W, ship: W::Handle) -> i32 {
+        let st = &mut self.state;
+        st.sys.scan_response(
+            world,
+            ship,
+            &st.personality,
+            st.content_callback,
+            st.directive,
+        )
     }
 
     /// `enable_maneuver`: bit `maneuver + 1` (mod 32); -1 refused.
