@@ -182,6 +182,7 @@ pub fn load(cx: &mut Cx<'_>, system: u32) {
         let _ = cx.logic.objects.entry(cx.world, h);
         crate::fuses::check_fuses(cx, h);
     }
+    crate::api::system::build_solar_tree(cx, system);
     if let Some(s) = system_mut(cx, system) {
         s.loaded = true;
     }
@@ -304,6 +305,7 @@ fn unload(cx: &mut Cx<'_>, system: u32) {
     if let Some(s) = system_mut(cx, system) {
         s.observers.clear();
     }
+    cx.logic.solar_trees.remove(system);
     cx.world.unload_system(system);
 }
 
@@ -623,10 +625,12 @@ pub fn step_systems(cx: &mut Cx<'_>, dt: f32) {
 /// `Server_PhysicsUpdate`: [`step_systems`], then each ship of the
 /// dying-ship list that still exists is announced (`Msg0x25` with its
 /// system, id and death-sequence object, which the update zeroed when it
-/// queued the ship), and the list is emptied. The phantoms' events
-/// between them come with `pub::Phantom`.
+/// queued the ship), and the list is emptied. The server phantoms' events
+/// go to the controllers between them
+/// ([`crate::api::phantom::pump_events`]).
 pub fn physics_update(cx: &mut Cx<'_>, dt: f32) {
     step_systems(cx, dt);
+    crate::api::phantom::pump_events(cx);
     let dying = std::mem::take(&mut cx.logic.server_world.dying_ships);
     for h in dying {
         let Some(o) = cx.world.get(h) else {

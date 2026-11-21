@@ -40,6 +40,7 @@ mod guided;
 mod launch;
 mod loot_drop;
 mod mine;
+mod phantom;
 pub use guided::GuidedTrace;
 mod sensors;
 mod solar_read;
