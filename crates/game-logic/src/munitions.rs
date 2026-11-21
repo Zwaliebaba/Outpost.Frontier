@@ -299,6 +299,9 @@ pub fn phantom_event(cx: &mut Cx<'_>, system: u32, event: &PhantomEvent) {
             Some(KindData::Mine(d)) if d.phantom == Some(event.phantom)
         )
     }) else {
+        // No mine's: one of `pub::Phantom`'s (`ServerPhantom::added`,
+        // `deleted`), if any.
+        crate::api::phantom::phantom_event(cx, system, event);
         return;
     };
     let Some(KindData::Mine(m)) = cx.world.get(mine).map(|o| &o.data) else {

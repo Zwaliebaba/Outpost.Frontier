@@ -209,6 +209,10 @@ pub struct Logic {
     pub rtc_slider: f32,
     /// The ships `pub::SpaceObj::Create` made and their controllers.
     pub space_obj: crate::api::space_obj::SpaceObjState,
+    /// The server's phantoms and the pump's latch (`pub::Phantom`).
+    pub phantoms: crate::api::phantom::Phantoms,
+    /// The loaded systems' solar BSPs (`StarSystem::Spatial`).
+    pub solar_trees: crate::api::system::SolarTrees,
 }
 
 /// The 4096-bit map of player vibe ids (`g_VibeBitmap`, `g_VibeBitmapHint`,
@@ -300,6 +304,8 @@ impl Logic {
             objects: crate::objects::ServerObjects::default(),
             fuses: None,
             space_obj: crate::api::space_obj::SpaceObjState::default(),
+            phantoms: crate::api::phantom::Phantoms::default(),
+            solar_trees: crate::api::system::SolarTrees::default(),
         }
     }
 }
