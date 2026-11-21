@@ -260,7 +260,7 @@ With P3.3's docking (`game-logic::dock`, `game-logic::api::space_obj`,
 `game-sim::object::world::launch`) D622 to D628 were proposed; the owner accepted them on 2026-11-21.
 
 With P3.3's munitions (`game-logic::munitions`) D630 and D631 were
-proposed. The server's mine and counter-measure wrappers now give mines
+proposed; the owner accepted them on 2026-11-21. The server's mine and counter-measure wrappers now give mines
 their phantom, seeking and controller and let counter-measures divert
 missiles on a server, the gap D125 left open for P3.3; the bare world
 keeps D125's behaviour.
