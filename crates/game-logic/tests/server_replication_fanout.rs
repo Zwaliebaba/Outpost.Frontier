@@ -1147,3 +1147,93 @@ fn single_player_tells_every_observer_and_runs_no_remote_correction() {
     replication::client_object_update(&mut cx, &update, 1);
     assert!(sink.take().is_empty());
 }
+
+/// Part 12's notices through part 13's fan-outs: a server shot of `a`'s gun
+/// (`EqObj::slot_34`, source 0) sends `FIREWEAPON` to the players whose
+/// client has `a` (1 and 3); a jettison from a fighter that players 1 and
+/// 2 have sends `JETTISONCARGO` to them (`Ship::slot_38`).
+#[test]
+fn a_server_shot_and_a_jettison_reach_the_creators() {
+    use game_logic::{cargo, equip_fire, ship};
+    use game_sim::data::equip_desc::EquipDesc;
+    use game_sim::equip::{EquipKind, types};
+
+    let sink = Shared::default();
+    let Some((mut world, mut logic)) = setup("fire and jettison notices", false, &sink) else {
+        return;
+    };
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    let Scene { a, .. } = scene(&mut cx);
+    ship::rebuild_server_equip(&mut cx, a);
+    let gun = {
+        let eq = cx.world.get(a).and_then(|o| o.equipped.as_deref()).unwrap();
+        eq.equipment
+            .traverse(types::GUN, false)
+            .into_iter()
+            .filter_map(|s| eq.equipment.get(s))
+            .find(|e| {
+                cx.world
+                    .launcher_projectile(a, e.id)
+                    .is_some_and(|p| p.seeker == 0)
+            })
+            .map(|e| e.id)
+            .expect("an unguided gun")
+    };
+    if let Some(EquipKind::Gun(g)) = cx
+        .world
+        .get_mut(a)
+        .and_then(|o| o.equipped.as_deref_mut())
+        .and_then(|eq| eq.equipment.by_id_mut(gun))
+        .map(|e| &mut e.kind)
+    {
+        g.launcher.refire_elapsed = 100.0;
+    }
+    let at = cx.world.get(a).unwrap().engine.position;
+    let aim = Vector::new(at.x, at.y, at.z - 1000.0);
+    sink.take();
+    assert_eq!(
+        equip_fire::fire_weapons(&mut cx, a, &[gun], Some(aim), 0),
+        0
+    );
+    let fired = common(&sink.take(), |m| match m {
+        CommonMessage::FireWeapon(f) => Some(f.clone()),
+        _ => None,
+    });
+    assert_eq!(recipients(&fired), vec![1, 3], "the clients that have `a`");
+    let a_id = id(&cx, a);
+    for (_, f) in &fired {
+        assert_eq!(f.object_id, a_id);
+        assert_eq!(f.hardpoints, vec![gun]);
+    }
+
+    // A fighter with three units of food that players 1 and 2 have.
+    let mut spawn = ShipSpawn::new(
+        create_id(b"he_fighter"),
+        create_id(b"li_p_he_fighter_loadout01"),
+        Vector::new(16000.0, 3000.0, -25000.0),
+        Matrix::IDENTITY,
+    );
+    let mut desc = EquipDesc::new(cx.world.strings());
+    desc.id = 0x400;
+    desc.arch_id = create_id(b"commodity_luxury_food");
+    desc.count = 3;
+    spawn.equipment.push(desc);
+    let hauler = cx.world.spawn_ship(he01(), &spawn).expect("spawns");
+    ship::rebuild_server_equip(&mut cx, hauler);
+    track(&mut cx, he01(), 1, hauler);
+    track(&mut cx, he01(), 2, hauler);
+    sink.take();
+    assert_eq!(cargo::jettison(&mut cx, hauler, 0x400, 2, 0), 0);
+    let dropped = common(&sink.take(), |m| match m {
+        CommonMessage::JettisonCargo(j) => Some(j.clone()),
+        _ => None,
+    });
+    assert_eq!(recipients(&dropped), vec![1, 2], "the clients that have it");
+    let hauler_id = id(&cx, hauler);
+    for (_, j) in &dropped {
+        assert_eq!((j.object_id, j.item_id, j.count), (hauler_id, 0x400, 2));
+    }
+}

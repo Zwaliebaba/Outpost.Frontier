@@ -427,8 +427,8 @@ pub fn decay_cargo(cx: &mut Cx<'_>, h: ObjHandle, elapsed: f32) {
 }
 
 /// `StarSystem::notify_jettison(Obj, EquipId, Count)`
-/// (`Server/server_classes.cpp:10118`): the observers' jettison notice,
-/// replication's.
+/// (`Server/server_classes.cpp:10118`): the owner's record and the
+/// observers' `JETTISONCARGO`, through replication's fan-out.
 fn notify_jettison(cx: &mut Cx<'_>, system: u32, ship: ObjHandle, equip: SubObjId, count: i32) {
-    let _ = (cx, system, ship, equip, count);
+    crate::replication::cargo_jettisoned(cx, system, ship, equip, count);
 }
