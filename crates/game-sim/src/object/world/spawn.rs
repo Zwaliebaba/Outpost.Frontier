@@ -174,6 +174,12 @@ pub struct SolarSpawn {
     pub continual_anims: Vec<Vec<u8>>,
     /// The reputation record (`VibeId`): the nickname id once verified.
     pub vibe: i32,
+    /// The hit points (`CSimple::init`): -1 for the archetype's, a
+    /// negative value 0.5, more than the archetype's the archetype's.
+    pub hit_pts: f32,
+    /// `bDynamic`: made at run time (`StarSystem::create_solar`), not read
+    /// from the system file.
+    pub dynamic: bool,
 }
 
 impl Default for SolarSpawn {
@@ -201,6 +207,8 @@ impl Default for SolarSpawn {
             costume: crate::data::costume::Costume::default(),
             continual_anims: Vec::new(),
             vibe: 0,
+            hit_pts: -1.0,
+            dynamic: false,
         }
     }
 }
@@ -1500,6 +1508,7 @@ impl World {
         solar.visit_value = s.visit;
         solar.parent_nickname = s.parent;
         solar.continual_anims.clone_from(&s.continual_anims);
+        solar.dynamic = s.dynamic;
         let mut obj = self.base_object(
             ObjectKind::Solar,
             &arch.eq_obj.root,
@@ -1510,7 +1519,7 @@ impl World {
             system,
             s.nickname,
             0,
-            -1.0,
+            s.hit_pts,
             s.position,
             s.orientation,
         );

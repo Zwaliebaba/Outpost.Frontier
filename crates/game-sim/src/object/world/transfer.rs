@@ -239,6 +239,18 @@ impl World {
         self.transit_parms(h).is_some()
     }
 
+    /// `Server_DestroyInTransit`'s `delete`: an object in transit leaves
+    /// the arena and the id map at once (it is in no system's lists and
+    /// has no body). False, with nothing changed, for an object that is
+    /// not in transit.
+    pub fn delete_in_transit(&mut self, h: ObjHandle) -> bool {
+        if !self.in_transit(h) {
+            return false;
+        }
+        self.remove_object(h);
+        true
+    }
+
     /// `StarSystem::add_ship`'s object part and `GameObject::enter_system`
     /// with the saved parameters: the object at `position` and
     /// `orientation` in `system` (which must be loaded), its instance tree

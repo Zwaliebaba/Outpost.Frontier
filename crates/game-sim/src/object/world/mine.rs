@@ -150,6 +150,16 @@ impl World {
             world.wakeup(body);
         }
     }
+
+    /// `PhySys::AddImpulseAtPoint`: an impulse at a world point on the
+    /// object's body; nothing for an object without one.
+    pub fn add_impulse_at_point(&mut self, h: ObjHandle, impulse: Vector, point: Vector) {
+        if let Some((system, body)) = self.body(h)
+            && let Some(world) = self.physics.world_mut(system)
+        {
+            world.add_impulse_at_point(body, impulse, point);
+        }
+    }
 }
 
 #[cfg(test)]
