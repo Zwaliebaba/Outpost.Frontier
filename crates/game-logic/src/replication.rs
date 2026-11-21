@@ -33,11 +33,31 @@
 //!   `rpc_containers.cpp`).
 //! - **Destroys** ([`object_destroyed`]) and the damage fan-out
 //!   ([`damage_object`]), whose deferred half the fifth phase retries.
+//! - **Per-object fan-outs**, each to the players of the system who can
+//!   see the object (for a tracked one: whose client has it), the asking
+//!   client left out where the C++ leaves it out: an item switched
+//!   ([`equip_activated`]), cruise ([`cruise_changed`]), thrusters
+//!   ([`thrusters_changed`]), a target ([`target_changed`]), a volley
+//!   ([`weapon_fired`]), a jettison ([`cargo_jettisoned`]), a fuse
+//!   ([`fuse_burnt`]), a comm ([`send_comm`]), the trade lanes
+//!   ([`go_tradelane`], [`stop_tradelane`]), a ship's group
+//!   ([`group_changed`]) and another ship's cargo
+//!   ([`remote_cargo_update`]).
+//! - **Leaving and landing**: a ship that docks leaves every observer
+//!   ([`ship_left_for_dock`]; the player's own ship sets the latch), a
+//!   ship that lands lands on the clients that had it and on its owner's
+//!   ([`ship_landed`]).
+//! - **A client's own object updates** ([`client_object_update`]): the
+//!   position bound, the sample to the ship's remote correction and the
+//!   record to the other clients. A player's ship is under remote
+//!   correction while it is in a system on a multiplayer server
+//!   ([`begin_remote_control`], [`end_remote_control`]).
+//! - **The changed affiliations** after each system's observers
+//!   ([`send_changed_affiliations`]).
 //!
-//! The per-object fan-outs beyond these (equipment, cruise, thrusters,
-//! target, fire, fuses, comm, trade lanes, group changes, cargo, the
-//! object updates a player's client sends, leaving the system) are left
-//! to later increments.
+//! The callers of the fire, launch, jettison, cruise, thruster,
+//! ship-target, comm, trade-lane and cargo notifiers are not ported yet;
+//! the notifiers are, for those callers to use.
 //!
 //! [`ClientSink::link_saturation`]: crate::server::ClientSink::link_saturation
 
@@ -49,8 +69,11 @@ use game_sim::equip::{EquipKind, Fate, SUBOBJ_ID_NONE, SUBOBJ_ID_ROOT, SubObjId,
 use game_sim::object::damage::{DamageCause, DamageList};
 use game_sim::object::{KindData, ObjHandle, ObjectKind, World, class};
 use game_sim::protocol::ToClient;
-use game_sim::protocol::common::{SetTarget, UpdateObject};
-use game_sim::protocol::costume::CreateCostume;
+use game_sim::protocol::common::{
+    ActivateCruise, ActivateEquip, ActivateThrusters, FireComponent, FireWeapon, GoTradeLane,
+    JettisonCargo, SetTarget, StopTradeLane, UpdateObject,
+};
+use game_sim::protocol::costume::{Costume as WireCostume, CreateCostume};
 use game_sim::protocol::fmtstr::FmtStr;
 use game_sim::protocol::quantise_orientation;
 use game_sim::protocol::records::{
@@ -58,15 +81,21 @@ use game_sim::protocol::records::{
     DamageEntry as WireDamageEntry, DamageList as WireDamageList,
 };
 use game_sim::protocol::to_client::{
-    ActivateObject, CreateCounter, CreateGuided, CreateLoot, CreateMine, CreateShip,
-    CreateShipOwner, CreateSolar, DamageObject, DestroyObject, LootRecord, SetReputation,
+    ActivateObject, BurnFuse, CreateCounter, CreateGuided, CreateLoot, CreateMine, CreateShip,
+    CreateShipOwner, CreateSolar, DamageObject, DestroyObject, Land, LootRecord, SendComm,
+    SetReputation, SystemSwitchOut,
 };
 use neuron_core::id::sub_object::{is_arch_group_id, is_equip_id};
 use neuron_core::math::{Matrix, Quaternion, Vector, matrix_to_quaternion};
-use neuron_core::net::wire::quantise::{quantise_fraction, quantise_hull, quantise_unit};
+use neuron_core::net::wire::quantise::{
+    quantise_fraction, quantise_hull, quantise_tenths, quantise_unit,
+};
 use neuron_core::num::trunc_to_i32;
 use neuron_core::physics::RemotePhysicsSimulation;
 
+use neuron_server::controller::ControllerId;
+
+use crate::events::ControllerMessage;
 use crate::server::{Cx, Logic};
 
 /// The link saturation at which a phase stops (`.rdata` double 0.9).
@@ -87,6 +116,11 @@ pub const TRADELANE_RING: u32 = 0x80;
 pub const CAUSE_DAMAGE_STATE: DamageCause = 0x19;
 /// `CREATELOOT`'s kind byte when the per-frame pass creates one container.
 pub const LOOT_KIND_OBSERVED: u32 = 5;
+/// 750 000²: the squared distance from the origin past which a client's
+/// update of its ship destroys it (`PlayerData_CheckPositionBound`).
+pub const POSITION_BOUND_SQ: f64 = 562_500_000_000.0;
+/// 10 000²: a broadcast comm's reach (`StarSystem::send_comm`, a float).
+pub const COMM_RADIUS_SQ: f32 = 1.0e8;
 
 const OBSERVER_CPP: &str = "Server\\space\\Observer.cpp";
 
@@ -1755,6 +1789,831 @@ fn mirror_damage(cx: &mut Cx<'_>, h: ObjHandle, session: u32, damage: &DamageLis
             crate::player::set_relative_health(cx, session, health, false);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// The client's own object updates (`IServerImpl::SPObjUpdate`,
+// `StarSystem::sp_obj_update`, `SystemPlayerView_SendObjectUpdate`).
+
+/// A client's update of its own object (`SSPObjUpdateInfo`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ObjectUpdate {
+    /// `ObjectId`.
+    pub object_id: u32,
+    /// `Orientation`.
+    pub orientation: Quaternion,
+    /// `Position`.
+    pub position: Vector,
+    /// `Timestamp`, the client's clock.
+    pub timestamp: f64,
+    /// `Field_0x28`, which the record carries bit for bit as its float
+    /// `Field_0x24` (the value `UPDATEOBJECT` quantises).
+    pub field_28: u32,
+    /// `Field_0x2c`, the record's byte.
+    pub field_2c: u8,
+}
+
+/// The record an object update fans out as (`FCommonUpdateObjectInfo`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UpdateObjectInfo {
+    /// `ObjectId`.
+    pub object_id: u32,
+    /// `Orientation`.
+    pub orientation: Quaternion,
+    /// `Position`.
+    pub position: Vector,
+    /// `Field_0x20`, the time as a float.
+    pub time: f32,
+    /// `Field_0x24`.
+    pub field_24: f32,
+    /// `Field_0x28`.
+    pub field_28: u8,
+}
+
+/// `UPDATEOBJECT` of a record, as rpclocal marshals it: the byte first,
+/// the orientation quantised, `Field_0x24` × 127.
+#[must_use]
+pub fn update_object_packet(info: &UpdateObjectInfo) -> UpdateObject {
+    UpdateObject {
+        flags: info.field_28,
+        object_id: info.object_id,
+        position: xyz(info.position),
+        orientation: quantise_orientation(wxyz(info.orientation)),
+        extra: quantise_unit(info.field_24),
+        update_time: info.time,
+    }
+}
+
+/// `SystemPlayerView_SendObjectUpdate`: nothing in single player;
+/// otherwise the first record of the object's id gets the update on the
+/// client when the client has it, and its simulation the sample (the time
+/// widened from the record's float) either way. An untracked object is
+/// left alone.
+pub fn send_object_update(cx: &mut Cx<'_>, system: u32, index: usize, info: &UpdateObjectInfo) {
+    if single_player(cx.world) {
+        return;
+    }
+    let Some(view) = observer(cx, system, index) else {
+        return;
+    };
+    let player = view.player;
+    let Some(at) = view.position_of_id(info.object_id) else {
+        return;
+    };
+    if view.tracked[at].created_on_client {
+        send_common(cx.logic, player, update_object_packet(info));
+    }
+    if let Some(record) = observer_mut(cx, system, index).and_then(|v| v.tracked.get_mut(at)) {
+        record
+            .simulation
+            .remote_update(info.position, info.orientation, f64::from(info.time));
+    }
+}
+
+/// `StarSystem::sp_obj_update`: the system's ship with the update's id
+/// (none: nothing) takes the sample under its remote correction
+/// (`PhySys::RCSet`), then every player of the system but the sender
+/// gets the record ([`send_object_update`]): the time stored as a float,
+/// `Field_0x28` as the float's bits, the byte.
+pub fn sp_obj_update(cx: &mut Cx<'_>, system: u32, info: &ObjectUpdate, session: u32) {
+    let Some(h) = cx.world.find(info.object_id).filter(|&h| {
+        cx.world
+            .get(h)
+            .is_some_and(|o| o.kind == ObjectKind::Ship && o.physical.system == system)
+    }) else {
+        return;
+    };
+    cx.world
+        .rc_set(h, info.position, info.orientation, info.timestamp);
+    let record = UpdateObjectInfo {
+        object_id: info.object_id,
+        orientation: info.orientation,
+        position: info.position,
+        time: info.timestamp as f32,
+        field_24: f32::from_bits(info.field_28),
+        field_28: info.field_2c,
+    };
+    let mut index = 0;
+    while index < observer_count(cx, system) {
+        if observer(cx, system, index).is_some_and(|v| v.player != session) {
+            send_object_update(cx, system, index, &record);
+        }
+        index += 1;
+    }
+}
+
+/// `PlayerData_CheckPositionBound`: outside single player, a player whose
+/// live ship reports a position more than 750 000 m from the origin (the
+/// squared distance in double) loses the ship (`destroy(1, ship)`) and
+/// the update; true otherwise.
+fn check_position_bound(cx: &mut Cx<'_>, session: u32, position: Vector) -> bool {
+    if single_player(cx.world) {
+        return true;
+    }
+    let ship_id = ship_object_id(cx.logic, session);
+    let Some(ship) = crate::dock::lookup_live(cx, ship_id) else {
+        return true;
+    };
+    let (x, y, z) = (e(position.x), e(position.y), e(position.z));
+    let dist_sq = x * x + y * y + z * z;
+    // Not greater, NaN included, passes.
+    if dist_sq <= POSITION_BOUND_SQ || dist_sq.is_nan() {
+        return true;
+    }
+    crate::world::destroy_object(cx, ship, 1, ship_id);
+    false
+}
+
+/// `IServerImpl::SPObjUpdate`: a client's update of its own object. Not in
+/// single player; the object must be in a system; a valid session's update
+/// must pass the position bound (`PlayerData_CheckPositionBound`); then the
+/// system fans it out ([`sp_obj_update`]).
+pub fn client_object_update(cx: &mut Cx<'_>, info: &ObjectUpdate, session: u32) {
+    if single_player(cx.world) {
+        return;
+    }
+    let Some(system) = cx
+        .world
+        .find(info.object_id)
+        .and_then(|h| system_of(cx.world, h))
+        .filter(|&s| s != 0 && cx.logic.server_world.systems.contains_key(&s))
+    else {
+        return;
+    };
+    if cx.logic.players.is_valid(session) && !check_position_bound(cx, session, info.position) {
+        return;
+    }
+    sp_obj_update(cx, system, info, session);
+}
+
+// ---------------------------------------------------------------------------
+// Group changes and cargo (`StarSystem_SendGroupChange`,
+// `StarSystem_SendRemoteCargoUpdate`).
+
+/// `SystemPlayerView_SendGroupChange`: a ship with the id that the
+/// observer can see ([`is_object_visible`]) goes to the client with its
+/// group (`MISCOBJUPDATE` 0x09). A missing object or one that is not a
+/// ship sends nothing.
+pub fn send_group_change(cx: &mut Cx<'_>, system: u32, index: usize, id: u32) {
+    let Some(h) = cx.world.find(id) else {
+        return;
+    };
+    let Some(view) = observer(cx, system, index) else {
+        return;
+    };
+    if !is_object_visible(cx.world, cx.logic, view, Some(h)) {
+        return;
+    }
+    let player = view.player;
+    let Some(group) = cx
+        .world
+        .get(h)
+        .filter(|o| o.is(class::SHIP))
+        .and_then(|o| o.as_ship())
+        .map(|s| s.group_id)
+    else {
+        return;
+    };
+    crate::client::misc_obj_update_object_group(cx, player, id, group);
+}
+
+/// `StarSystem_SendGroupChange` (`CPlayerGroup::AddMember`, `DelMember`):
+/// every player of the system, first to last ([`send_group_change`]).
+pub fn group_changed(cx: &mut Cx<'_>, system: u32, id: u32) {
+    let mut index = 0;
+    while index < observer_count(cx, system) {
+        send_group_change(cx, system, index, id);
+        index += 1;
+    }
+}
+
+/// `SystemPlayerView_SendRemoteCargoUpdate`: an object the observer tracks
+/// and has created on its client goes out with its cargo
+/// (`REMOTEOBJECTCARGOUPDATE`, flag 1, the items not equipped). An object
+/// that is not a ship sends nothing (D661).
+pub fn send_remote_cargo_update(cx: &mut Cx<'_>, system: u32, index: usize, h: ObjHandle) {
+    let Some(view) = observer(cx, system, index) else {
+        return;
+    };
+    if !view.find(h).is_some_and(|t| t.created_on_client) {
+        return;
+    }
+    let player = view.player;
+    let Some(ship_id) = cx
+        .world
+        .get(h)
+        .filter(|o| o.is(class::SHIP))
+        .map(|o| o.simple.id)
+    else {
+        return;
+    };
+    let items = equip_desc_list(cx.world, h);
+    crate::client::remote_object_cargo_update(cx, player, ship_id, &items, 1);
+}
+
+/// `StarSystem_SendRemoteCargoUpdate` (the end of a trade between
+/// players): every player of the system but the ship's owner
+/// ([`send_remote_cargo_update`]).
+pub fn remote_cargo_update(cx: &mut Cx<'_>, system: u32, h: ObjHandle) {
+    let mut index = 0;
+    while index < observer_count(cx, system) {
+        let owner = cx.world.get(h).map_or(0, |o| o.simple.owner_player);
+        if observer(cx, system, index).is_some_and(|v| v.player != owner) {
+            send_remote_cargo_update(cx, system, index, h);
+        }
+        index += 1;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Comm (`StarSystem::send_comm`, `SystemPlayerView_SendComm`).
+
+/// A comm message (`StarSystem::send_comm`'s arguments).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Comm {
+    /// The speaker (`SenderId`), 0 for none.
+    pub sender: u32,
+    /// The addressee (`ReceiverId`).
+    pub receiver: u32,
+    /// `VoiceId`.
+    pub voice: u32,
+    /// The speaker's costume (`Costume`).
+    pub costume: Costume,
+    /// `CommType`.
+    pub comm_type: u32,
+    /// The text ids.
+    pub text_ids: Vec<u32>,
+    /// `Mood`.
+    pub mood: u32,
+    /// `Duration`.
+    pub duration: f32,
+}
+
+/// `StarSystem::find_object`: the object with the id in the system's
+/// lists (none for an id whose low 30 bits are 0).
+fn find_in_system(world: &World, system: u32, id: u32) -> Option<ObjHandle> {
+    if id & 0x3fff_ffff == 0 {
+        return None;
+    }
+    world
+        .find(id)
+        .filter(|&h| world.get(h).is_some_and(|o| o.physical.system == system))
+}
+
+/// `SystemPlayerView_SendComm`: outside single player the speaker and the
+/// addressee must both be visible to the observer (a missing one is);
+/// then `SENDCOMM` (the mood's low word, the duration quantised), whose
+/// costume travels when the addressee is the observer's own ship:
+/// rpclocal stores that flag in the packet's costume byte (`Field_0x74`).
+pub fn send_comm_for_player(cx: &mut Cx<'_>, system: u32, index: usize, comm: &Comm) {
+    let Some(view) = observer(cx, system, index) else {
+        return;
+    };
+    if !single_player(cx.world) {
+        if !is_object_visible(cx.world, cx.logic, view, cx.world.find(comm.sender)) {
+            return;
+        }
+        if !is_object_visible(cx.world, cx.logic, view, cx.world.find(comm.receiver)) {
+            return;
+        }
+    }
+    let player = view.player;
+    let own_ship = comm.receiver == ship_object_id(cx.logic, player);
+    let [m0, m1, _, _] = comm.mood.to_le_bytes();
+    let message = SendComm {
+        field_20: comm.sender,
+        field_24: comm.receiver,
+        field_28: comm.voice,
+        costume_flag: u8::from(own_ship),
+        costume: WireCostume {
+            parts: comm.costume.part_ids,
+            accessories: comm.costume.accessory_ids.clone(),
+        },
+        field_60: comm.comm_type,
+        text_ids: comm.text_ids.clone(),
+        mood: u16::from_le_bytes([m0, m1]),
+        duration: quantise_tenths(comm.duration),
+    };
+    send_server(cx.logic, player, message);
+}
+
+/// `StarSystem::send_comm` (`pub::SpaceObj::SendComm`): a speaker other
+/// than none must be in the system (else nothing). Then each valid player
+/// of the system, in order:
+/// - with no speaker: in single player, to the addressee's player, or
+///   for a broadcast;
+/// - the addressee's player always; without a broadcast nobody after;
+/// - for a broadcast, any other player whose ship is in the system within
+///   10 000 m of the speaker (the squared distance in double).
+pub fn send_comm(cx: &mut Cx<'_>, system: u32, comm: &Comm, broadcast: bool) {
+    let no_sender = comm.sender & 0x3fff_ffff == 0;
+    let mut sender_at = Vector::ZERO;
+    if !no_sender {
+        let Some(h) = find_in_system(cx.world, system, comm.sender) else {
+            return;
+        };
+        sender_at = cx.world.get(h).map_or(Vector::ZERO, |o| o.engine.position);
+    }
+    let mut index = 0;
+    while index < observer_count(cx, system) {
+        let at = index;
+        index += 1;
+        let Some(player) = observer(cx, system, at).map(|v| v.player) else {
+            continue;
+        };
+        if !cx.logic.players.is_valid(player) {
+            continue;
+        }
+        let ship_id = ship_object_id(cx.logic, player);
+        if no_sender {
+            if single_player(cx.world) || comm.receiver == ship_id || broadcast {
+                send_comm_for_player(cx, system, at, comm);
+            }
+            continue;
+        }
+        if comm.receiver == ship_id {
+            send_comm_for_player(cx, system, at, comm);
+            if !broadcast {
+                return;
+            }
+            continue;
+        }
+        if !broadcast {
+            continue;
+        }
+        let Some(pos) = find_in_system(cx.world, system, ship_id)
+            .and_then(|h| cx.world.get(h))
+            .map(|o| o.engine.position)
+        else {
+            continue;
+        };
+        let dx = e(pos.x) - e(sender_at.x);
+        let dy = e(pos.y) - e(sender_at.y);
+        let dz = e(pos.z) - e(sender_at.z);
+        let dist_sq = (dz * dz + dx * dx) + dy * dy;
+        if dist_sq > e(COMM_RADIUS_SQ) {
+            continue;
+        }
+        send_comm_for_player(cx, system, at, comm);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Leaving the system and landing (`SystemPlayerView_OnObjectLeftSystem`,
+// `SystemPlayerView_OnObjectLanded`).
+
+/// `SystemPlayerView_OnObjectLeftSystem`: the object's record goes (the
+/// first with its id), the waiting damage is forgotten, the ship-gone
+/// latch is set when the object is the player's ship, and the client gets
+/// `SYSTEM_SWITCH_OUT` (the object, the destination) when it had the
+/// object or the latch is set, now or from before.
+pub fn object_left_system(cx: &mut Cx<'_>, system: u32, index: usize, id: u32, destination: u32) {
+    let Some(player) = observer(cx, system, index).map(|v| v.player) else {
+        return;
+    };
+    let own_ship = ship_object_id(cx.logic, player);
+    let Some(view) = observer_mut(cx, system, index) else {
+        return;
+    };
+    let created = view
+        .position_of_id(id)
+        .is_some_and(|at| view.tracked.remove(at).created_on_client);
+    view.pending_damage.clear();
+    if id == own_ship {
+        view.ship_gone = true;
+    }
+    if created || view.ship_gone {
+        send_server(
+            cx.logic,
+            player,
+            SystemSwitchOut {
+                field_00: id,
+                field_04: destination,
+            },
+        );
+    }
+}
+
+/// `StarSystem::complete_dock`'s observer part: every player of the system
+/// hears that the ship left for the dock ([`object_left_system`]), both
+/// ids read again for each.
+pub fn ship_left_for_dock(cx: &mut Cx<'_>, system: u32, ship: ObjHandle, dock: ObjHandle) {
+    let mut index = 0;
+    while index < observer_count(cx, system) {
+        let dock_id = cx.world.get(dock).map_or(0, |o| o.simple.id);
+        let ship_id = cx.world.get(ship).map_or(0, |o| o.simple.id);
+        object_left_system(cx, system, index, ship_id, dock_id);
+        index += 1;
+    }
+}
+
+/// `SystemPlayerView_OnObjectLanded`: the object's record goes (the first
+/// with its id); the client gets `LAND` (the object, the dock, the base)
+/// when it had the object or the object is the player's ship. The
+/// multiplayer autosave of the player's slot before it is not ported yet.
+pub fn object_landed(cx: &mut Cx<'_>, system: u32, index: usize, id: u32, dock: u32, base: u32) {
+    let Some(player) = observer(cx, system, index).map(|v| v.player) else {
+        return;
+    };
+    let own_ship = ship_object_id(cx.logic, player);
+    let Some(view) = observer_mut(cx, system, index) else {
+        return;
+    };
+    let created = view
+        .position_of_id(id)
+        .is_some_and(|at| view.tracked.remove(at).created_on_client);
+    if !created && id != own_ship {
+        return;
+    }
+    send_server(
+        cx.logic,
+        player,
+        Land {
+            field_00: id,
+            field_04: dock,
+            field_08: base,
+        },
+    );
+}
+
+/// `StarSystem_Update`'s landing of a queued ship: every player of the
+/// system hears of it ([`object_landed`]), the ship's id read again for
+/// each.
+pub fn ship_landed(cx: &mut Cx<'_>, system: u32, ship: ObjHandle, dock: u32, base: u32) {
+    let mut index = 0;
+    while index < observer_count(cx, system) {
+        let id = cx.world.get(ship).map_or(0, |o| o.simple.id);
+        object_landed(cx, system, index, id, dock, base);
+        index += 1;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The fuses and the `IObjAffect` notices (`StarSystem::broadcast_fuse`,
+// `notify_activate_equip`, `notify_cruise`, `notify_thrusters`,
+// `notify_set_target`, `notify_jettison`, `notify_fire_weapon`).
+
+/// The players of a system that hear of a change to the object with `id`:
+/// each but `skip`'s (the client that asked for it) that can see it
+/// ([`is_object_id_visible`]), in order.
+fn players_seeing(cx: &Cx<'_>, system: u32, id: u32, skip: Option<u32>) -> Vec<u32> {
+    cx.logic
+        .server_world
+        .systems
+        .get(&system)
+        .map(|s| {
+            s.observers
+                .iter()
+                .filter(|v| skip != Some(v.player))
+                .filter(|v| is_object_id_visible(cx.world, cx.logic, v, id))
+                .map(|v| v.player)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The session a source client names (`(unsigned)SourceClient`); -1 is 0
+/// by then, which skips nobody.
+fn source_session(source: i32) -> u32 {
+    u32::from_ne_bytes(source.to_ne_bytes())
+}
+
+/// `StarSystem::broadcast_fuse` (`EqObj::light_fuse`, `unlight_fuse`):
+/// `BURNFUSE` to every player of the system that can see the object.
+pub fn fuse_burnt(cx: &mut Cx<'_>, system: u32, info: &BurnFuse) {
+    for player in players_seeing(cx, system, info.object_id, None) {
+        send_server(cx.logic, player, info.clone());
+    }
+}
+
+/// `StarSystem::notify_activate_equip` (`EqObj::slot_4c`): an item
+/// switched on or off (`ACTIVATEEQUIP`) to every player but the source
+/// that can see the object.
+pub fn equip_activated(
+    cx: &mut Cx<'_>,
+    system: u32,
+    id: u32,
+    equip: SubObjId,
+    active: bool,
+    source: i32,
+) {
+    let skip = Some(source_session(source));
+    for player in players_seeing(cx, system, id, skip) {
+        let message = ActivateEquip {
+            object_id: id,
+            equip_id: equip,
+            active: u8::from(active),
+        };
+        send_common(cx.logic, player, message);
+    }
+}
+
+/// `StarSystem::notify_cruise` (`Ship::slot_50`): `ACTIVATECRUISE` with
+/// the engage byte and the second byte to every player but the source
+/// that can see the ship.
+pub fn cruise_changed(
+    cx: &mut Cx<'_>,
+    system: u32,
+    id: u32,
+    engage: bool,
+    second: bool,
+    source: i32,
+) {
+    let skip = Some(source_session(source));
+    for player in players_seeing(cx, system, id, skip) {
+        let message = ActivateCruise {
+            object_id: id,
+            active: u8::from(engage),
+            field_05: u8::from(second),
+        };
+        send_common(cx.logic, player, message);
+    }
+}
+
+/// The first engine's cruise flag (`CEEngine::bCruiseActive`), which
+/// `Ship::slot_50` compares; false for an object without an engine.
+#[must_use]
+pub fn cruise_active(world: &World, h: ObjHandle) -> bool {
+    world
+        .get(h)
+        .and_then(|o| o.equipped.as_deref())
+        .and_then(|eq| eq.equipment.first(types::ENGINE))
+        .is_some_and(|e| matches!(&e.kind, EquipKind::Engine(engine) if engine.cruise_active))
+}
+
+/// `StarSystem::notify_thrusters` (`Ship::slot_54`): `ACTIVATETHRUSTERS`
+/// to every player but the source that can see the ship.
+pub fn thrusters_changed(cx: &mut Cx<'_>, system: u32, id: u32, active: bool, source: i32) {
+    let skip = Some(source_session(source));
+    for player in players_seeing(cx, system, id, skip) {
+        let message = ActivateThrusters {
+            object_id: id,
+            active: u8::from(active),
+        };
+        send_common(cx.logic, player, message);
+    }
+}
+
+/// `StarSystem::notify_set_target` (`Ship::set_target`, `EqObj::slot_44`,
+/// `Guided::set_target`): nothing when no object has the id; otherwise
+/// `SETTARGET` (the object and sub-object, the target's id or 0, the
+/// sub-target) to every player but the source: without asking for a
+/// solar of the system file ([`SOLAR_TYPE_BITS`]), and when the player can
+/// see the object ([`is_object_visible`]) for anything else.
+pub fn target_changed(
+    cx: &mut Cx<'_>,
+    system: u32,
+    id: u32,
+    sub_obj: SubObjId,
+    target: Option<ObjHandle>,
+    sub_target: SubObjId,
+    source: i32,
+) {
+    let Some(h) = cx.world.find(id) else {
+        return;
+    };
+    let type_bits = cx.world.get(h).map_or(0, |o| o.simple.type_bits);
+    let skip = source_session(source);
+    let players: Vec<u32> = cx
+        .logic
+        .server_world
+        .systems
+        .get(&system)
+        .map(|s| {
+            s.observers
+                .iter()
+                .filter(|v| v.player != skip)
+                .filter(|v| {
+                    type_bits & SOLAR_TYPE_BITS != 0
+                        || is_object_visible(cx.world, cx.logic, v, Some(h))
+                })
+                .map(|v| v.player)
+                .collect()
+        })
+        .unwrap_or_default();
+    let target_id = target
+        .and_then(|t| cx.world.get(t))
+        .map_or(0, |o| o.simple.id);
+    for player in players {
+        send_set_target(cx.logic, player, id, sub_obj, target_id, sub_target);
+    }
+}
+
+/// `StarSystem::notify_jettison` (`Ship::slot_38`): when the ship is its
+/// owner's current ship, the owner's record loses the items (no notice);
+/// then `JETTISONCARGO` (the ship, the item, the count) to every player of
+/// the system that can see the ship, the owner included.
+pub fn cargo_jettisoned(cx: &mut Cx<'_>, system: u32, h: ObjHandle, equip: SubObjId, count: i32) {
+    let Some((owner, id)) = cx
+        .world
+        .get(h)
+        .map(|o| (o.simple.owner_player, o.simple.id))
+    else {
+        return;
+    };
+    if owner != 0 && cx.logic.players.is_valid(owner) && ship_object_id(cx.logic, owner) == id {
+        crate::player::remove_equipment(cx, owner, equip, count, false);
+    }
+    for player in players_seeing(cx, system, id, None) {
+        let message = JettisonCargo {
+            object_id: id,
+            item_id: equip,
+            count: u32::from_ne_bytes(count.to_ne_bytes()),
+        };
+        send_common(cx.logic, player, message);
+    }
+}
+
+/// `StarSystem::notify_fire_weapon` (`SrvGun::fire_forward`): `FIREWEAPON`
+/// (the shooter, the aim, the hardpoints) to every player but the source
+/// that can see the shooter. The aim's components are those the
+/// multiplayer encoder picks (full floats in single player).
+pub fn weapon_fired(
+    cx: &mut Cx<'_>,
+    system: u32,
+    id: u32,
+    hardpoints: &[SubObjId],
+    target: Vector,
+    source: i32,
+) {
+    let skip = Some(source_session(source));
+    let aim = if single_player(cx.world) {
+        xyz(target).map(FireComponent::Full)
+    } else {
+        FireWeapon::target_from(xyz(target))
+    };
+    for player in players_seeing(cx, system, id, skip) {
+        let message = FireWeapon {
+            object_id: id,
+            target: aim,
+            hardpoints: hardpoints.to_vec(),
+        };
+        send_common(cx.logic, player, message);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Trade lanes (`StarSystem::notify_go_tradelane`, `notify_stop_tradelane`).
+
+/// `StarSystem::notify_go_tradelane` (`Ship::go_tradelane`,
+/// `IServerImpl::GoTradelane`): the ship with the id, when it is in the
+/// system, sends `TradelaneEnter` (ship, rings, system) to the bus and
+/// uses the lane, and its owner is not told; then `GOTRADELANE` (the ship,
+/// the rings, the fast-exit byte) to every other player that can see it.
+/// The type-4 behaviour event to every NPC ship's manager comes with the
+/// behaviour manager's server link.
+pub fn go_tradelane(
+    cx: &mut Cx<'_>,
+    system: u32,
+    ship_id: u32,
+    entrance: u32,
+    exit: u32,
+    fast_exit: bool,
+) {
+    let skip = lane_ship(cx, system, ship_id, true, entrance, exit);
+    for player in players_seeing(cx, system, ship_id, Some(skip)) {
+        let message = GoTradeLane {
+            object_id: ship_id,
+            tradelane_ring1: entrance,
+            tradelane_ring2: exit,
+            field_0c: u8::from(fast_exit),
+        };
+        send_common(cx.logic, player, message);
+    }
+}
+
+/// `StarSystem::notify_stop_tradelane` (`Ship::stop_tradelane`,
+/// `IServerImpl::StopTradelane`): as [`go_tradelane`] with
+/// `TradelaneExit`, the lane left, and `STOPTRADELANE` (the ship, the
+/// rings).
+pub fn stop_tradelane(cx: &mut Cx<'_>, system: u32, ship_id: u32, entrance: u32, exit: u32) {
+    let skip = lane_ship(cx, system, ship_id, false, entrance, exit);
+    for player in players_seeing(cx, system, ship_id, Some(skip)) {
+        let message = StopTradeLane {
+            ship_id,
+            tradelane_ring1: entrance,
+            tradelane_ring2: exit,
+        };
+        send_common(cx.logic, player, message);
+    }
+}
+
+/// The trade-lane notices' pass over the ship itself: the bus hears of it
+/// and the ship's lane flag follows (`CShip::use_tradelane`). Returns the
+/// owner, the player not told (0 when the ship is not in the system).
+fn lane_ship(
+    cx: &mut Cx<'_>,
+    system: u32,
+    ship_id: u32,
+    enter: bool,
+    entrance: u32,
+    exit: u32,
+) -> u32 {
+    let Some(h) = find_in_system(cx.world, system, ship_id)
+        .filter(|&h| cx.world.get(h).is_some_and(|o| o.kind == ObjectKind::Ship))
+    else {
+        return 0;
+    };
+    let owner = cx.world.get(h).map_or(0, |o| o.simple.owner_player);
+    let mut message = if enter {
+        ControllerMessage::TradelaneEnter {
+            ship: ship_id,
+            entrance,
+            exit,
+            system,
+        }
+    } else {
+        ControllerMessage::TradelaneExit {
+            ship: ship_id,
+            entrance,
+            exit,
+            system,
+        }
+    };
+    let _ = cx.dispatch(ControllerId::BROADCAST, &mut message);
+    if let Some(ship) = cx.world.get_mut(h).and_then(|o| o.as_ship_mut()) {
+        ship.using_tradelane = enter;
+    }
+    owner
+}
+
+// ---------------------------------------------------------------------------
+// Remote correction and the changed affiliations.
+
+/// `GameObject::enter_system`'s remote correction: on a multiplayer server
+/// an object a player owns follows its client from now on
+/// (`PhySys::RCBegin` from its position, velocity and orientation).
+pub fn begin_remote_control(cx: &mut Cx<'_>, h: ObjHandle) {
+    if single_player(cx.world) {
+        return;
+    }
+    let Some(o) = cx.world.get(h).filter(|o| o.simple.owner_player != 0) else {
+        return;
+    };
+    let (position, orientation) = (o.engine.position, quat(&o.engine.orientation));
+    let velocity = cx.world.velocity(h);
+    // `RCBegin` takes the angular velocity and does not use it.
+    cx.world
+        .rc_begin(h, position, velocity, orientation, Vector::ZERO);
+}
+
+/// `GameObject::leave_system`'s remote correction: on a multiplayer server
+/// a player's object stops following its client (`PhySys::RCEnd`).
+pub fn end_remote_control(cx: &mut Cx<'_>, h: ObjHandle) {
+    if single_player(cx.world) {
+        return;
+    }
+    if cx.world.get(h).is_some_and(|o| o.simple.owner_player != 0) {
+        cx.world.rc_end(h);
+    }
+}
+
+/// `StarSystem_SendChangedAffiliations`, after a system's observers ran:
+/// each client whose affiliation changed (`GetChangedAffiliationClientMap`,
+/// the world's single map, so the first system stepped in a frame takes
+/// it) has its vibe's affiliation sent: with a ship, to every player of
+/// this system that can see the ship ([`is_object_visible`], a missing
+/// ship counting as visible; `MISCOBJUPDATE` 0x28 with the ship); without,
+/// to the client itself (object 0). Then the map is emptied.
+pub fn send_changed_affiliations(cx: &mut Cx<'_>, system: u32) {
+    let clients: Vec<u32> = cx
+        .world
+        .vibes()
+        .0
+        .changed_affiliations
+        .keys()
+        .copied()
+        .collect();
+    if clients.is_empty() {
+        return;
+    }
+    for client in clients {
+        let ship = ship_object_id(cx.logic, client);
+        let vibe = rep_vibe(cx.logic, client);
+        let (_, affiliation) = cx.world.vibes().0.affiliation(vibe, false);
+        if ship == 0 {
+            crate::client::misc_obj_update_affiliation(cx, client, 0, affiliation);
+            continue;
+        }
+        let object = cx.world.find(ship);
+        let players: Vec<u32> = cx
+            .logic
+            .server_world
+            .systems
+            .get(&system)
+            .map(|s| {
+                s.observers
+                    .iter()
+                    .filter(|v| is_object_visible(cx.world, cx.logic, v, object))
+                    .map(|v| v.player)
+                    .collect()
+            })
+            .unwrap_or_default();
+        for player in players {
+            crate::client::misc_obj_update_affiliation(cx, player, ship, affiliation);
+        }
+    }
+    cx.world.vibes().0.changed_affiliations.clear();
 }
 
 // ---------------------------------------------------------------------------

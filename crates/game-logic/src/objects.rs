@@ -309,14 +309,15 @@ pub fn root_hit_ignored(cx: &mut Cx<'_>, h: ObjHandle, list: &DamageList) {
 /// latch is set.
 pub fn begin_damage_list(cx: &mut Cx<'_>, h: ObjHandle, list: &DamageList) {
     // `Ship::apply_damage_list`: a cruise disruptor's list (cause 6) on an
-    // NPC ship ends its cruise first (`slot_50(false, true, 0)`); the
-    // observers' cruise notice comes with replication.
+    // NPC ship ends its cruise first (`slot_50(false, true, 0)`); a cruise
+    // that ended tells the players who can see the ship (`notify_cruise`).
     if list.cause == 6
         && cx
             .world
             .get(h)
             .is_some_and(|o| o.kind == ObjectKind::Ship && o.simple.owner_player == 0)
     {
+        let cruising = crate::replication::cruise_active(cx.world, h);
         cx.world.command(
             h,
             game_sim::object::Command::EngageCruise {
@@ -324,6 +325,11 @@ pub fn begin_damage_list(cx: &mut Cx<'_>, h: ObjHandle, list: &DamageList) {
                 instant: true,
             },
         );
+        if cruising
+            && let Some((system, id)) = cx.world.get(h).map(|o| (o.physical.system, o.simple.id))
+        {
+            crate::replication::cruise_changed(cx, system, id, false, true, 0);
+        }
     }
     let id = cx.world.get(h).map_or(0, |o| o.simple.id);
     let Some(o) = cx.logic.objects.entry(cx.world, h) else {

@@ -20,8 +20,10 @@
 //! nested damage list (record 0007 point 10): each step looks the object's
 //! fuse up again by its index (fuses are only ever appended).
 //!
-//! Left to other parts: the players' fuse notices (`StarSystem::
-//! broadcast_fuse`, replication); `Ship::light_fuse`'s word to the
+//! A burn lit or removed tells the players who can see the object
+//! (`StarSystem::broadcast_fuse`, [`crate::replication::fuse_burnt`]).
+//!
+//! Left to other parts: `Ship::light_fuse`'s word to the
 //! formation and follow followers' behaviour managers and the death
 //! branch's own behaviour event 7 (the behaviour manager's server link);
 //! the loot of a `destroy_hp_attachment` with the `loot` fate (the server's
@@ -683,8 +685,10 @@ pub fn check_fuses(cx: &mut Cx<'_>, h: ObjHandle) {
 /// with a `destroy_root` an object lights sends `DeathFuseLit` and burns
 /// at least as long as Content's answer; another fuse takes `lifetime`
 /// unless it is -1. An unknown fuse is reported. True when the fuse was
-/// found. The players' notice is the replication part's; a ship's word to
-/// its followers about `death_comm` is the behaviour manager's.
+/// found. A burn added tells the players of the object's system (the
+/// lifetime -1 for a copy already in the list, else the one applied or
+/// asked); a ship's word to its followers about `death_comm` is the
+/// behaviour manager's.
 pub fn light_fuse(
     cx: &mut Cx<'_>,
     h: ObjHandle,
@@ -694,13 +698,15 @@ pub fn light_fuse(
     at_t: f32,
     lifetime: f32,
 ) -> bool {
-    // Whether a burn was added, and the lifetime the C++ broadcasts (-1
-    // for a fuse already in the list), go to the players with replication.
     let Some(o) = cx.logic.objects.entry(cx.world, h) else {
         return false;
     };
     if let Some(lit) = o.fuses.iter_mut().find(|f| f.fuse.nickname == fuse) {
-        lit.fuse.ignite_at(source, sub_obj, at_t);
+        // A copy already in the list: the notice carries -1 for the
+        // lifetime.
+        if lit.fuse.ignite_at(source, sub_obj, at_t) {
+            fuse_notice(cx, h, source, fuse, sub_obj, at_t, -1.0, true);
+        }
         return true;
     }
     let Some(mut lit) = fuse_db(cx).get(fuse).map(ServerFuse::lit_copy) else {
@@ -719,12 +725,14 @@ pub fn light_fuse(
     o.fuses.push(lit);
     let index = o.fuses.len() - 1;
     let first_death = !o.death_fuse_lit && has_destroy_root;
+    let mut lifetime = lifetime;
     if first_death {
         o.death_fuse_lit = true;
         let answer = send_death_fuse_lit(cx, h);
         if let Some(f) = fuse_mut(cx, h, index)
             && f.fuse.lifetime < answer
         {
+            lifetime = answer;
             f.fuse.override_lifetime(answer);
         }
     } else if lifetime != -1.0
@@ -735,14 +743,50 @@ pub fn light_fuse(
     if let Some(f) = fuse_mut(cx, h, index) {
         f.fuse.ignite_at(source, sub_obj, at_t);
     }
+    fuse_notice(cx, h, source, fuse, sub_obj, at_t, lifetime, true);
     true
+}
+
+/// `EqObj::light_fuse`'s and `unlight_fuse`'s notice: an object in a
+/// system tells its players (`StarSystem::broadcast_fuse`,
+/// [`crate::replication::fuse_burnt`]).
+#[allow(clippy::too_many_arguments)]
+fn fuse_notice(
+    cx: &mut Cx<'_>,
+    h: ObjHandle,
+    source: u32,
+    fuse: u32,
+    sub_obj: SubObjId,
+    at_t: f32,
+    lifetime: f32,
+    lit: bool,
+) {
+    let Some((system, id)) = cx
+        .world
+        .get(h)
+        .map(|o| (o.physical.system, o.simple.id))
+        .filter(|&(s, _)| s != 0)
+    else {
+        return;
+    };
+    let info = game_sim::protocol::to_client::BurnFuse {
+        source_id: source,
+        object_id: id,
+        fuse_id: fuse,
+        sub_obj_id: sub_obj,
+        at_t,
+        lifetime,
+        lit: u8::from(lit),
+    };
+    crate::replication::fuse_burnt(cx, system, &info);
 }
 
 /// `EqObj::unlight_fuse`: the first copy of the fuse in the object's list
 /// loses its burn on `sub_obj` lit at `at_t`; each action that burn had
 /// triggered is untriggered, and an `ignite_fuse` among them unlights the
 /// fuse it lit (and may trigger again). True when the fuse is in the list.
-/// The players' notice is the replication part's.
+/// A burn removed tells the players of the object's system (source 0,
+/// lifetime -1, unlit).
 pub fn unlight_fuse(
     cx: &mut Cx<'_>,
     h: ObjHandle,
@@ -770,6 +814,7 @@ pub fn unlight_fuse(
     if let Some(f) = fuse_mut(cx, h, index) {
         f.fuse.finish_unburn(&walk);
     }
+    fuse_notice(cx, h, 0, fuse, sub_obj, at_t, -1.0, false);
     true
 }
 
@@ -1251,8 +1296,9 @@ fn impulse(
 
 /// `TumbleAction`'s `engine_kill`: `slot_4c(engine, false)` on the first
 /// engine. The switch is refused while the ship strafes or a thruster is
-/// on; an engine already off stays as it is. A ship without an engine is
-/// left alone (the C++ reads through null, D618).
+/// on; an engine already off stays as it is; a switch tells the players
+/// who can see the ship. A ship without an engine is left alone (the C++
+/// reads through null, D618).
 fn deactivate_first_engine(cx: &mut Cx<'_>, h: ObjHandle) {
     let Some(o) = cx.world.get(h) else {
         return;
@@ -1279,6 +1325,10 @@ fn deactivate_first_engine(cx: &mut Cx<'_>, h: ObjHandle) {
         return;
     }
     cx.world.command(h, Command::ActivateEquip(id, false));
+    // The switch from the server tells the players (`notify_activate_equip`).
+    if let Some((system, object)) = cx.world.get(h).map(|o| (o.physical.system, o.simple.id)) {
+        crate::replication::equip_activated(cx, system, object, id, false, 0);
+    }
 }
 
 /// `EqObj::dump_cargo`: every cargo stack not held in a pod, with a

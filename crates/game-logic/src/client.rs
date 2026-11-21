@@ -125,6 +125,43 @@ pub fn set_equipment(cx: &mut Cx<'_>, client: u32, items: &[EquipDesc]) {
     send(cx, client, SetEquipment { records });
 }
 
+/// `SendServerRemoteObjectCargoUpdate` (slot +0x154, ch2 0x3d): another
+/// ship's cargo, with the flag byte; only the items not equipped travel
+/// (`RpcEquipHandleFromVector` with `bAll` clear), each hardpoint as in
+/// [`set_equipment`].
+pub fn remote_object_cargo_update(
+    cx: &mut Cx<'_>,
+    client: u32,
+    object: u32,
+    items: &[EquipDesc],
+    flag: u8,
+) {
+    let strings = cx.world.strings();
+    let records = items
+        .iter()
+        .filter(|item| item.equipped == 0)
+        .map(|item| EquipRecord {
+            count: item.count,
+            health: item.health,
+            arch_id: item.arch_id,
+            id: item.id,
+            equipped: item.equipped,
+            field_0f: 0,
+            hardpoint: if item.is_internal(strings) {
+                Vec::new()
+            } else {
+                hardpoint_bytes(item, strings)
+            },
+        })
+        .collect();
+    let message = game_sim::protocol::to_client::RemoteObjectCargoUpdate {
+        object_id: object,
+        flag,
+        records,
+    };
+    send(cx, client, message);
+}
+
 fn send_common(
     cx: &mut Cx<'_>,
     client: u32,
