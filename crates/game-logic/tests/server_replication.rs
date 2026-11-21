@@ -747,6 +747,49 @@ fn a_multiplayer_arrival_gets_the_solars_damage_states_and_reputations() {
     }
     let player_vibe = *known.last().expect("a solar with a vibe record");
     cx.logic.players.get_mut(1).unwrap().rep_vibe = player_vibe;
+    // At full health no static solar of he01 is below 1.0: a trade-lane
+    // ring's shield is full at its generator's capacity
+    // (`CEShield::GetMaxHitPoints`). The first static ring's shield is
+    // taken to 60 % of it (above its offline threshold), so that the ring
+    // has a damage state.
+    let damaged_ring = solars
+        .iter()
+        .copied()
+        .find(|&h| {
+            cx.world.get(h).is_some_and(|o| {
+                o.simple.type_bits & replication::TRADELANE_RING != 0
+                    && !matches!(&o.data, game_sim::object::KindData::Solar(s) if s.dynamic)
+            })
+        })
+        .expect("a static trade-lane ring");
+    let (shield_id, shield_hit) = {
+        let eq = cx
+            .world
+            .get(damaged_ring)
+            .unwrap()
+            .equipped
+            .as_deref()
+            .unwrap();
+        let slot = eq
+            .equipment
+            .find_first(game_sim::equip::types::SHIELD)
+            .expect("the ring's shield");
+        let shield = eq.equipment.get(slot).unwrap();
+        let game_sim::equip::EquipKind::Shield(s) = &shield.kind else {
+            panic!("a shield");
+        };
+        assert!(s.max_hit_pts > 0.0 && s.hit_pts == s.max_hit_pts);
+        (shield.id, (f64::from(s.max_hit_pts) * 0.6) as f32)
+    };
+    {
+        let mut list = DamageList::new(1, 0, 0);
+        list.add_damage_entry(shield_id, shield_hit, Fate::None);
+        let mut hooks = Hooks {
+            logic: &mut *cx.logic,
+        };
+        cx.world
+            .apply_damage_list_hooked(damaged_ring, &list, &mut hooks);
+    }
     let _ = sink.take();
     world::add_player(&mut cx, he01(), 1);
     let sent = sink.take();
@@ -790,7 +833,7 @@ fn a_multiplayer_arrival_gets_the_solars_damage_states_and_reputations() {
     assert_eq!(actual, expected);
     let damage_packets = actual.iter().filter(|(k, _)| *k == "damage").count();
     assert_eq!(damage_packets, damaged);
-    assert!(damaged > 0, "he01 has solars below full health");
+    assert_eq!(damaged, 1, "only the damaged ring is below full health");
     let reputations = actual.iter().filter(|(k, _)| *k == "reputation").count();
     assert_eq!(reputations, solars.len());
     println!(
@@ -799,9 +842,9 @@ fn a_multiplayer_arrival_gets_the_solars_damage_states_and_reputations() {
         sent.len()
     );
 
-    // A trade-lane ring's damage state: its item at 0 hit points, as
-    // `CEquip::GetRelativeHealth` answers 0 for an item without maximum.
+    // The ring's damage state: its shield at its current hit points.
     let (ring_id, list) = ring.expect("a trade-lane ring with a damage state");
+    assert_eq!(ring_id, cx.world.get(damaged_ring).unwrap().simple.id);
     let packet = sent
         .iter()
         .find_map(|(_, m)| match server(m) {
@@ -829,7 +872,7 @@ fn a_multiplayer_arrival_gets_the_solars_damage_states_and_reputations() {
         .map(|x| (x.sub_obj_id, x.fate.value() as u8, x.hit_pts))
         .collect();
     assert_eq!(entries, wanted);
-    assert!(entries.iter().any(|&(_, fate, hp)| fate == 0 && hp == 0.0));
+    assert_eq!(entries, [(shield_id, 0, shield_hit)]);
 
     // One reputation: the vibe's affiliation and its attitude towards the
     // player's vibe; the names are the empty ones, no display name.

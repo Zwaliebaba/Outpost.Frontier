@@ -666,45 +666,67 @@ impl Equip {
         self.active
     }
 
-    /// `GetMaxHitPoints`: the archetype's.
+    /// `GetMaxHitPoints` (virtual): the archetype's (`CEquip`); a cargo
+    /// stack's (`CECargo`); a shield's its generators' summed capacity
+    /// (`CEShield::GetMaxHitPoints`, `MaxHitPoints` from `AddGen` and
+    /// `RemGen`). `CAttachedEquip`'s constructor names the base
+    /// `CEquip::GetMaxHitPoints` and so takes the archetype's for every
+    /// attached item, the shield too ([`Equip::new`]).
     #[must_use]
     pub fn max_hit_points(&self) -> f32 {
         match &self.kind {
             EquipKind::Cargo(c) => c.max_hit_points(self.arch.hit_pts),
+            EquipKind::Shield(s) => s.max_hit_pts,
             _ => self.arch.hit_pts,
         }
     }
 
-    /// `GetHitPoints`: the attached item's own; cargo its stack's; any
+    /// `GetHitPoints` (virtual): a shield's current hit points
+    /// (`CEShield::GetHitPoints`, ahead of the `CAttachedEquip` one it
+    /// overrides); any other attached item's own; cargo its stack's; any
     /// other item its maximum (`CEquip::GetHitPoints` tail-calls
     /// `GetMaxHitPoints`).
     #[must_use]
     pub fn hit_points(&self) -> f32 {
+        if let EquipKind::Shield(s) = &self.kind {
+            return s.hit_pts;
+        }
         if let Some(a) = &self.attached {
             return a.hit_pts;
         }
         match &self.kind {
             EquipKind::Cargo(c) => c.hit_pts,
-            EquipKind::Shield(s) => s.hit_pts,
             _ => self.max_hit_points(),
         }
     }
 
-    /// `SetHitPoints`: ignored by internal items without hit points.
+    /// `SetHitPoints`: ignored by internal items without hit points. A
+    /// shield's hit points are capped at its maximum
+    /// (`CEShield::SetHitPoints`); its offline and reactivation rules need
+    /// the clock and are [`shield::Shield::set_hit_points`], which the
+    /// world's callers use.
     pub fn set_hit_points(&mut self, hit: f32) {
+        if let EquipKind::Shield(s) = &mut self.kind {
+            s.hit_pts = if s.max_hit_pts < hit {
+                s.max_hit_pts
+            } else {
+                hit
+            };
+            return;
+        }
         if let Some(a) = &mut self.attached {
             a.hit_pts = hit;
             return;
         }
-        match &mut self.kind {
-            EquipKind::Cargo(c) => c.hit_pts = hit,
-            EquipKind::Shield(s) => s.hit_pts = hit,
-            _ => {}
+        if let EquipKind::Cargo(c) = &mut self.kind {
+            c.hit_pts = hit;
         }
     }
 
-    /// `GetRelativeHealth`: hit points over the maximum, unrounded; 0 for
-    /// a maximum of exactly 0.
+    /// `GetRelativeHealth` (`CEquip`'s, which no item overrides): hit
+    /// points over the maximum through the virtual getters, unrounded; 0
+    /// for a maximum of exactly 0. A shield's is its own current over its
+    /// generators' capacity, as [`shield::Shield::relative_health`].
     #[must_use]
     pub fn relative_health(&self) -> f64 {
         let max = self.max_hit_points();
@@ -1028,5 +1050,70 @@ mod tests {
         a.root.hit_pts = 0.0;
         let e = Equip::alloc(0x22, &a, false, true, None).unwrap();
         assert_eq!(e.relative_health(), 0.0);
+    }
+
+    fn generator(capacity: f32) -> shield::ShieldGenerator {
+        shield::ShieldGenerator {
+            shield_type: 1,
+            regeneration_rate: 10.0,
+            max_capacity: capacity,
+            constant_power_draw: 1.0,
+            rebuild_power_draw: 5.0,
+            offline_threshold: 0.1,
+            offline_rebuild_time: 4.0,
+            toughness: 3,
+            nickname: 7,
+            linked_shield: Some(0xFFF1),
+            last_update_time: 0.0,
+        }
+    }
+
+    #[test]
+    fn a_shields_maximum_and_health_are_its_generators() {
+        // The shield's archetype keeps the default 50 hit points of
+        // `arch`; its generators give it 200 + 100.
+        let mut e = Equip::new(
+            0xFFF1,
+            &arch(classes::SHIELD, 9),
+            types::SHIELD,
+            EquipKind::Shield(shield::Shield::default()),
+            false,
+        );
+        e.activate_base(true);
+        let on = shield::ShieldStatus {
+            active: true,
+            disabled: false,
+            destroyed: false,
+            attached: true,
+        };
+        let mut events = Vec::new();
+        let EquipKind::Shield(s) = &mut e.kind else {
+            unreachable!()
+        };
+        s.add_gen(0x30, &generator(200.0), on, 0.0, &mut events);
+        s.add_gen(0x31, &generator(100.0), on, 0.0, &mut events);
+
+        // `CEShield::GetMaxHitPoints` and `GetHitPoints`, through the
+        // item: the summed capacity and the current hit points.
+        assert_eq!(e.max_hit_points(), 300.0);
+        assert_eq!(e.hit_points(), 300.0);
+        assert_eq!(e.relative_health(), 1.0);
+
+        let EquipKind::Shield(s) = &mut e.kind else {
+            unreachable!()
+        };
+        s.set_hit_points(75.0, on, 1.0, &mut events);
+        assert_eq!(e.hit_points(), 75.0);
+        assert_eq!(e.relative_health(), 0.25);
+
+        // `CAttachedEquip`'s own hit points were set from the base
+        // `CEquip::GetMaxHitPoints` (the archetype's) and are not the
+        // shield's.
+        assert_eq!(e.attached.as_ref().map(|a| a.hit_pts), Some(50.0));
+
+        // `SetHitPoints` through the item caps at the shield's maximum.
+        e.set_hit_points(1000.0);
+        assert_eq!(e.hit_points(), 300.0);
+        assert_eq!(e.attached.as_ref().map(|a| a.hit_pts), Some(50.0));
     }
 }
