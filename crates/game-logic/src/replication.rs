@@ -2457,6 +2457,16 @@ pub fn cargo_jettisoned(cx: &mut Cx<'_>, system: u32, h: ObjHandle, equip: SubOb
     }
 }
 
+/// The fan-out of `StarSystem::add_cargo` and `remove_cargo`
+/// ([`crate::cargo::add_cargo`]): `OBJECTCARGOUPDATE` (the object, the
+/// stack's description) to every player of the system that can see the
+/// object, the owner included.
+pub fn cargo_updated(cx: &mut Cx<'_>, system: u32, id: u32, desc: &EquipDesc) {
+    for player in players_seeing(cx, system, id, None) {
+        crate::client::object_cargo_update(cx, player, id, desc);
+    }
+}
+
 /// `StarSystem::notify_fire_weapon` (`SrvGun::fire_forward`): `FIREWEAPON`
 /// (the shooter, the aim, the hardpoints) to every player but the source
 /// that can see the shooter. The aim's components are those the

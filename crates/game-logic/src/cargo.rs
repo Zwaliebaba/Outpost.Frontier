@@ -19,8 +19,16 @@
 //!   `ServerHooks::cargo_stack_rule`), and a spent single unit is
 //!   destroyed. Solars' cargo does not decay.
 //!
-//! The observers' jettison notice (`notify_jettison`) is replication's;
-//! its call site is at the end of this module.
+//! - **Cargo added and removed in space** ([`add_cargo`],
+//!   [`remove_cargo`]): `StarSystem::add_cargo` and `remove_cargo`
+//!   (`Server/server_classes.cpp:10793`, `10990`), which
+//!   `pub::Player::AddCargo` and `RemoveCargo` use for a player in space:
+//!   the ship's stack and its owner's record change together, and the
+//!   observers that see the ship hear of the stack (`OBJECTCARGOUPDATE`).
+//!
+//! The observers' jettison and cargo notices (`notify_jettison`,
+//! [`crate::replication::cargo_updated`]) are replication's; their call
+//! sites are in this module.
 
 use game_sim::data::equip_desc::EquipDesc;
 use game_sim::equip::{EquipKind, Fate, SubObjId, types};
@@ -431,4 +439,214 @@ pub fn decay_cargo(cx: &mut Cx<'_>, h: ObjHandle, elapsed: f32) {
 /// observers' `JETTISONCARGO`, through replication's fan-out.
 fn notify_jettison(cx: &mut Cx<'_>, system: u32, ship: ObjHandle, equip: SubObjId, count: i32) {
     crate::replication::cargo_jettisoned(cx, system, ship, equip, count);
+}
+
+const STAR_SYS: &str = "Server\\space\\StarSys.cpp";
+
+/// The slot `add_cargo` and `remove_cargo` update: the ship's
+/// `OwnerPlayer`, when that slot has a client and this ship as its ship.
+fn owning_session(cx: &Cx<'_>, h: ObjHandle) -> Option<u32> {
+    let o = cx.world.get(h)?;
+    let (owner, id) = (o.simple.owner_player, o.simple.id);
+    (owner != 0
+        && cx
+            .logic
+            .players
+            .get(owner)
+            .is_some_and(|p| p.client_id != 0 && p.ship_object_id == id))
+    .then_some(owner)
+}
+
+/// The id of the first working cargo stack of the archetype
+/// (`CEquipTraverser(EquipTypeCargo)`), and whether it holds units.
+fn first_stack_of(cx: &Cx<'_>, h: ObjHandle, arch: u32) -> Option<(SubObjId, bool)> {
+    let eq = cx.world.get(h)?.equipped.as_deref()?;
+    eq.equipment
+        .traverse(types::CARGO, false)
+        .into_iter()
+        .filter_map(|slot| eq.equipment.get(slot))
+        .find(|item| item.arch_id == arch)
+        .map(|item| {
+            let units = matches!(&item.kind, EquipKind::Cargo(c) if c.count != 0);
+            (item.id, units)
+        })
+}
+
+/// The stack's id when the item with the id is a cargo stack.
+fn cargo_stack(cx: &Cx<'_>, h: ObjHandle, id: SubObjId) -> Option<SubObjId> {
+    let eq = cx.world.get(h)?.equipped.as_deref()?;
+    let item = eq.equipment.by_id(id)?;
+    matches!(item.kind, EquipKind::Cargo(_)).then_some(item.id)
+}
+
+/// `StarSystem::add_cargo(Obj, ArchId, Count, Health, bMission)`: units of a
+/// good join the ship's hold.
+///
+/// - A combinable good, unless `mission`, joins the first working stack of
+///   its archetype when that stack holds units (`AddToStack`); a found
+///   stack without units makes the ship drop its destroyed items
+///   (`CEquipManager::CleanUp`) and a new stack follows. The owner's
+///   record takes the units as cargo (no notice, no `no_combine`).
+/// - Otherwise a new internal stack (`mission` marks it) is added with the
+///   id the owner's record gives it (`no_combine` is `mission`), or, for a
+///   ship no valid player owns, the ship's own next id
+///   ([`crate::ship::allocate_equip_id`]).
+///
+/// Then every player of the system that sees the ship hears of the stack
+/// ([`crate::replication::cargo_updated`]); without a stack that has units
+/// the failure is reported instead. Answers the stack's id, or
+/// `SUBOBJ_ID_NONE` when there is none.
+///
+/// The C++ reads a ship without equipment through null (none of a server's
+/// ships lacks it; here nothing is added) and runs on a null system for a
+/// ship in transit; the port adds the stack and tells nobody (D694).
+pub fn add_cargo(
+    cx: &mut Cx<'_>,
+    h: ObjHandle,
+    arch: u32,
+    count: u32,
+    health: f32,
+    mission: bool,
+) -> SubObjId {
+    let max = cx
+        .world
+        .data()
+        .archetypes
+        .equipment
+        .get(&arch)
+        .map_or(0.0, |a| a.root.hit_pts);
+    let mut stack = None;
+    let mut combined = false;
+    if cx.world.data().goods.arch_is_combinable(arch) && !mission {
+        match first_stack_of(cx, h, arch) {
+            Some((id, true)) => {
+                if let Some(c) = cx
+                    .world
+                    .get_mut(h)
+                    .and_then(|o| o.equipped.as_deref_mut())
+                    .and_then(|eq| eq.equipment.by_id_mut(id))
+                    .and_then(|item| match &mut item.kind {
+                        EquipKind::Cargo(c) => Some(c),
+                        _ => None,
+                    })
+                {
+                    c.add_to_stack(count, health, max);
+                }
+                stack = Some(id);
+                combined = true;
+            }
+            Some((_, false)) => {
+                let solar = cx.world.get(h).is_some_and(|o| o.kind == ObjectKind::Solar);
+                if let Some(eq) = cx.world.get_mut(h).and_then(|o| o.equipped.as_deref_mut()) {
+                    eq.equipment.clean_up(solar);
+                }
+            }
+            None => {}
+        }
+    }
+    let session = owning_session(cx, h);
+    let bay = cx.world.strings().cargo_bay();
+    if combined {
+        if let Some(session) = session {
+            crate::player::add_equipment(
+                cx,
+                session,
+                arch,
+                bay,
+                count as i32,
+                health,
+                0,
+                false,
+                false,
+            );
+        }
+    } else {
+        let id = match session {
+            Some(session) => crate::player::add_equipment(
+                cx,
+                session,
+                arch,
+                bay,
+                count as i32,
+                health,
+                0,
+                mission,
+                false,
+            ),
+            None => crate::ship::allocate_equip_id(cx, h),
+        };
+        let mut desc = EquipDesc::new(cx.world.strings());
+        desc.id = id;
+        desc.arch_id = arch;
+        desc.count = count as i32;
+        desc.health = health;
+        desc.equipped = 0;
+        desc.mission = mission;
+        desc.make_internal(cx.world.strings());
+        if cx.world.get(h).is_some_and(|o| o.equipped.is_some()) {
+            cx.world.add_equip_item(h, &desc);
+            stack = cargo_stack(cx, h, id);
+        }
+    }
+    let described = stack.and_then(|id| cx.world.equip_desc(h, id));
+    match described {
+        Some(desc) => {
+            let (system, object) = cx
+                .world
+                .get(h)
+                .map_or((0, 0), |o| (o.physical.system, o.simple.id));
+            crate::replication::cargo_updated(cx, system, object, &desc);
+        }
+        None => cx.logic.reports.push(
+            STAR_SYS,
+            0xd8e,
+            "*** ERROR: StarSys::add_cargo().  Failed to get client cargo description.",
+        ),
+    }
+    stack.unwrap_or(game_sim::equip::SUBOBJ_ID_NONE)
+}
+
+/// `StarSystem::remove_cargo(Obj, EquipId, Count)`: units leave a cargo
+/// stack of the ship (`RemoveFromStack`; the top unit is whole again).
+/// Nothing happens when the item is not a stack or holds no units.
+/// Otherwise the owner's record loses them (no notice) and every player of
+/// the system that sees the ship hears of the stack, with what is left
+/// (`OBJECTCARGOUPDATE`; a stack left empty travels with count 0). A ship
+/// in transit tells nobody (D694).
+pub fn remove_cargo(cx: &mut Cx<'_>, h: ObjHandle, id: SubObjId, count: i32) {
+    let Some(stack) = cargo_stack(cx, h, id) else {
+        return;
+    };
+    let Some(mut desc) = cx.world.equip_desc(h, stack) else {
+        // The stack holds no units.
+        return;
+    };
+    let max = cx
+        .world
+        .data()
+        .archetypes
+        .equipment
+        .get(&desc.arch_id)
+        .map_or(0.0, |a| a.root.hit_pts);
+    let Some(item) = cx
+        .world
+        .get_mut(h)
+        .and_then(|o| o.equipped.as_deref_mut())
+        .and_then(|eq| eq.equipment.by_id_mut(stack))
+    else {
+        return;
+    };
+    if let EquipKind::Cargo(c) = &mut item.kind {
+        c.remove_from_stack(count as u32, max);
+        desc.count = c.count as i32;
+    }
+    desc.health = item.relative_health() as f32;
+    if let Some(session) = owning_session(cx, h) {
+        crate::player::remove_equipment(cx, session, id, count, false);
+    }
+    let (system, object) = cx
+        .world
+        .get(h)
+        .map_or((0, 0), |o| (o.physical.system, o.simple.id));
+    crate::replication::cargo_updated(cx, system, object, &desc);
 }
