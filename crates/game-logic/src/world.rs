@@ -159,17 +159,28 @@ pub fn load(cx: &mut Cx<'_>, system: u32) {
         _ => return,
     }
     cx.world.load_system(system);
-    if cx.world.config().single_player {
+    let solars = if cx.world.config().single_player {
         // `load_solars` and `SrvAsteroid_MapSystem`: the client side's
-        // solars and fields are already in the shared world; the server's
-        // side tables come with the object part.
+        // solars and fields are already in the shared world; each solar
+        // gets its server entry and `check_fuses`.
+        let solars: Vec<ObjHandle> = cx
+            .world
+            .objects_in(system)
+            .into_iter()
+            .filter(|&h| cx.world.get(h).is_some_and(|o| o.kind == ObjectKind::Solar))
+            .collect();
         cx.world.load_asteroid_fields(system);
+        solars
     } else {
         // `CmnAsteroid::Load`, `SrvAsteroid_LoadSystem`, then every
-        // `[Object]` of the system file.
+        // `[Object]` of the system file, each with `check_fuses`.
         cx.world.load_asteroid_fields(system);
         cx.world
-            .load_system_solars_reported(system, &mut cx.logic.reports);
+            .load_system_solars_reported(system, &mut cx.logic.reports)
+    };
+    for h in solars {
+        let _ = cx.logic.objects.entry(cx.world, h);
+        crate::fuses::check_fuses(cx, h);
     }
     if let Some(s) = system_mut(cx, system) {
         s.loaded = true;
@@ -413,7 +424,37 @@ impl ServerHooks for Hooks<'_> {
             logic: self.logic,
         };
         crate::objects::begin_damage_list(&mut cx, object, list);
+        crate::fuses::sweep_damage_list(&mut cx, object, list);
         true
+    }
+
+    fn object_update(&mut self, world: &mut World, object: ObjHandle, dt: f32) -> bool {
+        // `EqObj::update`: past `GameObject::update`'s gate, the fuses
+        // burn (the weapons-offline repair, the dock queue, the server's
+        // equipment and the cargo decay before them come with their
+        // parts); a destroyed object skips its own update.
+        let eq_obj = world.get(object).is_some_and(|o| {
+            matches!(o.kind, ObjectKind::Ship | ObjectKind::Solar) && o.equipped.is_some()
+        });
+        if !eq_obj {
+            return true;
+        }
+        if self.logic.objects.get(object).is_some_and(|o| o.destroyed) {
+            return false;
+        }
+        if self
+            .logic
+            .objects
+            .get(object)
+            .is_some_and(|o| !o.fuses.is_empty())
+        {
+            let mut cx = Cx {
+                world,
+                logic: self.logic,
+            };
+            crate::fuses::burn_fuses(&mut cx, object, dt);
+        }
+        !self.logic.objects.get(object).is_some_and(|o| o.destroyed)
     }
 
     fn after_damage_list(&mut self, world: &mut World, object: ObjHandle, list: &mut DamageList) {

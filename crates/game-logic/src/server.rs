@@ -192,6 +192,9 @@ pub struct Logic {
     pub gf_base_position: Option<(u32, neuron_core::math::Vector)>,
     /// The server's state of the world's objects (record 0007 point 1).
     pub objects: crate::objects::ServerObjects,
+    /// The fuse database (`ServerFuseDB`), read on first use
+    /// ([`crate::fuses::fuse_db`]).
+    pub fuses: Option<crate::fuses::FuseDb>,
     /// The client's performance slider (`GRtcSliderValue`, 0 until set),
     /// which a single-player server reads.
     pub rtc_slider: f32,
@@ -284,6 +287,7 @@ impl Logic {
             gf_base_position: None,
             rtc_slider: 0.0,
             objects: crate::objects::ServerObjects::default(),
+            fuses: None,
         }
     }
 }

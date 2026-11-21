@@ -830,10 +830,60 @@ impl World {
         impulse: f32,
         hooks: &mut dyn ServerHooks,
     ) {
-        self.explode_damage(system, blast, cause, inflictor, skip, hooks);
+        self.explode_passes(
+            system,
+            blast,
+            cause,
+            inflictor,
+            (skip, skip),
+            impulse,
+            hooks,
+        );
+    }
+
+    /// `StarSystem::explode` for a blast an object sets off on itself (a
+    /// server fuse's `impulse`): inflicted by the object, whose damage pass
+    /// skips it (`ExplodingObjId`) and whose impulse pass pushes it too.
+    #[allow(clippy::too_many_arguments)]
+    pub fn explode_self_hooked(
+        &mut self,
+        system: u32,
+        blast: &damage::Blast,
+        cause: damage::DamageCause,
+        exploding: ObjHandle,
+        impulse: f32,
+        hooks: &mut dyn ServerHooks,
+    ) {
+        let inflictor = self.objects.get(exploding).map_or(0, |o| o.simple.id);
+        self.explode_passes(
+            system,
+            blast,
+            cause,
+            inflictor,
+            (Some(exploding), None),
+            impulse,
+            hooks,
+        );
+    }
+
+    /// The damage pass skipping `skip.0`, then the impulse pass skipping
+    /// `skip.1`.
+    #[allow(clippy::too_many_arguments)]
+    fn explode_passes(
+        &mut self,
+        system: u32,
+        blast: &damage::Blast,
+        cause: damage::DamageCause,
+        inflictor: u32,
+        skip: (Option<ObjHandle>, Option<ObjHandle>),
+        impulse: f32,
+        hooks: &mut dyn ServerHooks,
+    ) {
+        self.explode_damage(system, blast, cause, inflictor, skip.0, hooks);
         if impulse == 0.0 {
             return;
         }
+        let skip = skip.1;
         let pushed: Vec<ObjHandle> = self
             .objects_in(system)
             .into_iter()

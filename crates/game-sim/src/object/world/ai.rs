@@ -1253,6 +1253,17 @@ impl World {
         true
     }
 
+    /// `CEqObj::disconnect(IObjRW*)` with the object's own wrapper: its
+    /// behaviour manager is deleted (a dying ship's death fuse lit). A
+    /// later `GetBehaviorManager` makes a new one. False when it had none.
+    pub fn drop_behavior_manager(&mut self, h: ObjHandle) -> bool {
+        let had = self.behavior_managers.remove(&h).is_some();
+        if had && let Some(eq) = self.get_mut(h).and_then(|o| o.equipped.as_deref_mut()) {
+            eq.has_behavior = false;
+        }
+        had
+    }
+
     /// Sets the attitude of `from` toward `to`, which the AI reads as
     /// `get_attitude_towards` (the reputation groups are not ported).
     pub fn set_attitude(&mut self, from: ObjHandle, to: ObjHandle, value: f32) {

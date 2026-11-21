@@ -8,6 +8,7 @@ pub mod chat;
 pub mod cheats;
 pub mod client;
 pub mod events;
+pub mod fuses;
 pub mod group;
 pub mod login;
 pub mod loot;
