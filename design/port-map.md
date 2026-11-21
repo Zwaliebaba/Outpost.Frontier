@@ -39,6 +39,13 @@ packages and status are in the [library ledger](library-ledger.md).
 C++ project files and resource import scripts describe build inputs.
 Cargo, CI, and the Rust crate manifests define the new build.
 
+The oracle harness (`CppSource/Oracle`) is not ported. Its scenario files
+are read and run through the object world by GameSim's `scenario` module
+(decision O45): the run driver over any server hooks, the oracle's run
+records and the judges, used by `game-sim/tests/scenario_replay.rs`
+without a server and by `game-logic/tests/scenario_hooks.rs` through the
+server's hooks.
+
 Keep numeric resource IDs and serialized field widths consistent when a port
 consumes an existing format. Design Rust types around the fields and behavior
 of that format so the same implementation works on Windows x64. Only layouts
