@@ -1,10 +1,17 @@
 name: Rust CI
 
 on:
+  # Pushes to main; a branch is checked through its pull request, so a push to
+  # it does not run the same jobs a second time.
   push:
-    branches: [main, "claude/**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
+
+# A newer push to the same pull request or branch replaces a run in progress.
+concurrency:
+  group: rust-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -19,6 +26,8 @@ jobs:
           persist-credentials: false
       - name: Prepare Rust
         run: rustup toolchain install
+      - name: Cache the Rust build
+        uses: Swatinem/rust-cache@v2
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Lint workspace
@@ -58,6 +67,8 @@ jobs:
           persist-credentials: false
       - name: Prepare Rust
         run: rustup toolchain install
+      - name: Cache the Rust build
+        uses: Swatinem/rust-cache@v2
       - name: Lint workspace
         run: cargo clippy --locked --workspace --all-targets --target host-tuple -- -D warnings
       - name: Test workspace
@@ -75,6 +86,8 @@ jobs:
           persist-credentials: false
       - name: Prepare Rust
         run: rustup toolchain install
+      - name: Cache the Rust build
+        uses: Swatinem/rust-cache@v2
       - name: Check crate graph, legacy APIs and unsafe placement
         run: cargo xtask check-policy
       - name: Install cargo-deny
@@ -84,6 +97,29 @@ jobs:
       - name: Check dependencies
         run: cargo deny check
 
+  changes:
+    # Which parts of the tree a push or pull request changes, for the jobs
+    # that need not run otherwise.
+    name: Changes
+    # Pull requests only: the filter reads the pull request's files through the API.
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      cpp: ${{ steps.filter.outputs.cpp }}
+    steps:
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            cpp:
+              - "CppSource/**"
+              - ".github/workflows/build.yml"
+              - ".github/msvc-toolset.txt"
+              - ".github/scripts/**"
+
   reference:
     # Builds the whole C++ reference solution (design/reference-build.md), so
     # changes to CppSource (decided exceptions and oracle instrumentation,
@@ -91,6 +127,10 @@ jobs:
     # push. Running the client needs the owner's machine. Removed with the C++
     # in P7.3.
     name: Reference build
+    # On pushes to main and on request; on a pull request only when the C++, its build or
+    # this file changed. A skipped job counts as passed.
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.cpp == 'true') }}
     runs-on: windows-2025-vs2026
     steps:
       - uses: actions/checkout@v6
@@ -139,8 +179,17 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      - name: Restore the C++ build
+        # The oracle harness and the resource DLLs depend only on the C++ (CppSource/) and the
+        # pinned toolset; a run whose sources a run before it built takes that build.
+        id: cpp-bin
+        uses: actions/cache/restore@v4
+        with:
+          key: cpp-bin-v1-${{ hashFiles('CppSource/**', '.github/msvc-toolset.txt', '.github/scripts/**') }}
+          path: bin
       - name: Build the oracle harness
         id: build
+        if: ${{ steps.cpp-bin.outputs.cache-hit != 'true' }}
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -150,6 +199,24 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           & $msbuild CppSource\OutpostFrontier.sln '/t:Tools\Oracle' /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo @pin
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build the resource DLLs
+        if: ${{ steps.cpp-bin.outputs.cache-hit != 'true' }}
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+          $targets = 'UiText', 'FieldGuideText', 'DialogueText', 'NameCatalog', 'EquipmentCatalog', 'NegotiationText', 'InterfaceExtras', 'serverinterface' | ForEach-Object { "ResourceDLLs\$_" }
+          # The pinned MSVC toolset (.github/msvc-toolset.txt).
+          $pin = & .github\scripts\msvc-pin.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo @pin
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Save the C++ build
+        if: ${{ success() && steps.cpp-bin.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          key: cpp-bin-v1-${{ hashFiles('CppSource/**', '.github/msvc-toolset.txt', '.github/scripts/**') }}
+          path: bin
       - name: Run the oracle harness
         shell: pwsh
         run: |
@@ -299,17 +366,6 @@ jobs:
           # The scene scripts of P4.14 (crates/neuron-client/tests/data_dump.rs); none in this tree.
           cargo test --locked -p neuron-client --tests -- data_dump_ --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Build the resource DLLs
-        shell: pwsh
-        run: |
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
-          $targets = 'UiText', 'FieldGuideText', 'DialogueText', 'NameCatalog', 'EquipmentCatalog', 'NegotiationText', 'InterfaceExtras', 'serverinterface' | ForEach-Object { "ResourceDLLs\$_" }
-          # The pinned MSVC toolset (.github/msvc-toolset.txt).
-          $pin = & .github\scripts\msvc-pin.ps1
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo @pin
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Compare the text catalogs with the resource DLLs
         # Work package P1.6: the catalogs built from outdir/data/text must hold
         # what the game reads from the DLLs built from CppSource/Resources.
@@ -341,7 +397,7 @@ jobs:
         # including when the runner cannot create a Direct3D 8 HAL device. It
         # runs whenever the harness built, so its log is there even when an
         # earlier comparison failed.
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.cpp-bin.outputs.cache-hit == 'true') }}
         shell: pwsh
         run: |
           $out = "$PWD\oracle-out-render"
