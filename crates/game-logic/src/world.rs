@@ -539,6 +539,27 @@ impl ServerHooks for Hooks<'_> {
         crate::munitions::pvp_blocked(self.logic.server_world.forbid_pvp, world, inflictor, target)
     }
 
+    fn equip_event(
+        &mut self,
+        world: &mut World,
+        object: ObjHandle,
+        equip: game_sim::equip::SubObjId,
+        event: game_sim::equip::EquipEvent,
+    ) {
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        crate::equip_fire::equip_event(&mut cx, object, equip, event);
+    }
+
+    fn cargo_stack_rule(&mut self, world: &World, object: ObjHandle) -> bool {
+        // `EqObj::apply_equip_entry`: the server's equipped objects.
+        world.get(object).is_some_and(|o| {
+            matches!(o.kind, ObjectKind::Ship | ObjectKind::Solar) && o.equipped.is_some()
+        })
+    }
+
     fn steps_physics(&mut self, world: &World, system: u32) -> bool {
         !world.config().single_player
             && self

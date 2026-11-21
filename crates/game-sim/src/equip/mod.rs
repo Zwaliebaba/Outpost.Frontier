@@ -194,6 +194,9 @@ pub enum EquipEvent {
     TractorReached(Option<crate::object::ObjHandle>),
     /// 0x18: an arm held its loot for `ACQUIRE_DELAY`.
     TractorConsume(Option<crate::object::ObjHandle>),
+    /// 0x19: a counter-measure dropper saw a missile aimed at its owner
+    /// within its `ai_range` (`CECounterMeasureDropper::Update`).
+    IncomingMissile,
 }
 
 /// Where an external item is mounted: its hardpoint and the engine

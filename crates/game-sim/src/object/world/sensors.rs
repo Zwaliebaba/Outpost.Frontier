@@ -533,6 +533,103 @@ impl World {
             .map(|e| e.id)
     }
 
+    // ---- counter-measure dropper --------------------------------------------------------
+
+    /// `CELauncher::Update`'s own part for a counter-measure dropper (the
+    /// epilogue of `CECounterMeasureDropper::Update`, after its walk).
+    pub(crate) fn cm_dropper_launcher_update(&mut self, h: ObjHandle, id: SubObjId, dt: f32) {
+        if let Some(EquipKind::CmDropper(l)) = self
+            .objects
+            .get_mut(h)
+            .and_then(|o| o.equipped.as_deref_mut())
+            .and_then(|eq| eq.equipment.by_id_mut(id))
+            .map(|e| &mut e.kind)
+        {
+            l.update(dt);
+        }
+    }
+
+    /// `CECounterMeasureDropper::Update`'s walk (`common_cedroppers.cpp:107`):
+    /// a functioning dropper of an object updated without
+    /// `NO_COUNTERMEASURE_AI` and with a positive `ai_range` walks the
+    /// first scanner's list as it stands; true for the first guided
+    /// munition (type `0x100_0000`) whose target is the owner and whose
+    /// position is strictly within the range of the dropper's centre of
+    /// mass (`(dz*dz + dy*dy) + dx*dx`), which raises
+    /// [`EquipEvent::IncomingMissile`] before the launcher's own update
+    /// ([`World::cm_dropper_launcher_update`]). An owner without a
+    /// scanner makes no walk (the reference reads the missing scanner).
+    pub(crate) fn cm_dropper_sees_missile(
+        &mut self,
+        h: ObjHandle,
+        id: SubObjId,
+        flags: u32,
+    ) -> bool {
+        if flags & crate::object::update_flags::NO_COUNTERMEASURE_AI != 0 {
+            return false;
+        }
+        let Some(o) = self.objects.get(h) else {
+            return false;
+        };
+        let owner_id = o.simple.id;
+        let Some(eq) = o.equipped.as_deref() else {
+            return false;
+        };
+        let Some(dropper) = eq.equipment.by_id(id) else {
+            return false;
+        };
+        if !dropper.is_functioning(eq.weapons_offline) {
+            return false;
+        }
+        let range_sq = match self
+            .data
+            .archetypes
+            .equipment
+            .get(&dropper.arch_id)
+            .map(|a| &a.kind)
+        {
+            Some(crate::data::archetype::equipment::EquipmentKind::CounterMeasureDropper {
+                ai_range_sq,
+                ..
+            }) => *ai_range_sq,
+            _ => 0.0,
+        };
+        if !(range_sq > 0.0) {
+            return false;
+        }
+        let scans = match eq.equipment.first(types::SCANNER).map(|s| &s.kind) {
+            Some(EquipKind::Scanner(s)) => s.scans.clone(),
+            _ => return false,
+        };
+        for tracked in scans {
+            let Some(t) = self.objects.get(tracked) else {
+                continue;
+            };
+            if t.simple.type_bits != 0x100_0000 {
+                continue;
+            }
+            let KindData::Guided(g) = &t.data else {
+                continue;
+            };
+            let aimed = g
+                .target
+                .and_then(|target| self.objects.get(target))
+                .is_some_and(|target| target.simple.id == owner_id);
+            if !aimed {
+                continue;
+            }
+            let at = t.engine.position;
+            let center = self.sub_obj_center_of_mass(h, id).unwrap_or(Vector::ZERO);
+            let dx = e(at.x) - e(center.x);
+            let dy = e(at.y) - e(center.y);
+            let dz = e(at.z) - e(center.z);
+            if dz * dz + dy * dy + dx * dx < e(range_sq) {
+                return true;
+            }
+        }
+        false
+    }
+
     // ---- tractor ------------------------------------------------------------------------
 
     /// `CETractor::GetSourcePos`: the owner's transform times the source

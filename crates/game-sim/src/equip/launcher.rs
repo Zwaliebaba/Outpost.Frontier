@@ -174,7 +174,8 @@ impl LaunchContext {
 
     /// `GetAvgBarrelPosWS` (or `GetAvgBarrelDirWS` with `dir`): the
     /// barrels' float sum times the unrounded reciprocal of their count.
-    fn barrel_average(&self, barrels: &[Barrel], dir: bool) -> Vector {
+    #[must_use]
+    pub fn barrel_average(&self, barrels: &[Barrel], dir: bool) -> Vector {
         let mut sum = [0.0f32; 3];
         for i in 0..barrels.len() {
             let v = if dir {

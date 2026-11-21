@@ -86,6 +86,9 @@ pub struct ServerObject {
     pub dock_queue: Vec<crate::dock::DockRequest>,
     /// A mine's own state (`Mine`).
     pub mine: Option<crate::munitions::MineState>,
+    /// `EqObj::CargoDecayTimer`: the time since the cargo last decayed
+    /// ([`crate::cargo::decay_cargo`]).
+    pub cargo_decay_timer: f32,
 }
 
 impl Default for ServerObject {
@@ -107,6 +110,7 @@ impl Default for ServerObject {
             ship: None,
             dock_queue: Vec::new(),
             mine: None,
+            cargo_decay_timer: 0.0,
         }
     }
 }
@@ -527,7 +531,10 @@ pub fn destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32, killer: u32) -> bool {
         o.simple.hit_pts = 0.0;
     }
     let dropped = if kind == 1 {
-        cx.world.droppable_equip(h)
+        // `Ship::collect_droppable_equip`: a ship's queued jettison too.
+        let mut dropped = cx.world.droppable_equip(h);
+        dropped.extend(crate::cargo::queued_jettison(cx, h));
+        dropped
     } else {
         Vec::new()
     };

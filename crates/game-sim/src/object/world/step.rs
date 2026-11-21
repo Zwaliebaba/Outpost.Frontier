@@ -180,8 +180,22 @@ pub enum HitRule {
 /// A request the AI made of the server through `IObjAffect`, which the
 /// world hands to [`ServerHooks::server_requests`] after the behaviour
 /// tick that made it (the reference runs it inside the tick, D622).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ServerRequest {
+    /// `EqObj::slot_34(Ids, Count, Target, -1)` from the AI: the world
+    /// fired the guns inside the tick ([`World::fire`]); the server's part
+    /// of the shot (the wrappers' fire counts, the missiles' wrappers and
+    /// creates, the fire notice) follows.
+    Fired {
+        /// The shooter.
+        ship: ObjHandle,
+        /// The aim point (`None`: each gun fired forward).
+        aim: Option<Vector>,
+        /// Each gun's result, in the request's order.
+        results: Vec<(crate::equip::SubObjId, crate::equip::launcher::FireResult)>,
+        /// The guided munitions the shot made, with their gun.
+        guided: Vec<(crate::equip::SubObjId, ObjHandle)>,
+    },
     /// `slot_5c(Kind, &Target, &Second, Flag, Callback)` (`Ship::slot_5c`):
     /// a dock (0), formation (1) or trade-lane (2) request with the
     /// requesting behaviour as the callback.
@@ -342,6 +356,32 @@ pub trait ServerHooks {
         false
     }
 
+    /// An event `object`'s item `equip` tells its listeners (`INotify`),
+    /// which the server's equipment wrappers hear (`ServerEquip::notify`):
+    /// a counter-measure dropper's [`crate::equip::EquipEvent::IncomingMissile`]
+    /// as it is raised, the events of the equipment pass after it, those
+    /// the controllers raise in the physics step after the step. Nothing
+    /// without a server, which has no wrappers.
+    fn equip_event(
+        &mut self,
+        world: &mut World,
+        object: ObjHandle,
+        equip: crate::equip::SubObjId,
+        event: crate::equip::EquipEvent,
+    ) {
+        let _ = (world, object, equip, event);
+    }
+
+    /// Whether `EqObj::apply_equip_entry`'s cargo rule applies to
+    /// `object`'s stacks: an entry of exactly 0 hit points on a stack of
+    /// more than one unit takes one unit off (`RemoveFromStack(1)`, the
+    /// next unit whole) instead of setting the hit points. False without
+    /// a server.
+    fn cargo_stack_rule(&mut self, world: &World, object: ObjHandle) -> bool {
+        let _ = (world, object);
+        false
+    }
+
     /// After a sub-step's deferred deletes: `StarSystem_Update`'s dock
     /// queue.
     fn after_reap(&mut self, world: &mut World, system: u32) {
@@ -355,6 +395,16 @@ pub trait ServerHooks {
         let _ = (world, system);
         true
     }
+}
+
+/// A sensor of `CEqObj::update`'s list that updates after the list's
+/// walk, in the list's order.
+#[derive(Clone, Copy)]
+enum Sensor {
+    /// `CEScanner::Update`.
+    Scanner(crate::equip::SubObjId),
+    /// `CECounterMeasureDropper::Update`.
+    CmDropper(crate::equip::SubObjId),
 }
 
 /// No server: every sub-step steps the physics.
@@ -458,9 +508,54 @@ impl World {
         if self.config.server_physics && hooks.steps_physics(self, system) {
             self.move_beams(system, step);
             self.step_physics(system, step);
+            self.deliver_controller_events(system, hooks);
             self.phantom_events(system, hooks);
             self.process_collisions(system, hooks);
             self.reap();
+        }
+    }
+
+    /// The events an object's equipment queued (`NotifyA`, `NotifyB`), oldest
+    /// first: each goes to the world's events and to the server's
+    /// listeners ([`ServerHooks::equip_event`]).
+    pub(crate) fn deliver_equip_events(&mut self, h: ObjHandle, hooks: &mut dyn ServerHooks) {
+        let Some(o) = self.objects.get_mut(h) else {
+            return;
+        };
+        let owner_id = o.simple.id;
+        let Some(eq) = o.equipped.as_deref_mut() else {
+            return;
+        };
+        let mut queued = Vec::new();
+        for e in eq.equipment.iter_mut() {
+            for event in e.events.drain(..) {
+                queued.push((e.id, event));
+            }
+        }
+        for &(equip, event) in &queued {
+            self.events.push(WorldEvent::Equip {
+                owner: owner_id,
+                equip,
+                event,
+            });
+        }
+        for (equip, event) in queued {
+            hooks.equip_event(self, h, equip, event);
+        }
+    }
+
+    /// After the physics step: the events the equipment's controllers
+    /// raised in it (a starved thruster's), to the listeners, ship by ship.
+    fn deliver_controller_events(&mut self, system: u32, hooks: &mut dyn ServerHooks) {
+        for h in self.list(system, TickList::Ships) {
+            let pending = self
+                .objects
+                .get(h)
+                .and_then(|o| o.equipped.as_deref())
+                .is_some_and(|eq| eq.equipment.iter().any(|e| !e.events.is_empty()));
+            if pending {
+                self.deliver_equip_events(h, hooks);
+            }
         }
     }
 
@@ -684,7 +779,10 @@ impl World {
         let mut cloak = None;
         let mut regen: Vec<(crate::equip::SubObjId, f32)> = Vec::new();
         let mut guns: Vec<crate::equip::SubObjId> = Vec::new();
-        let mut scanners: Vec<crate::equip::SubObjId> = Vec::new();
+        // The scanners and the counter-measure droppers, in the list's
+        // order: a dropper reads the first scanner's list as the items
+        // before it left it.
+        let mut sensors: Vec<Sensor> = Vec::new();
         let mut tractors: Vec<crate::equip::SubObjId> = Vec::new();
         let slots = eq.equipment.traverse(types::EXTERNAL_LIST, false);
         for slot in slots {
@@ -732,7 +830,8 @@ impl World {
                         guns.push(id);
                     }
                 }
-                EquipKind::MineDropper(l) | EquipKind::CmDropper(l) => l.update(dt),
+                EquipKind::MineDropper(l) => l.update(dt),
+                EquipKind::CmDropper(_) => sensors.push(Sensor::CmDropper(id)),
                 EquipKind::Shield(s) => s.update(status, now, events),
                 EquipKind::ShieldGenerator(g) => {
                     let real_dt = (now - g.last_update_time) as f32;
@@ -745,7 +844,7 @@ impl World {
                         regen.push((shield_id, new_hit));
                     }
                 }
-                EquipKind::Scanner(_) => scanners.push(id),
+                EquipKind::Scanner(_) => sensors.push(Sensor::Scanner(id)),
                 EquipKind::Tractor(_) => tractors.push(id),
                 EquipKind::Cloak(c) => {
                     if let Some(p) = c.update(destroyed, dt) {
@@ -777,28 +876,30 @@ impl World {
         for id in guns {
             self.update_gun_turret(h, id, dt);
         }
-        for id in scanners {
-            self.update_scanner(h, id, flags);
+        for sensor in sensors {
+            match sensor {
+                Sensor::Scanner(id) => self.update_scanner(h, id, flags),
+                Sensor::CmDropper(id) => {
+                    // `Notify(Event_0x19)` reaches the listeners at once,
+                    // before the launcher's own update.
+                    if self.cm_dropper_sees_missile(h, id, flags) {
+                        let event = crate::equip::EquipEvent::IncomingMissile;
+                        self.events.push(WorldEvent::Equip {
+                            owner: owner_id,
+                            equip: id,
+                            event,
+                        });
+                        hooks.equip_event(self, h, id, event);
+                    }
+                    self.cm_dropper_launcher_update(h, id, dt);
+                }
+            }
         }
         for id in tractors {
             self.update_tractor(h, id, dt);
         }
         // Equipment events go to the listeners.
-        if let Some(eq) = self
-            .objects
-            .get_mut(h)
-            .and_then(|o| o.equipped.as_deref_mut())
-        {
-            for e in eq.equipment.iter_mut() {
-                for event in e.events.drain(..) {
-                    self.events.push(WorldEvent::Equip {
-                        owner: owner_id,
-                        equip: e.id,
-                        event,
-                    });
-                }
-            }
-        }
+        self.deliver_equip_events(h, hooks);
         self.sync_shield_collisions(h);
         if behavior && let Some(mut hook) = self.take_behavior() {
             hook.update_behavior_tick(self, h, dt);

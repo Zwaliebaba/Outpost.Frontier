@@ -3,11 +3,13 @@
 
 pub mod api;
 pub mod bases;
+pub mod cargo;
 pub mod character_file;
 pub mod chat;
 pub mod cheats;
 pub mod client;
 pub mod dock;
+pub mod equip_fire;
 pub mod events;
 pub mod fuses;
 pub mod group;

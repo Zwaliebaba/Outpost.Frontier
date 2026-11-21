@@ -31,15 +31,11 @@
 //!   frame ([`crate::world::physics_update`]).
 //!
 //! The dock queue's tick and `complete_dock`, which starts a death
-//! sequence, are in [`crate::dock`]. Left to other parts: the cargo decay (`decay_cargo`, which needs the server's
-//! `apply_equip_entry` for a stack); the jettison (`tick_jettison`,
-//! `compute_jettison_launch` and the jettison command that fills it, with
-//! the cargo commands); the server equipment's firing (`fire`,
-//! `fire_forward`, `use_ammo` and the launches, with the weapons'
-//! commands) and its equipment notices (a starved thruster switching an
-//! NPC's thrusters off, the counter-measure dropper's automatic drop:
-//! game-sim queues equipment notices that the C++ delivers at once); the
-//! observers' `RCBegin` of a new ship (replication).
+//! sequence, are in [`crate::dock`]; the cargo decay, which runs in
+//! `EqObj::update` here, and the jettison, which runs in the ship's
+//! update after its own, in [`crate::cargo`]; the server equipment's fire,
+//! launches and equipment notices in [`crate::equip_fire`]. Left to other
+//! parts: the observers' `RCBegin` of a new ship (replication).
 
 use game_sim::equip::{Fate, SUBOBJ_ID_NONE, SUBOBJ_ID_ROOT, SubObjId, types};
 use game_sim::object::damage::{self, DamageList};
@@ -120,7 +116,7 @@ impl ServerEquip {
         }
     }
 
-    fn launcher_mut(&mut self) -> Option<&mut LauncherState> {
+    pub(crate) fn launcher_mut(&mut self) -> Option<&mut LauncherState> {
         match &mut self.kind {
             ServerEquipKind::Gun(l)
             | ServerEquipKind::CounterMeasureDropper(l)
@@ -159,6 +155,9 @@ pub struct ShipState {
     /// `PendingRequest != null`: the request has a callback (the AI
     /// behaviour that made it), which its answer reaches.
     pub request_callback: bool,
+    /// `Jettison`, `JettisonTimer` and `PendingBayCloses`
+    /// ([`crate::cargo`]).
+    pub jettison: crate::cargo::JettisonState,
 }
 
 /// `Ship::FEquipState`: the equipment id maker and the data word a ship
@@ -509,8 +508,10 @@ fn apply(cx: &mut Cx<'_>, h: ObjHandle, list: &DamageList) {
 /// than 60 s, and every disabled launcher undamaged for more than 60 s,
 /// get their maximum hit points back (cause 0x1a); the dock queue is
 /// worked through ([`crate::dock::process_dock_queue`]); each server
-/// equipment wrapper updates; the fuses burn. False when the object is
-/// destroyed by then. The cargo decay is its part's.
+/// equipment wrapper updates; the cargo decay timer gathers the time and,
+/// past 1 s, the cargo decays by it ([`crate::cargo::decay_cargo`]) and
+/// the timer starts over; the fuses burn. False when the object is
+/// destroyed by then.
 pub fn eq_obj_update(cx: &mut Cx<'_>, h: ObjHandle, dt: f32) -> bool {
     if cx.logic.objects.get(h).is_some_and(|o| o.destroyed) {
         return false;
@@ -534,6 +535,17 @@ pub fn eq_obj_update(cx: &mut Cx<'_>, h: ObjHandle, dt: f32) -> bool {
             .map(|s| s.kind);
         if let Some(ServerEquipKind::RepairDroid { .. }) = kind {
             repair_droid_update(cx, h, index, dt);
+        }
+    }
+    // `CargoDecayTimer`: past 1 s the cargo decays by the time gathered.
+    let decay = cx.logic.objects.entry(cx.world, h).and_then(|o| {
+        o.cargo_decay_timer = (f64::from(dt) + f64::from(o.cargo_decay_timer)) as f32;
+        above(f64::from(o.cargo_decay_timer), 1.0).then_some(o.cargo_decay_timer)
+    });
+    if let Some(elapsed) = decay {
+        crate::cargo::decay_cargo(cx, h, elapsed);
+        if let Some(o) = cx.logic.objects.entry_mut(h) {
+            o.cargo_decay_timer = 0.0;
         }
     }
     if cx.logic.objects.get(h).is_some_and(|o| !o.fuses.is_empty()) {
@@ -845,8 +857,8 @@ pub fn update_flags(world: &game_sim::object::World, h: ObjHandle) -> u32 {
 }
 
 /// The `object_after_update` hook for a ship: after its own update (or
-/// in its place for a player's in single player), the zone damage. The
-/// jettison before it is the cargo commands' part.
+/// in its place for a player's in single player), the jettison
+/// ([`crate::cargo::tick_jettison`]) and the zone damage.
 pub fn after_update(cx: &mut Cx<'_>, h: ObjHandle, dt: f32) {
     let Some(s) = ship_state(cx, h) else {
         return;
@@ -854,6 +866,7 @@ pub fn after_update(cx: &mut Cx<'_>, h: ObjHandle, dt: f32) {
     if !std::mem::take(&mut s.after_update_pending) {
         return;
     }
+    crate::cargo::tick_jettison(cx, h, dt);
     tick_zone_damage(cx, h, dt);
 }
 
