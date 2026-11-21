@@ -868,6 +868,16 @@ impl World {
         }
     }
 
+    /// `CEqObj::add_item` on a live object (the server's
+    /// `StarSystem::add_cargo`): as at spawn, a ship's items as a ship's.
+    pub fn add_equip_item(&mut self, owner: ObjHandle, desc: &crate::data::equip_desc::EquipDesc) {
+        let ship = self
+            .objects
+            .get(owner)
+            .is_some_and(|o| o.kind == ObjectKind::Ship);
+        self.add_item(owner, desc, ship);
+    }
+
     /// `CEqObj::add_item`: an equipped item (allocated, its hit points
     /// set, an external one connected) or a cargo stack.
     fn add_item(

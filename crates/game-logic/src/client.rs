@@ -398,3 +398,18 @@ pub fn misc_obj_update_affiliation(cx: &mut Cx<'_>, client: u32, object: u32, af
     };
     send(cx, client, message);
 }
+
+/// `SendServerObjectCargoUpdate` (slot +0x158, ch2 0x55): the object and
+/// one stack (its id, archetype, the count's low word, health and the raw
+/// mission byte).
+pub fn object_cargo_update(cx: &mut Cx<'_>, client: u32, object: u32, desc: &EquipDesc) {
+    let message = game_sim::protocol::to_client::ObjectCargoUpdate {
+        object_id: object,
+        arch_id: desc.arch_id,
+        equip_id: desc.id,
+        count: desc.count as u16,
+        status: desc.health,
+        mission: u8::from(desc.mission),
+    };
+    send(cx, client, message);
+}

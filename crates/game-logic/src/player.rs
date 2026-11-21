@@ -141,6 +141,9 @@ pub struct PlayerData {
     pub rep_vibe: i32,
     /// The rank (+0x284), which a single-player save writes.
     pub rank_level: u32,
+    /// The cash the next rank needs (`money_needed_to_next_rank`, after
+    /// the rank), which only `pub::Player` reads and writes.
+    pub money_needed_to_next_rank: i32,
     /// The comm costume (+0x288).
     pub com_costume: Costume,
     /// The voice (+0x2c4), at most 31 bytes.
@@ -211,6 +214,7 @@ impl Default for PlayerData {
             starting_ring: 0,
             rep_vibe: -1,
             rank_level: 0,
+            money_needed_to_next_rank: 0,
             com_costume: Costume::default(),
             voice: Vec::new(),
             costume: Costume::default(),
