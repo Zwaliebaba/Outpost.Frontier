@@ -13,6 +13,9 @@
 //! * [`equip`]: equipment and the flight controllers (work package P2.4).
 //! * [`ai`]: the flight AI (work package P2.5); so far the parts that need
 //!   no object world and the world interface the behaviours will use.
+//! * [`scenario`]: the oracle scenarios run through the object world and
+//!   judged against the oracle's records (decision O45), with any server
+//!   hooks.
 #![forbid(unsafe_code)]
 
 pub mod ai;
@@ -20,5 +23,6 @@ pub mod data;
 pub mod equip;
 pub mod object;
 pub mod protocol;
+pub mod scenario;
 
 pub use neuron_core::ENGINE_VERSION;

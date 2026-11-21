@@ -414,6 +414,20 @@ jobs:
           }
           Copy-Item "$env:OUTPOST_ORACLE_DIR\rust-*-replay.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
           exit $failed
+      - name: Replay the scenarios through the server's hooks
+        # Work package P3.3 (decision O45): the scenarios of game_sim::scenario run with
+        # game-logic's server hooks (the physics forced on, as the oracle's GOracleSimHooks
+        # does) and are judged against tick.jsonl as scenario_replay judges them
+        # (crates/game-logic/tests/scenario_hooks.rs). Summary rust-scenario-hooks.txt.
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-sim"
+          cargo test --locked --release -p game-logic --test scenario_hooks -- --nocapture
+          $code = $LASTEXITCODE
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\outpost-sim-summaries" | Out-Null
+          Copy-Item "$env:OUTPOST_ORACLE_DIR\rust-scenario-hooks.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
+          exit $code
       - name: Compare the system loads
         # Work package P3.3 (decision record 0007 point 11): the port loads every system through
         # game-logic::world and renders the lines the oracle wrote
