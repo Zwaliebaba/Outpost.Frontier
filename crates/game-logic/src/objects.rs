@@ -494,8 +494,17 @@ pub fn destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32, killer: u32) -> bool {
     if matches!(o.kind, ObjectKind::Mine | ObjectKind::CounterMeasure) {
         return crate::munitions::destroy(cx, h, kind, killer);
     }
+    // `Solar::destroy`: once `EqObj::destroy` answers true, the system
+    // drops the solar (`StarSystem::remove_solar`), which takes it out of
+    // the solar BSP.
+    let solar_system = (o.kind == ObjectKind::Solar)
+        .then_some(o.simple.system)
+        .flatten();
     if !equipped {
         base_destroy(cx, h, kind);
+        if let Some(system) = solar_system {
+            crate::api::system::remove_from_solar_tree(cx, system, h);
+        }
         return true;
     }
     let lit = cx
@@ -573,6 +582,9 @@ pub fn destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32, killer: u32) -> bool {
             let spawns = cx.world.loot_drops(h, &dropped);
             create_loot(cx, system, id, &spawns);
         }
+    }
+    if let Some(system) = solar_system {
+        crate::api::system::remove_from_solar_tree(cx, system, h);
     }
     true
 }

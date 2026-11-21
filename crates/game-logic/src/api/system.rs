@@ -57,6 +57,32 @@ pub struct SolarTrees {
     trees: BTreeMap<u32, SolarTree>,
 }
 
+impl SolarTree {
+    /// The partition's sphere query (`QuerySphere`, +0x1c): the partition
+    /// handles of the solars whose spheres the sphere overlaps, appended
+    /// to `found` while it has room, in the tree's order
+    /// ([`SolarTree::solar`] maps them back).
+    pub fn query_sphere(&self, sphere: &Sphere, found: &mut QueryResult) {
+        self.tree.query_sphere(sphere, found);
+    }
+
+    /// The solar of a partition handle.
+    #[must_use]
+    pub fn solar(&self, item: u32) -> Option<ObjHandle> {
+        let index = usize::try_from(item).ok()?.checked_sub(1)?;
+        self.solars.get(index).copied()
+    }
+
+    /// The partition handle of a solar the tree holds (0 for none).
+    fn handle_of(&self, h: ObjHandle) -> u32 {
+        self.solars
+            .iter()
+            .position(|&s| s == h)
+            .and_then(|i| u32::try_from(i + 1).ok())
+            .unwrap_or(0)
+    }
+}
+
 impl SolarTrees {
     /// The tree of a system, if it was built.
     #[must_use]
@@ -124,6 +150,20 @@ pub fn add_to_solar_tree(cx: &mut Cx<'_>, system: u32, h: ObjHandle) {
         position,
         radius,
     });
+}
+
+/// `StarSystem::remove_solar`'s `Remove` from the spatial partition
+/// (`Solar::destroy`): the solar leaves its system's tree, whose node
+/// moves its last used slot into the solar's place. Nothing for a solar
+/// the tree does not hold or a system without one.
+pub fn remove_from_solar_tree(cx: &mut Cx<'_>, system: u32, h: ObjHandle) {
+    let Some(tree) = cx.logic.solar_trees.trees.get_mut(&system) else {
+        return;
+    };
+    let item = tree.handle_of(h);
+    if item != 0 {
+        tree.tree.remove(item);
+    }
 }
 
 /// `LoadSystem`: the system loads (`StarSystem::add_player(0)`, which
