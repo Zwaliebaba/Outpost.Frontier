@@ -35,7 +35,7 @@
 use std::collections::BTreeMap;
 
 use game_sim::object::damage::DamageList;
-use game_sim::object::world::{DamageState, Hit, HitRule, ServerHooks};
+use game_sim::object::world::{DamageState, Hit, HitRule, ServerHooks, ServerRequest};
 use game_sim::object::{ObjHandle, ObjectKind, World};
 use neuron_core::math::{Matrix, Vector};
 use neuron_core::physics::CreateParms;
@@ -434,8 +434,7 @@ impl ServerHooks for Hooks<'_> {
     }
 
     fn object_update(&mut self, world: &mut World, object: ObjHandle, dt: f32) -> bool {
-        // `EqObj::update` (the dock queue's tick and the cargo decay come
-        // with their parts), then `Ship::update`'s choice; a destroyed
+        // `EqObj::update` (the cargo decay comes with its part), then `Ship::update`'s choice; a destroyed
         // object skips its own update.
         let mut cx = Cx {
             world,
@@ -496,6 +495,14 @@ impl ServerHooks for Hooks<'_> {
             logic: self.logic,
         };
         crate::objects::destroy(&mut cx, object, kind, killer)
+    }
+
+    fn server_requests(&mut self, world: &mut World, requests: Vec<ServerRequest>) {
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        crate::dock::server_requests(&mut cx, requests);
     }
 
     fn after_reap(&mut self, world: &mut World, system: u32) {

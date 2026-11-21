@@ -1,7 +1,9 @@
 //! `pub::SpaceObj` (`Server/server_pub.cpp`, `Server\space\pubSpace.cpp`):
 //! the creation of a ship (`Create`, `:2456`) and its transport loadout
 //! (`SpaceObj_BuildTransportLoadout`, `Server\SrvMisc.cpp`). The other
-//! `SpaceObj` functions arrive with the parts that own their state.
+//! `SpaceObj` functions arrive with the parts that own their state; the
+//! dock functions (`DockRequest`, `Dock`, `InstantDock`) work on
+//! [`crate::dock`].
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -279,4 +281,121 @@ pub fn create(cx: &mut Cx<'_>, info: &ShipInfo) -> Result<u32, PubError> {
         .ship_controllers
         .insert(id, info.controller);
     Ok(id)
+}
+
+/// `pub::SpaceObj::DockRequest(Ship, Target)`: the object's request of a
+/// dock without a callback (`slot_5c(0, Target, 0, 1)`; the owner's client
+/// hears the answer). 0 for an object that is not found or destroyed, and
+/// the request's answer otherwise (-3 for an object that is not a ship).
+pub fn dock_request(cx: &mut Cx<'_>, ship: u32, target: u32) -> i32 {
+    let Some(h) = crate::dock::lookup_live(cx, ship) else {
+        return 0;
+    };
+    crate::dock::request(cx, h, 0, target, 0, 1, false)
+}
+
+/// `pub::SpaceObj::Dock(Ship, Target, Port, Response)`, Content's answer
+/// to a dock request. For a live ship: a ship whose request is in progress
+/// gets the answer (`request_returned(0, Response, Port)`, [`crate::dock::
+/// request_returned`]); its docking lights go on for responses 3 and 4 and
+/// off otherwise (`ActivateEquipment` with type 3). A waiting answer (3)
+/// ends there. Otherwise a live host queues the ship at `port`, or with a
+/// negative port drops the ship's request (any port). The behaviour event
+/// 5 to the ship's followers comes with the behaviour manager's server
+/// link.
+///
+/// # Errors
+///
+/// -4 for a ship id whose low 30 bits are 0; -2 for a waiting answer to a
+/// ship that is not found, or that has no request in progress; -3 when the
+/// host is not found. A host without equipment, which the C++ casts
+/// unchecked, queues nothing (D625).
+pub fn dock(
+    cx: &mut Cx<'_>,
+    ship: u32,
+    target: u32,
+    port: i32,
+    response: i32,
+) -> Result<(), PubError> {
+    if ship & 0x3fff_ffff == 0 {
+        return Err(PubError(-4));
+    }
+    let mut result = Err(PubError::BAD_ID);
+    if let Some(h) = crate::dock::lookup_live(cx, ship) {
+        let busy = crate::ship::ship_state(cx, h).is_some_and(|s| s.request_busy);
+        if busy {
+            crate::dock::request_returned(cx, h, 0, response, port);
+            result = Ok(());
+        }
+        if let Some(lit) = cx.world.find(ship) {
+            crate::dock::activate_docking_lights(
+                cx,
+                lit,
+                response == crate::dock::RESPONSE_PROCEED || response == crate::dock::RESPONSE_WAIT,
+            );
+        }
+    }
+    if response == crate::dock::RESPONSE_WAIT {
+        return result;
+    }
+    let Some(host) = crate::dock::lookup_live(cx, target) else {
+        return Err(PubError::NOT_FOUND);
+    };
+    if cx.world.get(host).and_then(|o| o.as_equipped()).is_none() {
+        return Ok(());
+    }
+    if port >= 0 {
+        crate::dock::queue_dock_request(cx, host, port, ship);
+    } else {
+        crate::dock::dequeue_dock_request(cx, host, port, ship);
+    }
+    Ok(())
+}
+
+/// `pub::SpaceObj::InstantDock(Ship, Target, Port)`: the ship docks at
+/// once, without the approach. A host whose type bits are a subset of
+/// `0xc40` (a gate, a jump hole, an airlock) completes the dock in its
+/// system ([`crate::dock::complete_dock`]); any other joins its system's
+/// landing queue with the host's docking-point base, landing unless the
+/// port's docking sphere is a mooring point. A port without a sphere,
+/// which the C++ reads past the archetype's array, lands (D623).
+///
+/// # Errors
+///
+/// -4 for a ship or target id whose low 30 bits are 0; otherwise always
+/// -2, as the C++ answers, including when the ship or a live equipped host
+/// is not found.
+pub fn instant_dock(cx: &mut Cx<'_>, ship: u32, target: u32, port: i32) -> Result<(), PubError> {
+    if ship & 0x3fff_ffff == 0 || target & 0x3fff_ffff == 0 {
+        return Err(PubError(-4));
+    }
+    let Some(ship_h) = crate::dock::lookup_live(cx, ship) else {
+        return Err(PubError::BAD_ID);
+    };
+    let Some(host) = crate::dock::lookup_live(cx, target)
+        .filter(|&h| cx.world.get(h).and_then(|o| o.as_equipped()).is_some())
+    else {
+        return Err(PubError::BAD_ID);
+    };
+    let Some(o) = cx.world.get(host) else {
+        return Err(PubError::BAD_ID);
+    };
+    let system = o.physical.system;
+    let bits = o.simple.type_bits;
+    let eq = o.as_equipped();
+    let dock_type = eq
+        .and_then(|e| {
+            usize::try_from(port)
+                .ok()
+                .and_then(|i| e.docking_points.get(i))
+        })
+        .map_or(0, |d| d.dock_type);
+    let base = eq.map_or(0, |e| e.docking_point_base);
+    if bits == bits & 0xc40 {
+        crate::dock::complete_dock(cx, system, ship_h, host);
+        return Err(PubError::BAD_ID);
+    }
+    let land = !matches!(dock_type, 3..=5);
+    crate::world::queue_dock(cx, system, Some(ship_h), Some(host), base, land);
+    Err(PubError::BAD_ID)
 }

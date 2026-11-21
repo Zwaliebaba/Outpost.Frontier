@@ -90,6 +90,11 @@ pub struct ShipSpawn {
     pub using_tradelane: bool,
     /// The rank given to the reputation group (`Rank`, `Vibe::SetRank`).
     pub rank: u32,
+    /// The collision groups (`ArchGroupDescs`): each group's id and
+    /// relative health, as a player's ship keeps them; `None` gives every
+    /// group of the archetype at full health (the undamaged list
+    /// `pub::SpaceObj::Create` builds).
+    pub collision_groups: Option<Vec<(crate::equip::SubObjId, f32)>>,
 }
 
 impl ShipSpawn {
@@ -116,6 +121,7 @@ impl ShipSpawn {
             group_name_id: 0,
             using_tradelane: false,
             rank: 0,
+            collision_groups: None,
         }
     }
 }
@@ -1292,6 +1298,9 @@ impl World {
         self.build_body(h, parms, None, false);
         self.add_initial_velocity(h, s.velocity, s.angular_velocity);
         self.init_equipped_with(h, &arch.eq_obj, s.loadout, &s.equipment, true);
+        if let Some(descs) = &s.collision_groups {
+            self.load_arch_groups(h, descs);
+        }
         // `CEqObj::init`'s reputation group, costume (the accessories up to
         // the eight of its array) and voice.
         if let Some(eq) = self
@@ -1392,6 +1401,39 @@ impl World {
             self.set_collisions(h, true);
         }
         Ok(h)
+    }
+
+    /// `CEqObj::load_arch_groups(Descs)`: only the described groups, in
+    /// the descriptions' order, each at its fraction of the archetype's hit
+    /// points (`SetRelativeHealth`); a group at health 0 is killed with the
+    /// health-proxy fate and then destroyed (`DestroyDeadGroups`), as the
+    /// world marks a group a damage list destroys. A description of a group
+    /// the archetype lacks, which the reference builds through null, and a
+    /// second one of the same group, which `AddNewArchGroup` refuses with a
+    /// warning, are skipped (D624).
+    fn load_arch_groups(&mut self, h: ObjHandle, descs: &[(crate::equip::SubObjId, f32)]) {
+        let Some(eq) = self
+            .objects
+            .get_mut(h)
+            .and_then(|o| o.equipped.as_deref_mut())
+        else {
+            return;
+        };
+        let all = std::mem::take(&mut eq.arch_groups);
+        for &(id, health) in descs {
+            if eq.arch_groups.iter().any(|g| g.id == id) {
+                continue;
+            }
+            let Some(mut group) = all.iter().find(|g| g.id == id).cloned() else {
+                continue;
+            };
+            group.hit_pts = (f64::from(group.max_hit_pts) * f64::from(health)) as f32;
+            if health == 0.0 {
+                group.fate = crate::equip::Fate::HealthProxy;
+                group.state = crate::object::damage::GroupState::Destroyed;
+            }
+            eq.arch_groups.push(group);
+        }
     }
 
     fn add_initial_velocity(&mut self, h: ObjHandle, velocity: Vector, angular_velocity: Vector) {

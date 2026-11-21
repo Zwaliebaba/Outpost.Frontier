@@ -37,6 +37,7 @@ mod combat;
 mod descs;
 mod fields;
 mod guided;
+mod launch;
 mod loot_drop;
 pub use guided::GuidedTrace;
 mod sensors;
@@ -72,7 +73,7 @@ pub use combat::damage_sub_obj;
 pub use sensors::{EquipStatus, EquipmentVal, equipment_val};
 pub(crate) use spawn::shield_status;
 pub use spawn::{LootSpawn, ProjectileSpawn, ShipSpawn, SolarSpawn, SpawnError};
-pub use step::{DamageState, Hit, HitRule, NoServerHooks, ServerHooks};
+pub use step::{DamageState, Hit, HitRule, NoServerHooks, ServerHooks, ServerRequest};
 pub use turret::TurretGeometry;
 
 /// A force controller the world registered with the physics
@@ -353,6 +354,9 @@ pub struct World {
     /// feelings replace its faction feelings (`Reputation::LoadFeelings`).
     reputation: crate::data::reputation::Reputation,
     always_update: Vec<ObjHandle>,
+    /// The requests the AI made of the server since they were last handed
+    /// to it ([`ServerHooks::server_requests`]), oldest first.
+    server_requests: Vec<ServerRequest>,
     anim_channels: Vec<turret::AnimChannel>,
     anim_playbacks: Vec<(ObjHandle, animate::AnimKind)>,
     /// The scene's animation component (`NeuronRuntime::Anim`), which
@@ -467,6 +471,7 @@ impl World {
             strings,
             reputation,
             always_update: Vec::new(),
+            server_requests: Vec::new(),
             anim_channels: Vec::new(),
             anim_playbacks: Vec::new(),
             animation: neuron_core::scene::animation::Animation::new(),
@@ -669,12 +674,43 @@ impl World {
     }
 
     /// Keeps a solar updated every step (the server's `ListD4`), whether or
-    /// not a player is near.
+    /// not a player is near: once (`on`), or not at all.
     pub fn set_always_update(&mut self, h: ObjHandle, on: bool) {
         self.always_update.retain(|x| *x != h);
         if on {
             self.always_update.push(h);
         }
+    }
+
+    /// `StarSystem::add_to_list_d4`'s append: one more entry for the object
+    /// in the always-updated list (a queued dock request adds one each).
+    pub fn add_always_update(&mut self, h: ObjHandle) {
+        self.always_update.push(h);
+    }
+
+    /// `StarSystem::remove_from_list_d4`: the object's first entry leaves
+    /// the always-updated list; none, nothing.
+    pub fn remove_always_update(&mut self, h: ObjHandle) {
+        if let Some(at) = self.always_update.iter().position(|x| *x == h) {
+            self.always_update.remove(at);
+        }
+    }
+
+    /// The always-updated list (`ListD4`), in order, with its repeats.
+    #[must_use]
+    pub fn always_updated(&self) -> &[ObjHandle] {
+        &self.always_update
+    }
+
+    /// The requests the AI made of the server (`Ship::slot_5c`,
+    /// `slot_60`) and that were not handed to it yet, oldest first; the
+    /// world forgets them.
+    pub fn take_server_requests(&mut self) -> Vec<ServerRequest> {
+        std::mem::take(&mut self.server_requests)
+    }
+
+    pub(crate) fn push_server_request(&mut self, request: ServerRequest) {
+        self.server_requests.push(request);
     }
 
     // ---- objects ------------------------------------------------------------------------

@@ -173,6 +173,40 @@ pub enum HitRule {
     RootImmune,
 }
 
+/// A request the AI made of the server through `IObjAffect`, which the
+/// world hands to [`ServerHooks::server_requests`] after the behaviour
+/// tick that made it (the reference runs it inside the tick, D622).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ServerRequest {
+    /// `slot_5c(Kind, &Target, &Second, Flag, Callback)` (`Ship::slot_5c`):
+    /// a dock (0), formation (1) or trade-lane (2) request with the
+    /// requesting behaviour as the callback.
+    Request {
+        /// The requesting ship.
+        ship: ObjHandle,
+        /// The request type.
+        kind: i32,
+        /// The target's id.
+        target: u32,
+        /// The second id (the lane's far ring).
+        second: u32,
+        /// `bFlag`.
+        flag: i32,
+    },
+    /// `slot_60(Kind, &Target, Arg3)` (`Ship::slot_60`): the request
+    /// cancelled.
+    Cancel {
+        /// The ship.
+        ship: ObjHandle,
+        /// The request type.
+        kind: i32,
+        /// The target's id.
+        target: u32,
+        /// `Arg3`.
+        arg: i32,
+    },
+}
+
 /// The server's parts of a system frame (decision record 0007, point 2,
 /// amended 2026-11-21): the wrapper's update around each object's own,
 /// the server's side of applying a damage list and of destroying an
@@ -273,6 +307,14 @@ pub trait ServerHooks {
     fn destroy(&mut self, world: &mut World, object: ObjHandle, kind: i32, killer: u32) -> bool {
         let _ = (world, object, kind, killer);
         true
+    }
+
+    /// The requests an object's behaviour tick made of the server
+    /// (`Ship::slot_5c`, `slot_60`), oldest first, right after the tick.
+    /// Without a server they go nowhere, as the bare world's request
+    /// command did.
+    fn server_requests(&mut self, world: &mut World, requests: Vec<ServerRequest>) {
+        let _ = (world, requests);
     }
 
     /// After a sub-step's deferred deletes: `StarSystem_Update`'s dock
@@ -408,7 +450,12 @@ impl World {
     }
 
     /// `StarSystem_UpdateNearShips`: the solars within 10000 m of a
-    /// player's ship, then those kept always updated.
+    /// player's ship, then every entry of the always-updated list
+    /// (`ListD4`, with its repeats), with the reference's de-duplication:
+    /// each item drops only the first later repeat of itself, so an object
+    /// listed three times updates twice. A near solar enters the list once
+    /// whatever the number of players near it, and the list has no cap
+    /// (D628).
     fn tick_near_solars(&mut self, system: u32, dt: f32, hooks: &mut dyn ServerHooks) {
         let players: Vec<Vector> = self
             .list(system, TickList::Ships)
@@ -417,7 +464,7 @@ impl World {
             .filter(|o| o.simple.owner_player != 0)
             .map(|o| o.engine.position)
             .collect();
-        let mut chosen = Vec::new();
+        let mut scan: Vec<Option<ObjHandle>> = Vec::new();
         if !players.is_empty() {
             for h in self.list(system, TickList::Solars) {
                 let Some(o) = self.objects.get(h) else {
@@ -432,14 +479,24 @@ impl World {
                     (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) <= 10000.0 * 10000.0
                 });
                 if near {
-                    chosen.push(h);
+                    scan.push(Some(h));
                 }
             }
         }
-        for &h in self.always_update() {
-            if !chosen.contains(&h) {
-                chosen.push(h);
+        scan.extend(self.always_update().iter().map(|&h| Some(h)));
+        let mut chosen = Vec::new();
+        if scan.len() > 1 {
+            for index in 0..scan.len() {
+                let Some(item) = scan[index] else {
+                    continue;
+                };
+                if let Some(later) = (index + 1..scan.len()).find(|&l| scan[l] == Some(item)) {
+                    scan[later] = None;
+                }
+                chosen.push(item);
             }
+        } else {
+            chosen.extend(scan.into_iter().flatten());
         }
         for h in chosen {
             if hooks.object_update(self, h, dt) {
@@ -516,9 +573,9 @@ impl World {
             return;
         }
         match obj.kind {
-            crate::object::ObjectKind::Ship => self.update_ship(h, dt, flags),
+            crate::object::ObjectKind::Ship => self.update_ship(h, dt, flags, hooks),
             crate::object::ObjectKind::Solar => {
-                self.update_equipped(h, dt, flags);
+                self.update_equipped(h, dt, flags, hooks);
                 self.update_solar_gate(h, dt);
             }
             crate::object::ObjectKind::Loot => {
@@ -581,7 +638,7 @@ impl World {
     /// `CEqObj::update`: every item of the first list updates, then the
     /// behaviour tick (unless destroyed with weapons offline, excluded or
     /// flagged off).
-    fn update_equipped(&mut self, h: ObjHandle, dt: f32, flags: u32) {
+    fn update_equipped(&mut self, h: ObjHandle, dt: f32, flags: u32, hooks: &mut dyn ServerHooks) {
         let now = self.time;
         let Some(o) = self.objects.get_mut(h) else {
             return;
@@ -722,14 +779,20 @@ impl World {
             hook.update_behavior_tick(self, h, dt);
             self.put_behavior(Some(hook));
         }
+        // The requests the tick made, to the server (`Ship::slot_5c` and
+        // `slot_60` run inside the tick in the reference).
+        let requests = self.take_server_requests();
+        if !requests.is_empty() {
+            hooks.server_requests(self, requests);
+        }
         self.update_docking_animations(h);
     }
 
     /// `CShip::update`: zones, `CEqObj::update`, the wake-up and the
     /// damping (drag over mass and inertia), the target check.
-    fn update_ship(&mut self, h: ObjHandle, dt: f32, flags: u32) {
+    fn update_ship(&mut self, h: ObjHandle, dt: f32, flags: u32, hooks: &mut dyn ServerHooks) {
         self.update_zones(h);
-        self.update_equipped(h, dt, flags);
+        self.update_equipped(h, dt, flags, hooks);
         if flags & update_flags::NO_DYNAMICS == 0 {
             let consts = self.data.constants.engine.clone();
             let Some((system, body)) = self.body(h) else {
