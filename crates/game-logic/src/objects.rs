@@ -393,12 +393,17 @@ pub fn set_relative_health(cx: &mut Cx<'_>, h: ObjHandle, relative: f32) -> Opti
     Some(pending)
 }
 
-/// `StarSystem::on_object_destroyed`'s player part: a player's current
-/// ship ends its trade (with the trade work), its health goes to 0 when
-/// destroyed by damage (kind 1), the slot's ship is cleared and
-/// `SpaceExit` goes to the bus. The observers' `OnObjectDestroyed` comes
-/// with replication.
-fn on_object_destroyed(cx: &mut Cx<'_>, session: u32, id: u32, kind: i32) {
+/// `StarSystem::on_object_destroyed`: a player's current ship ends its
+/// trade (with the trade work), its health goes to 0 when destroyed by
+/// damage (kind 1), the slot's ship is cleared and `SpaceExit` goes to the
+/// bus; then every player of the system hears of the object
+/// ([`crate::replication::object_destroyed`]).
+fn on_object_destroyed(cx: &mut Cx<'_>, h: ObjHandle, session: u32, id: u32, kind: i32) {
+    on_player_object_destroyed(cx, session, id, kind);
+    crate::replication::object_destroyed(cx, h, kind);
+}
+
+fn on_player_object_destroyed(cx: &mut Cx<'_>, session: u32, id: u32, kind: i32) {
     if session == 0
         || cx
             .logic
@@ -435,7 +440,7 @@ pub fn base_destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32) {
     };
     o.simple.hit_pts = 0.0;
     let (session, id) = (o.simple.owner_player, o.simple.id);
-    on_object_destroyed(cx, session, id, kind);
+    on_object_destroyed(cx, h, session, id, kind);
     if let Some(o) = cx.logic.objects.entry(cx.world, h) {
         o.destroyed = true;
     }
@@ -540,7 +545,7 @@ pub fn destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32, killer: u32) -> bool {
         ControllerMessage::ObjectDestroyed(e) => e.dropped_equip,
         _ => Vec::new(),
     };
-    on_object_destroyed(cx, session, id, kind);
+    on_object_destroyed(cx, h, session, id, kind);
     // `EqObj::destroy_notify`: the queued docks' always-updated entries.
     crate::dock::release_always_update(cx, h);
     if let Some(o) = cx.logic.objects.entry(cx.world, h) {
@@ -559,14 +564,27 @@ pub fn destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32, killer: u32) -> bool {
     true
 }
 
-/// `StarSystem::create_loot` (`Server/server_classes.cpp:9285`): each
-/// container made in the system (`CLoot::init`, owned by the source), with
-/// its server entry, then `LootSpawned` with the contents' good and count.
-/// The players' creates come with replication. Returns the containers.
+/// `StarSystem::create_loot` (`Server/server_classes.cpp:9285`) in mode 2,
+/// the mode of the destruction drops and the loot splits.
 pub fn create_loot(
     cx: &mut Cx<'_>,
     system: u32,
     source: u32,
+    spawns: &[game_sim::object::world::LootSpawn],
+) -> Vec<ObjHandle> {
+    create_loot_mode(cx, system, source, 2, spawns)
+}
+
+/// `StarSystem::create_loot`: each container made in the system
+/// (`CLoot::init`, owned by the source), with its server entry, then
+/// `LootSpawned` with the contents' good and count; then every player of
+/// the system gets the containers' create with the source and the mode
+/// ([`crate::replication::loot_created`]). Returns the containers.
+pub fn create_loot_mode(
+    cx: &mut Cx<'_>,
+    system: u32,
+    source: u32,
+    mode: u32,
     spawns: &[game_sim::object::world::LootSpawn],
 ) -> Vec<ObjHandle> {
     let mut made = Vec::new();
@@ -588,5 +606,6 @@ pub fn create_loot(
         );
         made.push(h);
     }
+    crate::replication::loot_created(cx, system, source, mode, &made);
     made
 }

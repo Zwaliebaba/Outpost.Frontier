@@ -27,8 +27,8 @@
 //!   detonation are game-sim's `Guided` (moved into Phase 2); a missile a
 //!   counter-measure destroys does not explode.
 //!
-//! The players' creates (`CREATEMINE`, `CREATECOUNTER`) and the observers'
-//! `XSetTarget` come with the replication part.
+//! The creators tell the system's players ([`crate::replication`]); the
+//! observers' `XSetTarget` of a retargeted missile is still open.
 
 use game_sim::equip::SubObjId;
 use game_sim::object::damage::{self, DamageCause};
@@ -116,9 +116,21 @@ fn launch_spin(world: &mut World, velocity: Vector) -> Vector {
 /// in the system with the launch's position, orientation, velocity and
 /// owner and an angular velocity drawn inside a sphere of the launch
 /// speed, its server entry, then `arm`. `None` for an unknown archetype or
-/// system (the C++ reads both through null). The players' `CREATEMINE`
-/// comes with replication.
+/// system (the C++ reads both through null). Then every player of the
+/// system gets its create ([`crate::replication::mine_created`]), with no
+/// dropper's item ([`create_mine_from`] names one).
 pub fn create_mine(cx: &mut Cx<'_>, system: u32, launch: &ProjectileSpawn) -> Option<ObjHandle> {
+    create_mine_from(cx, system, launch, game_sim::equip::SUBOBJ_ID_NONE)
+}
+
+/// [`create_mine`] by the dropper `equip` (`FServerLaunchRecord::EquipId`),
+/// which the players' create carries.
+pub fn create_mine_from(
+    cx: &mut Cx<'_>,
+    system: u32,
+    launch: &ProjectileSpawn,
+    equip: SubObjId,
+) -> Option<ObjHandle> {
     let spin = launch_spin(cx.world, launch.velocity);
     let spawn = ProjectileSpawn {
         angular_velocity: spin,
@@ -128,6 +140,8 @@ pub fn create_mine(cx: &mut Cx<'_>, system: u32, launch: &ProjectileSpawn) -> Op
     let h = cx.world.create_mine(system, &spawn).ok()?;
     mine_state(cx, h)?;
     arm(cx, h);
+    let info = crate::replication::launch_create_info(cx.world, h, &spawn, equip, spin);
+    crate::replication::mine_created(cx, system, h, &info);
     Some(h)
 }
 
@@ -323,11 +337,24 @@ pub fn phantom_event(cx: &mut Cx<'_>, system: u32, event: &PhantomEvent) {
 /// `StarSystem::create_counter_measure` (`server_classes.cpp:9526`): the
 /// counter-measure in the system, as `create_mine` makes a mine, its
 /// server entry, then `divert_missiles`. `None` for an unknown archetype
-/// or system. The players' `CREATECOUNTER` comes with replication.
+/// or system. Then every player of the system gets its create
+/// ([`crate::replication::counter_created`]), with no dropper's item
+/// ([`create_counter_measure_from`] names one).
 pub fn create_counter_measure(
     cx: &mut Cx<'_>,
     system: u32,
     launch: &ProjectileSpawn,
+) -> Option<ObjHandle> {
+    create_counter_measure_from(cx, system, launch, game_sim::equip::SUBOBJ_ID_NONE)
+}
+
+/// [`create_counter_measure`] by the dropper `equip`, which the players'
+/// create carries.
+pub fn create_counter_measure_from(
+    cx: &mut Cx<'_>,
+    system: u32,
+    launch: &ProjectileSpawn,
+    equip: SubObjId,
 ) -> Option<ObjHandle> {
     let spin = launch_spin(cx.world, launch.velocity);
     let spawn = ProjectileSpawn {
@@ -338,6 +365,8 @@ pub fn create_counter_measure(
     let h = cx.world.create_counter_measure(system, &spawn).ok()?;
     let _ = cx.logic.objects.entry(cx.world, h);
     divert_missiles(cx, h);
+    let info = crate::replication::launch_create_info(cx.world, h, &spawn, equip, spin);
+    crate::replication::counter_created(cx, system, h, &info);
     Some(h)
 }
 

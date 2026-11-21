@@ -17,6 +17,7 @@ use game_sim::data::config::{DataConfig, GameData};
 use game_sim::object::world::{Assets, ShipSpawn, WorldConfig};
 use game_sim::object::{ObjHandle, World};
 use game_sim::protocol::ToClient;
+use game_sim::protocol::to_client::ServerMessage;
 use neuron_core::id::create_id;
 use neuron_core::math::{Matrix, Vector};
 use neuron_core::physics::StepMode;
@@ -119,8 +120,23 @@ fn multiplayer_systems_load_step_and_transfer() {
     assert!(solars > 0, "the system file's solars");
     assert!(!cx.world.asteroid_fields(he01).is_empty(), "he01's fields");
     assert_eq!(heard(), [format!("SystemLoaded {he01}")]);
-    let to: Vec<u32> = sink.0.borrow_mut().drain(..).map(|(c, _)| c).collect();
-    assert_eq!(to, [1, 2, 3]);
+    // The system id to every session first; replication's `add_player`
+    // packets for player 1 (the solars' damage states and reputations)
+    // follow.
+    let sent: Vec<(u32, ToClient)> = sink.0.borrow_mut().drain(..).collect();
+    let system_ids: Vec<u32> = sent
+        .iter()
+        .take_while(|(_, m)| {
+            matches!(m, ToClient::Server(ServerMessage::MiscObjUpdate(u)) if u.flags == 0x84)
+        })
+        .map(|(c, _)| *c)
+        .collect();
+    assert_eq!(system_ids, [1, 2, 3]);
+    assert!(
+        sent[3..].iter().all(
+            |(c, m)| *c == 1 && !matches!(m, ToClient::Server(ServerMessage::MiscObjUpdate(_)))
+        )
+    );
     world::add_player(&mut cx, he01, 2);
     assert!(heard().is_empty(), "loaded once");
     world::add_player(&mut cx, he01, 0x4000_0000);

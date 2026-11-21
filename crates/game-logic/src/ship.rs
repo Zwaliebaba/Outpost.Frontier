@@ -39,7 +39,7 @@
 //! commands) and its equipment notices (a starved thruster switching an
 //! NPC's thrusters off, the counter-measure dropper's automatic drop:
 //! game-sim queues equipment notices that the C++ delivers at once); the
-//! observers' creates of a new ship and `RCBegin` (replication).
+//! observers' `RCBegin` of a new ship (replication).
 
 use game_sim::equip::{Fate, SUBOBJ_ID_NONE, SUBOBJ_ID_ROOT, SubObjId, types};
 use game_sim::object::damage::{self, DamageList};
@@ -321,6 +321,9 @@ pub fn create_ship_with_groups(
             data: req.equip_state_data,
         },
     );
+    // Every player of the system but the owner: the request's record.
+    let info = crate::replication::ship_request_info(req, groups);
+    crate::replication::ship_created(cx, system, h, &info);
     Some(h)
 }
 
