@@ -45,7 +45,8 @@
 //! requesting ship's followers in `pub::SpaceObj::Dock`, event 3 to every
 //! NPC ship's manager in `complete_dock`: the behaviour manager's server
 //! link, `IBehaviorManager::Slot00`); the observers' `OnObjectLeftSystem`
-//! and the creates of a launched ship (replication); an NPC's launch
+//! (a later replication increment; a launched ship's creates are now
+//! `create_ship`'s, [`crate::replication`]); an NPC's launch
 //! (`pub::SpaceObj::Launch`, `StarSystem::launch`), which runs `CShip::
 //! launch` and its launch action, not ported.
 

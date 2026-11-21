@@ -23,14 +23,13 @@
 //!   server keeps every system.
 //! - **Transfer** (`remove_ship`, `add_ship`, `:10334-10417`): the ship
 //!   leaves its system's lists and body, is in transit, and enters the
-//!   next. `arrive_ship` (an NPC's jump-in or airlock animation and the
-//!   players' switch-in packets) comes with the replication part.
+//!   next; the other players hear of it ([`crate::replication`]).
+//!   `arrive_ship` (an NPC's jump-in or airlock animation and the players'
+//!   switch-in packets) is still open.
 //!
-//! The observers' own work (tracking, creates, the per-frame update, the
-//! changed affiliations, the creates `add_player` sends) is P3.3's
-//! replication part; the wrappers' server state (`GameObject::destroy`,
-//! fuses, `on_object_left_system`) is its object part. Their call sites
-//! here are marked.
+//! The observers (`Observer`, their tracking, creates, destroys and the
+//! per-frame update) are [`crate::replication`]'s; the changed
+//! affiliations after the update are still open.
 
 use std::collections::BTreeMap;
 
@@ -44,14 +43,7 @@ use neuron_server::controller::ControllerId;
 use crate::events::ControllerMessage;
 use crate::server::{Cx, Logic};
 
-/// One player's view of a system (`Observer`, `server_sysdb.h:240`). The
-/// replication part fills in the tracked objects, the pending damage and
-/// the clock (record 0007, point 7).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Observer {
-    /// The session (`PlayerId`).
-    pub player: u32,
-}
+pub use crate::replication::Observer;
 
 /// A ship of the dock queue (`FSystemDockEntry`): the ship, what it docks
 /// with (none for a forced landing), the base and whether it lands.
@@ -68,7 +60,7 @@ pub struct DockEntry {
 }
 
 /// A star system's server state (`StarSystem`, `server_sysdb.h:744`).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct StarSystem {
     /// The Universe system (`SystemInfo->NicknameId`).
     pub id: u32,
@@ -98,7 +90,7 @@ impl StarSystem {
 }
 
 /// `SysDB::SysMap`: one entry per Universe system.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ServerWorld {
     /// The systems, by id.
     pub systems: BTreeMap<u32, StarSystem>,
@@ -201,9 +193,9 @@ pub fn load(cx: &mut Cx<'_>, system: u32) {
 
 /// `StarSystem::add_player`: the system loads first; a session id whose
 /// low 30 bits are 0 is then refused; otherwise the player's observer
-/// joins the list, and on a multiplayer server every session hears the
-/// player's system (`PlayerDB::SendSystemID`). The creates the C++ then
-/// sends the player (solars, ships, loot) are the replication part's.
+/// joins the list, on a multiplayer server every session hears the
+/// player's system (`PlayerDB::SendSystemID`), and the player gets the
+/// system's objects ([`crate::replication::add_player`]).
 pub fn add_player(cx: &mut Cx<'_>, system: u32, session: u32) {
     let Some(s) = system_mut(cx, system) else {
         return;
@@ -217,10 +209,12 @@ pub fn add_player(cx: &mut Cx<'_>, system: u32, session: u32) {
     let Some(s) = system_mut(cx, system) else {
         return;
     };
-    s.observers.push(Observer { player: session });
+    s.observers.push(Observer::new(session));
+    let index = s.observers.len() - 1;
     if !cx.world.config().single_player {
         send_system_id(cx, session, system);
     }
+    crate::replication::add_player(cx, system, index);
 }
 
 /// `PlayerDB::SendSystemID`: every session in use hears the player's
@@ -452,7 +446,6 @@ impl ServerHooks for Hooks<'_> {
     }
 
     fn after_damage_list(&mut self, world: &mut World, object: ObjHandle, list: &mut DamageList) {
-        // `StarSystem_DamageObject` (the observers) comes with replication.
         let mut cx = Cx {
             world,
             logic: self.logic,
@@ -464,6 +457,8 @@ impl ServerHooks for Hooks<'_> {
         {
             crate::loot::apply_contents(&mut cx, object, list);
         }
+        // `StarSystem_DamageObject`: the players hear of the damage.
+        crate::replication::damage_object(&mut cx, object, list);
         crate::objects::end_damage_list(&mut cx, object, list);
     }
 
@@ -564,13 +559,16 @@ pub fn destroy_object(cx: &mut Cx<'_>, object: ObjHandle, kind: i32, killer: u32
 }
 
 /// `StarSystem_Update`: the world's frame of the system with the server's
-/// hooks. Returns the number of sub-steps. The observers' update and the
-/// changed affiliations that follow come with the replication part.
+/// hooks, then each observer's update with the frame's whole time
+/// ([`crate::replication::update_observers`]). Returns the number of
+/// sub-steps. The changed affiliations that follow are still open.
 pub fn step_system(cx: &mut Cx<'_>, system: u32, dt: f32) -> u32 {
     let mut hooks = Hooks {
         logic: &mut *cx.logic,
     };
-    cx.world.step_with(system, dt, &mut hooks)
+    let iterations = cx.world.step_with(system, dt, &mut hooks);
+    crate::replication::update_observers(cx, system, f64::from(dt));
+    iterations
 }
 
 /// `Server_StepSystems`: each distinct system of the active players, in
@@ -625,20 +623,22 @@ pub fn physics_update(cx: &mut Cx<'_>, dt: f32) {
     }
 }
 
-/// `StarSystem::remove_ship`: the ship out of its system's lists, its body
-/// destroyed and its parameters returned (`GameObject::leave_system`).
-/// The other players' `OnObjectDestroyed`, `notify_object_left` and the
-/// lookup cache are the replication and object parts'.
+/// `StarSystem::remove_ship`: every other player of the system hears of
+/// the ship as destroyed (kind 0, [`crate::replication::ship_removed`]),
+/// then the ship leaves its system's lists, its body is destroyed and its
+/// parameters returned (`GameObject::leave_system`). `notify_object_left`
+/// is still open; the lookup cache is not ported (record 0007 point 4).
 pub fn remove_ship(cx: &mut Cx<'_>, ship: ObjHandle) -> Option<CreateParms> {
+    crate::replication::ship_removed(cx, ship);
     cx.world.leave_system(ship)
 }
 
 /// `StarSystem::add_ship`: the ship at `position` and `orientation` in
 /// `system` with a body rebuilt from its saved parameters
 /// (`Ship::enter_system`, which also ends a death sequence), appended to
-/// the ship list. The creates for the system's players are the
-/// replication part's. False when the ship is not in transit or the
-/// system is not loaded.
+/// the ship list; then every player of the system gets the ship's create
+/// ([`crate::replication::ship_arrived`]). False when the ship is not in
+/// transit or the system is not loaded.
 pub fn add_ship(
     cx: &mut Cx<'_>,
     system: u32,
@@ -657,5 +657,6 @@ pub fn add_ship(
     {
         s.death_sequence_obj_id = 0;
     }
+    crate::replication::ship_arrived(cx, system, ship);
     true
 }

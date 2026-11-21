@@ -111,6 +111,15 @@ pub enum CreateParams {
 pub trait ClientSink {
     /// One message to one client.
     fn send(&mut self, client: u32, message: ToClient);
+
+    /// `IClient::GetLinkSaturation`: how loaded the link to a client is,
+    /// from the transport's backlog (decision T17); the observers stop
+    /// sending at 0.9 ([`crate::replication`]). rpclocal's answer, and the
+    /// loopback's until the network transport of P3.8, is 0.
+    fn link_saturation(&self, client: u32) -> f64 {
+        let _ = client;
+        0.0
+    }
 }
 
 /// Where the server's chat messages go (`IChatClient::SendCommonChatMsg`):
