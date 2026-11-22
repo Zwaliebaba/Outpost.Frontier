@@ -298,7 +298,7 @@ about 15 s and refills in 10 s.
 - **Reverse** is a switch that commands throttle −1; with drag this high
   it is mainly a brake.
 - **Strafe** has four held controls: left, right, up, down. One direction
-  acts at a time; releasing a key falls back to another still held.
+  acts at a time.
 - **Thruster** is a switch. It is refused in cruise, and engaging cruise
   switches it off.
 - **Engine kill** deactivates the engine item. Thrust ends, engine drag is
