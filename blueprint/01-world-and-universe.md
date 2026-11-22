@@ -13,8 +13,8 @@ The player experiences it as a few dozen separate systems. Each is a wide,
 mostly flat arrangement of a star, planets, stations, asteroid fields and
 gas clouds, crossed by lanes that carry ships quickly between the important
 places, with jump points near the rim that lead to neighbouring systems.
-Flight is fully three-dimensional, but nearly everything is placed on one
-plane, so a top-down map tells the truth.
+Flight is three-dimensional, but nearly everything lies on one plane, so
+a top-down map tells the truth.
 
 Space is not uniform. Flying into an asteroid field surrounds the ship
 with rocks that are in the same places on every visit. Flying into a cloud
@@ -233,8 +233,8 @@ Each update a ship looks up its physical zone and its immersion `m` there.
 ### 3.6 Asteroid fields
 
 A field must look dense to the horizon, be identical for everyone on
-every visit, and cost nothing to store or transmit. The answer is a
-lattice whose cells generate themselves.
+every visit, and cost nothing to store or transmit: a lattice whose cells
+generate themselves.
 
 A field definition gives a cube size (250 to 500, usually 400), a fill
 distance (1,000 to 2,500), an empty-cube frequency (0 to 1), a cube
