@@ -1,7 +1,7 @@
 # 08 — Missions and base services
 
 Status: draft
-Depends on: 01, 02, 04, 05, 06, 07, 10, 11, 12
+Depends on: 01, 02, 03, 04, 05, 06, 07, 09, 10, 11, 12
 
 ## 1. Purpose and player experience
 
@@ -12,8 +12,7 @@ is led to a room on a base, watches a scene, accepts, launches, and is then
 carried through escorts, ambushes, chases and assaults by named NPCs who
 talk over the radio. Objectives appear one at a time, a marker shows where
 to go, and companions remind a player who strays. Between campaign
-missions the player is released to trade and fight until a wealth target
-is met.
+missions the player trades and fights until a wealth target is met.
 
 A **generated mission** is a paid job. On most bases a job board lists two
 to four offers, and people in the bar may offer one directly. Each offer
@@ -33,11 +32,11 @@ items follow the campaign.
 | Label | A group name on mission objects. Conditions and actions address one object by nickname or all members of a label. |
 | Directive list | Ordered orders for one scripted ship. |
 | Reminder | A watch on the player's progress towards a place; a companion nags, and ignoring it fails the mission. |
-| Checkpoint | A save made by an action. It names the resume trigger that rebuilds the scene on load. |
-| Campaign position | A number from 0 to 42: where the player stands in the campaign. |
+| Checkpoint | A save made by an action; it names the resume trigger that rebuilds the scene. |
+| Campaign position | 0 to 42: where the player stands in the campaign. |
 | Worth gate | A wealth target to reach before the next campaign mission starts. |
 | On-base story scene | A record that binds scene scripts (offer, accept, decline) and a cast to one room. |
-| Difficulty | A number from 0 to 100 on a geometric scale; it sizes a generated mission and sets its reward. |
+| Difficulty | 0 to 100 on a geometric scale; sizes a generated mission and sets its reward. |
 | Mission site | A zone marked for generated missions. |
 | Offer tree | The authored decision tree from which a generated mission is composed. |
 | Base roster | Per base: factions with their shares and characters, fixtures, job-board size. |
@@ -62,13 +61,13 @@ base roster ─► fixtures, bar characters ─► job, bribe, knowledge, rumour
 
 ### 3.1 A mission is a content controller
 
-Starting a mission creates a content controller above the priority of the
-support controllers, so it sees each event first (chapter 11). It belongs
-to one player; the members of that player's group join it and share its
+Starting a mission creates a content controller above the priority of
+space and base support, so it sees each event before them (chapter 11).
+It belongs to one player; that player's group joins it and shares
 objectives and reward. A player or group holds at most one live mission.
 
-The campaign controller is in the single-player start-up list only.
-Multiplayer has generated missions and no campaign.
+The campaign controller is in the single-player start-up list only:
+multiplayer has no campaign.
 
 ### 3.2 Anatomy of a mission definition
 
@@ -104,9 +103,9 @@ second in a scripted mission, once a second in a generated one. An
 arriving event tests every active trigger that subscribes to it.
 
 "Activate trigger" does not run the target. It adds it to a pending set
-that is drained after the pass, repeatedly, until empty. The set is keyed
-by trigger identifier, so triggers activated together start in identifier
-sequence, not as written. An author may rely on the sequence of actions
+that is drained after the pass until empty. The set is keyed by trigger
+identifier, so triggers activated together start in identifier sequence,
+not as written. An author may rely on the sequence of actions
 inside a trigger and on nothing between triggers.
 
 Because the "always true" condition fires on activation, such a trigger is
@@ -224,7 +223,7 @@ objective, send line, spawn ship, protect.
 - Give a ship, or the player's autopilot, a directive list.
 - Give a ship a behaviour that guides the player to a point.
 - Set whether a label's members hold to their directives.
-- Clear the player's current autopilot order.
+- Clear the player's current autopilot directive.
 - Lock or unlock all of the player's manoeuvre commands; enable or disable one.
 - Unused: put the player into formation with a ship; set a pilot's flee mode; make a ship flee from a point or object.
 
@@ -355,7 +354,7 @@ time after it.
 | 6 | Next mission starts at once |
 | 7, 8 | + 36,000; + 30,000 |
 | 9 to 12 | Next mission starts at once |
-| 13 | Position 42: campaign over, level follows worth alone (chapter 07) |
+| 13 | Position 42: campaign over; the level is recomputed (chapter 07) |
 
 Worth is cash plus the value of ship and equipment; the interface shows
 the target. On every change of worth or of the live mission, the campaign
@@ -370,9 +369,9 @@ or scanning the player until the script says otherwise.
 
 The second gate is the map. The new-game template is a saved game with
 campaign position 1 and 32 locked jump points; missions unlock them (118
-unlock actions against 64 locks). Missions also pay directly: 16 payments
-of 750 to 25,000 credits. Mission sequence and increments are fixed in
-the program, not in data.
+unlock actions against 64 locks). Missions also pay: 16 payments of 750
+to 25,000 credits. Mission sequence and increments are fixed in the
+program, not in data.
 
 ### 3.11 How a job offer is generated
 
@@ -491,7 +490,7 @@ scene finished, character selected.
 | Roster character | Appearance, voice, faction, room; bribes; knowledge with price and standing level; rumours with window and level; mission entry | 1,642, of which 560 fixtures; median 10 rumours |
 | News item | Window, bases, icon, image, texts | 403; median 5 bases, at most 40 |
 | Difficulty tables | Campaign position to difficulty; difficulty to money; NPC level and formation size to difficulty | 9, 23 and 25 rows |
-| Offer tree | Section 3.12 | 219 decision and data nodes, 6 weighted leaves |
+| Offer tree | Section 3.12 | 219 decision and data nodes, 7 leaves |
 | Destroyable solar | Kind, faction, archetype, loadout, hit points, difficulty, zone restriction | 126, in 11 layouts |
 | Mission item, bonus loot | Item, kind or faction, difficulty band, weight | 62 and 143 |
 | Zone (chapter 01) | Site marking, lawful or unlawful, kind | 13% of zones |
@@ -506,7 +505,7 @@ loadouts (02); fuses and damage (03); docking, lane and route services
 (04); behaviours, pilots and formations (05); population switches and
 encounters (06); reputation, worth, level and event rates (07); banners,
 log, markers and voice playback (09); rooms and scene scripts (10); the
-event bus, heartbeat, timers and saving (11); the census (12).
+event bus, heartbeat, timers and saving (11).
 
 Gives: the campaign position to 06, 07 and 10; locked jump points to 04;
 checkpoints to 11; job boards, bar offers and news to 10.
@@ -515,7 +514,7 @@ checkpoints to 11; job boards, bar offers and news to 10.
 
 **Essential.** Triggers over events, labels, spawn-on-demand and directive
 lists form a small language in which authors, not programmers, build set
-pieces. Checkpoints as resume triggers are the cheapest robust save for
+pieces. Checkpoints as resume triggers are the cheapest save for
 scripted fights. The ambient switches matter as much as the spawns: a set
 piece fails if traffic wanders through it. A generated mission feels part
 of the world because payer, enemy and site come from the place where the
@@ -526,7 +525,7 @@ as the usual exit give the campaign its guided tone. The worth gates push
 the player into the economy.
 
 **Accidents of its era.** One condition per trigger. Activation in
-identifier sequence. Mission order, increments and per-mission hooks in
+identifier sequence. Mission sequence, increments and per-mission hooks in
 the program. Ambient switches as process-wide flags, tolerable only in
 single player. A generated mission rebuilt from a seed, which ties saved
 games to the generator's exact draw sequence. Sites found by substring.
@@ -534,14 +533,14 @@ games to the generator's exact draw sequence. Sites found by substring.
 **Simplifications.** Twenty actions and ten conditions cover most of the
 campaign. A modern trigger language would allow boolean expressions and
 queue activations as written. Store a composed generated mission, not its
-seed. The offer tree could be a flat list of templates; it has six leaves.
+seed. The offer tree could be a flat list of templates; it has seven leaves.
 
 ## 7. Open questions
 
 1. What follows a failed scripted mission. No restart was found; that the
    player must load a save is inferred.
 2. What "hold to directives" and "lifetime" do exactly; their consumers
-   in the NPC code were not traced.
+   were not traced.
 3. Chapter 02 says mission scripts can engage cruise instantly. The
    authority offers that service to content, but no caller was found in
    the actions or directives, which only demand or forbid cruise.
@@ -569,8 +568,8 @@ Code: `Content/MissionScript.cpp` (`GCndFactory`, `GActFactory`),
 `Server/server_pub.cpp` (`Save`, `SetInvincible`, `ActivateEquipment`);
 `OutpostFrontier/Client/nn_story_star.cpp`.
 
-Inferred: retry by loading; the reading of the unused conditions and
-actions and of "excuse fire", "bound enemies", "lifetime" and "hold to
-directives", which rests on parameters and names. The run-time states of
-a generated mission were read from the reconstruction's comments. The
-worked reward was computed from the table.
+Inferred: retry by loading; the unused conditions and actions and
+"excuse fire", "bound enemies", "lifetime" and "hold to directives", read
+from parameters and names. A generated mission's run-time states were read
+from the reconstruction's comments. The worked reward was computed from
+the table.

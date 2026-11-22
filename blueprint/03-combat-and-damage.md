@@ -19,19 +19,16 @@ instead of energy.
 A target is worn down in layers. Its shield absorbs everything until it
 collapses, then stays down for several seconds. In that window the hull,
 individual parts and mounted equipment take damage: parts break off, guns
-are shot away, and at authored thresholds the ship starts to smoke and
-burn. At zero hull it explodes, hurts whatever is close and leaves some
-cargo and equipment behind as loot.
+are shot away, and at authored thresholds the ship smokes and burns. At
+zero hull it explodes, hurts whatever is close and leaves loot.
 
-The player's survival has the same layers plus two consumables, one for
-hull and one for shield. Running away is a real option: cruise outruns
+The player's survival has the same layers plus two consumables, for
+hull and for shield. Running away is a real option: cruise outruns
 everything but disables weapons, and one munition exists to stop it.
 
 ## 2. Concepts
 
-Glossary terms (munition, countermeasure, fuse, shield, hull, part, power
-pool, repair consumable, tractor, loot, sub-object identifier) are used as
-defined in chapter 00. This chapter adds:
+Glossary terms are used as defined in chapter 00. This chapter adds:
 
 | Concept | Definition |
 | --- | --- |
@@ -42,8 +39,7 @@ defined in chapter 00. This chapter adds:
 | Weapon type, shield type | Labels on a munition and on a shield generator. A table gives a damage multiplier per pair. |
 | Shield bubble, shield generator | The bubble is the shield's collision shape around a ship; it is a sub-object, so a hit can name it. Generators give it capacity and regenerate it. |
 | Hull-linked part | A part flagged so that a hit on it also damages the hull in full. |
-| Damage list | The result of one damage event: new hit points per sub-object, what became of each, the cause and the inflictor. The unit the authority applies and replicates. |
-| Damage cause | Hostile causes respect invulnerability; system causes (repair, recharge, fuse) do not. |
+| Damage list | The result of one damage event: new hit points per sub-object, what became of each, the inflictor and the cause. Hostile causes respect invulnerability; system causes (repair, recharge, fuse) do not. The unit the authority applies and replicates. |
 | Armour | Internal equipment with one number that divides damage to hull and parts. |
 | Death fuse | A fuse whose last action destroys the object. While it burns, hostile damage cannot destroy the object. |
 | Loot rule | Per item, how much of a carried stack survives its carrier's death as loot. |
@@ -75,9 +71,9 @@ collision, hazard zone, field mine, fuse action ────────┤
 
 A hit report names the munition archetype, the shooter, the object and
 sub-object hit and the hit point. The authority does not re-check the
-geometry. It drops reports from a player with no living ship and, when
-player-against-player damage is off (chapter 11), any hit, collision or
-blast that one player inflicts on another.
+geometry. It drops reports from a player with no living ship and, with
+player-against-player damage off (chapter 11), anything one player
+inflicts on another.
 
 ### 3.2 The firing cycle
 
@@ -100,8 +96,7 @@ attempt that passed test 2, so trying to fire on an empty pool still costs
 a refire cycle.
 
 - Countermeasure dispensers skip test 8: decoys can be dropped in cruise.
-- Energy weapons need no ammunition and guided weapons no power. The two
-  families draw on different budgets: the pool, and cargo plus money.
+- Energy weapons need no ammunition and guided weapons no power.
 - A launcher on a revolving hardpoint slews towards the aim point at its
   turn rate (90°/s on every record). With no fresh aim point for 2 s, a
   gun with a target tracks the target's lead point.
@@ -110,8 +105,7 @@ A bolt leaves with `aim direction × muzzle speed + shooter velocity`, so
 its range relative to the shooter is `muzzle speed × lifetime`. For a
 target at relative position `p` with relative velocity `v`, the lead point
 is `target + v × t`, where `t` is the smallest positive root of
-`|p + v·t| = muzzle speed × t`. Turrets, lock checks and the lead marker
-use it.
+`|p + v·t| = muzzle speed × t`.
 
 ### 3.3 Munitions in flight
 
@@ -145,8 +139,9 @@ decoy lives 3 s; a munition still chasing it then has no target. A
 dispenser notices a guided munition aimed at its owner within 999 m; an
 NPC then drops a decoy automatically.
 
-**Mines** are bodies with drag, 2 hit points, a 10 s lifetime and a 4 s
-owner-safe time, during which the ship that dropped them is ignored.
+**Mines** are bodies with drag, 2 hit points, a 10 s lifetime, after
+which they vanish without a blast, and a 4 s owner-safe time, during
+which the ship that dropped them is ignored.
 
 | State | Event | Next | Effect |
 | --- | --- | --- | --- |
@@ -154,7 +149,6 @@ owner-safe time, during which the ship that dropped them is ignored.
 | Seeking | each tick | Seeking | Accelerate towards the nearest intruder at up to 200 m/s² until closing speed reaches top speed (60 to 80 m/s). |
 | Seeking | intruder within detonation distance (4 m) | Gone | Explode. |
 | any | destroyed by a hit | Gone | Explode. |
-| any | lifetime over | Gone | Vanish without a blast. |
 
 ### 3.4 From hit to damage
 
@@ -193,20 +187,19 @@ What reaching zero does:
 
 - *Shield*, at or below its offline threshold: it collapses (3.5).
 - *Equipment*: destroyed and separated from the ship.
-- *Part*: destroyed and shed as debris with a small explosion and a kick
-  to both pieces. Equipment mounted on it and parts attached to it go
-  with it. Losing every part that carries an engine nozzle stops the
-  engine (chapter 02).
+- *Part*: shed as debris with a small explosion and a kick to both
+  pieces. Equipment mounted on it and parts attached to it go with it.
+  Losing every part with an engine nozzle stops the engine (chapter 02).
 - *Hull*: the object is destroyed (3.9), unless it is invulnerable or
-  already burning a death fuse.
+  burning a death fuse.
 
 Applying the list sets the hit points, tells content controllers and the
 target's pilot who did how much (chapters 05 and 07), checks fuse
 thresholds (3.8) and sends the list to the presentations.
 
 Solars flagged indestructible ignore hull damage but still report the
-attack, and their parts and equipment stay vulnerable: a station can be
-provoked and lose its turrets without being destroyed.
+attack, and their parts and equipment stay vulnerable: a station can
+lose its turrets without being destroyed.
 
 **Worked example.** A mid-grade gun: 131.8 hull damage, no energy damage,
 refire 0.25 s, 26.35 power per shot, 600 m/s, lifetime 0.916 s. That is
@@ -227,8 +220,7 @@ average (15 % on every record), its rebuild time their maximum (12 s).
 Each generator, each update, while the shield is below full: if the power
 pool holds `rebuild draw × dt` (10 per second on every record), subtract
 it and add `regeneration rate × dt` to the shield; otherwise do nothing.
-A drained pool stops shield recovery, which is the point of energy
-damage.
+A drained pool stops shield recovery: the point of energy damage.
 
 | State | Event | Next | Effect |
 | --- | --- | --- | --- |
@@ -245,8 +237,7 @@ the data that is about a tenth of capacity per second.
 ### 3.6 Area damage
 
 An explosion finds every collision shape within its radius `R` (at most
-60), reduces them to their owning objects and treats each object once.
-The exploding object is skipped.
+60) and treats each owning object once, except the exploding one.
 
 For a target with bounding radius `r` at centre distance `D`, let
 `e² = max(0, D² − r²)`. The band factor `f` is 1 if `e < R/3`, 2/3 if
@@ -260,10 +251,10 @@ For a target with bounding radius `r` at centre distance `D`, let
   formula with its own centre, radius and resistance. The power pool
   takes `energy damage × f × resistance`.
 - Loot, guided munitions and mines take the hull formula.
-- If the explosion has an impulse, each object no player owns is pushed
-  away from the centre.
+- An explosion with an impulse pushes each object no player owns away
+  from the centre.
 
-Because parts and equipment are tested one by one, a blast beside an
+Parts and equipment are tested one by one, so a blast beside an
 unshielded ship can remove several guns at once.
 
 A cruise disruptor is a fast guided munition with a wide seeker cone
@@ -279,10 +270,9 @@ shield was hit. The same should hold for a player's ship (inferred).
   bubble included, and is scaled like any hit.
 - **Hazard zones** (chapter 01): a ship accumulates `rate × immersion ×
   dt`. Once more than 1 s has passed and the sum exceeds 1 % of the ship's
-  total hit points, it is applied as a fraction `q`: the hull loses `q`
-  of its maximum, then every external equipment item and every part
-  likewise. If `q > 1` the ship is destroyed. Lumps keep message traffic
-  low.
+  total hit points, it is applied as a fraction `q`: the hull, every
+  external equipment item and every part each lose `q` of their maximum.
+  If `q > 1` the ship is destroyed. Lumps keep message traffic low.
 - **Field mines** (chapter 01) are not munitions. Each has a detection
   radius (35 to 150 m) and a recharge time (1.5 to 3 s). While a ship is
   inside the radius and the mine is charged, it sets off its explosion,
@@ -301,15 +291,14 @@ another fuse; destroy the object. An action's time may be a range,
 rolled when the fuse is lit.
 
 Archetypes list fuses for the hull, and each part lists its own, as
-(fuse, starting fraction, hit-point threshold). When a damage list takes
-hit points from above a threshold to it or below, the fuse is lit. When a
-repair takes them back above, the fuse is unlit and its effects are
-withdrawn. Thresholds are absolute: a small ship of 1,600 hull typically
-has three stages at 400, 200 and 133.
+(fuse, starting fraction, hit-point threshold). When damage takes hit
+points from above a threshold to it or below, the fuse is lit; when a
+repair takes them back above, it is unlit and its effects are withdrawn.
+Thresholds are absolute: a small ship of 1,600 hull typically has three
+stages at 400, 200 and 133.
 
 Each update the lit window grows by `dt / lifetime` in both directions
-from the starting fraction, and every action inside it runs once. Lit at
-0 this is a plain timeline.
+from the starting fraction, and every action inside it runs once.
 
 Fuses give large objects a staged death. A capital ship's part lists a
 death fuse with threshold 1. Reaching it starts a sequence that destroys
@@ -318,8 +307,8 @@ While a death fuse burns, hostile damage neither destroys the object nor
 sheds further parts, so the sequence always completes.
 
 NPC ships get a generic version. When an NPC takes fatal damage, the
-authority asks the content controllers for a delay. Given a positive
-time, it lights a death fuse of that length: the ship leaves its
+authority asks the content controllers for a delay and, if it is
+positive, lights a death fuse of that length: the ship leaves its
 formation, its wingmen are told, and it dies when the fuse ends. The
 delay is for the pilot's last words (chapter 05).
 
@@ -344,17 +333,16 @@ and not a cargo pod. The content side rewrites the list first:
 5. Add bonus loot: for each bonus record whose rank range holds the dead
    ship's rank, roll its chance and add a random count of its item.
 
-Items without a rule fall back to a default with chance zero, so an NPC's
-guns do not drop unless the item has a rule. The bonus table is how any
-fight can return repair consumables.
+Items without a rule use a default with chance zero, so an NPC's guns
+drop only if the item has a rule. The bonus table is how any fight can
+return repair consumables.
 
 At most six containers are created, each with the item's container
 model, up to its units-per-container, the ship's velocity plus a random
 kick, and a spin. Loot that no player has come within 2,500 m of for 60 s
 is removed. A container has hit points and can be shot. The tractor
-(range 1,500 m) is told which loot to pull; the pull was not traced.
-This path makes loot for NPCs, and for a player's ship only in single
-player.
+(range 1,500 m) is told which loot to pull. This path makes loot for
+NPCs, and for a player's ship only in single player.
 
 ### 3.10 Repair consumables
 
@@ -363,14 +351,13 @@ unit). A use asks the authority for a count. It computes `missing / per
 unit`, rounds up when the remainder exceeds 5 % of a unit, caps the
 result by the count and the stack, applies the new value as a damage list
 with a system cause and removes the units. The hull item repairs the hull
-only: parts and equipment stay damaged until a base repairs them
-(chapter 08). The shield item goes to the weakest shield and cancels the
-rebuild wait, so it brings a collapsed shield back at once.
+only: parts and equipment wait for a base (chapter 08). The shield item
+goes to the weakest shield and cancels the rebuild wait, so a collapsed
+shield returns at once.
 
 NPCs carry the same items: when the ratio falls to a threshold (default
 35 %), wait (2 s), use one unit, wait again (5 s). The pilot record
-overrides the three numbers (chapter 05). A ship archetype caps how many
-of each a ship may carry (chapter 02).
+overrides the three numbers (chapter 05).
 
 ### 3.11 Weapon groups and firing controls
 
@@ -381,8 +368,7 @@ countermeasures, and fire launcher 1 to 10 alone.
 There are six weapon groups, each a list of hardpoint names. "Assign"
 stores the hardpoints of the active launchers, "select" makes exactly
 that set active, and "fire group" fires the set once without changing
-the selection. Naming hardpoints, not items, lets a group survive a
-change of gun. The authority stores the groups with the character.
+the selection. The authority stores the groups with the character.
 
 ### 3.12 Invulnerability
 
@@ -399,15 +385,14 @@ Counts are from chapter 12.
 
 | Record | Principal fields | Values |
 | --- | --- | --- |
-| Gun (513) | hit points, hardpoint class, power per shot, refire delay, muzzle speed, turn rate, munition, lootable | refire 0.12 to 4 s; power 0 to 293; hit points 400 to 81,000 |
-| Bolt munition | hull damage, energy damage, weapon type, lifetime | hull damage 4.6 to 1,956 |
+| Gun (513) and its bolt | hit points, hardpoint class, power per shot, refire delay, muzzle speed, turn rate, lootable; hull damage, energy damage, weapon type, lifetime | refire 0.12 to 4 s; power 0 to 293; hull damage 4.6 to 1,956 |
 | Guided munition (76; 71 seeking) | explosion, seeker kind, range and cone, maximum turn rate, detonation distance, lifetime, units per container, cruise-disruptor flag; motor delay, acceleration, burn time | range 1,000 to 3,000 m; cone 35° to 120°; lifetime 3 to 56 s; 3.6 to 1,152 m/s² for 0.6 to 11 s |
 | Explosion (86 for munitions, 70 for objects) | radius, hull damage, energy damage, impulse; effect, debris | munitions: radius 2 to 50 m, hull 16 to 11,736, energy 0 to 7,824 |
-| Mine and dispenser (10) | seek distance, top speed, acceleration, drag, detonation distance, owner-safe time, lifetime, explosion | blast 326 to 3,912 at radius 16 m; refire 1 s |
-| Countermeasure and dispenser (3) | range, diversion percentage, lifetime; refire, automatic-release range | 70, 80, 90 %; refire 0.25 s |
+| Mine and dispenser (10) | seek distance, top speed, acceleration, drag, detonation distance, owner-safe time, lifetime, explosion | blast 326 to 3,912 at 16 m; refire 1 s |
+| Countermeasure and dispenser (3) | range, diversion percentage, lifetime; refire, release range | 70, 80, 90 %; refire 0.25 s |
 | Shield generator (123) | capacity, regeneration rate, shield type, offline threshold, rebuild time, rebuild draw, hardpoint class | capacity 450 to 12,900; two families refill in about 45 s; 30 records regenerate 1 per second |
 | Weapon type (21) | one multiplier per shield type (9) | 0.8, 1.0 or 1.2 |
-| Armour (24) | damage divisor | 0.25 to 30, and one effectively infinite |
+| Armour (24) | damage divisor | 0.25 to 30 |
 | Part (246 on ships, 238 on solars) | model node, hit points, hull-linked flag, debris kind, separation explosion, impulses, cap model, fuses | hit points 1 % to 100 % of hull; 224 of the ships' parts are hull-linked |
 | Fuse (209; about 1,960 actions) | lifetime, death flag; per action its time or time range and parameters | lifetime 0.01 to 15 s |
 | Loot rule (434), bonus loot (124) | the six numbers of 3.9; item, rank range, chance, count range | chance 0 to 100 %, median 8 %; bonus chance 0.5 to 44 % |
@@ -420,8 +405,8 @@ class the median price doubles while median damage per second grows about
 1.35 times (136 to 2,150), and power per second with it (42 to 489).
 Within a class, guns trade refire (0.12 to 0.5 s) against damage per
 shot and differ in weapon type, speed and range. Seven energy guns
-invert the split, with hull damage near zero and energy damage 30 times
-higher: they strip shields and drain pools.
+carry almost no hull damage and 30 times as much energy damage: they
+strip shields and drain pools.
 
 | Example | Class | Damage | Refire | Power per shot | Flight |
 | --- | --- | --- | --- | --- | --- |
@@ -455,10 +440,10 @@ Needs:
 Gives:
 
 - 04: launch protection is an invulnerability command.
-- 05: launchers and the lead point; damage notifications with inflictor
-  and amount; NPC use of consumables and decoys.
-- 06: armour as the toughness scale of spawned ships; rank for bonus
-  loot.
+- 05: launchers, the lead point, damage notifications; NPC use of
+  consumables and decoys.
+- 06: armour as the toughness scale of spawned ships (inferred); rank
+  for bonus loot.
 - 07: "damaged by" and "destroyed by" events for reputation and kill
   credit; loot as income.
 - 08: invulnerability and fuses as mission tools; damage left for base
@@ -480,17 +465,16 @@ Gives:
   guns".
 - *Two ammunition economies.* Free, energy-limited guns and paid,
   count-limited guided weapons.
-- *Cruise disables guns, and one weapon disables cruise.* Flight becomes
-  a decision for both sides.
+- *Cruise disables guns, and one weapon disables cruise.*
 - *Damage lists.* One replicated record serves weapons, hazards, repair
-  and scripts alike.
+  and scripts.
 
 **Feel.**
 
 - Hull-linked parts: shooting a wing off is a visible bonus, not a
   different tactic, because the hull takes the same damage.
 - A player's parts and guns are three and five times tougher than an
-  NPC's. Losing equipment is a threat, rarely an event.
+  NPC's: losing equipment is a threat, rarely an event.
 - The 0.8/1.0/1.2 table rewards matching weapon to shield by a fifth: a
   reason to look at the target, not a hard counter.
 
@@ -500,7 +484,6 @@ Gives:
   checks neither geometry nor a player's refire and power. That gives
   lag-free hits and is easily abused. Validate range, rate and energy on
   the authority, or trace bolts there.
-- A fire attempt on an empty pool restarts the refire clock.
 - Lock time and shot dispersion exist in code and are zero or absent in
   the data.
 
@@ -508,8 +491,6 @@ Gives:
 
 - No part or equipment damage: loses crippling, stripping the turrets
   of stations and most fuse content; saves per-part collision shapes.
-- No energy damage: loses the shield-stripper and pool-drain roles.
-- Fuses as plain timelines lit at zero: loses "unlight on repair".
 - Loot with a flat chance per item: loses the scaling of drops with
   player wealth.
 
@@ -518,33 +499,32 @@ Gives:
 1. How does a player's own ship learn that its cruise was disrupted? The
    authority's cancellation is written for NPC ships only.
 2. Is the automatic countermeasure release active for the player's ship?
-   The presentation has a handler for it; an update flag that may
-   suppress it was not decoded.
+   The presentation has a handler; a flag that may suppress it was not
+   decoded.
 3. What does a player's ship drop on death in multiplayer? The loot path
    here excludes it.
 4. What do the "automatic turret" flag on guns and the "toughness" number
-   on guns and shields control?
-5. Where is the cap of 50 units per munition type on a player (a code
-   default) enforced?
-6. Do the 85 guns that are neither mountable nor in a loadout file serve
+   on guns and shields control? Where is the cap of 50 units per
+   munition type on a player (a code default) enforced?
+5. Do the 85 guns that are neither mountable nor in a loadout file serve
    NPC tables elsewhere, or are they dead records?
-7. Not traced: the blast resistance of shield bubbles, a test that
-   excludes some ships from bonus loot, and which data marks a part
-   whose loss destroys the whole object (the code has such a flag).
+6. Not traced: the blast resistance of shield bubbles, a test that
+   excludes some ships from bonus loot, the tractor's pull, and which
+   data marks a part whose loss destroys the whole object.
 
 ## 8. Basis
 
 Design documents, for orientation: `design/sim-records.md`,
 `design/adr/0001-object-model.md`, `design/adr/0007-server-world.md`,
-assessments 02 and 04. Every rule above was read in code.
+assessments 02 and 04. Rules not marked otherwise were read in code.
 
 Data, under `outdir/data/`: `EQUIPMENT/weapon_equip.ini`,
 `weaponmoddb.ini`, `st_equip.ini`, `misc_equip.ini`, `select_equip.ini`;
 `FX/explosions.ini`, `FX/fuse.ini`; `MISSIONS/lootprops.ini`;
-`constants.ini`; `SHIPS/shiparch.ini` and `SOLAR/solararch.ini` (parts,
-fuse lines); `SOLAR/asteroidarch.ini` (field mines);
-`INTERFACE/keymap.ini`; the four loadout files. Counts are cited from
-chapter 12, which also notes one fuse file outside the manifest.
+`constants.ini`; `SHIPS/shiparch.ini`, `SOLAR/solararch.ini`,
+`SOLAR/asteroidarch.ini`; `INTERFACE/keymap.ini`; the four loadout
+files. Counts are from chapter 12, which also notes one fuse file
+outside the manifest.
 
 Code, under `CppSource/`: `Common/common_celauncher.cpp`,
 `common_cegun.cpp`, `common_cedroppers.cpp`, `common_cprojectile.cpp`,
@@ -560,9 +540,8 @@ Code, under `CppSource/`: `Common/common_celauncher.cpp`,
 `hud_status_core.cpp`, `cli_projectile_fx.cpp`.
 
 Inferred, as marked: the presentation's share of fuse playback; the
-purpose of the bubble's "nothing inside" test; cruise disruption of the
-player's ship; mission scripts as issuers of invulnerability. That a
-munition never collides with its launcher rests on the launcher's
-identifier serving as the munition's collision group; the filtering
-itself was not read. Damage causes were read as numeric literals; their
-names here are descriptive.
+purpose of the "nothing inside" test; cruise disruption of a player's
+ship; mission scripts as issuers of invulnerability. That a munition
+never collides with its launcher rests on the launcher's identifier
+serving as its collision group; the filtering was not read. Damage
+causes were read as numeric literals.
