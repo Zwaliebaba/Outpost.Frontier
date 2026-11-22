@@ -13,7 +13,7 @@ The player flies with the mouse and the keyboard. One cursor does three
 jobs. Left free, it points: a click selects an object in space or presses
 a HUD button. With the steering button held, it steers: the further it
 is from the screen centre, the faster the ship turns towards it. In both
-modes it is the gun sight, and the turrets follow it. The keyboard
+modes it is the gun sight, and the guns follow it. The keyboard
 carries throttle, strafe, thruster, cruise, weapons, target cycling and
 the automatic manoeuvres.
 
@@ -37,7 +37,6 @@ defined. This chapter adds:
 | Sub-target | One part or equipment item of the target, chosen for aimed fire. |
 | Letterbox | The cinematic state: bars on, cursor and HUD off, commands refused. |
 | Effect | A named bundle of a visual, a sound and optionally a light. |
-| Effect type | A class of effects sharing culling and detail rules. |
 | Ducking | Lowering the rest of the mix while speech plays. |
 | Comm | One radio message: sender, receiver, voice profile and a list of that profile's recorded lines. |
 
@@ -50,7 +49,7 @@ keys, buttons, wheel, cursor
       ├─ weapons ───► fire request with aim point (chapter 03)
       ├─ targeting ─► own ship's target ──► authority
       ├─ view ──────► camera mode
-      └─ windows ───► map, inventory, chat (chapter 10)
+      └─ interface ─► HUD panels; windows of chapter 10
 
 own ship's scanner ──► contacts ──► brackets, contact list, music state
 ```
@@ -98,16 +97,15 @@ The data defines 151 commands, 22 of them debug aids.
 | --- | --- |
 | Steering | Mouse-flight hold, mouse-flight lock, pitch, yaw and roll keys |
 | Speed | Throttle up and down, wheel step, brake/reverse (hold), engine kill, cruise, thruster (hold), strafe in four directions (hold) |
-| Manoeuvres | Free flight, go to, dock, join formation, cancel (chapters 04, 05) |
+| Manoeuvres | Free flight, go to, dock, join formation, cancel: each a directive to the manoeuvre layer (chapters 04, 05) |
 | Guns | Fire active weapons (hold), fire straight ahead, fire weapon 1–10, toggle weapon 1–10 |
 | Weapon groups | Select, fire and store group 1–6; a group is a remembered set of active weapons |
 | Launchers | Missiles, torpedoes, cruise-disrupting munitions, mines, countermeasures: one command per kind, firing every launcher of that kind |
 | Targeting | Select under cursor, next and previous contact, closest enemy, next and previous enemy, clear, next and previous sub-target |
 | Target actions | Scan cargo, tractor target, tractor all loot, hail, invite to group, request trade |
-| Consumables | Use a hull or a shield repair consumable |
+| Consumables | Use a hull or shield repair consumable |
 | View | Cockpit/chase toggle, turret view toggle, rear view (hold), look keys, level-camera toggle |
-| HUD | Minimise; open status panel, target panel, contact list, formation list, weapon list |
-| Windows | Map, inventory, player status, objective, chat, group, help (chapter 10) |
+| Interface | Minimise the HUD; open its status panel, target panel, contact, formation or weapon list; open map, inventory, objective, chat and the other windows of chapter 10 |
 
 A HUD button is only another source of the same commands. Nothing can be
 done with the mouse that has no command.
@@ -121,15 +119,15 @@ targets, so a press must be told apart from a hold.
 | --- | --- | --- | --- |
 | Free | Press over empty space | Arming | Store the cursor position; start a timer |
 | Arming | Timer reaches 0.25 s | Steering | — |
-| Arming | Cursor leaves a small radius | Steering | Steering starts on the next frame |
+| Arming | Cursor leaves a radius of 50 pixels | Steering | Steering starts on the next frame |
 | Arming | Release | Free | The press was a click: select under the cursor |
 | Steering | Each frame | Steering | Send direction (x, y) |
 | Steering | Release, lock off | Free | Send (0, 0); the ship stops turning |
 | Any | Lock toggled on | Steering | Steers with no button held |
 | Any | Letterbox, or riding a lane | Free | Direction reset; steering refused |
 
-The radius is 50 pixels on an 800-pixel-wide screen and shrinks in
-inverse proportion to the width.
+The radius holds for an 800-pixel-wide screen and shrinks in inverse
+proportion to the width.
 
 The direction is the cursor offset from the centre divided by half the
 screen width and height, so each component runs from −1 to 1. An option
@@ -141,9 +139,8 @@ holds a steady turn.
   element goes to the element.
 - **The lock** makes the mouse a virtual stick. With it on, a click
   still selects.
-- **Turret and rear views do not steer.** Entering the turret view
-  clears the direction, so the ship flies on while the player looks and
-  shoots around it.
+- **Turret and rear views do not steer.** The ship flies on while the
+  player looks and shoots around it.
 
 A steering arrow that grows from the centre towards the cursor shows the
 demand while mouse flight is on.
@@ -158,9 +155,7 @@ to 0.1 to 1, where θ is the angle between nose and target: fine control
 for lining up.
 
 Throttle keys move the throttle at 1.0 per second; the wheel steps it by
-0.2. Lowering the throttle, or reaching zero, drops cruise. Cruise,
-engine kill and the lock are toggles; brake, thruster and strafe act
-while held.
+0.2. Lowering the throttle, or reaching zero, drops cruise.
 
 Cancel returns the ship to free flight and drops cruise. In the turret
 view it leaves that view instead.
@@ -172,13 +167,13 @@ gun; chapter 03 describes how guns turn to it and what they hit.
 
 1. Cast a ray from the camera through the cursor and note the first
    object hit, ignoring shield bubbles and the player's ship. Only an
-   object slower than 5 m/s counts, so the aim does not jump onto ships
-   crossing the sight.
+   object slower than 5 m/s counts, so the aim does not jump onto
+   passing ships.
 2. If the cursor is within about 4.5 % of the screen size of a lead
    marker (5.5 % for the selected target), that contact is the intended
-   target. Within about 3 %, unless the aim option is set to manual, the
-   aim point snaps to the lead position. Otherwise it lies on the cursor
-   ray at the marker's distance.
+   target. Within about 3 %, unless one setting of the aim option
+   forbids it, the aim point snaps to the lead position. Otherwise it
+   lies on the cursor ray at the marker's distance.
 3. With no marker near, it lies on the cursor ray at the distance of the
    object hit, or else at the range of the longest-ranged active gun.
 
@@ -186,10 +181,10 @@ The cursor changes shape and colour with what it would hit (neutral,
 hostile, friendly). Fire is refused while it is over the interface.
 
 While fire is held, every active gun with unguided munitions fires each
-frame it can (refire and power: chapter 03). Guided launchers, mines and
-countermeasures have their own commands, so holding fire never empties
-the missile rack. A weapon group stores the current on/off pattern under
-a number; groups belong to the character and are kept by the authority.
+frame it can (chapter 03). Guided launchers, mines and countermeasures
+have their own commands, so holding fire never empties the missile rack.
+A weapon group stores the current on/off pattern under a number; groups
+belong to the character and are kept by the authority.
 
 ### 3.6 Contacts and targeting
 
@@ -228,7 +223,7 @@ and a lead marker.
 | Method | Rule |
 | --- | --- |
 | Click | The bracketed contact under the cursor; else the object the cursor ray hits; else the nearest pickable object whose enlarged bracket holds the cursor. A hostile contact under the cursor wins over a nearer object. |
-| Closest enemy | The nearest hostile contact, mission-critical ones first |
+| Closest enemy | The nearest hostile contact; contacts on a watch list first (set by missions, inferred) |
 | Next, previous | Cycle through hostiles, or through the contact list in its current filter |
 | Double-click a list row | Select, and switch the panel to the target view |
 
@@ -257,7 +252,6 @@ with no player ship.
 | Target panel | A wireframe view of the target, its parts coloured by damage in four steps; name, faction, range; buttons for scan, tractor, next enemy, trade. Switches to the contact list or the formation list. |
 | Status panel | The same wireframe for the player's ship; weapons with ammunition and on/off state; repair consumable counts; a button when loot is within 1,000 m |
 | Manoeuvre bar | One button per manoeuvre, lit only if the manoeuvre layer says it is possible for the current target; a cruise indicator |
-| Steering arrow | 3.3 |
 | Damage direction | Four edge flashes that light on the side a hit came from and fade in 0.7 s |
 | Waypoint | A marker at the next point of the plotted route; advances within 150 m (chapter 04) |
 | Comm window | An animated portrait of the speaker with name and caption (3.14) |
@@ -270,15 +264,10 @@ second.
 ### 3.8 The contact list
 
 Eight visible rows, each with an icon for the kind of object (about 16
-kinds), the range and the name, coloured by attitude.
-
-| Filter | Contents |
-| --- | --- |
-| Important | Hostile ships, other players, hostile solars close by |
-| Ships | Every ship contact |
-| Solars | Stations, jump points, lane rings, planets |
-| Loot | Loot and lootable wrecks |
-| All | Everything above |
+kinds), the range and the name, coloured by attitude. Five filters
+choose the rows: important (hostile ships, other players, hostile solars
+close by), ships, solars (stations, jump points, lane rings, planets),
+loot, and all.
 
 Ships must be within scanner range; other players' ships are listed at
 any range. Solars and loot come from a 14,000 m sphere and from the list
@@ -417,7 +406,6 @@ Typical pairs are 20 to 70 m and 200 to 500 m around ships, and
 - **Ducking.** Speech lowers everything else: by 12 dB for a comm to the
   player, 9 dB for other in-flight speech, 10 dB in cutscenes, falling
   in 0.2 to 0.25 s and recovering in 0.75 to 0.85 s.
-- **Ambience** is a looping sound per zone or system (chapter 01).
 
 ### 3.13 Music follows the situation
 
@@ -454,9 +442,7 @@ presentation only plays it.
 - **Two channels.** Comms sent or received by the player's ship use the
   channel with the portrait and caption. Everything else is overheard
   chatter on a second channel with no window, panned by the speaker's
-  direction.
-- **Queue.** Each channel queues 16 comms. The lines of one comm play
-  back to back.
+  direction. Each channel queues 16 comms.
 - **Priority.** Each line has a priority, from −6 for background chatter
   to 1 for mission speech; a comm takes its highest. A low-priority comm
   arriving while something more important plays is dropped; one that is
@@ -472,12 +458,11 @@ presentation only plays it.
 ### 3.15 Authority and presentation
 
 Everything in this chapter runs on the presentation. It reports to the
-authority: fire requests with the aim point; target and sub-target
-changes; manoeuvre, dock and formation requests; use of consumables,
-tractor and cargo scan; knowledge gained; weapon groups; comm
-completion. The player's ship is moved by the presentation's own
-simulation and its state is sent up (chapter 11), so steering has no
-network delay.
+authority: fire requests with the aim point; target changes; manoeuvre,
+dock and formation requests; use of consumables, tractor and cargo scan;
+knowledge gained; weapon groups; comm completion. The player's ship is
+moved by the presentation's own simulation and its state is sent up
+(chapter 11), so steering has no network delay.
 
 ## 4. Data that defines it
 
@@ -485,7 +470,6 @@ network delay.
 | --- | --- |
 | Command | Nickname, name and help text identifiers, events it reacts to, default bindings |
 | Command context, options group | Nickname or title, list of commands |
-| Cursor | Image region, hotspot, scale, colour |
 | HUD element | Mostly empty: the record's presence creates the element. The comm window carries positions and sizes; the manoeuvre bar lists (behaviour name, text identifiers, two icons). |
 | Camera mode | Field of view (70° in flight), near distance |
 | Ship archetype, camera fields | Chase offset, three turn angles, angular acceleration |
@@ -516,8 +500,7 @@ chapter 12).
 - **From 08:** objectives, music overrides, scripted cameras.
 - **From 11:** visibility radii; the messages for fire, target and
   manoeuvre.
-- **To 03:** the aim point and fire requests.
-- **To 04, 05:** the player's manoeuvre requests.
+- **To 03, 04, 05:** the aim point; fire and manoeuvre requests.
 - **To 10:** the command system and focus rules, shared by base screens.
 - **To 12:** the record kinds of section 4.
 
@@ -530,14 +513,12 @@ chapter 12).
   key hints all follow from it.
 - One cursor for pointing, steering and aiming, with a hold threshold to
   separate click from steer. This is the game's control identity: it
-  makes a mouse-only space shooter playable and frees the gun sight from
-  the ship's nose.
+  frees the gun sight from the ship's nose.
 - Rate control with a chase camera that looks into the turn.
 - The scanner as the single source for brackets, list, alerts and
   music. The interference rule turns clouds into gameplay with no
   further mechanic.
-- A manoeuvre bar that lights only what is possible. It teaches the
-  travel system without a tutorial.
+- A manoeuvre bar that lights only what is possible.
 
 **Feel.** Banking, camera lag and shake. The three-level music and its
 lock. Fragment-assembled radio speech: whole recorded lines would do,
@@ -564,26 +545,22 @@ mapping. A shake decay per frame instead of per second.
 2. The score a sound source computes for the mixer's ranking was not
    read.
 3. Zoom commands have default keys, but no in-flight handler was found.
-   A "trail" manoeuvre with an adjustable distance and several evasive
-   manoeuvres have handlers but no button and no default key.
+   A "trail" manoeuvre and several evasive manoeuvres have handlers but
+   no button and no default key.
 4. How the authority picks the fragments of a comm, and how often NPCs
    chatter, belong to chapter 05 and were only skimmed.
-5. What starts the docking camera, and with what pose and duration, was
-   not traced past its entry point.
+5. What starts the docking camera, and with what pose, was not traced.
 6. The format of the particle-effect libraries was not read; 3.11 states
    only what game code asks of them.
 
 ## 8. Basis
 
-Design: assessments 06 (sections 1, 2), 05 (section 9), 07 (sections 3,
-7).
+Design: assessments 06 (1, 2), 05 (9), 07 (3, 7).
 
 Data: `INTERFACE/keymap.ini`, `keylist.ini`, `hud.ini`; `mouse.ini`,
-`cameras.ini`, `constants.ini`; the INI files in `AUDIO/`;
-`FX/effect_types.ini`, `effects.ini`, `effects_explosion.ini`,
-`beam_effects.ini`, the `*_ale.ini` files; camera fields of
-`SHIPS/shiparch.ini`; one file under `COCKPITS/`; `[Music]` and
-`interference` in system files; scanner records.
+`cameras.ini`, `constants.ini`; the INI files in `AUDIO/` and `FX/`;
+camera fields of `SHIPS/shiparch.ini`; one file under `COCKPITS/`;
+`[Music]` and `interference` in system files; scanner records.
 
 Code, client: `menu_keymap_config.h`, `hud_command_dispatch.h`,
 `main_command_handler.cpp`, `input_manager.h`, `player_behavior.cpp`,
@@ -600,8 +577,7 @@ Code, shared and authority: `Common/common_cescanner.cpp`,
 `common_faceidea.cpp`; `Server/server_classes.cpp`; `Content/Gcs.cpp`
 (skimmed).
 
-Inferred: the multiplayer limit on contacts; the direction of the chase
-look-ahead; the engine-sound rule; the "silent" music state; open
-question 1. The "important" filter was read in part. The capability list
-of 3.11 comes from the callers, not from the particle library. Counts
-are from scripts over the data, rounded.
+Inferred: the multiplayer limit on contacts; the watch list's source;
+the direction of the chase look-ahead; the engine-sound rule; the
+"silent" music state. The capability list of 3.11 comes from the
+callers, not from the particle library. Counts are rounded.

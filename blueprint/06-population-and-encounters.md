@@ -5,10 +5,10 @@ Depends on: 01, 02, 04, 05, 07, 11, 12
 
 ## 1. Purpose and player experience
 
-Space would be empty without this part. No NPC ship is placed by hand in
-a system file. Zones only state who lives there and how densely; a
-controller on the authority creates ships around each player, gives each
-group a job, and removes it when nobody is near.
+No NPC ship is placed by hand in a system file. Zones only state who
+lives there and how densely; a controller on the authority creates ships
+around each player, gives each group a task, and removes it when nobody
+is near.
 
 The player sees a world that seems to exist without them. Freighters with
 escorts leave lanes and dock at stations. Police fly patrol routes, scan
@@ -42,8 +42,8 @@ attitude in the glossary. This chapter adds:
 | Population entry | The population fields of one zone: density, respawn time, battle size, relief time, encounter lines. |
 | Encounter line | In a population entry: an encounter definition, a level and a relative chance, followed by the factions that may fly it, with weights. |
 | Encounter definition | A file of group templates and a selection rule that picks one. Shared by many zones. |
-| Group template | One group that spawns together: ship lines, a formation class, a job, allowed arrival methods, a lifetime. |
-| Ship line | A count range, a class group, an optional level offset, a pilot job and optional extra tags. Yields identical ships. |
+| Group template | One group that spawns together: ship lines, a formation class, an itinerary, allowed arrival methods, a lifetime. |
+| Ship line | A count range, a class group, an optional level offset, a job for the pilot and optional extra tags. Yields identical ships. |
 | Class tag | A label on an NPC ship definition: lawful or unlawful, its role (fighter, freighter, transport, gunboat …) and each level it serves. |
 | Class group | A named set of class tags. Ship lines and caps name groups, never ship archetypes. |
 | NPC ship definition | A record binding a ship archetype, a loadout, a pilot, a combat state graph, a level and class tags. |
@@ -66,7 +66,7 @@ zone (system file)
                  ├─ ship line ×n: count, class    │    ├─ pilot, state graph (05)
                  │    group, level offset, job ───┘    └─ level, class tags
                  ├─ formation class ──► faction's formation for that class (05)
-                 ├─ job: trade | path patrol | wander
+                 ├─ itinerary: trade run | path patrol | wander
                  └─ arrival methods, lifetime
 ```
 
@@ -150,8 +150,7 @@ groups are created at once:
 3. Encounters are drawn from each zone until its share is reached (at
    least one ship), without the chance roll.
 
-These groups appear 100 to 1,875 m from the player, never by lane. Dock
-controllers do not hail them for 30 s.
+These groups appear 100 to 1,875 m from the player, never by lane.
 
 ### 3.5 Choosing an encounter, and what can veto it
 
@@ -186,9 +185,9 @@ For each ship line the count is uniform between minimum and maximum; a
 minimum of 0 makes escorts optional. The line's class group and the level
 tag (zone level plus the line's offset, at least 1) select the faction's
 candidate NPC ship definitions; one is chosen uniformly. From it come
-ship archetype, loadout, state graph and pilot. The line's pilot job
-replaces the job part of the pilot's personality (chapter 05), so one
-pilot record serves as patrol leader, escort or freighter captain.
+ship archetype, loadout, state graph and pilot. The line's job replaces
+the job block of the pilot (chapter 05), so one pilot record serves as
+patrol leader, escort or freighter captain.
 Escort lines usually carry an offset of −1: leaders are a step better
 than their wingmen.
 
@@ -200,7 +199,7 @@ Each ship also receives:
   gender weighted by the faction's share of male voices;
 - the **formation** the faction uses for the template's formation class,
   so factions fly the same encounter in different shapes (chapter 05);
-- for a trade job, **cargo**: a commodity chosen by weight from what the
+- for a trade run, **cargo**: a commodity chosen by weight from what the
   two endpoint bases trade and the faction's goods list, filling 80 % of
   the hold. Freighters and transports behind the leader carry the same
   good. A destroyed trader thus drops what its route plausibly carries.
@@ -220,15 +219,15 @@ succeeds.
 | Passing close | Ahead of a moving player by 2,500 m plus 2.5 s of its speed, 150 m above its course | As above |
 
 The last three never place a group within 2,500 m of another player.
-That distance is also the radius within which the authority shows a
-player objects that nobody owns (chapter 11): ships are created at the
-edge of what can be seen (inferred).
+That is also the radius within which the authority shows a player
+objects nobody owns (chapter 11): ships are created at the edge of what
+can be seen (inferred).
 
 ### 3.8 What ambient NPCs do, and how they leave
 
-The itinerary gives the leader its next directive whenever the last one
-is done. Fighting and fleeing are the pilot's own business (chapter 05);
-the itinerary resumes afterwards.
+The itinerary gives the leader its next directive when the last is done.
+Fighting and fleeing are the pilot's own business (chapter 05); the
+itinerary resumes afterwards.
 
 **Trade run.** Two dockable objects are chosen that the faction may use
 and the ship fits: near the lane it arrived by, along the zone's path, or
@@ -280,9 +279,10 @@ When a player enters a lane, the controller may stage an ambush:
 3. A ring ahead of the player, beyond the next one, with no player
    within 5,000 m is chosen by weight; then one such zone and one
    hostile faction.
-4. The ring's shield is drained, which is what interrupts the lane
-   (chapter 04). One group from the zone's encounter is created 1,400 m
-   beyond the ring; its leader waits 25 s, then patrols the zone's path.
+4. The ring's shield is drained; a ring works only while its shield is
+   up (chapter 04), so the lane breaks there. One group from the zone's
+   encounter appears 1,400 m beyond the ring; its leader waits 25 s,
+   then patrols the zone's path.
 
 The player drops out of the lane among ships of a faction with a reason
 to be there. A mission can switch lane attacks off per player.
@@ -302,15 +302,14 @@ faction's fighter ladder, typical of the rest:
 | 7 … 12 | heavy | first, then second | medium, hard, ace, twice |
 | 13 … 19 | very heavy | first, then second | medium to ace, then easy to ace |
 
-A definition can serve a range of levels (a police fighter tagged for
-levels 4 to 12), so a faction confined to one region needs only a few.
+A definition can serve a range of levels (a police fighter tagged for 4
+to 12), so a faction confined to one region needs only a few.
 Capital ships sit at 22 and 25, above every zone level; only missions
 place them (inferred).
 
 The ambient population is not scaled to the player: nothing in the spawn
 path reads the player's level, ship or wealth. Generated missions do
-scale (chapter 08); the table that maps campaign progress to mission
-difficulty is theirs.
+scale, by their own table of campaign progress (chapter 08).
 
 ### 3.11 Names
 
@@ -331,11 +330,11 @@ living NPCs do not share a name while the pool lasts.
 
 ### 3.12 Radio chatter
 
-Speech is assembled from pieces. A **line** is a speaker,
-a listener and a list of line segments: "this is", the faction's short
-name, the designation word, the number, "to", the station's name,
-"requesting", "permission to dock". Stations, systems and factions carry
-a prefix from which their segment names are formed. For each segment the
+Speech is assembled from pieces. A **line** is a speaker, a listener and
+a list of line segments: "this is", the faction's short name, the
+designation word, the number, "to", the station's name, "requesting",
+"permission to dock". Stations, systems and factions carry a prefix from
+which their segment names are formed. For each segment the
 voice profile states how many recorded variants it has (typically 1 to
 8); one is drawn with a bias to the low numbers. A voice also declares
 the roles it can speak (dock controller, docking ship, combat at three
@@ -405,10 +404,10 @@ read by the game: probably the input of an authoring tool (inferred).
 | Field | Meaning | Values in the data |
 | --- | --- | --- |
 | Ship line | minimum, maximum, class group, level offset | 1–1 leader; 0–1, 0–2 or 2–3 escorts; offset −1 on most escort lines |
-| Pilot job | Job block for the line (chapter 05) | about 20: leaders and members of patrol, assault, defence and escort; scout, freighter, transport, trader, smuggler, scavenger, repair |
+| Job | Job block for the line's pilots (chapter 05) | about 20: leaders and members of patrol, assault, defence and escort; scout, freighter, transport, trader, smuggler, scavenger, repair |
 | Extra tags | Class tags added to the ships | mark patrol leaders for the class caps, and wanderers |
 | Formation class | Looked up in the faction's formations | fighters, freighters, transports, gunboats |
-| Job | Itinerary | path patrol (24 templates), trade (18), wander (15) |
+| Itinerary | Standing task of the leader | path patrol (24 templates), trade run (18), wander (15) |
 | Arrival | Allowed methods | cruise only (26), all (13), all but lane and jump point (11), lane only (6) |
 | Lifetime, uniqueness | Seconds; simultaneous copies; times to create | 24; allowed; unlimited |
 | Selection rule | Template index, weight | weights 1 to 5 |
@@ -417,7 +416,7 @@ read by the game: probably the input of an authoring tool (inferred).
 example_lane_freighter
   group 0: freighter ×1 (job freighter)
            fighter ×0–1 (job escort leader), fighter ×0–2, offset −1 (job escort)
-           formation class freighters; job trade; arrival lane
+           formation class freighters; itinerary trade run; arrival lane
   group 1: freighter ×2, same escorts; formation class freighters, variant 2
   selection: group 0 weight 5, group 1 weight 5
 ```
@@ -432,7 +431,7 @@ pilot, state graph (fighter for three quarters; transport, gunboat,
 cruiser), level, class tags.
 
 **Class group** (78): a nickname and member tags; one per level and per
-ship role, plus broader sets.
+ship role.
 
 **Faction properties** (55): lawful or unlawful; preferred kind of jump
 point; 0 to 39 NPC ship definitions (median 8); 1 to 4 voices; up to 12
@@ -481,7 +480,7 @@ belong to chapters 08 and 10.
   faction → ship definition lets about 40 encounter files and 400 ship
   definitions populate 3,800 zones for 55 factions. Encounters written
   per faction and level would be two orders of magnitude more data.
-- Give every group a job with a destination. Traffic that docks,
+- Give every group an itinerary with a destination. Traffic that docks,
   launches and rides lanes is what makes stations look like stations.
 - Pace combat with a battle cap and a relief time.
 - Fill on arrival; trickle afterwards.
@@ -525,9 +524,8 @@ Design: `design/assessment/04-server-content.md`, sections 3 and 6.
 
 Data, tabulated by script: `outdir/data/MISSIONS/ENCOUNTERS/*.ini`,
 `MISSIONS/npcships.ini`, `shipclasses.ini`, `faction_prop.ini`,
-`rankdiff.ini` (belongs to generated missions), `voice_properties.ini`,
-`pilots_population.ini` (block kinds only), `AUDIO/voices_space_*.ini`,
-and the `[zone]`, `[Object]` and `[EncounterParameters]` records of all
+`rankdiff.ini`, `voice_properties.ini`, `AUDIO/voices_space_*.ini`, and
+the `[zone]`, `[Object]` and `[EncounterParameters]` records of all
 files under `UNIVERSE/SYSTEMS/`, two read in full.
 
 Code, in `CppSource/Content/`: `Populators.cpp/.h` (controller, zone

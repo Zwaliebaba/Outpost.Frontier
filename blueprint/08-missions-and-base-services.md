@@ -22,43 +22,41 @@ names who pays, whom to attack, where, how hard it is and what it pays.
 The player accepts, flies to a marked site, fights what spawns there and
 is paid on the spot.
 
-The bar also holds the other base services of this chapter: people who
-tell rumours, sell the location of hidden places or take a bribe to repair
-a reputation, and a news screen whose items follow the campaign.
+The bar also holds people who tell rumours, sell the location of hidden
+places or take a bribe to repair a reputation, and a news screen whose
+items follow the campaign.
 
 ## 2. Concepts
 
 | Concept | Definition |
 | --- | --- |
 | Mission definition | One record file that declares a scripted mission: cast, ships, solars, loot, directive lists, objectives, conversations, triggers. |
-| Trigger | One condition and a list of actions; inactive, active or complete. |
 | Label | A group name on mission objects. Conditions and actions address one object by nickname or all members of a label. |
-| Directive list | An ordered list of orders for one scripted ship. |
+| Directive list | Ordered orders for one scripted ship. |
 | Reminder | A watch on the player's progress towards a place; a companion nags, and ignoring it fails the mission. |
 | Checkpoint | A save made by an action. It names the resume trigger that rebuilds the scene on load. |
 | Campaign position | A number from 0 to 42: where the player stands in the campaign. |
 | Worth gate | A wealth target to reach before the next campaign mission starts. |
 | On-base story scene | A record that binds scene scripts (offer, accept, decline) and a cast to one room. |
 | Difficulty | A number from 0 to 100 on a geometric scale; it sizes a generated mission and sets its reward. |
-| Mission site | A zone marked as a place for generated missions. |
+| Mission site | A zone marked for generated missions. |
 | Offer tree | The authored decision tree from which a generated mission is composed. |
-| Base roster | Per base: the factions present with their shares, their characters, the fixtures, the job-board size. |
+| Base roster | Per base: factions with their shares and characters, fixtures, job-board size. |
 | Fixture | A character at a fixed spot who provides a room's service: bartender, trader, dealer. |
 | Job board | The job offers a base makes to one visiting player. |
 
 ```text
-campaign controller ── starts, by position and worth gate ──► scripted mission
-job board / bar character ── on acceptance ──► generated mission
-        both are content controllers on the event bus (chapter 11)
+campaign controller ──(position, worth gate)──► scripted mission
+job board, bar character ──(acceptance)──► generated mission
+    both run as content controllers on the event bus (chapter 11)
 
-scripted mission = definition ─► cast, ships (labels), solars, loot
-                               ─► directive lists ─► AI behaviours (chapter 05)
-                               ─► objectives ─► interface, map (chapters 04, 09)
-                               ─► triggers: condition ◄─ events, heartbeat
-                                            actions ─► authority services
+scripted mission ─► cast, ships with labels, solars, loot
+                 ─► directive lists ─► behaviours (chapter 05)
+                 ─► objectives ─► interface and map (chapters 04, 09)
+                 ─► triggers: condition ◄─ events; actions ─► services
 generated mission = offer (payer, enemy, site, difficulty, reward, seed)
-                  + path through the offer tree ─► waves, solars, loot, texts
-base roster ─► fixtures + bar characters ─► job | bribe | knowledge | rumour
+                  + one path through the offer tree
+base roster ─► fixtures, bar characters ─► job, bribe, knowledge, rumour
 ```
 
 ## 3. How it works
@@ -80,9 +78,8 @@ Multiplayer has generated missions and no campaign.
 | Header | The file of the mission's own NPC ship archetypes; optionally title, summary and reward. |
 | Cast member | A named NPC: ship archetype, faction, voice, appearance, name. |
 | Mission ship | A cast member placed in the world: labels, optional pose, cargo, initial directive list, and whether it follows the player through jump points. |
-| Formation | A formation type, a pose and its mission ships. |
-| Mission solar | Archetype, loadout, faction, pilot, pose, labels. |
-| Mission loot | Item, amount, position or offset from an object, velocity. |
+| Formation | A formation type, a pose, its mission ships. |
+| Mission solar, mission loot | A placed solar with loadout, faction, pilot and labels; an item with amount, position and velocity. |
 | Mission encounter | An ambient-style attack group the mission can switch on (chapter 06). |
 | Directive list | Section 3.6. |
 | Objective | Text only; text with a waypoint; or text with a waypoint bound to an object. |
@@ -139,7 +136,6 @@ trigger example_arrived  when: example_lead within 2,000 m of example_dock
    activate example_thanked
 trigger example_thanked  when: voice line example_thanks_3 has finished
    checkpoint, resume at example_next_leg_resume
-   show objective example_obj_land
 ```
 
 In the shipped campaign five condition kinds make up 70% of all triggers:
@@ -156,15 +152,13 @@ line finished, always true, timer, destroyed, distance between two objects
 - Enters, or leaves, a given room.
 - Enters, or leaves, space in a given system.
 - Arrives in, or leaves, a system, optionally from or to a given one.
-- Begins a launch.
-- A ship has finished launching, optionally from a given base.
+- Begins a launch; a ship has finished launching, optionally from a given base.
 - Arrival through a jump point has completed.
-- Polled: the player is, or is not, in space.
-- Polled: the player has, or has not, a live mission.
+- Polled: the player is, or is not, in space; has, or has not, a live mission.
 
 **Where ships are**
 
-- Two objects are nearer, or farther, than a distance; optionally for a time, counted always, only while closing or only while separating.
+- Two objects are nearer, or farther, than a distance; optionally for a time, counted always, only while closing or only while parting.
 - An object is nearer to, or farther from, a point; same options.
 - Any, or all, members of a label are nearer to, or farther from, a point.
 - An object passes forwards through the opening of a ring-shaped object.
@@ -179,19 +173,16 @@ line finished, always true, timer, destroyed, distance between two objects
 
 - A count of a label's members, or all, have been destroyed. Filters: exploded; removed silently; either; either, but not while the player is docked. Optionally by a given killer.
 - An object's health is at or below a fraction, optionally by a given attacker.
-- An object has been hit N times, optionally by a given shooter.
-- Any member of a label has been hit N times by a given shooter.
-- A given ship scanned a given ship's cargo.
-- A ship collected a given mission loot.
+- An object, or any member of a label, has been hit N times, optionally by a given shooter.
+- A given ship scanned a given ship's cargo; a ship collected a given mission loot.
 - Polled: one object's attitude towards another is at most, at least or equal to a level.
 - A mission encounter has spawned.
 
 **Speech and interface**
 
-- A given voice line has finished.
+- A given voice line has finished; a given on-base story scene has finished.
 - The player accepted, or rejected, the offer.
 - The player selected a given character in a room.
-- A given on-base story scene has finished.
 - The player answered a pop-up with a given button.
 - The player's ship is, or is not, performing a given manoeuvre (go to, dock, formation), optionally on a given target.
 - Unused: the player heard a given rumour.
@@ -220,8 +211,7 @@ objective, send line, spawn ship, protect.
 
 **Mission objects**
 
-- Spawn a mission ship, optionally with a directive list and a pose.
-- Spawn a formation; a mission solar; a mission loot.
+- Spawn a mission ship, optionally with a directive list and a pose; a formation; a mission solar; a mission loot.
 - Unused: spawn a ship relative to another object.
 - Destroy an object, exploding or silently.
 - Light a named fuse on an object (chapter 03).
@@ -230,8 +220,7 @@ objective, send line, spawn ship, protect.
 - Cloak or reveal a label's members.
 - Move a ship to a pose; turn a ship. Unused: move a formation.
 - Mark an object as important on the player's displays.
-- Set whether a ship follows the player through jump points.
-- Set a ship's lifetime.
+- Set whether a ship follows the player through jump points; set its lifetime.
 
 **Orders to ships**
 
@@ -262,13 +251,11 @@ objective, send line, spawn ship, protect.
 **Access**
 
 - Lock or unlock a jump point or dock, for the player or for everyone.
-- Allow or forbid the player to dock, with exceptions.
-- Allow or forbid the player to use lanes, with exceptions.
+- Allow or forbid the player to dock, or to use lanes, with exceptions.
 
 **The player's ship and account**
 
-- Pay or charge money.
-- Remove a mission loot from the hold.
+- Pay or charge money; remove a mission loot from the hold.
 - Replace the player's ship and loadout.
 - Move the player's ship if it is farther than a radius from a point (used by resume triggers).
 - Set where the player appears on the next launch.
@@ -345,17 +332,16 @@ resets the count; arriving, docking or entering the lane ends it.
 ### 3.9 Saving, failure and retry
 
 Mission state is saved in single player only. A normal save writes the
-ambient switches, title and summary, pending scenes, objectives, mission
-ships to re-create, and every active trigger with its condition's
-progress.
+ambient switches, title, pending scenes, objectives, mission ships to
+re-create, and every active trigger with its condition's progress.
 
-A checkpoint differs. The action shows a notice, records the resume
-trigger and asks the authority to save; the file is then copied to the
-autosave slot (chapter 11). The saved mission lists that one trigger in
-place of the active ones. On load it alone is activated, and its actions
-move the player, respawn companions and activate the triggers of the leg.
-The script rebuilds the scene; nobody serialises a battle. The campaign
-makes 36 checkpoints, two or three per mission.
+A checkpoint differs. The action records the resume trigger and asks the
+authority to save; the file is then copied to the autosave slot (chapter
+11). The saved mission lists that one trigger in place of the active
+ones. On load it alone is activated, and its actions move the player,
+respawn companions and activate the triggers of the leg. The script
+rebuilds the scene; nobody serialises a battle. The campaign makes 36
+checkpoints, two or three per mission.
 
 There is no retry logic. Of 118 end-mission actions in the campaign, 104
 are failures. A failed scripted mission ends its controller and leaves the
@@ -376,10 +362,10 @@ time after it.
 | 9 to 12 | Next mission starts at once |
 | 13 | Position 42: campaign over, level follows worth alone (chapter 07) |
 
-Worth is cash plus the value of ship and equipment. The interface is told
-the target. On every change of worth, and whenever the live mission
-changes, the campaign controller starts the next mission if the target is
-met and no generated mission is live.
+Worth is cash plus the value of ship and equipment; the interface shows
+the target. On every change of worth or of the live mission, the campaign
+controller starts the next mission if the target is met and no generated
+mission is live.
 
 A started mission is not yet accepted. Its entry trigger guides the player
 to a room; an on-base story scene plays there and ends in a choice. Reject
@@ -439,10 +425,10 @@ run-time moments, permitted payers and enemies, permitted site kinds, a
 difficulty window and a leaf weight.
 
 Composition takes the leaves that fit payer, enemy and difficulty, draws
-one by weight, then draws one root-to-leaf path among those whose windows
-admit the difficulty. The path's facts split the difficulty into shares.
-A second table turns a share into an NPC level and a formation size of 1
-to 8: level 5 with four ships is 0.475. Solars come from templates with a
+one by weight, then one root-to-leaf path whose windows admit the
+difficulty. The path's facts split the difficulty into shares. A second
+table turns a share into an NPC level and a formation size of 1 to 8:
+level 5 with four ships is 0.475. Solars come from templates with a
 difficulty, hit points and a choice of pilots.
 
 A saved generated mission stores payer, enemy, site, difficulty, reward
@@ -491,10 +477,10 @@ others in the room.
 
 ### 3.14 News
 
-A news item has a campaign-position window, a list of bases, a category
-icon, an image and text identifiers. A player entering a base receives the
-items that list the base and whose window holds the player's position.
-About half the shipped items are always available.
+A news item has a campaign-position window, a list of bases, an icon, an
+image and texts. A player entering a base receives the items that list
+the base and whose window holds the player's position. About half the
+shipped items are always available.
 
 ### 3.15 Authority and presentation
 
@@ -510,8 +496,7 @@ finished, scene finished, character selected.
 | Mission definition | Section 3.2 | 14 files; per file 79 to 408 triggers, 21 to 181 ships, 17 to 58 objectives (chapter 12) |
 | On-base story scene | Base and room; scripts for offer, decision, accept, decline; cast; reserved spots | 69 |
 | Base roster | Local faction; board size; per faction: share, mission type with difficulty range and weight, characters | 194 bases |
-| Roster character | Appearance, voice, faction, room; bribes; knowledge with price and standing level; rumours with window and level; mission entry | 1,642, of which 560 fixtures; median 10 rumours |
-| Room | Character density; fixtures with spot and idle script | density mostly 2 or 4 |
+| Roster character | Appearance, voice, faction, room; bribes; knowledge with price and standing level; rumours with window and level; mission entry | 1,642, of which 560 fixtures; median 10 rumours; room density mostly 2 or 4 |
 | News item | Window, bases, icon, image, texts | 403; median 5 bases, at most 40 |
 | Difficulty tables | Campaign position to difficulty; difficulty to money; NPC level and formation size to difficulty | 9, 23 and 25 rows |
 | Offer tree | Section 3.12 | 219 decision and data nodes, 6 weighted leaves |
@@ -524,12 +509,12 @@ makes it lawful unless a key says otherwise.
 
 ## 5. Connections
 
-Needs: zones, jump points, lanes and the knowledge state (01); ships,
-loadouts and cruise (02); fuses and damage (03); docking, lane and route
-services (04); behaviours, pilots and formations (05); population switches
-and encounters (06); reputation, worth, level and event rates (07);
-banners, log, markers and voice playback (09); rooms and scene scripts
-(10); the event bus, heartbeat, timers and saving (11); the census (12).
+Needs: zones, jump points and the knowledge state (01); ships and
+loadouts (02); fuses and damage (03); docking, lane and route services
+(04); behaviours, pilots and formations (05); population switches and
+encounters (06); reputation, worth, level and event rates (07); banners,
+log, markers and voice playback (09); rooms and scene scripts (10); the
+event bus, heartbeat, timers and saving (11); the census (12).
 
 Gives: the campaign position to 06, 07 and 10; locked jump points to 04;
 the checkpoint to 11; job boards, bar offers and news to 10.
@@ -540,9 +525,9 @@ the checkpoint to 11; job boards, bar offers and news to 10.
 lists form a small language in which authors, not programmers, build set
 pieces. Checkpoints as resume triggers are the cheapest robust save for
 scripted fights. The ambient switches matter as much as the spawns: a set
-piece fails if traffic wanders through it. A generated mission feels
-connected to the world because payer, enemy and site all come from the
-place where the offer is made.
+piece fails if traffic wanders through it. A generated mission feels part
+of the world because payer, enemy and site come from the place where the
+offer is made.
 
 **Feel.** Pacing by finished voice lines, companions who nag, and failure
 as the usual exit give the campaign its guided tone. The worth gates push
@@ -550,16 +535,15 @@ the player into the economy between missions.
 
 **Accidents of its era.** One condition per trigger. Activation in
 identifier sequence. Mission order, increments and per-mission hooks in
-the program. Ambient switches as process-wide flags, tolerable only
-because the campaign is single player. Rebuilding a generated mission from
-a seed, which ties saved games to the generator's exact draw sequence.
-Recognising sites by substring.
+the program. Ambient switches as process-wide flags, tolerable only in
+single player. A generated mission rebuilt from a seed, which ties saved
+games to the generator's exact draw sequence. Sites found by substring.
 
 **Simplifications.** Twenty actions and ten conditions cover most of the
 campaign. A modern trigger language would allow boolean expressions and
-queue activations as written. Store a composed generated mission instead
-of its seed. The offer tree could be a flat list of templates at some loss
-of variety; the shipped tree has only six leaves.
+queue activations as written. Store a composed generated mission, not its
+seed. The offer tree could be a flat list of templates; the shipped tree
+has only six leaves.
 
 ## 7. Open questions
 
@@ -569,10 +553,10 @@ of variety; the shipped tree has only six leaves.
    in the NPC code were not traced.
 3. Chapter 02 says mission scripts can engage cruise instantly. The
    authority offers that service to content, but no caller was found in
-   the trigger actions or directives, which only demand or forbid cruise.
-4. How the mission ships written by a checkpoint combine with what the
-   resume trigger spawns.
-5. Whether the reputation reward and penalty of ±0.15 stored on each offer
+   the actions or directives, which only demand or forbid cruise.
+4. How mission ships written by a checkpoint combine with what the resume
+   trigger spawns.
+5. Whether the ±0.15 reputation reward and penalty stored on each offer
    are used, or only the per-faction event rates.
 6. What the per-base difficulty number in the roster drives.
 
@@ -597,7 +581,7 @@ activation, dispatch, save, load), `MissionCnd.cpp`, `MissionAct.cpp`,
 `OutpostFrontier/Client/nn_story_star.cpp`.
 
 Inferred: retry by loading; the reading of the unused conditions and
-actions, of "excuse fire", "bound enemies", "lifetime" and "hold to
+actions and of "excuse fire", "bound enemies", "lifetime" and "hold to
 directives", which rests on parameters and names. The run-time states of
-a generated mission were read from the reconstruction's comments, not
-traced line by line. The worked reward was computed from the table.
+a generated mission were read from the reconstruction's comments. The
+worked reward was computed from the table.

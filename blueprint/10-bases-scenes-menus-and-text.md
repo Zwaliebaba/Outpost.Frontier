@@ -10,7 +10,7 @@ before play, the visit to a base, the map, and all text.
 
 A base is the pause between flights. The player lands, watches the ship
 set down, and is then inside a few rooms shown as staged 3D scenes with a
-fixed camera. There is no walking. A bar of buttons moves the view from
+fixed camera, without walking. A bar of buttons moves the view from
 room to room, and each room offers its services: the landing place gives
 repair and launch, the bar gives people to talk to, news and a job board,
 the dealers give the trade screens of chapter 07. People stand or sit at
@@ -20,16 +20,15 @@ machinery, with the interface hidden and the picture letterboxed.
 
 The front end is a column of five choices over a live scene. Multiplayer
 adds a host list, a character list and a character creation page. In
-play, one bar of icons opens the map, the inventory, the mission log,
-the player's standing and help; a pause menu saves, loads and leaves.
+play, a bar of icons opens the map, the inventory, the mission log, the
+player's standing and help; a pause menu saves, loads and leaves.
 
 Scenes instead of menus give each base a sense of place while the rules
-behind the buttons stay identical everywhere.
+behind the buttons stay the same everywhere.
 
 ## 2. Concepts
 
-Glossary terms are used as given; record, text catalogue and asset as in
-chapter 12.
+Glossary terms are used as given.
 
 | Concept | Definition |
 | --- | --- |
@@ -64,13 +63,12 @@ format string ── template identifier + values ──► sentence
 
 ### 3.1 A base as a set of rooms
 
-A base definition names its rooms and its start room, the one with the
-landing pad. Five room functions exist: landing place (a pad on a planet,
-a deck on a station), bar, commodity trader, equipment dealer and ship
-dealer. Of 197 bases, 67 % have a landing place and a bar, 10 % all five
-functions as separate rooms, 10 % a landing place only, and the rest
-three or four rooms. Where a dealer has no room, the landing place hosts
-it as a virtual room.
+A base definition names its rooms and its start room, normally the
+landing place. Five room functions exist: landing place, bar, commodity
+trader, equipment dealer and ship dealer. Of 197 bases, 67 % have a
+landing place and a bar, 10 % all five functions as separate rooms, 10 %
+a landing place only, and the rest three or four rooms. Where a dealer
+has no room, the landing place hosts it as a virtual room.
 
 | Room | What it offers |
 | --- | --- |
@@ -96,17 +94,15 @@ it as a virtual room.
 - **Hotspots**: median 7 per room, at most 15 (3.3).
 - **Blinking light sets** for pad and skyline lights.
 
-Where NPCs may stand is not in the room definition. It comes from the
-placement setpoints of the set, which the authority also reads to seat
-its inhabitants.
+Where NPCs may stand comes from the placement setpoints of the set,
+which the authority also reads to seat its inhabitants.
 
 ### 3.3 The room bar and hotspot behaviours
 
 On entering a room the presentation rebuilds the bar from the room's
 hotspots: up to nine room buttons and nine service tabs. A hotspot has a
-name (which gives tooltip and icon), a behaviour, and optionally a target
-room, the virtual room it belongs to, a virtual room it sets, and a pair
-of state numbers.
+name (for tooltip and icon), a behaviour, and optionally a target room,
+the virtual room it belongs to, and a pair of state numbers.
 
 | Behaviour | Effect of pressing the button |
 | --- | --- |
@@ -118,7 +114,7 @@ of state numbers.
 | Front desk | Camera back to the desk; closes an open dealer screen |
 | Commodity, equipment or ship dealer | Camera travels to the dealer view over 2 s, eased; then the trade screen opens |
 | Move along | Step the camera along a numbered track of setpoints |
-| Launch | Not authored: added in the start room when the player owns a ship |
+| Launch | Not authored; added in the start room when the player owns a ship |
 
 The desk and dealer tabs form a two-state pair: each hotspot declares the
 state it shows in and the state it sends, so only one of the two is
@@ -194,13 +190,13 @@ setpoints for the speaker's place, so one conversation clip works at
 every table of every bar.
 
 An entity may carry a named detail priority. One detail setting between
-0 and 1 is compared with a threshold per name (0.17, 0.51 or 0.83 in the
-shipped table), so extras, traffic, carts, weather and secondary lights
-vanish on slow machines without re-authoring. The same setting caps the
-frame rate inside bases at 30 or 20 per second.
+0 and 1 is compared with a threshold per name (0.17, 0.51 or 0.83), so
+extras, traffic, carts, weather and secondary lights vanish on slow
+machines without re-authoring. The same setting caps the frame rate
+inside bases at 30 or 20 per second.
 
-Scene scripts also drive the camera and one "main object" in space, for
-flight cutscenes, lane rides and jumps (chapter 09).
+Scene scripts also drive the camera in space, for flight cutscenes,
+lane rides and jumps (chapter 09).
 
 Authored scripts by kind, with typical lengths (inferred, section 8):
 168 room sets and 318 ambience and traffic loops; 70 walk-ins (8 s); 27
@@ -276,7 +272,7 @@ or quit.
 
 At start the program plays three films (two logos and an introduction),
 then shows the main menu over one of three authored menu scenes picked
-at random. They run as ordinary rooms without an authority.
+at random, run as ordinary rooms without an authority.
 
 | Front-end step | Offers | Goes to |
 | --- | --- | --- |
@@ -297,9 +293,6 @@ the in-process authority's character list (chapter 11).
 | Connect | Log in with the account identifier; a password prompt where required |
 | Character list | The account's characters, at most five: name, level, money, ship type, location. Also the host's message of the day and details. Load, new, delete with confirmation, back |
 | New character | A name of up to 23 characters, a preview of the pilot's figure, and the start base, money and ship package. The data allows several pilots, packages and starting factions but ships one of each, so the name is the only choice |
-
-From the pause menu a multiplayer player can return to the character
-list or to the host list without restarting.
 
 ### 3.10 In-game panels, pause and saving
 
@@ -366,7 +359,6 @@ text to an object's card once the flag for it is set.
   key trigger the same command.
 - Layout from data: a per-window record (frame, offsets, child list) or
   a page file (one line per widget: class, name, rectangle, caption).
-  The original also builds many panels in code.
 
 ### 3.13 Text: identification, formatting, localisation
 
@@ -387,9 +379,8 @@ template a placeholder is a percent sign, a kind letter, the index of
 the value among those of its kind and, optionally, a variant digit. The
 variant selects an alternative form of the same name by a fixed
 identifier offset; the templates use it to fit a name into different
-grammatical positions (inferred). Numbers are grouped by thousands.
-Because only identifiers travel, each player reads the text in the
-language of their own installation.
+grammatical positions (inferred). Because only identifiers travel, each
+player reads the text in the language of their own installation.
 
 **Rich text.** Markup has text runs, paragraph breaks, alignment, a
 horizontal position, style changes (bold, italic, underline, font by
@@ -410,9 +401,8 @@ and saving. The presentation owns room sets, cameras, all scene
 playback, the room bar and every screen; it raises knowledge flags and
 reports them; for everything else it asks and shows the result.
 
-The authority reads room sets only for their placements. It does not run
-scenes, so a scene's length is known only to the presentation; that is
-why "scene done" exists as a message.
+The authority does not run scenes, so a scene's length is known only to
+the presentation; that is why "scene done" exists as a message.
 
 ## 4. Data that defines it
 
@@ -426,10 +416,8 @@ why "scene done" exists as a message.
 | Body part | kind (body, head, left hand, right hand), mesh; skeleton by sex; detail-switch table | 88 bodies, 104 heads, 12 hands |
 | Costume | body, head, hands, accessories (106, on a hat or an eyewear hardpoint) | 154 |
 | New-character options | pilot (figure, comm appearance, voice, preview animation); package (ship, loadout, money, name, description); start (reputation group, base, package, pilot) | 1 each |
-| Page and window layouts | widget lines; frame, offset, child controls, icon per hotspot name | 8 pages |
-| Font and style tables | role, face, height; style: font, weight, colour | 21 roles, 15 styles |
-| Tooltip map | caption identifier, long text identifier | 298 |
-| Card extension map | card identifier, extra text, which stock lists to append | 174 |
+| Page, window, font and style tables | widget lines; frame and child controls; role, face, height, colour | 8 pages, 21 font roles, 15 styles |
+| Tooltip map; card extension map | caption and long text identifiers; card identifier, extra text, stock lists to append | 298; 174 |
 | Knowledge table | text identifier, nickname, flags | 4,752 |
 
 Example: the deck of a two-room station has a room switch to the bar,
@@ -455,16 +443,16 @@ and 11; text identifiers and format strings to every chapter.
 
 Essential:
 
-- A base as a few staged rooms with services attached to buttons. The
-  rules are in the panels; the room is a place.
+- A base as a few staged rooms with services on buttons. The rules are
+  in the panels; the room is a place.
 - Late-bound, data-only scene scripts. One mechanism serves sets,
-  ambience, landing, conversations and campaign scenes, and 635 of about
+  ambience, landing, conversations and campaign scenes; 635 of about
   1,500 scripts are reusable clips.
-- Sequences with offer, accept and decline branches. This is the whole
+- Sequences with offer, accept and decline branches: the whole
   conversation system.
-- Text by identifier, and format strings by typed values. They keep the
-  authority free of language and make multiplayer text local.
-- Knowledge granted by reading. It ties bar talk and news to the map.
+- Text by identifier and format strings by typed values, which keep the
+  authority free of language.
+- Knowledge granted by reading, which ties bar talk and news to the map.
 
 Feel: landing and launch scenes, walk-ins, fidgets, carts, traffic and
 blinking lights, which the original can already drop by priority; the
@@ -483,8 +471,8 @@ Accidents of the era:
 
 Simplifications: static backdrops instead of scenes lose the sense of
 place and none of the rules; text boxes instead of acted conversations
-keep offers, rumours and bribes; dropping the knowledge table loses the
-link between talk and exploration.
+keep offers, rumours and bribes; without the knowledge table, talk no
+longer feeds exploration.
 
 ## 7. Open questions
 
@@ -503,10 +491,10 @@ link between talk and exploration.
 
 ## 8. Basis
 
-Design documents: `design/assessment/06-client-app.md` sections 1 and 5
-(toolkit model, layout mechanisms, text path); `design/assessment/07-media-script-resources.md`
-sections 1 and 6 (script form, curve kinds, catalogue scheme);
-`design/facts.md` F3, F6, F15; `outdir/data/text/README.md`.
+Design documents: assessment 06 sections 1 and 5 (toolkit, layout, text
+path); assessment 07 sections 1 and 6 (script form, curve kinds,
+catalogue scheme); `design/facts.md` F3, F6, F15;
+`outdir/data/text/README.md`.
 
 Data: `UNIVERSE/universe.ini` (base records); all base and room files
 under `UNIVERSE/SYSTEMS/*/BASES/`, tabulated by script; `SCRIPTS/` (file
@@ -520,13 +508,11 @@ census; string constants of the compiled scripts), `SCRIPTS/rtcslider.ini`,
 
 Code, `CppSource/OutpostFrontier/Client/`: `client_state`, `gameflow`,
 `menu_enter_state`, `mission_briefing`, `menu_universe_base`,
-`room_control`, `room_control_hotspot`, `nav_bar`, `gf_hotspot`,
-`gf_character_object`, `gf_script`, `gf_script_object`,
-`gf_script_spawn`, `engine_character`, `fade_to_black`,
-`page_server_select`, `server_filter`, `login_mgr`,
-`page_character_select`, `page_character_select_single`,
-`page_character_create`, `nn_main_button`, `nn_pause`, `nn_load_save`,
-`nn_navmap*`, `knowledge_map`, `infocard_map`, `ids_strings`.
+`room_control*`, `nav_bar`, `gf_hotspot`, `gf_character_object`,
+`gf_script*`, `engine_character`, `fade_to_black`, `page_server_select`,
+`server_filter`, `login_mgr`, `page_character_*`, `nn_main_button`,
+`nn_pause`, `nn_load_save`, `nn_navmap*`, `knowledge_map`,
+`infocard_map`, `ids_strings`.
 `CppSource/Common/`: `common_roomdata`, `common_costume`,
 `common_fmtstr`, `common_rdlio`, `common_rtcslider`.
 `CppSource/include/`: `scenescript_iface.h`, `scenescript_controls.h`,

@@ -5,15 +5,15 @@ Depends on: 00 (glossary), 01 (zone property sets), 02 (flight model, force cont
 
 ## 1. Purpose and player experience
 
-Every NPC ship is flown by a pilot: an authored personality. Pilots make
-the universe look inhabited and are the opposition in every fight.
+Every NPC ship is flown by a pilot, an authored personality. Pilots
+make the universe look inhabited and are the opposition in every fight.
 
 - **Fighters fight in passes.** An enemy runs in firing, flashes past,
-  extends, turns and returns. Shoot it and it jinks; get on its tail and
-  it weaves, breaks, or cuts its engine and spins round to fire.
-- **Role decides behaviour.** Fighters dogfight, gunboats make strafing
-  runs on slow targets, cruisers creep towards the enemy and let their
-  turrets work, haulers never attack and flee when outmatched.
+  extends and returns. On its tail, the player sees it weave, break, or
+  cut its engine and spin round to fire.
+- **Role decides behaviour.** Fighters dogfight, gunboats strafe slow
+  targets, cruisers creep forward and let their turrets work, haulers
+  never attack and flee when outmatched.
 - **Groups behave as groups.** Wingmen hold stations on a leader, take
   its target, scatter when hurt and re-form afterwards.
 - **Skill is visible.** Weak pilots fire short bursts with long pauses
@@ -23,9 +23,9 @@ the universe look inhabited and are the opposition in every fight.
   "join formation" are NPC manoeuvres run on the player's ship; manual
   flight is one more manoeuvre.
 
-The AI is deliberately shallow: it never plans or remembers, and it
-coordinates only between leader and follower. Its variety comes from
-weighted random choice among a dozen manoeuvres with authored styles.
+The AI is deliberately shallow: no planning, no memory, coordination
+only between leader and follower. Variety comes from weighted random
+choice among a dozen manoeuvres with authored styles.
 
 ## 2. Concepts
 
@@ -46,12 +46,8 @@ weighted random choice among a dozen manoeuvres with authored styles.
 | Formation | A named list of slot offsets; slot 0 is the leader's. |
 
 ```text
-content (06, 08) ─ directive, job, forced targets ─▶ MANOEUVRE LAYER, one per ship
-pilot (16 blocks), state graph ───────────────────▶   target selection   (1 s)
-events: damage, missile launched,                      behaviour choice   (3 s) ─▶ behaviour (0.2 s)
-        leader docked, object gone                     fire control       (every tick)      │
-                                                       steering arbiter ◀─ primitives ◀──────┘
-                                                             └─▶ force controllers (02)
+content ─ directive, job ─▶ MANOEUVRE LAYER ─▶ behaviour ─▶ primitives ─▶ arbiter ─▶ force controllers (02)
+pilot, state graph ───────▶   target selection, fire control ─▶ weapons (03)
 ```
 
 ## 3. How it works
@@ -71,8 +67,7 @@ events: damage, missile launched,                      behaviour choice   (3 s) 
    is obstructed) and writes the control values of chapter 02.
 
 Aiming and flying are separate: fire control shoots whenever a weapon
-bears, whatever the behaviour is doing. A fleeing ship with a turret
-fires backwards; a formation fires as one.
+bears, whatever the behaviour is doing.
 
 ### 3.2 Timing
 
@@ -115,24 +110,22 @@ the engine-kill turn are available. The draw is 53 % trail, 40 %
 engine-kill turn, 7 % another pass.
 
 Ten graphs ship. The **fighter** leader reaches attack pass, trail,
-strafe, evade, engine-kill turn, flee, loot and the travel behaviours;
-its escort variant adds formation and loses go-to and lane travel. **Transports** reach
-only travel, flee and loot. The **gunboat** leader prefers strafe (0.7
-to 0.9) with some attack pass and trail; **cruiser** leaders run the
-capital manoeuvre (weight 1). Gunboat and cruiser escorts reach only
-formation, dock and launch: they fight with turrets from their slot.
-Two graphs are empty. With no target, formation is the only candidate
-that applies to an escort, so escorts return to station after a fight.
-The player's ship always gets an empty graph, and its automatic
-targeting and firing are off: only directives move it.
+strafe, evade, engine-kill turn, flee, loot and travel; its escort
+variant adds formation and loses go-to. **Transports** reach only
+travel, flee and loot. The **gunboat** leader prefers strafe (0.7 to
+0.9); **cruiser** leaders run the capital manoeuvre (weight 1). Gunboat
+and cruiser escorts reach only formation, dock and launch: they fight
+with turrets from their slot. Two graphs are empty. With no target,
+formation is the only candidate that applies to an escort, so escorts
+return to station after a fight. The player's ship gets an empty graph
+and no automatic targeting or firing: only directives move it.
 
 **Directives.** A directive forces its behaviour at once and stays
 armed until the behaviour finishes, fails or is cancelled; the layer
-then returns to the default and reports the outcome to the giver. While
-it is armed the periodic re-evaluation is suspended, but "must run now"
-verdicts (missile evasion, flee) still take over. Content can also
-confine a ship to a sphere or box (targets outside are ignored) and
-lock or disable individual manoeuvres of a player.
+then returns to the default and reports the outcome. While it is armed
+the periodic re-evaluation is suspended, but "must run now" verdicts
+(missile evasion, flee) still take over. Content can also confine a
+ship to a sphere or box and lock individual manoeuvres of a player.
 
 ### 3.4 The behaviours
 
@@ -142,19 +135,19 @@ to chapter 04 and are listed for completeness.
 | Behaviour | Applies when | What it does |
 | --- | --- | --- |
 | Attack pass | target is a small ship | Head-on firing pass; see below. |
-| Trail | target is no large ship, moves at 20 m/s or more, and the pilot is in its rear hemisphere | Tail chase: hold 150 to 300 m behind the target and match its throttle at limited turn authority (0.3 to 0.6). After losing a 30° cone for too long, roll out, optionally on thruster, and retry (partly inferred). |
+| Trail | target is no large ship, moves at 20 m/s or more, and the pilot is in its rear hemisphere | Tail chase: hold 150 to 300 m behind and match throttle at limited turn authority (0.3 to 0.6). After losing a 30° cone, roll out and retry (partly inferred). |
 | Strafe run | own ship is small or a gunboat, the target is neither and moves at 20 m/s or less | Repeated runs on a big, slow target; see below. |
 | Evade | an enemy within 20 to 300 m targets this ship or a follower and is not in front; must run when a guided munition is about to hit | Dodge, then break; see below. |
 | Engine-kill turn | nearest hostile within 500 m is a small ship and own speed exceeds 50 m/s; must run on its damage trigger | Cut the engine, coast, turn to face the pursuer and fire for a few seconds, then restart. Also serves the "face this" directive. |
-| Capital manoeuvre | own ship is a cruiser with a target | Every 5 s re-plan a point at the centre of all hostiles, pushed away from other large ships within 1,500 m and at most 50 m above or below; creep there. Close to 500 m on a large or fixed target. |
+| Capital manoeuvre | own ship is a cruiser with a target | Every 5 s re-plan a point at the centre of all hostiles, away from other large ships within 1,500 m and at most 50 m above or below; creep there. |
 | Flee | must run when a flee rule fires (3.9) | Ask content for a destination, then run go-to or dock as a sub-behaviour; keep formation instead if the leader fled. |
 | Loot | a tractor is fitted, no enemies, wanted loot in scanner range | Fly to the loot and tractor it. |
 | Formation | a leader is set | Hold a slot (3.10). |
 | Idle | NPC default | Hold still. |
 | Free flight | player default | Manual control: a go-to variant fed with direction, throttle, cruise, engine, reverse, strafe and thruster wishes (chapter 02, 3.9). |
 | Go-to, dock, launch, lane travel, cruise | by directive, or copied from a leader | Chapter 04. |
-| Follow, guide | by directive | Stay near another ship without a slot; lead another ship along a course, waiting for it and reporting progress. |
-| Forced evade, delay | by directive | For a set time (default 4 s) nudge sideways or brake at full reverse; wait, then report. |
+| Follow, guide | by directive | Stay near a ship without a slot; lead a ship along a course, waiting for it. |
+| Forced evade, delay | by directive | For a set time (default 4 s) nudge sideways or brake; wait, then report. |
 
 A placeholder "none" completes the 21.
 
@@ -205,9 +198,9 @@ object it refers to left or died (references are dropped), when its
 leader began to dock or entered a lane (the order is copied to
 followers), and when it died itself.
 
-The layer reports to content: combat state (engaged, overwhelmed, no
-enemies), "target in my sights", follow and guide progress, a request
-for a flee destination, and combat drift (3.7).
+It reports to content: combat state (engaged, overwhelmed, no
+enemies), "target in sights", follow and guide progress, a request for
+a flee destination, and combat drift (3.7).
 
 ### 3.6 Steering, prediction and obstacles
 
@@ -232,18 +225,16 @@ throttle for speed v  |v| * D / F, at most 1
 
 They decide when to brake before a point, when to stop turning, the
 strafe trigger range and the throttle that matches a leader's speed.
-Because the flight model is a first-order lag they are exact for
-constant input.
+The flight model is a first-order lag, so they are exact for constant
+input.
 
 **Obstacles.** Pilots do not plan paths. A moving ship casts a ray from
 its nose along a slowly spiralling direction ahead, with a look-ahead
 proportional to hull length, every 0.5 s, or every 0.1 s while something
 is in the way. On a close hit it probes a cone with random rays, keeps
 up to 25 recently blocked directions and steers along their average
-escape direction at reduced throttle. Small ships also take a sideways
-nudge away from the nearest obstacle among their scanner contacts (read
-in part). The probes see whatever has a collision body; nothing knows
-the layout of a field in advance.
+escape direction at reduced throttle. The probes see whatever has a
+collision body; nothing knows the layout of a field in advance.
 
 **Zone flags.** What the AI reads about fields is the property set
 around a point (chapter 01), reduced to a tier:
@@ -293,8 +284,7 @@ Once a second, unless a directive forbids it:
    NPC followers and a follower takes its leader's.
 
 The attacker limit is the main fairness device: however many enemies
-are present, about two shoot at each player and the rest find other
-work.
+are present, about two shoot at each player.
 
 ### 3.8 Fire control and accuracy
 
@@ -319,8 +309,8 @@ offset = distance * tan(angle), in a random direction across the line of sight
 `cone` is 1° to 8° by pilot. The exponent `p` shapes the spread: above
 1 most shots fall near the centre, below 1 near the edge. It is authored
 separately for player targets (0.7 to 3) and NPC targets (usually 6), so
-NPCs kill each other efficiently while the player gets near misses.
-Against a player moving slower than about 3 m/s there is no error.
+NPCs kill each other efficiently while the player gets near misses. A
+player slower than about 3 m/s is aimed at without error.
 
 **Launchers.** Guided and unguided launchers fire every 10 to 60 s
 (±25 to 50 %) within 1,000 m when the target is inside a cone of 20° to
@@ -330,8 +320,8 @@ dropped at most every 10 s when a hostile follows within 250 m inside a
 30° cone astern and own speed exceeds 20 m/s; on an attack pass if so
 authored; or all at once on the mine trigger.
 
-**Countermeasures** are not reactive. The dispenser is on for an
-authored part of a repeating period (3 s on, 0 to 3 s off).
+**Countermeasures** are not reactive: the dispenser is on for part of
+a repeating period (3 s on, 0 to 3 s off).
 
 ### 3.9 Reactions
 
@@ -373,10 +363,10 @@ and the job says to follow suit. Content supplies the destination: a
 base to dock at, an object or a point.
 
 **Cargo.** A pilot does not shed cargo in combat. When a patrol scans
-it and demands a good (chapter 06), it answers from the scene threat
-ratio: at or above the job's loot threshold it jettisons, below it
-refuses and is attacked. Looting follows the job's loot preference,
-which the shipped data never sets successfully, so NPCs do not loot.
+it and demands a good (chapter 06), it jettisons if the scene threat
+ratio is at or above the job's loot threshold; otherwise it refuses and
+is attacked. The job's loot preference is never set successfully by
+the shipped data, so NPCs do not loot.
 
 ### 3.10 Formations
 
@@ -393,8 +383,7 @@ each follower gets the same order.
 
 In combat the formation block and the job decide cohesion:
 
-- With "attack as a formation" off, followers fight alone and return to
-  their slots when idle.
+- With "attack as a formation" off, followers fight alone.
 - With it on, the combat behaviours report "not applicable" for a
   follower during the active part of a cycle (0 to 30 s on, 0 to 30 s
   off): the group flies and fires as one, then loosens.
@@ -409,17 +398,16 @@ In combat the formation block and the job decide cohesion:
   repair parameters.
 
 A player joins an NPC's formation through the same behaviour. The
-target must be a ship other than a capital ship, within 5,000 m, not
-hostile, not launching or in a lane, and not itself following the
-player.
+target must be a ship below capital class, within 5,000 m, not hostile,
+not launching or in a lane, and not itself following the player.
 
 ### 3.11 What a personality is made of
 
 | Block | Modulates |
 | --- | --- |
-| Evade: dodge; break | Activation range, style and direction weights, cone, interval, duration, throttles; break duration and style. |
-| Attack pass: run in; pass by | Turn-in distance, extend time and style, throttles, jinks; pass distance, time and style, mines on pass. |
-| Trail; strafe; engine kill | Distance, lock cone, turn authority; run-away distance, throttles; times, thruster use, target distance. |
+| Evade: dodge; break | Activation range, style and direction weights, cone, interval, duration; break duration and style. |
+| Attack pass: run in; pass by | Turn-in distance, extend time and style, throttles; pass distance, time, style, mines. |
+| Trail; strafe; engine kill | Distance, lock cone, turn authority; run-away distance; times, target distance. |
 | Gun | Burst, pause, accuracy cone, the two exponents, range factor, error refresh; turret variants. |
 | Mine; missile | Intervals, cones, ranges; cruise-disruptor rules. |
 | Damage reaction; missile reaction | The nine combat triggers; detection distance and three reaction times. |
@@ -441,8 +429,8 @@ There is no global difficulty setting. Three things scale opposition:
    the scene threat ratio.
 3. **The attacker limit** of 3.7.
 
-Tier is set per NPC record, not derived from level: high levels lean
-towards the upper tiers, but every tier occurs at most levels.
+Tier is set per NPC record, not derived from level; every tier occurs
+at most levels.
 
 ### 3.13 Authority and presentation
 
@@ -462,16 +450,15 @@ make AI unrepeatable between runs.
 | NPC record (06) | hull, loadout, level, pilot, graph role | 404 |
 
 Examples: `example_patrol_low` sets all 16 blocks (gun cone 5°, pause
-2 s, job "attack as a formation"); `example_patrol_high` inherits from
-the tier below and replaces only gun block (cone 2°, pause 0.5 s) and
-dodge block; `example_hauler` sets only a gun block.
+2 s); `example_patrol_high` inherits from the tier below and replaces
+gun block (cone 2°, pause 0.5 s) and dodge block; `example_hauler` sets
+only a gun block.
 
 ## 5. Connections
 
-- **Needs:** zone property sets (01); the control values and the
-  drag-based flight model (02); weapon ranges, lead point, guided
-  munitions, mines, damage events (03); the travel behaviours in detail
-  (04); reputation between two objects and rank (07).
+- **Needs:** zone property sets (01); control values and the flight
+  model (02); weapon ranges, lead point, guided munitions, damage
+  events (03); the travel behaviours (04); reputation and rank (07).
 - **Gives 06:** the pilot and graph an NPC record names; combat state,
   drift and flee requests; the scan answer.
 - **Gives 08:** directives with completion reports, forced targets, the
@@ -483,9 +470,8 @@ dodge block; `example_hauler` sets only a gun block.
 
 **Essential.**
 
-- The split into purpose (content), manoeuvre choice (weighted graph),
-  geometry (behaviour) and control (arbiter), with fire control beside
-  the manoeuvre, not inside it.
+- The split into purpose, manoeuvre choice, geometry and control, with
+  fire control beside the manoeuvre, not inside it.
 - Behaviours that veto themselves and report commitment. The graph
   supplies taste; correctness lives in the verdicts.
 - The player's autopilot running through the same layer.
@@ -494,14 +480,12 @@ dodge block; `example_hauler` sets only a gun block.
 - Burst-based damage reactions: NPCs respond to being hit hard, not to
   being low.
 
-**Feel.** The rhythm of extend, run in, pass; authored styles and
-direction weights; staggered clocks; the per-pilot gun range factor;
-the engine-kill turn.
+**Feel.** The rhythm of extend, run in, pass; authored styles;
+staggered clocks; the per-pilot gun range factor; the engine-kill turn.
 
-**Era.** A fixed table of 21 behaviours and a file that must match its
-size; timers in place of perception; no memory, cover or focus fire
-beyond the leader's target; thresholds in five named steps; parameters
-the shipped loaders ignore.
+**Era.** A fixed table of 21 behaviours; timers in place of
+perception; no memory, cover or focus fire beyond the leader's target;
+parameters the shipped loaders ignore.
 
 **Simplifications.**
 
@@ -511,15 +495,15 @@ the shipped loaders ignore.
 - Attack pass, evade, trail, formation and flee, plus travel, give most
   of the experience. Strafe and the capital manoeuvre matter only once
   large ships exist.
-- A behaviour tree or utility system can replace the graph if the
+- A behaviour tree or scoring system can replace the graph if the
   weighted randomness between equally valid manoeuvres survives.
-- Per-faction pilots differ mostly in dodge style. Four tiers of one
-  pilot per role would be hard to tell from the original's 64.
+- Four tiers of one pilot per role would be hard to tell from the
+  original's 64, which differ mostly in dodge style.
 
 ## 7. Open questions
 
-1. How the reputation value between two objects is formed, and why −1
-   is treated as a class of its own in target selection (chapter 07).
+1. Why reputation −1 is a class of its own in target selection
+   (chapter 07).
 2. Whether asteroids have collision bodies on the authority away from
    players. If not, NPCs fly through fields unhindered and only the
    zone tier keeps them out. The navigation layer also caches the
@@ -528,12 +512,9 @@ the shipped loaders ignore.
    their state tables are not established.
 4. Job fields with no visible effect: target toughness preference, the
    component attack order outside strafing, and the combat drift
-   distance, which the loader reads and discards (10,000 m is the
-   built-in value). A flag on the leader link that makes a follower
-   drop its target was not identified.
+   distance, which the loader discards (10,000 m is built in).
 5. How a joining player's formation offset is assigned (presumably the
    reserved slot).
-6. Whether the presentation side runs NPC behaviours at all.
 
 ## 8. Basis
 
@@ -559,11 +540,10 @@ directive ops), `common_evadebehavior.cpp`, `common_buzzbehavior.cpp`,
 forms), `Content/PilotPersonalities.cpp`.
 
 Read in part: `common_aisteer.cpp`, `common_obstacleavoidance.cpp`,
-`common_pathfind.cpp`, `common_matchthrottleidea.cpp`, and the
-large-ship, trail, face, loot, base-follower, drastic-evade,
-free-flight, cruise and idle behaviours; `Content/PatrolGuides.cpp`
-(scan answer). By header only: go-to, dock, launch, lane, guide,
-follow, delay.
+`common_pathfind.cpp`, `common_matchthrottleidea.cpp`, the large-ship,
+trail, face, loot, base-follower, drastic-evade, free-flight, cruise
+and idle behaviours, `Content/PatrolGuides.cpp`. By header only: go-to,
+dock, launch, lane, guide, follow, delay.
 
 Names here against the code: attack pass = Buzz; engine-kill turn =
 Face; capital manoeuvre = Large Ship (move); forced evade =
