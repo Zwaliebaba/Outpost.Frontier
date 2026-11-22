@@ -35,7 +35,8 @@
 //!   AI's fire, requests and lanes reach the server after the behaviour
 //!   tick (D622, D651, D730). A difference here is a gross divergence and
 //!   fails the test. The fan-outs of the AI's target, cruise, thruster and
-//!   equipment switches are left out of the judgement (proposed D760).
+//!   equipment switches are left out of the judgement (D760), and so is a
+//!   solar's affiliation in `SETREPUTATION`, which Content gives (D761).
 //! - **An object the port does not have** (a packet about an id that is
 //!   neither a scenario object, a solar of the system nor made by one of
 //!   them) fails the test: the harness's server runs no populator
@@ -146,6 +147,9 @@ struct Pkt {
     ints: Vec<i64>,
     /// The floats and their tolerances.
     floats: Vec<(f32, f32)>,
+    /// Fields reported but not judged: a solar's affiliation in
+    /// `SETREPUTATION`, which Content gives (D761, until P3.4).
+    unjudged: Vec<i64>,
 }
 
 impl Pkt {
@@ -158,6 +162,7 @@ impl Pkt {
             refs: Vec::new(),
             ints: Vec::new(),
             floats: Vec::new(),
+            unjudged: Vec::new(),
         }
     }
 
@@ -356,8 +361,8 @@ fn rust_pkt(tick: u32, client: u32, message: &ToClient) -> Option<Pkt> {
             }
             ServerMessage::SetReputation(r) => {
                 let mut k = p("SendServerSetReputation", 0);
-                k.ints
-                    .extend([i64::from(r.target), i64::from(r.affiliation)]);
+                k.ints.push(i64::from(r.target));
+                k.unjudged.push(i64::from(r.affiliation));
                 Some(k)
             }
             ServerMessage::BurnFuse(f) => {
@@ -630,10 +635,8 @@ fn oracle_pkt(j: &Json, data: &GameData) -> Option<Pkt> {
         }
         "SendServerActivateObject" => k.ints.extend([i64::from(u("on")?), i64::from(u("index")?)]),
         "SendServerSetReputation" => {
-            k.ints.extend([
-                i64::from(i("vibe")?.cast_unsigned()),
-                i64::from(u("affiliation")?),
-            ]);
+            k.ints.push(i64::from(i("vibe")?.cast_unsigned()));
+            k.unjudged.push(i64::from(u("affiliation")?));
         }
         "SendServerBurnFuse" => {
             k.refs.push(u("source")?);
@@ -1114,6 +1117,7 @@ fn replication_against_the_oracle() {
     let mut ours_g: Group = BTreeMap::new();
     let mut theirs_g: Group = BTreeMap::new();
     let mut tolerated = (0usize, 0usize);
+    let mut unjudged_differ = 0usize;
     for p in &ours.pkts {
         if p.tick < exact_until(p, &our_labels) {
             if JUDGED.contains(&p.m.as_str()) {
@@ -1182,6 +1186,9 @@ fn replication_against_the_oracle() {
                         .collect();
                     if bad.is_empty() && pa.floats.len() == pb.floats.len() {
                         matched += 1;
+                        if pa.unjudged != pb.unjudged {
+                            unjudged_differ += 1;
+                        }
                     } else {
                         mismatched.push(format!(
                             "client {} tick {}: {} differs: {}",
@@ -1247,7 +1254,11 @@ fn replication_against_the_oracle() {
     }
     let _ = writeln!(
         summary,
-        "exact window, not judged (proposed D760): {} target, cruise, thruster and equipment packets from the port, {} from the oracle",
+        "exact window, not judged (D761): {unjudged_differ} SETREPUTATION packets whose solar affiliation differs (Content gives named solars their faction, P3.4)"
+    );
+    let _ = writeln!(
+        summary,
+        "exact window, not judged (D760): {} target, cruise, thruster and equipment packets from the port, {} from the oracle",
         tolerated.0, tolerated.1
     );
     for (side, list) in [("port", &unknown.0), ("oracle", &unknown.1)] {
