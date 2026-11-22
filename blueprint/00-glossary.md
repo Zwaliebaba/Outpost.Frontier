@@ -137,3 +137,60 @@ content controller is a rules module of the authority.
 | Asset | A binary file that a record names by path: model, collision hull, material, animation, effect library, scene script, sound, image, movie. |
 | Text catalogue | One table of localised text: plain strings, information cards, or both. |
 | Voice profile | A named speaker with the list of lines it can say. |
+
+## Terms added by the chapters
+
+| Term | Meaning | Chapter |
+| --- | --- | --- |
+| Launcher | External equipment that creates munitions: gun, turret, guided launcher, mine dispenser, countermeasure dispenser. All share one firing cycle. | 03 |
+| Guided munition | A munition with a body, a motor and usually a seeker. It damages by exploding, not by touching. | 03 |
+| Weapon type, shield type | Labels on a munition and on a shield generator. A table gives a damage multiplier per pair. | 03 |
+| Armour | Internal equipment with one number that divides damage to hull and parts. | 03 |
+| Death fuse | A fuse whose last action destroys the object. | 03 |
+| Loot rule | Per item, how much of a carried stack survives its carrier's death as loot. | 03 |
+| Docking point | One authored place on a solar or capital ship where a ship can dock. | 04 |
+| Docking class | A label on a ship archetype saying which kind of docking point it may use. | 04 |
+| Lock | A marker that closes a jump point: for one player, for every player, or for ambient NPC traffic. | 04 |
+| Route, leg | The planner's answer to a travel request: an ordered list of legs, each "ride this lane" or "fly free to this point". | 04 |
+| Waypoint | A position in a named system, optionally tied to an object, that the player's interface steers towards. | 04 |
+| Scripted mover | A force controller that takes a ship over completely, as in lane travel and launch. | 04 |
+| Manoeuvre layer | Per ship, the owner of the current behaviour, the directive, target selection, fire control and steering. The player's ship has one too. | 05 |
+| State graph | A table of weights from the current behaviour to each candidate next behaviour, one per ship role. | 05 |
+| Directive | An order from outside (mission, population, the player's interface) to run one behaviour with parameters. | 05 |
+| Personality block | One named group of a pilot's parameters, such as its gun use or its evasion. | 05 |
+| Job | The pilot's block of attack preferences, threat and flee thresholds, loot and scan rules. | 05 |
+| Population entry | The population fields of one zone: density, respawn time, battle size, encounter lines. | 06 |
+| Encounter definition | A file of group templates and the rule that picks one. Shared by many zones. | 06 |
+| NPC ship definition | A record binding a ship archetype, a loadout, a pilot, a state graph, a level and class tags. | 06 |
+| Itinerary | The standing task of an encounter's leader: patrol a path, run trade, wander. | 06 |
+| Arrival method | How a new group enters the scene: out of a lane, from a dock, cruising in, or passing the player. | 06 |
+| Standing | A stored reputation of one party with one faction, from -1 to 1. | 07 |
+| Affiliation | The faction a party belongs to. | 07 |
+| Empathy | Per faction, the share of a standing change that each other faction applies to its own standing with the player. | 07 |
+| Faction matrix | For each directed pair of factions, the reputation one holds towards the other. | 07 |
+| Worth | Money plus the valued ship and equipment. | 07 |
+| Market row | One line of a base's market: a good and its conditions at that base. | 07 |
+| Contraband | A commodity that some lawful faction's patrols scan for. | 07 |
+| Campaign position | A counter of how far the campaign has advanced. | 08 |
+| Worth gate | A worth target to reach before the next campaign mission starts. | 08 |
+| Label | A group name on mission objects, so that triggers can address all members at once. | 08 |
+| Directive list | The ordered directives for one scripted ship. | 08 |
+| Checkpoint | A save made by a mission action; it names the trigger that rebuilds the scene on load. | 08 |
+| Mission site | A zone marked for generated missions. | 08 |
+| Difficulty | A number that sizes a generated mission and sets its reward. | 08 |
+| Offer tree | The authored decision tree from which a generated mission is composed. | 08 |
+| Base roster | Per base: the local faction, the size of its job board, and which factions offer what there. | 08 |
+| Job board | The job offers a base makes to one visiting player. | 08 |
+| Command | One action the player can trigger, with its default bindings and the context it applies in. | 09 |
+| Mouse flight | The cursor mode in which the cursor's offset from the screen centre is the steering input. The other mode is the free cursor. | 09 |
+| Contact | An object the player's scanner currently reports. | 09 |
+| Comm | One radio message: sender, receiver, voice profile and a list of recorded lines. | 09 |
+| Aim point | The world position the guns converge on this frame, derived from the cursor. | 09 |
+| Lead marker | The point to shoot at so that a shot meets a moving contact. | 09 |
+| Set | The stage of a room with its lights, cameras and markers; itself a scene script that never ends. | 10 |
+| Placement | A marker in a set where a person can stand or sit. | 10 |
+| Sequence | Scene scripts played one after another as a unit, branching on the player's answer. | 10 |
+| Costume | A character's appearance, composed of body, head, hands and accessories. | 10 |
+| Virtual room | A function that a base stages inside another room instead of giving it a room of its own. | 10 |
+| Format string | A text identifier plus typed values, expanded into a sentence on the presentation side. | 10 |
+
