@@ -86,8 +86,8 @@ Multiplayer has generated missions and no campaign.
 | Conversation | A sequence of lines: speaker, listener, voice line. |
 | Trigger | Section 3.3. |
 
-Nothing exists in the world until an action spawns it. The definition is a
-catalogue; triggers decide when each entry appears.
+Nothing exists in the world until an action spawns it: the definition is
+a catalogue, and triggers decide when each entry appears.
 
 ### 3.3 The trigger model
 
@@ -112,9 +112,8 @@ sequence, not as written. An author may rely on the sequence of actions
 inside a trigger and on nothing between triggers.
 
 Because the "always true" condition fires on activation, such a trigger is
-a subroutine. AND is a chain (A's actions activate B) or the condition
-that watches another trigger; OR is several triggers that activate the
-same successor.
+a subroutine. AND is a chain (A activates B) or the condition that watches
+another trigger; OR is several triggers that activate the same successor.
 
 An action sets the mission's desired end state; it is applied when the
 current event has been handled. Missions also fail without an action when
@@ -138,9 +137,9 @@ trigger example_thanked  when: voice line example_thanks_3 has finished
    checkpoint, resume at example_next_leg_resume
 ```
 
-In the shipped campaign five condition kinds make up 70% of all triggers:
-line finished, always true, timer, destroyed, distance between two objects
-(totals in chapter 12).
+Five condition kinds make up 70% of the shipped triggers: line finished,
+always true, timer, destroyed, distance between two objects (totals in
+chapter 12).
 
 ### 3.4 Conditions
 
@@ -193,8 +192,8 @@ line finished, always true, timer, destroyed, distance between two objects
 - A time has passed since activation, fixed or drawn once from a range; optionally it stands still while docked.
 - Polled: another trigger is in a given state.
 
-Conditions that count (destroyed, hits, loot, timer, dwell) write their
-progress into a saved game.
+Conditions that count (destroyed, hits, loot, timer, dwell) save their
+progress.
 
 ### 3.5 Actions
 
@@ -287,7 +286,7 @@ objective, send line, spawn ship, protect.
 
 ### 3.6 Directive lists
 
-A directive list is run top to bottom by the ship's pilot through the
+A ship's pilot runs its directive list top to bottom through the
 behaviours of chapter 05. 23 directives are registered; 15 occur.
 
 | Purpose | Directives |
@@ -299,8 +298,7 @@ behaviours of chapter 05. 23 directives are registered; 15 occur.
 | Timing | Wait some seconds; idle; wait until the player performs a manoeuvre. |
 | Settings | Hold to directives or allow distraction; collision avoidance on or off; lifetime; face an object or point; cancel. |
 
-The player's ship can receive a list too: this is how a script flies the
-player.
+The player's ship can receive a list too: so a script flies the player.
 
 ### 3.7 How objectives reach the player
 
@@ -319,8 +317,8 @@ their own message kinds; failure opens the mission log.
 
 A line is a voice-profile entry (chapter 12) sent from a speaker to a
 listener; the presentation plays it with the speaker's face and reports
-when it ends. That report is the commonest condition: missions pace
-themselves by speech. A conversation is a list of lines played in turn.
+its end. That report is the commonest condition: missions pace themselves
+by speech. A conversation is a list of lines played in turn.
 
 A reminder names a speaker and a destination. While the player is farther
 away than a set distance, a 20 s timer runs. If the player has not closed
@@ -342,7 +340,7 @@ respawn companions and activate the triggers of the leg. The script
 rebuilds the scene; nobody serialises a battle. The campaign makes 36
 checkpoints, two or three per mission.
 
-There is no retry logic. Of 118 end-mission actions in the campaign, 104
+There is no retry logic. Of the campaign's 118 end-mission actions, 104
 are failures. A failed scripted mission ends its controller and leaves the
 campaign position unchanged with nothing to restart it; the player returns
 by loading a save (inferred).
@@ -372,11 +370,11 @@ swaps in a repeatable re-offer scene. Accept ends any generated mission,
 advances the position, and by default stops ambient ships from attacking
 or scanning the player until the script says otherwise.
 
-The second gate is the map. The new-game template is a saved game that
-carries campaign position 1 and 32 locked jump points; missions unlock
-them (118 unlock actions against 64 locks). Missions also pay directly:
-16 payments of 750 to 25,000 credits. The sequence of missions and the
-increments are fixed in the program, not in data.
+The second gate is the map. The new-game template is a saved game with
+campaign position 1 and 32 locked jump points; missions unlock them (118
+unlock actions against 64 locks). Missions also pay directly: 16 payments
+of 750 to 25,000 credits. Mission sequence and increments are fixed in
+the program, not in data.
 
 ### 3.11 How a job offer is generated
 
@@ -409,8 +407,8 @@ a bar character's job is drawn when the player enters the room.
    7,784.
 7. **What.** Section 3.12. The offer keeps a random seed.
 
-An empty board tells the player why: no willing faction, nothing in the
-difficulty range, or no site.
+An empty board says why: no willing faction, no difficulty in range, or
+no site.
 
 ### 3.12 How a generated mission is composed and run
 
@@ -430,7 +428,7 @@ level 5 with four ships is 0.475. Solars come from templates with a
 difficulty, hit points and a choice of pilots.
 
 A saved generated mission stores payer, enemy, site, difficulty, reward
-and seed. Loading reseeds the generator and composes it again.
+and seed; loading reseeds the generator and composes it again.
 
 A state machine runs it:
 
@@ -447,7 +445,7 @@ combat area (3,500 m, hysteresis 250 m) starts a 30 s countdown, 45 s in
 multiplayer; returning cancels it. The mission fails when the countdown
 ends, when the players are destroyed, or in single player when the player
 docks after reaching the site. Failure and abort lower standing with the
-payer through chapter 07's event rates.
+payer (chapter 07).
 
 ### 3.13 Who the player meets on a base
 
@@ -457,7 +455,7 @@ also carry rumours and bribes.
 **Roster characters** fill a room when the player enters, up to the room's
 density (1 to 7). Each draw takes a faction by its share on the base, one
 of its characters allowed in that room, and a free spot. The character
-then chooses one thing to offer this player, by weight among what applies:
+offers this player one thing, drawn by weight among what applies:
 
 | Offer | Applies when | Weight | Effect |
 | --- | --- | --- | --- |
@@ -482,8 +480,8 @@ shipped items are always available.
 
 All of this runs on the authority. The presentation receives objective
 lists, messages, voice lines, music, camera and scene requests, offer and
-news lists, and answers with events: offer answered, pop-up answered, line
-finished, scene finished, character selected.
+news lists, and answers with events: offer or pop-up answered, line or
+scene finished, character selected.
 
 ## 4. Data that defines it
 
@@ -500,8 +498,8 @@ finished, scene finished, character selected.
 | Mission item, bonus loot | Item, kind or faction, difficulty band, weight | 62 and 143 |
 | Zone (chapter 01) | Site marking, lawful or unlawful, site kind | 13% of zones |
 
-A zone is recognised as a site by a fixed substring in its nickname, which
-makes it lawful unless a key says otherwise.
+A zone is recognised as a site by a fixed substring in its nickname; it
+is lawful unless a key says otherwise.
 
 ## 5. Connections
 
@@ -560,7 +558,7 @@ has only six leaves.
 
 Design: `design/assessment/04-server-content.md` sections 3, 6 and 7.
 
-Data: `MISSIONS/M08/m08.ini` in full, the other 13 definitions
+Data: `MISSIONS/M08/m08.ini` read for form, all 14 definitions
 tabulated; the two `mission1 readme.doc`; one on-base scene file of
 `M08`; `MISSIONS/mbases.ini`, `news.ini`, `rankdiff.ini`, `empathy.ini`;
 `RANDOMMISSIONS/*.ini`; `outdir/OutpostFrontier.ini`; `outdir/newplayer.fl`.

@@ -581,8 +581,8 @@ Design documents: `design/assessment/02-simulation-core.md`,
 
 Data, tabulated with scripts: `outdir/data/initialworld.ini`;
 `MISSIONS/empathy.ini`, `faction_prop.ini`, `ptough.ini`, `rankdiff.ini`,
-`mbases.ini` (bribes); `EQUIPMENT/goods.ini`, the three other
-`*_good.ini`, the three `market_*.ini`, `commodities_per_faction.ini`,
+`mbases.ini` (bribes); `EQUIPMENT/goods.ini`, the other
+`*_good.ini` files, the three `market_*.ini`, `commodities_per_faction.ini`,
 `select_equip.ini`; `RANDOMMISSIONS/diff2money.ini`;
 `UNIVERSE/universe.ini` and the system files; `outdir/newplayer.fl`,
 `outdir/mpnewcharacter.fl`, `CHARACTERS/newcharacter.ini`.
