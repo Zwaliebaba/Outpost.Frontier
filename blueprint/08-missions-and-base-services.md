@@ -199,7 +199,7 @@ progress into a saved game.
 ### 3.5 Actions
 
 85 kinds are registered; 78 occur. Ten make up 63% of all uses: activate
-and deactivate trigger, give directive list, the attitude setters, set
+and deactivate trigger, give directive list, three attitude setters, set
 objective, send line, spawn ship, protect.
 
 **Flow**
@@ -312,8 +312,8 @@ position) and an object whose name and standing the text shows.
 Scripts usually show one objective at a time. A text can be queued as a
 banner, written to the mission log, or both. The route action asks the
 route planner (chapter 04) for the legs to a distant object and shows them
-as a chain of waypoints, rebuilt as the player advances. Separate message
-kinds announce success and failure; failure opens the mission log.
+as waypoints, rebuilt as the player advances. Success and failure have
+their own message kinds; failure opens the mission log.
 
 ### 3.8 Speech and reminders
 
@@ -322,12 +322,11 @@ listener; the presentation plays it with the speaker's face and reports
 when it ends. That report is the commonest condition: missions pace
 themselves by speech. A conversation is a list of lines played in turn.
 
-A reminder names a speaker and a destination. Once the player is farther
+A reminder names a speaker and a destination. While the player is farther
 away than a set distance, a 20 s timer runs. If the player has not closed
 by a threshold when it expires, the speaker says a stock line chosen by
-the kind of destination (base, jump point, lane, ship, position) and the
-timer restarts. Four unanswered reminders fail the mission; progress
-resets the count; arriving, docking or entering the lane ends it.
+the kind of destination and the timer restarts. Four unanswered reminders
+fail the mission; progress resets the count; arriving ends it.
 
 ### 3.9 Saving, failure and retry
 
@@ -385,10 +384,10 @@ The board is built when a player enters a base and rebuilt after a bribe;
 a bar character's job is drawn when the player enters the room.
 
 1. **How many.** A uniform draw from the base's range: 2 to 4 on 140 of
-   194 bases, none on 33, up to 8 to 12 on the largest.
-2. **Who.** A faction on the base that has a mission entry and is not
-   hostile to the player, drawn by its share; then a mission type by
-   weight. The shipped data has one type.
+   194 bases, none on 33, 8 to 12 on the largest.
+2. **Who.** A faction on the base with a mission entry and not hostile to
+   the player, drawn by its share; then a mission type by weight. The
+   shipped data has one type.
 3. **How hard.** The entry gives a range. In single player the campaign
    position gives a centre `d` (0.08 at the start, 1.23 before the ninth
    mission, 39 after the campaign) and a window `[d / s³, d · s³]` with
@@ -400,9 +399,9 @@ a bar character's job is drawn when the player enters the room.
    base: a unit is 300 m of flight, a lane ride costs 10, a jump 45
    (multiplayer: 30 more per other player in the system, at most 300).
    The site must suit the payer (lawful or unlawful), carry no other
-   offer and not lie behind a locked jump point. One is drawn uniformly.
+   offer and not lie behind a locked jump point. Drawn uniformly.
 5. **Against whom.** A faction that populates zones within 7,500 m of the
-   site, failing that anywhere in the system, and that the payer regards
+   site, failing that anywhere in its system, and that the payer regards
    at −0.2 or worse. Drawn uniformly.
 6. **For how much.** A 23-row table maps difficulty to money, from
    0 → 1,800 to 100 → 247,065, interpolated linearly and truncated.
@@ -418,11 +417,10 @@ difficulty range, or no site.
 The offer tree has decision nodes with two children and data nodes that
 add parameters. Each decision is a yes-or-no fact: is the objective a
 large solar, are there defensive solars, a fight on the way, a named
-target, friendly ships after 30 s, reinforcements, an item to destroy,
-collect or bring back. Data nodes carry offer-text fragments with
-placeholders, an objective text per step, radio sequences keyed to
-run-time moments, permitted payers and enemies, permitted site kinds, a
-difficulty window and a leaf weight.
+target, friendly ships after 30 s, reinforcements, an item. Data nodes
+carry offer-text fragments with placeholders, an objective text per step,
+radio sequences keyed to run-time moments, permitted payers, enemies and
+site kinds, a difficulty window and a leaf weight.
 
 Composition takes the leaves that fit payer, enemy and difficulty, draws
 one by weight, then one root-to-leaf path whose windows admit the
@@ -436,14 +434,12 @@ and seed. Loading reseeds the generator and composes it again.
 
 A state machine runs it:
 
-| State | Leaves it when |
+| State | What happens |
 | --- | --- |
-| Brief | The player launches; a waypoint leads to the site. |
-| Approach to first fight (optional) | A player is within 2,500 m. Ambient population is kept out of 10,000 m. |
-| First fight | Its waves are dead, time is up, or the target ran. |
-| Approach to main fight | Solars spawn at 7,500 m, ships at 2,500 m. |
-| Main fight | Flagged ships and solars are destroyed. |
-| Item (optional) | The item is destroyed, collected or returned. |
+| Travel | A waypoint leads to the first fight or straight to the main one. Ambient population is kept out of 10,000 m around it. |
+| First fight (optional) | Starts within 2,500 m. Ends when its waves are dead, or on a timer, ship count or health level; survivors run to the main fight. |
+| Main fight | Solars spawn at 7,500 m, ships at 2,500 m. Ends when the flagged ships and solars are destroyed. |
+| Item (optional) | The target drops an item to destroy, collect or bring back. |
 | Success | Reward split in the group; standing with the payer rises. |
 
 Later waves arrive on a delay or when few ships are left. Leaving the
@@ -455,8 +451,8 @@ payer through chapter 07's event rates.
 
 ### 3.13 Who the player meets on a base
 
-**Fixtures** stand at authored spots and provide the room's service. The
-bartender may also tell rumours and take bribes.
+**Fixtures** stand at authored spots and provide the room's service. Some
+also carry rumours and bribes.
 
 **Roster characters** fill a room when the player enters, up to the room's
 density (1 to 7). Each draw takes a faction by its share on the base, one
@@ -466,7 +462,7 @@ then chooses one thing to offer this player, by weight among what applies:
 | Offer | Applies when | Weight | Effect |
 | --- | --- | --- | --- |
 | Job | The character has a mission entry | 30 | A generated mission, started on acceptance |
-| Bribe | Standing with a listed faction is below 0.6 | 20 | Pay; standing rises to 0.6 |
+| Bribe | Standing with a listed faction is below 0.6 | 20 | Pay; standing rises by the shortfall |
 | Knowledge | Standing with the character's faction is at least 0.2, 0.4 or 0.6; not yet bought | 15 | Pay 300 to 55,000; a place is revealed (chapter 01) |
 | Rumour | Campaign position inside the rumour's window; standing high enough; not yet heard | 64 if tied to a campaign stretch, else 10 to 20 | A text; some reveal a place |
 
@@ -493,10 +489,10 @@ finished, scene finished, character selected.
 
 | Record | Principal fields | Shipped values |
 | --- | --- | --- |
-| Mission definition | Section 3.2 | 14 files; per file 79 to 408 triggers, 21 to 181 ships, 17 to 58 objectives (chapter 12) |
+| Mission definition | Section 3.2 | 14 files; 79 to 408 triggers each (chapter 12) |
 | On-base story scene | Base and room; scripts for offer, decision, accept, decline; cast; reserved spots | 69 |
 | Base roster | Local faction; board size; per faction: share, mission type with difficulty range and weight, characters | 194 bases |
-| Roster character | Appearance, voice, faction, room; bribes; knowledge with price and standing level; rumours with window and level; mission entry | 1,642, of which 560 fixtures; median 10 rumours; room density mostly 2 or 4 |
+| Roster character | Appearance, voice, faction, room; bribes; knowledge with price and standing level; rumours with window and level; mission entry | 1,642, of which 560 fixtures; median 10 rumours |
 | News item | Window, bases, icon, image, texts | 403; median 5 bases, at most 40 |
 | Difficulty tables | Campaign position to difficulty; difficulty to money; NPC level and formation size to difficulty | 9, 23 and 25 rows |
 | Offer tree | Section 3.12 | 219 decision and data nodes, 6 weighted leaves |
@@ -564,11 +560,10 @@ has only six leaves.
 
 Design: `design/assessment/04-server-content.md` sections 3, 6 and 7.
 
-Data: `MISSIONS/M08/m08.ini` in full, `M01A/m01a.ini` in part, all 14
-definitions tabulated; the two `mission1 readme.doc`;
-`M08/m008_s045a_ku01_05_offer.ini`; `MISSIONS/mbases.ini`, `news.ini`,
-`rankdiff.ini`, `empathy.ini`; `RANDOMMISSIONS/*.ini`;
-`outdir/OutpostFrontier.ini`; `outdir/newplayer.fl`.
+Data: `MISSIONS/M08/m08.ini` in full, the other 13 definitions
+tabulated; the two `mission1 readme.doc`; one on-base scene file of
+`M08`; `MISSIONS/mbases.ini`, `news.ini`, `rankdiff.ini`, `empathy.ini`;
+`RANDOMMISSIONS/*.ini`; `outdir/OutpostFrontier.ini`; `outdir/newplayer.fl`.
 
 Code: `Content/MissionScript.cpp` (`GCndFactory`, `GActFactory`, trigger
 activation, dispatch, save, load), `MissionCnd.cpp`, `MissionAct.cpp`,

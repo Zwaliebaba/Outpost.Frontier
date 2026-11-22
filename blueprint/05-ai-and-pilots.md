@@ -79,7 +79,8 @@ behaviour re-evaluation every 3 s, and every tick while idle.
 A behaviour's step returns a status: *committed* (do not interrupt),
 *interruptible*, *finished* or *cannot continue*. The last two force a
 re-evaluation; *committed* suppresses the periodic one. An incoming
-guided munition or the "turn and face" damage trigger also forces one.
+guided munition or the "turn and face" damage trigger also forces one,
+unless a binding directive is armed.
 
 ### 3.3 Choosing the next behaviour
 
@@ -121,10 +122,12 @@ and no automatic targeting or firing: only directives move it.
 
 **Directives.** A directive forces its behaviour at once and stays
 armed until the behaviour finishes, fails or is cancelled; the layer
-then returns to the default and reports the outcome. While it is armed
-the periodic re-evaluation is suspended, but "must run now" verdicts
-(missile evasion, flee) still take over. Content can also confine a
-ship to a sphere or box and lock individual manoeuvres of a player.
+then returns to the default and reports the outcome. A binding
+directive suspends re-evaluation, missile and damage triggers included,
+until its behaviour reports finished or failed. A soft one only keeps
+its behaviour in the draw at the token weight, so it resumes when
+nothing else applies. Content can also confine a ship to a sphere or
+box and lock individual manoeuvres of a player.
 
 ### 3.4 The behaviours
 
