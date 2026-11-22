@@ -1,4 +1,4 @@
-# Blueprint extraction: multi-agent prompt
+# Concept blueprint: multi-agent prompt
 
 Start a session at the repository root with:
 
@@ -15,133 +15,94 @@ the lead never retypes them.
 
 ### A1. Mission
 
-Produce a blueprint of the game implemented by the C++ code base in
-`CppSource/`: a space trading and combat game with a data-driven universe, a
-scripted campaign, generated missions, single player and multiplayer.
+Produce a concept blueprint of the game implemented in this repository: a
+space trading and combat game with a data-driven universe, a scripted
+campaign, generated missions, single player and multiplayer.
 
-The reader of the blueprint is a **builder agent** that will create a
-comparable game. Assume the builder:
+The reader is a **builder agent** that will create a comparable game. It
+has no access to this repository, has never played the original, and
+chooses its own engine, language and platform. It reads `Blueprint.md`
+first and then the chapters its current task needs.
 
-- has no access to this repository, the original game or its data;
-- has never played the original;
-- chooses its own engine, language and platform;
-- reads `Blueprint.md` first and then only the chapters its current task
-  needs.
-
-The blueprint is finished when that builder can implement each subsystem
-without having to guess a rule, a formula, an ordering or a data shape.
+The blueprint is a basis to start from, not a specification. It is
+finished when the builder understands each part of the game well enough to
+explain how it works, why it is built that way and how the parts depend on
+each other, and can then design its own version. It records the concepts,
+their relations, the governing rules, the main formulas and representative
+numbers. It does not record every edge case, every parameter or every
+exception; the builder will make those decisions itself.
 
 ### A2. Deliverables
 
 | Path | Content |
 | --- | --- |
-| `Blueprint.md` | Entry point: the game on one page, architecture, chapter map, build order, content budget, gaps. At most 6,000 words. Written last. |
-| `blueprint/00-conventions-and-glossary.md` | Conventions of Part C and the shared vocabulary. Owned by the lead. |
-| `blueprint/NN-<slug>.md` | One chapter per domain of Part D. |
-| `blueprint/A-original-technology.md` | What the original was built on and which of its traits are accidents of that technology. |
-| `blueprint/B-gaps.md` | Everything that could not be established, with what was tried. |
-| `blueprint/evidence/NN-<slug>.evidence.md` | Per chapter: where each statement comes from. For audit; the builder does not read it. |
-| `blueprint/evidence/NN-<slug>.review.md` | Per chapter: the reviewer's findings and their resolution. |
+| `Blueprint.md` | Entry point: the game on one page, the player's journey, architecture, chapter map, suggested build order, content budget, what the blueprint does not cover. At most 5,000 words. Written last. |
+| `blueprint/00-glossary.md` | The shared vocabulary. Owned by the lead. |
+| `blueprint/NN-<slug>.md` | One chapter per brief of Part D, 2,500 to 5,000 words each. |
 
 Write nothing else into the repository. Scratch files go to the session's
 scratch directory.
 
 ### A3. Your role
 
-You coordinate; you do not extract. Keep your own context for synthesis:
+You coordinate and synthesise; the specialists extract. Do not read C++
+sources yourself. Chapters are written to disk; a specialist's return
+message is a short report, never the chapter text.
 
-- Do not read C++ sources beyond what you need to assign scope or settle a
-  dispute between two agents.
-- Chapters are written to disk by the specialists. Their return message to
-  you is a short report, never the chapter text.
-- You own `00-conventions-and-glossary.md`, `B-gaps.md` and `Blueprint.md`.
-
-Ask the user only when a source tree named in B1 is missing or unreadable,
-or when a scope decision would change the structure of more than one
-chapter. Everything else you decide, and record in `B-gaps.md` when the
-decision hides an uncertainty.
+Ask the user only when a source tree named in B1 is missing or unreadable.
+Everything else you decide.
 
 ### A4. Phases
 
-**Phase 0 — Orientation.** Read `design/README.md` (the table of documents,
-not the progress log), `design/port-map.md` and the summary and first
-section of each file in `design/assessment/`. Then:
+**Phase 0 — Orientation.** Read the table of documents in
+`design/README.md` (not its progress log), `design/port-map.md` and the
+summary and first section of each file in `design/assessment/`. Write
+`blueprint/00-glossary.md`: about 50 neutral terms for the concepts the
+chapters will share, one line each. Check which chapters already exist and
+resume from there.
 
-1. Write `blueprint/00-conventions-and-glossary.md`: the conventions of
-   Part C restated for the builder, the unit system, and a seed glossary of
-   neutral terms (about 60) for the concepts the chapters will share.
-2. Run the coverage check: list every directory under `CppSource/` that B1
-   does not exclude and every directory directly under `outdir/data/`, and
-   confirm that each is named in at least one brief of Part D. Assign any
-   orphan to the nearest chapter and say so in that agent's spawn prompt.
-3. Check which chapters already exist and read their `Status:` line. Resume
-   from there; never redo a chapter whose status is `accepted`.
+**Phase 1 — Extraction.** Spawn one specialist per chapter (A5), in two
+launches, in the background:
 
-**Phase 1 — Extraction, in three waves.** Spawn one specialist per chapter
-(A5). Launch a wave's agents in a single message, in the background, at
-most six at a time.
+1. Chapters 01, 02, 11 and 12, which the others build on.
+2. Chapters 03 to 10, each told to read the "Concepts" section of the
+   chapters from the first launch.
 
-| Wave | Chapters | Why this order |
-| --- | --- | --- |
-| 1 | 01, 02, 03, 17, 18 (census step) | Everything else refers to the world, the object model, flight, the authority split and the data shapes. |
-| 2 | 04, 05, 06, 07, 09, 10 | Built on the object model and flight. |
-| 3 | 08, 11, 12, 13, 14, 15, 16, A | Built on AI, reputation, economy and travel. |
+After each launch merge the glossary proposals into chapter 00 and settle
+conflicting terms: one concept, one word.
 
-After each wave, merge the glossary proposals into chapter 00, resolve
-conflicting terms (one concept, one word), and pass interface requests from
-one chapter to the chapter that must answer them.
+**Phase 2 — Spot review.** Spawn three reviewers (Part E), each with four
+chapters: 01 to 04, 05 to 08, 09 to 12. Send each chapter's findings to
+its specialist, continuing that agent so that it keeps its context, and
+have it fix the chapter. One round.
 
-**Phase 2 — Review, after each wave.** For every chapter of the wave spawn
-a fresh reviewer (Part E). It writes `NN-<slug>.review.md` and does not
-edit the chapter. Send the review to the chapter's specialist, continuing
-that agent so that it keeps its context; if it can no longer be reached,
-spawn a new specialist with the chapter, the evidence file and the review.
-The specialist fixes the chapter and answers each finding in the review
-file. Send the fixed chapter back to the reviewer once. A chapter with no
-open finding of severity *wrong* or *missing* gets `Status: reviewed`. Stop
-after two rounds; what is still open goes to `B-gaps.md`. Start the next
-wave only when the current one is reviewed.
+**Phase 3 — Synthesis.** Read all chapters and write `Blueprint.md`:
 
-**Phase 3 — Reconciliation.** Continue the chapter 18 specialist with its
-reconcile step (brief D18). Route each finding to the owning chapter's
-specialist. Then run, as scripts of your own:
-
-- every source file in scope that no evidence file cites: hand the list to
-  the owning specialist to read or to declare irrelevant with a reason;
-- every statement ID referenced from another chapter resolves;
-- every chapter stays within its word budget.
-
-**Phase 4 — Synthesis.** Read all chapters (they are now your main input)
-and write `Blueprint.md`:
-
-1. How to use this blueprint: reading order, the fidelity tags, statement
-   IDs, what the evidence directory is.
+1. How to use this blueprint, and what it deliberately leaves to the
+   builder.
 2. The game on one page: pillars, the core loops (minute to minute, hour
    to hour, whole game), modes of play.
 3. The player's journey as a state diagram: front end, loading, space,
-   base, cutscene, death, and every transition between them.
-4. Logical architecture: components, which side is authoritative for what,
-   the tick, the principle that data drives content.
-5. System interaction matrix: which chapter provides what to which.
-6. Chapter map: file, scope in one line, "read this when…", word count.
-7. Build order: vertical slices from first flyable ship to full game.
-   For each slice the chapter sections it needs and the acceptance checks
-   (by ID) that prove it.
+   base, cutscene, death, and the transitions between them.
+4. Logical architecture: components, which side is authoritative for
+   what, the tick, the principle that data drives content.
+5. How the systems feed each other: one matrix or diagram.
+6. Chapter map: file, scope in one line, "read this when…".
+7. Suggested build order: vertical slices from first flyable ship to full
+   game, each naming the chapters it draws on.
 8. Content budget: how much content of each kind a comparable game needs,
-   from the census of chapter 18, and what must be authored by hand.
-9. Scope reduction menu: what can be left out, and what the game loses.
-10. Gaps: the ten most consequential entries of `B-gaps.md`.
+   from chapter 12.
+9. What can be left out, and what the game loses.
+10. What the blueprint does not know: the open questions that matter most.
 
-**Phase 5 — Acceptance.** Spawn two cold readers (Part F) with different
-tasks. Route every blocking question to the owning specialist, then update
-`Blueprint.md`. Run the neutrality lint (B3) over `Blueprint.md` and
-`blueprint/*.md`. Set `Status: accepted` on chapters that pass. Report to
-the user: what was produced, word counts, the open gaps, and which
-subsystems the blueprint knows least about.
+**Phase 4 — Acceptance.** Spawn one cold reader (Part F). Route what it
+could not explain to the owning specialists, update `Blueprint.md`, and
+run the neutrality lint (B3). Report to the user: what was produced, word
+counts, and which parts of the game the blueprint understands least.
 
-Commit after each wave and after phases 3, 4 and 5, on the current branch,
-with a message that starts with `blueprint:`. Push only if your session's
-instructions name the branch to push to. Do not open a pull request.
+Commit after phases 1, 2 and 4 on the current branch, with a message that
+starts with `blueprint:`. Push only if your session's instructions name
+the branch to push to. Do not open a pull request.
 
 ### A5. Spawning
 
@@ -149,134 +110,119 @@ Use general-purpose subagents; they must be able to write files. Use this
 prompt, filled in, and add nothing that Parts B to F already say:
 
 ```text
-You are the specialist for chapter NN (<title>) of a game blueprint.
-Working directory: the repository root.
+You are the specialist for chapter NN (<title>) of a game concept
+blueprint. Working directory: the repository root.
 
 Read these parts of blueprint/PROMPT.md completely before anything else:
 A1 (mission and reader), Part B (ground rules), Part C (chapter contract)
-and brief D<NN> in Part D. Then read
-blueprint/00-conventions-and-glossary.md.
+and brief D<NN> in Part D. Then read blueprint/00-glossary.md.
 
-<Wave 2 and 3 only:> These chapters exist and are reviewed. Read their
-"Interfaces" and "Concepts" sections and refer to their statement IDs
-instead of restating them: <list>.
+<Second launch only:> Read the "Concepts" section of chapters 01, 02, 11
+and 12 and use their terms.
 
-<Any orphan directories or interface requests assigned to this chapter.>
-
-Write blueprint/NN-<slug>.md and blueprint/evidence/NN-<slug>.evidence.md.
-Finish with the report that C7 asks for, and nothing else.
+Write blueprint/NN-<slug>.md. Finish with the report that C5 asks for,
+and nothing else.
 ```
 
-Reviewers and cold readers get the same form with Part E or Part F in
+Reviewers and the cold reader get the same form with Part E or Part F in
 place of Part C and the brief.
 
 ---
 
 ## Part B — Ground rules for every agent
 
-### B1. Sources and their precedence
+### B1. Sources, and what each is for
 
-1. **`CppSource/` — the behaviour.** The code is the authority on what the
-   game does.
-2. **`outdir/` — the content.** The INI files at its top and the tree in
-   `outdir/data/` show which features the shipped game uses, with what
-   values and in what quantities. A code path that no data exercises is
-   *dormant*; say so.
-3. **`design/` — a head start.** The assessments, facts, decision records
-   and `sim-records.md` tell you where things are and what earlier readers
-   concluded. Verify every fact you take from them in the code. When they
-   disagree with the code, the code wins and the evidence file records the
-   disagreement. Ignore everything in `design/` that concerns the Rust
-   port: destinations, work packages, gates, crate names.
+1. **`design/` — structure.** The assessments, decision records, facts and
+   `sim-records.md` tell you which subsystems exist, where their code is
+   and how they connect. Start here. Ignore everything that concerns the
+   Rust port: destinations, work packages, gates, crate names, the
+   progress log.
+2. **`outdir/` — concepts and numbers.** The INI files at its top and
+   under `outdir/data/` name every concept of the game with its
+   parameters. Tabulate sections, keys and value ranges with a script;
+   read a few records of each kind in full.
+3. **`CppSource/` — behaviour, on demand.** Read code when the documents
+   and the data name a concept or a parameter but do not tell you what it
+   does. Your brief lists the files that carry the rules. Read the parts
+   that answer your question, not your whole scope; expect to open ten to
+   thirty files, most of them in part.
 
-Not sources: `crates/`, `apps/`, `xtask/` (a port in progress, with its own
-decisions) and anything outside the repository. Do not use what you
-remember about any published game; if the code and data do not show it, it
-is a gap.
+When sources disagree, code outranks data and data outranks documents.
 
-Excluded from reading, except where a brief says otherwise:
-`CppSource/DX8/` (a vendor SDK), `CppSource/zlib/`, `CppSource/qhull/`,
-`CppSource/SceneScript/lua32/`, `CppSource/luaprofile/`,
-`CppSource/MemoryDiagnostics/`, `CppSource/RenderTrace/`, project and
-resource-script files.
+Not sources: `crates/`, `apps/`, `xtask/` (a port in progress) and
+anything outside the repository. **Do not fill a hole from what you
+remember about any published game.** If the three sources do not show it,
+it is an open question.
+
+Do not read: `CppSource/DX8/`, `zlib/`, `qhull/`, `SceneScript/lua32/`,
+`luaprofile/`, `MemoryDiagnostics/`, `RenderTrace/`, `Oracle/` (except
+`Oracle/scenarios/`, short scripted flight scenarios that show the
+simulation's inputs), any `oracle_*` file, project and resource-script
+files.
 
 Know what you are reading:
 
-- The C++ was reconstructed from binaries. Function boundaries and exported
-  names are reliable; many fields are named `Unknown…`, `Pad…` or `Field…`
-  and many virtual methods `SlotN`. Establish their meaning from how they
-  are used, or report a gap. Never present a guess as a fact.
-- Code marked `port-only` (widescreen support, the Direct3D 9 renderer,
-  walk mode, the profiler) and the test instrumentation (`CppSource/Oracle/`
-  and every `oracle_*` file) were added during reconstruction and are not
-  part of the original design. Leave them out, or tag a port-only feature
-  [I] where the builder benefits from knowing it exists.
-- The one exception: `CppSource/Oracle/scenarios/` holds scripted
-  simulation scenarios. Read them as seeds for acceptance checks.
-- The names in code and data were partly changed by a rebrand
-  (`design/rebrand-names.md`). File and directory names keep the older
+- The C++ was reconstructed from binaries. Function boundaries and
+  exported names are reliable; many fields are named `Unknown…`, `Pad…`
+  or `Field…`. Establish meaning from use, or leave an open question.
+- Code marked `port-only` (widescreen, the Direct3D 9 renderer, walk
+  mode, the profiler) is not part of the original design. Leave it out.
+- Names in code and data were partly changed by a rebrand
+  (`design/rebrand-names.md`); file and directory names keep the older
   spelling. Neither set of names goes into the blueprint (B3).
 
 ### B2. Read only
 
-Change nothing outside `Blueprint.md` and `blueprint/`. `CppSource/` is
-frozen and `outdir/` is the only copy of the data. Do not build or run the
-C++ or the Rust workspace. You may run your own read-only scripts over the
-sources (counting, grepping, tabulating INI keys); keep scripts and their
-output in the scratch directory.
+Change nothing outside `Blueprint.md` and `blueprint/`. Do not build or
+run anything in the repository. You may run your own read-only scripts
+over the sources; keep them and their output in the scratch directory.
 
 ### B3. Neutrality: mechanics in, setting out
 
-The blueprint serves the making of a comparable game, not a second copy of
-this one. It records how the game works and how much of everything there
-is. It does not carry the setting.
+The blueprint serves the making of a comparable game, not a second copy
+of this one.
 
-- **No proper nouns of the setting**, in either the older or the rebranded
-  spelling: no faction, character, star system, planet, base, ship, weapon,
-  commodity or mission names, and no nickname that encodes one. Use role
-  descriptions ("a major house", "the police faction of a house", "an
-  outlaw faction", "the campaign's antagonist faction") and placeholder
-  nicknames that start with `example_`.
-- **No narrative.** No plot summary, dialogue, briefing, news, rumour or
+- **No proper nouns of the setting**, in either spelling: no faction,
+  character, star system, planet, base, ship, weapon, commodity or
+  mission names, and no nickname that encodes one. Use role descriptions
+  ("a major house", "its police faction", "an outlaw faction", "the
+  campaign's antagonist") and placeholder nicknames that start with
+  `example_`.
+- **No narrative.** No plot, dialogue, briefing, news, rumour or
   info-card text. Describe the campaign as structure: how many missions,
-  the sequence of objective types in each, which script features each
-  uses, what gates the next one.
-- **No look and sound.** Describe what the presentation must convey and
-  how it behaves, not the art direction, the interface skin or the music.
-- **Rules and global constants exactly; item tables in shape.** Formulas,
-  thresholds, state machines and global tuning values are recorded
-  exactly. For per-item content (the list of ships, of guns, of goods, of
-  bases) record the schema, the value ranges, the distribution and the
-  progression curve, with at most three anonymised example rows. Never
-  reproduce a table of the original's items.
-- **No code.** Express algorithms as language-neutral pseudocode in your
-  own words. C++ identifiers, file names and line numbers belong in the
-  evidence file only.
+  the kinds of objective they string together, what gates the next one.
+- **No look and sound.** Say what the presentation must convey and how
+  it behaves, not the art direction, the interface skin or the music.
+- **Rules and global constants as they are; item lists in shape.** For
+  per-item content (ships, guns, goods, bases) give the schema, the value
+  ranges and the progression, with at most three anonymised example
+  rows. Never reproduce a table of the original's items.
+- **No code.** Pseudocode in your own words. C++ identifiers and file
+  names appear only in a chapter's final "Basis" section.
 
-The lint in Phase 5 searches the blueprint for the names in
-`design/rebrand-names.md`, the faction nicknames in
+The lint in Phase 4 searches the blueprint, outside the "Basis" sections,
+for the names in `design/rebrand-names.md`, the faction nicknames in
 `outdir/data/initialworld.ini`, the system and base nicknames in
 `outdir/data/UNIVERSE/universe.ini` and the directory names under
 `outdir/data/SHIPS/`, `BASES/` and `AUDIO/`.
 
 ### B4. Technology neutrality
 
-Describe behaviour, not the implementation. No DLL boundaries, COM
-interfaces, class hierarchies, Direct3D or Windows concepts in a chapter.
-Where an implementation trait shapes what the player experiences (a fixed
-simulation rate, the order in which systems update, a quantised network
-value), state it as a rule and tag it. Everything else about the original
-technology goes to appendix A.
+Describe behaviour, not the implementation: no DLL boundaries, COM
+interfaces, class hierarchies, Direct3D or Windows concepts. Where an
+implementation trait shapes what the player experiences (a fixed
+simulation rate, an update order), state it as a rule. The rest of the
+original technology belongs to one section of chapter 11.
 
-### B5. Honesty about what you know
+### B5. Honesty
 
-Every normative statement has a basis, recorded in the evidence file:
-`code` (read in the code), `data` (observed in the data), `both`,
-`inferred` (reasoned from code or data, not read directly) or `unknown`.
-An `inferred` statement says so in the chapter text as well. What you could
-not establish is an open question in the chapter and never a plausible
-invention. A chapter with honest gaps is acceptable; a chapter with
-confident errors is not.
+Every number and every formula in a chapter was read in the data or the
+code. What you reasoned out instead is marked "(inferred)"; what you took
+from a design document without checking is marked "(per design notes)".
+What you could not establish is an open question, never a plausible
+invention. A chapter with honest gaps is acceptable; one with confident
+errors is not.
 
 ---
 
@@ -287,103 +233,54 @@ confident errors is not.
 ```markdown
 # NN — <Title>
 
-Status: draft | reviewed | accepted
-Prefix: XXX
+Status: draft | reviewed
 Depends on: <chapters>
-Words: <count>
 ```
 
-### C2. Statement IDs and fidelity tags
+### C2. Sections, in this order
 
-Every rule, formula, state machine, parameter and acceptance check carries
-an ID, `XXX-nnn`, with the chapter's prefix from Part D. IDs are stable:
-never renumber, retire instead. Other chapters refer to a rule by its ID.
+1. **Purpose and player experience.** What this part of the game is for
+   and what the player sees and does. Half a page.
+2. **Concepts.** Each concept defined once, and how the concepts relate:
+   a table or a small diagram of what contains, references or drives
+   what.
+3. **How it works.** The governing rules in prose, the main formulas with
+   units, the main state machines as tables (state, event, next state),
+   and what runs on the authoritative side against the presentation side.
+   Cover the normal path thoroughly and the important exceptions briefly.
+4. **Data that defines it.** Which kinds of record an author writes to
+   create this content, their principal fields, and representative values
+   and ranges.
+5. **Connections.** What this chapter needs from others and gives to
+   others, by chapter number.
+6. **Design notes for the builder.** What is essential to the game, what
+   merely gives it its feel, what is an accident of its era, and what can
+   be simplified at what loss.
+7. **Open questions.**
+8. **Basis.** The design documents, data files and source files the
+   chapter rests on, and which parts rest on inference.
 
-Every statement carries one fidelity tag:
+### C3. Depth
 
-- **[E] Essential.** Defines the game. A comparable game has it.
-- **[C] Characteristic.** Gives the game its particular feel. Reproduce it
-  unless there is a reason not to.
-- **[I] Incidental.** An accident of the implementation or its era,
-  recorded so that the builder can drop or modernise it knowingly.
+The test: after reading the chapter, could the builder explain this part
+of the game to someone else, including why a rule exists and what would
+break without it? Prefer the reason behind a rule to one more parameter.
+Prefer one worked example with numbers to an exhaustive table.
 
-### C3. Sections, in this order
+### C4. Method
 
-1. **Purpose and player experience.** What this subsystem is for and what
-   the player sees of it. Half a page.
-2. **Concepts.** Terms this chapter introduces, each defined once.
-3. **Data model.** Entities, their fields, types, units, ranges, defaults
-   and relations. Tables. Distinguish authored data from run-time state.
-4. **Rules and algorithms.** Numbered. Pseudocode for anything with more
-   than one branch. Formulas with units and with the order of operations
-   where it changes the result.
-5. **State machines.** One table each: state, event, guard, action, next
-   state. Include the entry state and every exit.
-6. **Timing, ordering and authority.** What runs when, how often, on which
-   side (authoritative simulation or presentation), and what must be
-   ordered before what.
-7. **Tuning parameters.** Name, value, unit, what it changes, where the
-   builder would feel a change.
-8. **Interfaces.** What this chapter needs from others and offers to
-   others, by statement ID.
-9. **Edge cases and failure behaviour.** What happens at the limits and
-   when inputs are missing or contradictory.
-10. **Acceptance checks.** Observable tests in the form "given, when,
-    then", with numbers, that a builder can run against its own
-    implementation.
-11. **Simplification options.** What may be left out, and what is lost.
-12. **Open questions.** What you could not establish, and what you tried.
+1. Read the design documents your brief names, and search `design/` for
+   the terms of your chapter.
+2. Tabulate the data your brief names; read sample records in full.
+3. List the concepts and parameters you cannot yet explain. Read the code
+   your brief names until you can, following it elsewhere when needed.
+4. Answer every "key question" of your brief, or list it as open.
 
-A section that does not apply is kept with one line saying why.
+### C5. Report to the lead
 
-### C4. Depth
-
-The test for depth: if the builder asks "what happens when…" and the code
-answers it, the answer is in the chapter. Prefer one precise table to three
-paragraphs. A chapter runs to 4,000 to 10,000 words; above 12,000, propose
-a split to the lead instead of cutting detail.
-
-### C5. Method
-
-1. Start from the design documents your brief names, to learn the layout.
-2. Read the headers and the data readers of your scope, then the update
-   and message-handling functions, then the rest. Read the files that
-   carry rules in full; do not infer a rule from a function's name.
-3. Read the data your brief names: every key your code reads, the range of
-   its values across all files, and the keys present in data that your
-   code never reads.
-4. Write the chapter and the evidence file together, statement by
-   statement.
-5. Before you finish, answer every "must answer" item of your brief, or
-   list it as an open question.
-
-Your brief's file lists are starting points. Follow the code where it
-leads; when it leads into another chapter's scope, refer to that chapter
-and tell the lead in your report.
-
-### C6. Evidence file
-
-```markdown
-# NN — <Title>: evidence
-
-## Statements
-| ID | Basis | Sources | Note |
-| --- | --- | --- | --- |
-| FLT-012 | both | CppSource/Common/<file>.cpp:120-188; outdir/data/constants.ini [Section] key | |
-
-## Coverage
-Read in full: … / Read in part: … / In scope but not read, with reason: …
-
-## Disagreements with design/
-…
-```
-
-### C7. Report to the lead
-
-At most 300 words: files written and word count; coverage in one line;
-glossary terms you propose (term and one-line definition); what you need
-from other chapters; what you found that belongs to another chapter; your
-five most important open questions.
+At most 200 words: file written and word count; glossary terms you
+propose; what you found that belongs to another chapter; your three most
+important open questions.
 
 ---
 
@@ -393,431 +290,261 @@ Paths are relative to `CppSource/` for code and `outdir/data/` for data
 unless they start with `design/` or `outdir/`. A stem after `Common/`
 stands for the files `Common/common_<stem>*`; other stems are file name
 prefixes as written. "Client" is `OutpostFrontier/Client/`. Most headers
-are not beside their sources but in `include/` (flat, same stem) and its
-subdirectories `engine/`, `render/` and `audio/`; they belong to the
-chapter that owns the source.
+are in `include/` under the same stem. Assessments are the files in
+`design/assessment/`.
 
-### D01 — World and universe (WLD)
+### D01 — World and universe
 
-Code: `Common/universe*`, `zone`, `exclusionzone`, `casteroid*`, `spatial`,
-`basedata`, `baseproperties`, `pathfind`; `Content/SystemInfo`,
-`SystemConnections`, `Zones`, `SpacePaths`; Client `star_sys`,
-`space_solar_world`, `cli_asteroid*`, `cli_nebula`, `nebula_volume`,
-`mission_created_solars`; `x86math/` for the handedness and the vector,
-matrix and rotation conventions only.
-Data: `UNIVERSE/`, `SOLAR/`. Design: assessment 02 section 1.
+Design: assessment 02 sections 1 and 3.
+Data: `UNIVERSE/` (the universe file, two system files in full, the
+shortest-path files), `SOLAR/` (the archetype files, one asteroid field
+and one nebula definition).
+Code: `Common/universe`, `zone`, `exclusionzone`, `casteroidfield`;
+`Content/SystemConnections`, `Zones`; `x86math/` for axis and rotation
+conventions only.
 
-Must answer: the hierarchy from universe to system to zone and object to
-base; the coordinate system, units and typical scales; what a system
-definition declares; zone shapes, properties and the queries made against
-them; how asteroid fields and nebulae are generated from a field
-definition (tiling, density, exclusion zones, dynamic and lootable
-asteroids, hazards); how systems connect and how routes between them are
-computed, including the legal and illegal variants; what is discovered or
-hidden from the player's map and how discovery is recorded.
+Key questions: the hierarchy from universe to system to zone and object
+to base; coordinate system, units and typical scales; what a system
+definition declares; what zones are and everything they are used for; how
+asteroid fields and nebulae are generated from a compact definition; how
+systems connect and how routes are found; what the player's map knows and
+how discovery works.
 
-### D02 — Objects, archetypes and equipment (OBJ)
+### D02 — Ships, equipment and flight
 
-Code: `Common/archetype*`, `carchgroup`, `loadout`, `equipdesc`,
-`hardpointsummary`, `hierarchy`, `cobject`, `engineobject`, `cobjdb`,
-`csimple`, `cship`, `csolar`, `cloot`, `cattachment`, `cattachedequip`,
-`cequip`, `ceqobj`, `cesmallequip`, `cescanner`, `cecargo`,
-`iobjinspectimpl`, `id`, `subobjectid`; `Server/server_gameobject`,
-`server_createinfo`, `server_classes`; Client `client_gameobj`,
-`client_cliobj`, `client_objdb`.
-Data: `SHIPS/` and `SOLAR/` archetype files, `EQUIPMENT/*_equip.ini`, the
-loadout files. Design: `design/adr/0001-object-model.md`, assessment 02.
+Design: `design/adr/0001-object-model.md`, `design/sim-records.md`,
+`design/adr/0003-simulation-oracle.md`, assessment 02 sections 1 and 4.
+Data: `SHIPS/shiparch.ini`, the loadout files, `EQUIPMENT/engine_equip.ini`,
+`misc_equip.ini`, `select_equip.ini`, `constants.ini`.
+Code: `Common/cship`, `ceqobj`, `cequip`, `ceengine`, `cethruster`,
+`csteering`, `physys`, `phycontroller`, `thrustmanager`, `cecargo`;
+`Oracle/scenarios/free_flight.txt`.
 
-Must answer: the kinds of world object and what each can do; archetype
-against instance; identifiers and how names map to them; hardpoints,
-their types and the mounting rules; every equipment category with its
-state and its per-tick behaviour in outline (chapter 04 details the combat
-ones); internal against external equipment; the cargo hold; parts, groups
-and the hierarchy of destructible sub-objects; the life cycle of an object
-from creation to removal; what an observer can inspect about an object.
+Key questions: the kinds of world object; archetype against instance;
+hardpoints and the rules for mounting; the equipment categories and what
+each contributes; the flight model (the forces and damping terms, how top
+speed and turn rate emerge from them, the simulation step); throttle,
+strafe, thruster, engine kill and cruise; how the player's steering input
+becomes motion; collisions in outline.
 
-### D03 — Flight and physics (FLT)
+### D03 — Combat and damage
 
-Code: `Common/physys*`, `physicalsystem`, `phyarch`, `phycollisionstate`,
-`phycontroller`, `phantom`, `controllergolem`, `remotephysics`,
-`deadreckonedvector`, `sphereintruder`, `csteering`, `ceengine`,
-`cethruster`, `thrustmanager`, `constants`; `IVP/` only as far as needed to
-state how bodies are integrated and how collisions are resolved; Client
-`player_behavior`; the free-flight and collision scenarios in
-`Oracle/scenarios/`.
-Data: `constants.ini`, `EQUIPMENT/engine_equip.ini`, the physical fields of
-ship archetypes. Design: `design/sim-records.md`,
-`design/adr/0003-simulation-oracle.md`, assessment 02 sections 4 and 6.
-
-Must answer: the equations of motion, linear and angular, with every
-force, torque and damping term; how top speed and turn rate emerge; the
-integration step and its order; throttle, reverse, strafe, thruster,
-engine kill and cruise, each with its charge, cost, limits and what
-interrupts it; how steering input becomes torque; collision shapes,
-detection, response and collision damage; how remote objects are
-corrected and extrapolated; what differs for very large objects.
-
-### D04 — Combat and damage (CMB)
-
-Code: `Common/cegun`, `celauncher`, `cprojectile`, `cmine`, `cedroppers`,
-`ceshield`, `cepower`, `cecloak`, `cetractor`, `tractorarm`, `fuses`,
-`damagelist`, `gunconvergence`, `repairmanager`, `sysmgr_gungroups`,
-`archetype_weapons`; `Server/server_guided`, `server_mine`,
-`server_countermeasure`, `server_fuse`, `server_loot`, and the damage path
-in `server_gameobject`; `Content/LootProps`; Client `client_fuse`,
-`client_explosion`, `client_debris`, `cli_projectile_fx`, `beam_effect`.
+Design: search `design/` for shields, fuses, projectiles and damage.
 Data: `EQUIPMENT/weapon_equip.ini`, `weaponmoddb.ini`, `st_equip.ini`,
-`misc_equip.ini`, `FX/` explosion and fuse definitions,
-`MISSIONS/lootprops.ini`.
+`FX/explosions.ini`, `FX/fuse.ini`, `MISSIONS/lootprops.ini`,
+`constants.ini`.
+Code: `Common/cegun`, `celauncher`, `cprojectile`, `cmine`, `cedroppers`,
+`ceshield`, `cepower`, `fuses`, `damagelist`, `repairmanager`;
+`Server/server_guided`, `server_loot`, the damage path in
+`server_gameobject`.
 
-Must answer: the firing cycle of each weapon class (refire, energy,
-muzzle velocity, lifetime, dispersion, convergence); guided munitions,
-their seeking and what defeats them; mines; the damage pipeline from hit
-to shield to hull to component, with every modifier between weapon type
-and shield type; shield capacity, regeneration, collapse and rebuild;
-power capacity and regeneration; area damage; fuses as timed sequences of
-effects and destruction; death, wreckage and dropped loot; the tractor
-beam; repair consumables and what they restore; weapon groups.
+Key questions: the weapon classes and their firing cycle (refire, energy,
+speed, range); guided munitions and what defeats them; mines; the path of
+damage from hit to shield to hull to component, with the weapon-type
+against shield-type modifiers; how shields and power regenerate; area
+damage; fuses as timed destruction sequences; death and dropped loot;
+repair consumables; weapon groups.
 
-### D05 — Travel, docking and navigation (NAV)
+### D04 — Travel, docking and navigation
 
-Code: `Common/dockbehavior`, `launchbehavior`, `launchaction`,
-`laneaction`, `cruisebehavior`, `gotobehavior`, `pathfind`;
-`Content/DockQueues`, `TradelaneRequests`, `SystemConnections`,
-`SpacePaths`, `GotoGuides`, `Guides`; the base-enter, base-exit, launch
-and system-switch handlers in `Server/IServerImpl`; Client `best_path`,
-`gate_tunnel`, `jump_effect`, `tradelane_fx`, `client_land_action`,
-`player_spawn`, `hud_maneuvers`, `hud_waypoint`; the docking, lane and
-launch scenarios in `Oracle/scenarios/`.
-Data: docking fields of the solar archetypes, the shortest-path files in
-`UNIVERSE/`. Design: `design/adr/0007-server-world.md`.
+Design: `design/adr/0007-server-world.md`, assessment 04 section 1.
+Data: the docking fields in `SOLAR/solararch.ini`, the shortest-path
+files in `UNIVERSE/`, `constants.ini`.
+Code: `Common/dockbehavior`, `launchaction`, `laneaction`,
+`cruisebehavior`, `gotobehavior`; `Content/DockQueues`,
+`TradelaneRequests`; Client `best_path`; the docking, lane and launch
+scenarios in `Oracle/scenarios/`.
 
-Must answer: the manoeuvres a player can order and what each does; the
-docking sequence as a state machine (request, permission, queue, approach
-points, each kind of dock); the launch sequence; travel along a chain of
-lane rings (entry, speed, interruption, exit); transfer between systems
-and what happens on each side during it; route planning within and across
-systems and how waypoints are followed; what refuses a dock.
+Key questions: the manoeuvres a player can order; the docking sequence
+(request, permission, queue, approach, the kinds of dock); launching;
+travel along a chain of lane rings and what interrupts it; transfer
+between systems; route planning and waypoints across systems; what
+refuses a dock.
 
-### D06 — AI: manoeuvres and steering (AIM)
+### D05 — AI and pilots
 
-Code: `Common/behavior`, `behaviormanager`, `behaviortypes`, every
-`Common/*behavior` and `*idea` file, `aisteer`, `aiintercept`,
-`airaycast`, `obstacleavoidance`; the follow, formation, fly-to-point,
-guide, large-ship and dogfight scenarios in `Oracle/scenarios/`.
-Data: `MISSIONS/formations.ini`. Design: assessment 02 section 1 (AI row).
-
-Must answer: the architecture (who owns a behaviour, how behaviours are
-requested, stacked, interrupted and finished); for every behaviour its
-purpose, inputs, the steering and throttle it produces as an algorithm,
-its parameters and its exit conditions; interception and lead pursuit
-mathematics; obstacle avoidance; formation slots and station keeping; how
-large ships manoeuvre differently; update rates and level of detail for
-distant ships.
-
-### D07 — AI: combat decisions and pilots (AIC)
-
-Code: `Common/aifirecontrol`, `aitarget`, `targetmanager`,
-`systemmanager`, `sysmgr_*`, `iustategraph`, `pubstategraph`, `pub`;
-`Content/PilotPersonalities`, `BehaviorCmds`, and `NpcBase`, `NpcShip` as
-far as they drive the AI.
+Design: assessment 02 section 1 (the AI row) and section 2.
 Data: `AI/state_graph.db`, `MISSIONS/pilots_population.ini`,
-`pilots_story.ini`.
+`MISSIONS/formations.ini`.
+Code: `Common/behaviormanager`, `behaviortypes`, four behaviours read
+closely (`buzzbehavior`, `evadebehavior`, `formationbehavior`,
+`strafebehavior`) and the others by their headers, `aisteer`,
+`obstacleavoidance`, `aifirecontrol`, `targetmanager`, `iustategraph`,
+`pub`; `Content/PilotPersonalities`; the dogfight and formation scenarios
+in `Oracle/scenarios/`.
 
-Must answer: the state graph, its format and how the next combat
-manoeuvre is chosen; every block of a pilot's personality and what each
-parameter modulates; target selection and threat assessment; fire control
-(lead, burst, accuracy, weapon choice by range and target); decisions
-about missiles, mines, countermeasures, repair consumables, thruster and
-cruise; reactions to damage; fleeing and cargo dropping; the jobs a pilot
-can hold; how difficulty scales pilots.
+Key questions: the layers of the AI (who decides what to do, who turns
+that into steering); the list of behaviours with one paragraph each; how
+the state graph selects the next combat manoeuvre; what a pilot's
+personality is made of and what each block modulates; target selection;
+fire control and accuracy; when a pilot uses consumables, flees or drops
+cargo; formations; how difficulty scales pilots.
 
-### D08 — NPC population and encounters (POP)
+### D06 — Population and encounters
 
+Design: assessment 04 sections 3 and 6.
+Data: `MISSIONS/ENCOUNTERS/`, `MISSIONS/npcships.ini`, `shipclasses.ini`,
+`faction_prop.ini`, `rankdiff.ini`, and the population keys of the zones
+in two system files.
 Code: `Content/Encounters`, `EncounterParams`, `Populators`,
-`RandomEncounters`, `SpawnPlacement`, `PatrolPaths`, `PatrolGuides`,
-`NpcCreate`, `NpcShips`, `NpcShip`, `NpcBase`, `NpcNames`, `Voices`,
-`Zones`, `GenericScripts`, `Support`, `SpaceSupport`, `GameSupport`.
-Data: `MISSIONS/ENCOUNTERS/`, `npcships.ini`, `shipclasses.ini`,
-`faction_prop.ini`, `rankdiff.ini`, `voice_properties.ini`, and the
-population keys of zones in `UNIVERSE/SYSTEMS/`. Design: assessment 04
-sections 3 and 6.
+`SpawnPlacement`, `PatrolPaths`, `NpcCreate`, `NpcNames`, `Gcs`.
 
-Must answer: how a zone declares who lives in it; the population loop
-(density, caps, repopulation timers, distance to players, spawn and
-despawn rules); what an encounter definition contains and how its
-permutations are chosen; how a spawned NPC's ship, loadout, pilot and
-level are selected; how difficulty varies by place; what ambient NPCs do
-(patrol, trade runs, docking, lane travel, scanning for contraband);
-how NPC names and radio chatter are assembled, as a mechanism.
+Key questions: how a zone declares who lives in it; the population loop
+(density, caps, repopulation, distance to players, spawning and removal);
+what an encounter definition contains; how a spawned NPC's ship, loadout,
+pilot and level are chosen; how difficulty varies by place; what ambient
+NPCs do with their time; how names and radio chatter are assembled, as a
+mechanism.
 
-### D09 — Factions and reputation (REP)
+### D07 — Factions, economy and progression
 
-Code: `Common/reputation`, `vibe`; `Content/CombatReputation`,
-`FactionProps`; reputation handling in `Server/`; Client `nn_player_info`.
+Design: search `design/` for reputation, goods, market and rank.
 Data: `initialworld.ini`, `MISSIONS/empathy.ini`, `faction_prop.ini`,
-`factionsets.ini`.
-
-Must answer: the range of a reputation value and its thresholds; the
-faction-to-faction matrix and the player's standing; per-object attitude
-overrides; every event that changes reputation, with the propagation to
-allied and opposed factions as a formula; every effect of reputation
-(hostility, docking, offers, visibility of information); how the player's
-apparent affiliation is derived.
-
-### D10 — Economy, trade and progression (ECO)
-
-Code: `Common/goodinfo`, `tradeoffer`, `repairmanager`, `cecargo`;
-`Content/BaseDB`, `BaseSupport`, `Cargo`; `Server/server_basedb` and the
-purchase, sale and equip handlers in `Server/IServerImpl`; Client
-`client_base_market`, `commodity_by_base`, `nn_trade`, `nn_dealer`,
-`nn_ship_trader`, `nn_inventory`, `nn_repair`, `trade_equip_list`,
-`dealer_equip_stats`.
-Data: `EQUIPMENT/goods.ini`, the `*_good.ini` and `market_*.ini` files,
+`EQUIPMENT/goods.ini`, the `market_*.ini` and `*_good.ini` files,
 `commodities_per_faction.ini`, `MISSIONS/ptough.ini`,
 `RANDOMMISSIONS/diff2money.ini`.
+Code: `Common/reputation`, `vibe`, `goodinfo`, `tradeoffer`,
+`repairmanager`; `Content/CombatReputation`, `BaseDB`;
+`Server/server_basedb`.
 
-Must answer: the kinds of good; the price model per base, with buying,
-selling and resale; the conditions on a purchase (stock, level,
-reputation); cargo volume and limits; buying a ship, the trade-in and
-what transfers; mounting, unmounting and selling equipment; repair cost;
-every source and sink of money; how the player's level or rank is
-computed and what it unlocks; contraband; the validation the authority
-performs on each transaction. As shape, not as tables: the number of
-commodities, the spread of prices, the profit of typical routes.
+Key questions: the reputation scale and its thresholds; how an event
+changes standing with one faction and propagates to its friends and
+enemies; everything reputation affects; the kinds of good; how a price at
+a base is formed, buying against selling; what restricts a purchase;
+buying a ship and trading in the old one; the sources and sinks of money;
+how the player's level is computed and what it unlocks; contraband. In
+shape: number of commodities, spread of prices, profit of typical routes.
 
-### D11 — Mission scripting and campaign structure (MIS)
+### D08 — Missions and base services
 
-Code: `Content/MissionScript`, `MissionCnd`, `MissionAct`,
-`MissionObject`, `MissionObjList`, `ObjListDirective.h`, `MissionDialogs`,
-`MissionSave`, `Story`, `StoryLauncher`, `StoryMissions`, `RtcScripts`,
-`Gcs`, `ContentMessageRouter`, `PlayerState`; Client `mission_briefing`,
-`nn_mission_message`, `nn_story_star`, `hud_comm`.
-Data: `MISSIONS/M*/` for structure only, the two `mission1 readme.doc`
-files as format documentation, `MISSIONS/mshipprops.ini`,
-`MISSIONS/specific_npc.ini`. Design: assessment 04 section 3.
+Design: assessment 04 section 3.
+Data: two mission definitions under `MISSIONS/` read in full for their
+form, the two `mission1 readme.doc` files as format notes,
+`RANDOMMISSIONS/`, `MISSIONS/mbases.ini`, `MISSIONS/news.ini`.
+Code: `Content/MissionScript` (the tables of conditions and actions),
+`MissionCnd` and `MissionAct` (for the meaning of each), `MissionObjList`,
+`Story`, `RandomMissionGen`, `RandomMissionVignette`, `BaseNpcRecords`.
 
-Must answer: the anatomy of a mission definition (declared ships, solars,
-characters, formations, object lists, objectives, dialogue hooks,
-triggers); the trigger model; the complete catalogue of conditions and of
-actions, each with parameters and semantics (count the ones the code
-registers and make the catalogue match that count); the directive
-language that drives scripted ships; objectives and how they reach the
-player; how missions chain and what gates the next one; cutscene and
-base-scene integration; checkpoints, saving, failure and retry; the
-campaign as structure, without its story (B3).
+Key questions: the anatomy of a mission definition; the trigger model;
+the conditions and actions as a catalogue grouped by purpose, one line
+each, in your own words; the directive language for scripted ships; how
+objectives reach the player; how missions chain and what gates the next;
+failure and retry; how a job offer is generated (who, against whom,
+where, how hard, for how much); how a generated mission is composed and
+run; who the player meets on a base and what each offers; the campaign
+as structure only (B3).
 
-### D12 — Generated missions and base services (RND)
+### D09 — In-flight interface and presentation
 
-Code: `Content/RandomMissionDB`, `RandomMissionGen`,
-`RandomMissionMachine`, `RandomMissionRuntime`, `RandomMissionTriggers`,
-`RandomMissionVignette`, `RandomMission.h`, `DestroyMission`,
-`BaseNpcRecords`; Client `nn_mission_vendor`, `nn_news`,
-`nn_offer_dialog`.
-Data: `RANDOMMISSIONS/`, `MISSIONS/mbases.ini`, `news.ini`, and the
-vignette zones in `UNIVERSE/SYSTEMS/`.
+Design: assessment 06 sections 1 and 2, assessment 05 section 9,
+assessment 07 sections 3 and 7.
+Data: `INTERFACE/hud.ini`, `keymap.ini`, `keylist.ini`, `mouse.ini`,
+`cameras.ini`, the INI files in `AUDIO/`, `FX/effects.ini` and
+`effect_types.ini`.
+Code: Client `input_manager`, `main_command_handler`, `hud_target`,
+`hud_contact_list`, `hud_maneuvers`, `hud_status_core`,
+`space_camera_third`, `space_camera_game`, `space_scene_draw`,
+`menu_sound_arch`.
 
-Must answer: how job offers are generated (who offers, against whom,
-where, at what difficulty, for what reward, as formulas); the mission
-types and the tree that composes a mission from parts; how a location is
-chosen; the run-time state machine (arrival, waves, objectives, timers,
-success, failure, payout, reputation); the characters met on a base and
-what each can offer (jobs, information, bribes), with pricing and effect;
-when a news item is shown.
+Key questions: the catalogue of player commands, grouped; mouse flight
+against free cursor; each HUD element and what it tells the player;
+targeting and the contact list; the camera modes; what a frame in space
+is composed of, as requirements on any engine; what the effect system
+must be able to do; the sound categories, how music follows the
+situation, how voice lines are assembled and queued.
 
-### D13 — Bases, rooms and cinematics (BAS)
+### D10 — Bases, scenes, menus and text
 
-Code: Client `gf_*`, `gameflow`, `room_control*`, `room_camera`,
-`base_walk`, `engine_character`, `anim_script_set`, `fade_to_black`;
-`SceneScript/` without `lua32/`; `SceneRuntime/` at requirement level;
-`Deformable2/` at requirement level; `Common/roomdata`, `roominfo`,
-`costume`, `animdb`, `actiondb`, `newchar`.
-Data: `BASES/`, `SCRIPTS/`, `CHARACTERS/`, `petaldb.ini`. Design:
-assessment 06 section 1 (row 11), assessment 07 section 1.
+Design: assessment 06 sections 1 (rows 8 to 11) and 5, assessment 07
+sections 1 and 6.
+Data: one base under `BASES/` in full, the kinds of script under
+`SCRIPTS/`, the INI files in `CHARACTERS/`, the rest of `INTERFACE/`,
+the layout of `text/`.
+Code: Client `gameflow`, `client_state`, `room_control`, `gf_script`,
+`engine_character`, `nn_navmap`, `nn_load_save`, `page_character_select`,
+`ids_strings`; `Common/roomdata`, `costume`, `fmtstr`; the interface
+header of `SceneScript/`.
 
-Must answer: a base as a set of rooms and what each room type offers;
-room definitions, hotspots and movement between rooms; how characters
-are placed and composed from parts; the scene-script model as a
-capability catalogue (entity types, event types, timeline, what a script
-can control) without reproducing any script; ambient against one-shot
-scenes; landing and launch sequences; cutscenes in space; the state
-machine of a base visit from touchdown to launch.
+Key questions: a base as a set of rooms and what each room offers; how
+rooms, hotspots and characters are defined; what a scene script can
+control, as a capability list; the state machine of a base visit from
+landing to launch; the screen flow from start to play; the navigation
+map and what it reveals when; the multiplayer front end; what the UI
+toolkit must provide; how text is identified, formatted and localised.
 
-### D14 — HUD, controls and cameras (HUD)
+### D11 — Architecture, authority, networking and persistence
 
-Code: Client `hud_*`, `wire_controls`, `chat_*`, `input_manager`,
-`menu_keymap`, `main_command_handler`, `space_camera*`,
-`ship_camera_params`, `space_state`, `nav_bar`, `button_mover`,
-`cargo_bar_control`, `space_letterbox`.
-Data: `INTERFACE/hud.ini`, `INTERFACE/HUD/`, `keymap.ini`, `keylist.ini`,
-`mouse.ini`, `cameras.ini`. Design: assessment 06 sections 1 and 2,
-assessment 07 section 7.
-
-Must answer: the complete catalogue of player commands with their default
-binding and the mode they apply in; mouse flight against free cursor and
-how each maps to steering (with chapter 03); every HUD element, the data
-it shows, its update rule and its interactions; targeting commands and
-selection rules; the contact list and its filters; lead indicators and
-brackets; every camera mode with its parameters and transitions; the
-chat interface in multiplayer.
-
-### D15 — Menus, UI toolkit and text (UIX)
-
-Code: Client `page_*`, `menu_*`, the `nn_*` files not claimed by chapters
-10, 11, 12 and 14 (navigation map, inventory frame, load and save,
-preferences, modals and shared controls), `ui_*`, `win3d*`, `win_*`,
-`wincontrol_*`, `window`, `list_box`, `scroll_control`, `text_win`,
-`rich_text_win`, `font_*`, `ids_*`, `infocard_map`, `knowledge_map`,
-`loading_screen`, `intro_*`, `game_options`, `perf_options`, `login_mgr`,
-`server_*`, `connect_*`; `Common/fmtstr`, `rdl*`, `renderdisplaylist`,
-`textrender`; `imeui/`; the structure of `Resources/` (which kinds of
-text exist and how they are keyed, never the text).
-Data: the rest of `INTERFACE/`, `FONTS/`, `SCREENS/`, the layout of
-`text/`. Design: assessment 06 section 5.
-
-Must answer: the screen flow from start to play, as a graph, and what
-each screen does; the navigation map (layers, filters, what is revealed
-when, information panels, route plotting); the load and save interface
-and the options catalogue; the multiplayer front end (server list,
-account, character creation and selection); what the UI toolkit must
-provide (control types, layout, model-viewing widgets, rich text); the
-localisation model (text identifiers, formatted strings with
-substitutions, marked-up information cards).
-
-### D16 — Presentation: visuals and audio (PRS)
-
-Code: Client `cli_*`, `space_scene*`, `star_sphere`, `space_dust`,
-`asteroid_billboard`, `engine_light`, `lights_camera`, `effect_*`,
-`particle_effect`, `vis_effect_arch`, `client_equip_fx`, `flash_light`,
-`texture_*`, `cockpit_load`, `menu_sound_arch`, `sound_config`,
-`voice_profiles`; at requirement level only: `particlefx/`, `RendComp/`,
-`Shading/`, `surfacematerials/`, `ximage/`, `DX8RENDERER/`,
-`DX9RENDERER/`, `SoundManager/`, `SoundStreamer/`, `movie/`.
-Data: `FX/`, the INI files in `AUDIO/`, the visual definitions in
-`SOLAR/`, `COCKPITS/`, `MOVIES/` (as a count), `igraph.ini`. Design:
-assessments 05 and 07.
-
-Must answer, as requirements on any engine: what a frame in space
-contains and in what order it is composed; visibility ranges and levels
-of detail; the capabilities the effect system needs (emitters, fields,
-appearances, attachment to hardpoints); what lighting, fog, nebula
-interiors and asteroid fields must convey; the sound categories and
-volume groups, distance attenuation, the rules that select and change
-music, how voice lines are assembled from segments and queued; video
-playback. Most statements here are [C] or [I]; say which few are [E].
-
-### D17 — Architecture, authority, networking and persistence (ARC)
-
-Code: `Server/`, `rpclocal/`, `RemoteCommon/`, `RemoteClient/`,
-`RemoteServer/`, `OutpostServer/`, `NeuronRuntime/`, `neuroncomponents/`,
-`system/`, `ReadFile/`; `Common/marshalbuffer`, `playeraccount`,
-`dataconfig`, and the server headers in `include/`; Client
-`client_iclient*`, `client_frame_tick`, `client_state`, `main`,
-`engine_init`; `Content/Content`, `ContentMessageRouter`, `PlayerState`,
-`MissionSave`.
-Data: the files at the top of `outdir/` (the INI files and the two new
-player files). Design: `design/adr/0002-single-player-world.md`,
+Design: `design/adr/0002-single-player-world.md`,
 `0006-controller-bus.md`, `0007-server-world.md`, assessments 01, 03, 04
-and 06 section 2.
+(sections 1 and 2), 06 (section 2) and 08; decisions T17 to T19 in
+`design/decisions.md` as hints only.
+Data: the files at the top of `outdir/`.
+Code: `include/rpc_iserver.h`, `include/rpc_iclient.h`,
+`Server/IServerImpl`, `server_savegame`, `server_pub`; Client
+`client_frame_tick`; `Content/Content.cpp`, `PlayerState`.
 
-Must answer: the logical components and which is authoritative for what;
-the order of work within one tick on each side; the message catalogue in
-both directions, grouped by purpose, each with its trigger and the
-meaning of its payload (not its byte layout); how object state is
-replicated, at what rates, and what the receiving side predicts; single
-player as the same authority in process, and every difference between
-single player and multiplayer; sessions, accounts and characters;
-everything a saved game contains, by field group, and when saving is
-allowed; the multiplayer rules (death, respawn, groups, chat, player
-trade, the checks against cheating); the administration functions of a
-dedicated host; start-up, data loading and shutdown order.
+Key questions: the logical components and which is authoritative for
+what; the order of work within a tick on each side; the messages in both
+directions, grouped by purpose, with what each means; how object state
+reaches other players and what the receiver predicts; single player as
+the same authority in process, and how it differs from multiplayer; what
+a saved game contains and when saving is allowed; accounts and
+characters; multiplayer rules; what a dedicated host can administer.
+Close with a section on the original technology: what it stood on, which
+behaviours of the game follow from it, and what a modern builder should
+not copy.
 
-### D18 — Data schema and content census (DAT)
+### D12 — Data model and content census
 
-Code: `Common/ini`, `dataconfig`, `archetypeloader`, and every data reader
-in `Common/`, `Content/`, `Server/` and the client, found by searching for
-section and key literals. Data: every text file under `outdir/`; binary
-assets by kind only. Design: `design/facts.md`, assessment 08 section 8.
+Design: `design/facts.md`, assessment 08 section 8.
+Data: every text file under `outdir/`; binary assets by kind and count.
+Code: `Common/dataconfig`, `ini`, and readers only where a file's
+meaning is unclear.
 
-Census step (wave 1). Deliver: the manifest that says which configuration
-file names which data files; for every kind of data file its sections and
-keys with value types, units, multiplicity, defaults and the chapter that
-consumes them; for every kind of asset what the game needs from it (for a
-model: parts, hardpoints, levels of detail; likewise collision hulls,
-animations, effect libraries, materials, scene scripts, audio, fonts),
-without its binary layout; the content census as numbers and
-distributions, never names (systems, bases per system, connections per
-system, zones per system, ships by class, weapons by class, commodities,
-factions, encounter definitions, missions, scene scripts, voice lines);
-the validation rules the loaders apply. Close with a proposal for
-expressing the same schema in a neutral, modern form.
-
-Reconcile step (phase 3). Compare your catalogue with every chapter's
-data model. Report to the lead: keys the data holds that no chapter
-explains, fields chapters describe that no data holds, and chapters that
-contradict each other about the same key.
-
-### DA — Appendix A: original technology (APX)
-
-Sources: `design/assessment/01-foundation.md`, `05-rendering.md`,
-`08-cross-cutting.md`, `design/decisions.md` for the numeric model only,
-and the code they point to, `x86math/` among it. The section order of C3 does not apply; write prose and tables.
-
-Must answer: the platform, libraries and middleware the original stood
-on; which behaviours of the game follow from them (numeric precision,
-fixed rates, limits on counts and sizes, 32-bit assumptions); what the
-reconstruction added that the original did not have; a list of traits a
-modern builder should not reproduce, each with what to do instead.
+Deliver: the manifest that says which configuration file names which
+data files; for each kind of data file its purpose, its sections and its
+principal keys; for each kind of asset what the game needs from it (a
+model's parts and hardpoints, a collision hull, an animation, an effect,
+a scene script, a voice line), without binary layouts; the census as
+numbers and distributions, never names (systems, bases per system,
+connections per system, zones per system, ships by class, weapons by
+class, commodities, factions, encounter definitions, missions, scripts,
+voice lines); a proposal for expressing the same data model in a modern,
+neutral form.
 
 ---
 
 ## Part E — Reviewer brief
 
-You review one chapter. You did not write it and you do not trust it.
-Read A1, Part B and Part C, then the chapter, its evidence file and its
-brief in Part D. Do not edit the chapter. Write
-`blueprint/evidence/NN-<slug>.review.md`.
+You review four chapters that you did not write. Read A1 and Part B, then
+each chapter. Do not edit them; return your findings to the lead, grouped
+by chapter, in at most 500 words in total.
 
-1. **Correctness.** Re-derive from the code, without looking at the
-   chapter's wording first: every formula, every state machine, every
-   global tuning value, and a sample of at least a third of the remaining
-   statements (at least fifteen). Prefer the statements tagged [E] and the
-   ones with basis `inferred`.
-2. **Completeness.** Go through the brief's "must answer" list. For each
-   source file in scope that the evidence never cites, skim it and name
-   the behaviour the chapter lacks. Search the data named in the brief for
-   keys the chapter does not explain.
-3. **Buildability.** Read the chapter as the builder of A1. List every
-   point where you would have to guess.
-4. **Rules.** Violations of B3 (names, narrative, tables of items, code),
-   of B4 (implementation concepts in the text) and of B5 (guesses stated
-   as facts).
-
-Record each finding as: statement ID or section, severity (*wrong*,
-*missing*, *unclear*, *rule*), what the source says with path and line,
-and the correction you propose. End with a verdict line. Report to the
-lead in at most 150 words.
+1. **Correctness.** In each chapter pick the eight statements a builder
+   would lean on most (formulas, state machines, governing rules) and
+   check them against the code or data named in the chapter's "Basis".
+   Report what is wrong, with what the source says.
+2. **Understanding.** After reading, is there a concept you could not
+   explain to someone else, or a rule whose reason is missing?
+3. **Rules.** Violations of B3 (names, narrative, item tables, code), of
+   B4 (implementation concepts) and of B5 (guesses stated as facts,
+   anything that looks recalled rather than read).
 
 ---
 
 ## Part F — Cold-reader brief
 
 You are the builder of A1. You may read `Blueprint.md` and
-`blueprint/*.md` and nothing else: not `blueprint/evidence/`, not this
-prompt beyond A1 and this part, no other file in the repository. Do not
-use what you know about any published game.
+`blueprint/*.md` and nothing else in the repository. Do not use what you
+know about any published game.
 
-The lead gives you one of these tasks:
+Write, for yourself, an account of one complete play session as the
+systems experience it: starting a new game, launching from a base,
+flying to another system, meeting and fighting an NPC group, picking up
+loot, docking, selling, taking a generated mission and completing it. At
+each step name the rules and data that make it happen.
 
-- **Slice plan.** Write an implementation plan for the first two slices of
-  the build order: modules, data structures, the order of work, and the
-  tests you would write.
-- **Subsystem build.** For three chapters named by the lead, write the
-  data structures and the update loop in pseudocode.
-
-While you work, record every decision you could not take from the
-blueprint. Return, in at most 600 words: the blocking questions (you had
-to guess), the contradictions between chapters, terms used without a
-definition, references that do not resolve, and anything that reads as
-belonging to a particular setting or technology. Do not return the plan
-itself.
+Return, in at most 500 words: every step you could not explain from the
+blueprint, the contradictions between chapters, terms used without a
+definition, and anything that reads as belonging to a particular setting
+or technology. Do not return the account itself.
