@@ -57,7 +57,7 @@ Conventions:
 | `error`, `critical_warning`, `note` | `tick` u, `text` s (`note`: an object marked `psi` whose PSIs are not recorded, and why; once per object) |
 | `fault` | `tick` u, `first_chance` b (from the vectored handler; false: the frame's `__except` filter, which ends the run with code 4), `code` s (hex), `code_name` s, `address` s (hex), `at` {`module` s\|null, `offset` s (hex, from the module base), `functions` s[] (the innermost inlined function first), `line` s (`file:line` under `CppSource/`, `""` when unknown)}, for an access violation `access` s (`read`, `write`, `execute`), `target` s (hex), `target_memory` s (`free`, `reserved`, `committed`, `committed, not readable`); `symbols` b (dbghelp started), `regs` {`eax` .. `ebp`: {`v` s, [`in` s (module+offset and symbol)], `words` s[4] and [`word0_in` s] when it points at readable memory (a vtable names the class), else `memory` s}, `esp` s, `eip` s, `eflags` s}, `esp_words` s[16], `stack` [{`module`, `offset`, `functions`, `line`}] (at most 48 frames; frame 0 is the faulting instruction, the others are resolved at their call) |
 | `env` | (cross-runner reproducibility, owner 2026-11-19; just before `end`, after everything the run computes) `msc_full_ver` u, `msc_build` u (`_MSC_FULL_VER`, `_MSC_BUILD` of the compiler that built Oracle.exe; the solution builds every DLL with it), `cpu` {`vendor` s, `brand` s, `signature` s (CPUID leaf 1 EAX), `leaf1_ecx` s, `leaf1_edx` s, `leaf7_ebx` s (hex feature words), `logical` u}, `os` {`build` s, `ubr` u, `display_version` s}, `process_heap` s (hex), `stack_local` s (the address of a local of the writer, hex), `modules` [{`name` s, `loaded` b, [`path` s, `base` s (hex), `version` s (the file version)]}, …] (Oracle.exe, Server.dll, Common.dll, Content.dll, SimClientStub.dll and the CRT and system DLLs) |
-| `content_tables` | (`dump content_tables`, P3.4b) `lines` i: the lines `OracleDumpContentTables` wrote, −1 when a file could not be opened or Content.dll lacks the export |
+| `content_tables` | (`dump content_tables`, P3.4b; P3.4c adds twelve tables) `lines` i: the lines `OracleDumpContentTables` wrote, −1 when a file could not be opened or Content.dll lacks the export |
 | `end` | `tick` u, `psi_total` u, `code` i (the exit code) |
 
 ## `tick.jsonl`
@@ -744,6 +744,32 @@ list). Maps in key order, vectors in their order.
 | `content_toughness.txt` | `experience toughness` |
 | `content_rank_difficulty.txt` | `stage difficulty` |
 | `content_news.txt` | `news` (the index) `bases from to audio logo` (lower case, D785) `breaking autoselect icon category headline text` (the three `FmtStr`s flattened) |
+
+P3.4c (record 0008 point 10) adds the other loaders' tables, after the
+seventeen above, read by `crates/game-logic/tests/content_loaders.rs`. In
+them `/`, `+`, `:` and `;` separate the fields of nested records, as each
+row says. The bases are written from fresh records that take the live
+records' factions and are then loaded (`FContentBase::Load(nullptr)`); no
+room file is loaded at start-up, so no fixture finds its placement. The
+specific NPCs are StoryLauncher's loop over `missions\specific_npc.ini`
+into a local table (a multiplayer server has no StoryLauncher). Each system,
+in id order, is read into a local `FSystemInfo` as `LoadFromReader` reads its
+encounter parameters, zones and patrol paths; `Validate`, the `[System]` and
+`[Object]` sections and the trade lanes are left out. Doubles are sixteen
+hex digits of their bits.
+
+| File | Line |
+| --- | --- |
+| `content_bases.txt` | `base msg_id_prefix diff local_faction vendor` (min,max) `npcs rooms` (counts) `factions` (`group:weight:npc+…:min/max/weight+…`, `;`-separated) |
+| `content_base_npcs.txt` | `base npc` (the key) `costume voice name affiliation nickname` `missions` (`min/max/type`) `bribes` (`cost/group/text`) `knows` (`price/v1/v0/level`) `rumors` (`from/to/level/id+…` with all 8 ids) `rooms` |
+| `content_base_rooms.txt` | `base room density fixtures` (`npc/placement/fidget/role`) |
+| `content_specific_npcs.txt` | `npc` (the key) `costume voice name affiliation nickname` |
+| `content_system_paths_all.txt`, `_gate`, `_hole` | `from to path` |
+| `content_encounter_params.txt` | `system params` (the key) `nickname system_id zone reroll last difficulty formations` (count) `permutations` (`weight:index[*]+…`, `;`-separated) |
+| `content_encounter_formations.txt` | `system params formation` (the index) `feeling reroll mask f0c value faction formation_id by_class behavior arrival` (nine digits) `distance times simultaneous f78 longevity ships` (`classes+…/npc_arch/pilot_job/min/max/make+…/offset`, `;`-separated) |
+| `content_ship_line_factions.txt` | `system params formation ship factions` (`GetShipLineFactions`) `archs` (`group:arch+…` from `GetFactionShipLineArchs`, `;`-separated) |
+| `content_zones.txt` | `system zone nickname path` (an index of the system's paths, −1 for none) `unpopulated tradelane lawful unlawful vignette density repop keys attack restrictions` (`count:type`) `f1c f30 additive battle relief encounters` (`nickname/zone/difficulty/chance/group:weight+…/class+…`, every ship line's classes, `;`-separated) |
+| `content_patrol_paths.txt` | `system path` (the index) `label usage eligible loop points` (`x:y:z`) `zones` (`zone:step+…`) `objects` (`id:point+…`) |
 
 ## `spread.jsonl` (`--runs N`)
 

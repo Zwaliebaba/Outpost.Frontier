@@ -36,23 +36,40 @@
 //! bus and on the counter (every heartbeat with its `rand()` draw, the
 //! controller-id globals, the router's timer id), GameSupport's heartbeat
 //! and the game time, and SpaceSupport's trade-lane case. The tables
-//! (P3.4b, [`tables`]), the other loaders (P3.4c), GameSupport's run time
+//! (P3.4b, [`tables`]), the other loaders (P3.4c: [`bases`],
+//! [`system_paths`], [`npc_desc`] with StoryLauncher's specific NPCs,
+//! [`encounter_params`], [`zones`], [`patrol_paths`] and [`cargo`]),
+//! GameSupport's run time
 //! (P3.4d), the mission and story constructors (P3.5), SpaceSupport's
 //! other steps, the populators and BaseSupport (P3.6) and the random
 //! missions (P3.7) come with their packages.
 
 pub mod base_support;
+/// `missions\mBases.ini` (TU17, TU22; P3.4c).
+pub mod bases;
+/// The faction, archetype and cargo helpers (TU44; P3.4c).
+pub mod cargo;
 pub mod counter;
+/// The encounter parameters (TU29; P3.4c).
+pub mod encounter_params;
 pub mod game_support;
 pub mod mission;
+/// The NPC character descriptions and the specific NPCs (TU42; P3.4c).
+pub mod npc_desc;
+/// The patrol paths (TU45; P3.4c).
+pub mod patrol_paths;
 pub mod population;
 pub mod random_mission;
 pub mod router;
 pub mod space_support;
 pub mod story;
+/// The system paths and their `[SystemConnections]` writer (TU41; P3.4c).
+pub mod system_paths;
 /// The static tables of `LoadContentGameTables` (`Content/Encounters.cpp:497-591`;
 /// P3.4b).
 pub mod tables;
+/// The zones of a system record (TU64, TU30; P3.4c).
+pub mod zones;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -92,6 +109,18 @@ pub struct ContentState {
     /// `GStoryMissionController` (`Content/Story.cpp:31`): the campaign
     /// mission Story created last (P3.5); 0 until then.
     pub story_mission: ControllerId,
+    /// `GSpecificNpcs` (`Content/NpcShips.cpp:26`): StoryLauncher's
+    /// constructor reads them, its destructor empties them; nothing changes
+    /// them in between ([`npc_desc`]).
+    pub specific_npcs: Arc<npc_desc::SpecificNpcs>,
+    /// `GContentBases` (`Content/BaseDB.cpp:38`): rebuilt on `LoadGame`
+    /// (P3.4d), a base's rooms loaded by BaseSupport (P3.6e), emptied by
+    /// GameSupport's destructor ([`bases`]).
+    pub bases: bases::ContentBases,
+    /// `GSystemPathsAll`, `GSystemPathsGate` and `GSystemPathsHole`
+    /// (`Content/SystemConnections.cpp:20-22`): rebuilt on `LoadGame`
+    /// (P3.4d) ([`system_paths`]).
+    pub system_paths: system_paths::SystemPaths,
 }
 
 impl ContentState {
@@ -111,6 +140,9 @@ impl ContentState {
             space_pop: ControllerId::BROADCAST,
             base_pop: None,
             story_mission: ControllerId::BROADCAST,
+            specific_npcs: Arc::default(),
+            bases: bases::ContentBases::new(),
+            system_paths: system_paths::SystemPaths::default(),
         }
     }
 }

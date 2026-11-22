@@ -484,6 +484,124 @@ void __cdecl SaveContentBases(FILE* /*File*/)
     }
 }
 
+// Oracle instrumentation (P3.4c, decision record 0008 point 10): the mBases.ini records of
+// OracleDumpContentTables (oracle_content_tables.cpp), whose table is file-static here. Each
+// base is written in key order from a fresh record that takes the live record's factions and
+// is then loaded (FContentBase::Load(nullptr), as BaseSupport's first visit loads it), so the
+// live records keep their load counts. Returns the lines written. No game module calls it.
+void __cdecl OracleContentWriteHex(FILE* Out, void const* Data, size_t Size);
+void __cdecl OracleContentWriteNpcDesc(FILE* Out, FNpcCharacterDesc const& Desc);
+
+namespace
+{
+    unsigned int OracleBaseBits(float Value)
+    {
+        unsigned int Bits = 0;
+        memcpy(&Bits, &Value, sizeof(Bits));
+        return Bits;
+    }
+}
+
+int __cdecl OracleContentDumpBases(FILE* Bases, FILE* Npcs, FILE* Rooms)
+{
+    int Lines = 0;
+    for (std::map<unsigned int, FContentBase>::iterator It = GContentBases.begin(); It != GContentBases.end(); ++It)
+    {
+        FContentBase const& Live = It->second;
+        unsigned int Id = It->first;
+        FContentBase Base(&Id);
+        Base.Diff = Live.Diff;
+        Base.LocalFaction = Live.LocalFaction;
+        Base.Factions = Live.Factions;
+        Base.Load(nullptr);
+
+        TString<64> const& Prefix = Live.GetMsgIdPrefix();
+        fprintf(Bases, "base=%u msg_id_prefix=", Id);
+        OracleContentWriteHex(Bases, Prefix.Data, Prefix.Length < 64u ? Prefix.Length : 63u);
+        fprintf(Bases, " diff=%d local_faction=%u vendor=%d,%d npcs=%u rooms=%u factions=", Live.Diff,
+                Live.LocalFaction, Base.VendorOffersMin, Base.VendorOffersMax,
+                static_cast<unsigned int>(Base.Npcs.size()), static_cast<unsigned int>(Base.Rooms.size()));
+        for (size_t F = 0; F < Live.Factions.size(); ++F)
+        {
+            FBaseFaction const& Faction = Live.Factions[F];
+            fprintf(Bases, "%s%u:%08x:", F == 0 ? "" : ";", Faction.Group, OracleBaseBits(Faction.Weight));
+            for (size_t N = 0; N < Faction.Npcs.size(); ++N)
+                fprintf(Bases, "%s%u", N == 0 ? "" : "+", Faction.Npcs[N]);
+            fprintf(Bases, ":");
+            for (size_t T = 0; T < Faction.MissionTypes.size(); ++T)
+            {
+                FBaseMissionType const& Type = Faction.MissionTypes[T];
+                fprintf(Bases, "%s%08x/%08x/%08x", T == 0 ? "" : "+", OracleBaseBits(Type.MinDifficulty),
+                        OracleBaseBits(Type.MaxDifficulty), OracleBaseBits(Type.Weight));
+            }
+        }
+        fprintf(Bases, "\n");
+        ++Lines;
+
+        for (std::map<unsigned int, FBaseNpc>::const_iterator N = Base.Npcs.begin(); N != Base.Npcs.end(); ++N)
+        {
+            FBaseNpc const& Npc = N->second;
+            fprintf(Npcs, "base=%u npc=%u", Id, N->first);
+            OracleContentWriteNpcDesc(Npcs, Npc.Desc);
+            fprintf(Npcs, " missions=");
+            for (size_t M = 0; M < Npc.Missions.size(); ++M)
+            {
+                fprintf(Npcs, "%s%08x/%08x/", M == 0 ? "" : ",", OracleBaseBits(Npc.Missions[M].MinDifficulty),
+                        OracleBaseBits(Npc.Missions[M].MaxDifficulty));
+                OracleContentWriteHex(Npcs, Npc.Missions[M].Type.Data,
+                                      Npc.Missions[M].Type.Length < 24u ? Npc.Missions[M].Type.Length : 23u);
+            }
+            fprintf(Npcs, " bribes=");
+            for (size_t B = 0; B < Npc.Bribes.size(); ++B)
+                fprintf(Npcs, "%s%d/%u/%d", B == 0 ? "" : ",", Npc.Bribes[B].Cost, Npc.Bribes[B].Group,
+                        Npc.Bribes[B].TextIds);
+            fprintf(Npcs, " knows=");
+            for (size_t K = 0; K < Npc.Knows.size(); ++K)
+                fprintf(Npcs, "%s%d/%d/%d/%u", K == 0 ? "" : ",", Npc.Knows[K].Price, Npc.Knows[K].Field_0x04,
+                        Npc.Knows[K].Field_0x08, Npc.Knows[K].RepLevel);
+            fprintf(Npcs, " rumors=");
+            for (size_t R = 0; R < Npc.Rumors.size(); ++R)
+            {
+                FBaseNpcRumor const& Rumor = Npc.Rumors[R];
+                fprintf(Npcs, "%s%d/%d/%d/", R == 0 ? "" : ",", Rumor.FromStage, Rumor.ToStage, Rumor.RepLevel);
+                for (int I = 0; I < 8; ++I)
+                    fprintf(Npcs, "%s%d", I == 0 ? "" : "+", Rumor.Ids[I]);
+            }
+            fprintf(Npcs, " rooms=");
+            for (size_t R = 0; R < Npc.Rooms.size(); ++R)
+                fprintf(Npcs, "%s%u", R == 0 ? "" : ",", Npc.Rooms[R]);
+            fprintf(Npcs, "\n");
+            ++Lines;
+        }
+
+        for (size_t R = 0; R < Base.Rooms.size(); ++R)
+        {
+            FBaseRoom const& Room = Base.Rooms[R];
+            fprintf(Rooms, "base=%u room=%u density=%d fixtures=", Id, Room.RoomId, Room.CharacterDensity);
+            bool bFirst = true;
+            for (std::list<FBaseFixture*>::const_iterator F = Room.Fixtures.Fixtures.begin();
+                 F != Room.Fixtures.Fixtures.end(); ++F)
+            {
+                // the fixture's GF_NPC by its key.
+                unsigned int NpcKey = 0;
+                for (std::map<unsigned int, FBaseNpc>::const_iterator N = Base.Npcs.begin(); N != Base.Npcs.end(); ++N)
+                {
+                    if (&N->second == (*F)->Npc)
+                        NpcKey = N->first;
+                }
+                fprintf(Rooms, "%s%u/%d/", bFirst ? "" : ",", NpcKey, (*F)->Placement);
+                OracleContentWriteHex(Rooms, (*F)->Fidget.Data, (*F)->Fidget.Length < 64u ? (*F)->Fidget.Length : 63u);
+                fprintf(Rooms, "/");
+                OracleContentWriteHex(Rooms, (*F)->Role.Data, (*F)->Role.Length < 32u ? (*F)->Role.Length : 31u);
+                bFirst = false;
+            }
+            fprintf(Rooms, "\n");
+            ++Lines;
+        }
+    }
+    return Lines;
+}
+
 // ---------------------------------------------------------------------------------------
 // TU17 -- bar characters
 // ---------------------------------------------------------------------------------------
