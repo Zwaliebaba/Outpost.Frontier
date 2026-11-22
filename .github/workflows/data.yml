@@ -58,6 +58,7 @@ jobs:
             ${{ runner.temp }}/outpost-sim
             ${{ runner.temp }}/outpost-ensemble
             ${{ runner.temp }}/outpost-systems
+            ${{ runner.temp }}/outpost-replication
             ${{ runner.temp }}/outpost-sim-summaries
             ${{ runner.temp }}/oracle-dump.log
       - name: Build the oracle harness
@@ -346,6 +347,29 @@ jobs:
             Get-Content "$out\session.jsonl" -Tail 20 -ErrorAction SilentlyContinue
             exit $LASTEXITCODE
           }
+      - name: Record the replication scenario with the oracle
+        # Work package P3.3 (decision record 0007 point 11): Oracle.exe sim runs
+        # CppSource/Oracle/replication.txt (two players joined to he01, `dump replication`) twice,
+        # each run in a fresh process, and SimClientStub writes the packets each client receives
+        # per tick to replication.jsonl. The runs' session logs are kept with the summaries.
+        if: ${{ !cancelled() && steps.oracle-cache.outputs.cache-hit != 'true' }}
+        shell: pwsh
+        run: |
+          $out = "$env:RUNNER_TEMP\outpost-replication\replication"
+          $keep = "$env:RUNNER_TEMP\outpost-sim-summaries\replication"
+          New-Item -ItemType Directory -Force $keep | Out-Null
+          $failed = 0
+          foreach ($run in 'run_01', 'run_02') {
+            & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\replication.txt" "$out\$run"
+            $code = $LASTEXITCODE
+            Copy-Item "$out\$run\session.jsonl" "$keep\$run-session.jsonl" -ErrorAction SilentlyContinue
+            $lines = @(Get-Content "$out\$run\replication.jsonl" -ErrorAction SilentlyContinue).Count
+            Write-Host "replication ${run}: exit code $code, $lines packets"
+            Select-String -Path "$out\$run\session.jsonl" -Pattern '"rec":"(player|error|fault)"' -ErrorAction SilentlyContinue |
+              Select-Object -First 20 | ForEach-Object { "  $($_.Line)" }
+            if ($code -ne 0) { $failed = 1 }
+          }
+          exit $failed
       - name: Save the oracle's outputs
         # The key is the one the restore step computed on the clean checkout: hashing
         # CppSource/ again here would take in the build's intermediate files (CppSource/obj/)
@@ -359,6 +383,7 @@ jobs:
             ${{ runner.temp }}/outpost-sim
             ${{ runner.temp }}/outpost-ensemble
             ${{ runner.temp }}/outpost-systems
+            ${{ runner.temp }}/outpost-replication
             ${{ runner.temp }}/outpost-sim-summaries
             ${{ runner.temp }}/oracle-dump.log
       - name: Prepare Rust
@@ -446,6 +471,22 @@ jobs:
           $code = $LASTEXITCODE
           New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\outpost-sim-summaries" | Out-Null
           Copy-Item "$out\rust-system-loads.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
+          exit $code
+      - name: Compare the replication with the oracle
+        # Work package P3.3 (decision record 0007 point 11, Tier B): the replication scenario runs
+        # through game-logic's server and each client's packets per tick are compared with the
+        # oracle's replication.jsonl, exactly while the objects are the oracle's bit for bit and by
+        # report after (crates/game-logic/tests/replication_oracle.rs). Summary
+        # rust-replication.txt.
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $env:OUTPOST_DATA_DIR = "$env:RUNNER_TEMP\outpost-data"
+          $env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-replication"
+          cargo test --locked --release -p game-logic --test replication_oracle -- --nocapture
+          $code = $LASTEXITCODE
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\outpost-sim-summaries" | Out-Null
+          Copy-Item "$env:OUTPOST_ORACLE_DIR\rust-replication.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
           exit $code
       - name: Compare the seed ensemble through the Rust world
         # Gate G2 (record 0003 point 9): the same scenarios and seeds through the Rust world

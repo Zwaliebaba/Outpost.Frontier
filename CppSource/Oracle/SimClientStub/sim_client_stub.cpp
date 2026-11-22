@@ -18,6 +18,7 @@ namespace
 {
     FILE* GIClientFile = nullptr;
     FILE* GControllerFile = nullptr;
+    FILE* GReplicationFile = nullptr;   // P3.3, replication.jsonl
     unsigned GTick = 0;
     unsigned GCallSeq = 0;
     unsigned GMessageSeq = 0;
@@ -210,6 +211,24 @@ void SimStubPresence(FOracleJson& J, char const* Name, bool bPresent)
         J.Null(Name);
 }
 
+bool SimStubReplicationOn()
+{
+    return GReplicationFile != nullptr;
+}
+
+void SimStubReplicationBegin(FOracleJson& J, unsigned Seq, unsigned int ClientId, char const* Method)
+{
+    J.Uint("tick", GTick);
+    J.Uint("seq", Seq);
+    J.Uint("client", ClientId);
+    J.Str("m", Method);
+}
+
+void SimStubReplicationEnd(FOracleJson& J)
+{
+    WriteLine(GReplicationFile, J.Finish());
+}
+
 void SimStubUintArray(FOracleJson& J, char const* Name, unsigned int const* Values, int Count)
 {
     if (Values == nullptr)
@@ -274,6 +293,16 @@ extern "C" void __cdecl SimClientStubConfigure(char const* OutputFolder)
         return;
     GIClientFile = OpenOutput(OutputFolder, "iclient.jsonl");
     GControllerFile = OpenOutput(OutputFolder, "controller.jsonl");
+}
+
+extern "C" void __cdecl SimClientStubRecordReplication(char const* OutputFolder)
+{
+    if (GReplicationFile != nullptr)
+        fclose(GReplicationFile);
+    GReplicationFile = nullptr;
+    if (OutputFolder == nullptr)
+        return;
+    GReplicationFile = OpenOutput(OutputFolder, "replication.jsonl");
 }
 
 extern "C" void __cdecl SimClientStubSetTick(unsigned int Tick)

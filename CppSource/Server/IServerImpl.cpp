@@ -245,6 +245,25 @@ extern "C" SERVER_API int __cdecl OracleDumpSystemLoads(char const* Path) {
     return Lines;
 }
 
+// Oracle instrumentation (P3.3, decision record 0007 point 11): a player of Oracle.exe sim's
+// replication scenario. Session SessionId's slot takes the system and the ship the harness
+// made (system_id, ship_object_id), and the session joins the system (StarSystem::add_player),
+// whose observer then follows that ship. Nothing else of a login is done: the client id stays
+// 0, so PlayerDB::is_valid refuses the slot and no account, character, controller or other
+// session hears of it. False for a session outside the player array or an unknown system. No
+// game module calls it.
+extern "C" SERVER_API bool __cdecl OracleSimAddPlayer(unsigned int SessionId, unsigned int SystemId,
+                                                      unsigned int ShipId) {
+    if (SessionId == 0 || SessionId > PlayerDB_GetMaxPlayers()) return false;
+    StarSystem* const System = SysDB_LookupSystem(SystemId);
+    if (System == nullptr) return false;
+    PlayerData& Slot = Players[SessionId];
+    Slot.system_id = SystemId;
+    Slot.ship_object_id = ShipId;
+    System->add_player(SessionId);
+    return true;
+}
+
 static PlayerSlot* GetPlayerBySession(unsigned int session_id) {
     return PlayerDB_GetPlayer(session_id);
 }

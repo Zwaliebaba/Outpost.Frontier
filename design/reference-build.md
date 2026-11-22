@@ -690,7 +690,7 @@ is zero, which only `Oracle.exe sim` changes:
 
 | File | Hook |
 | --- | --- |
-| `Server\IServerImpl.cpp` | `Server_StepSystems` steps `StepSystemId` and no other system; `StarSystem_Update` runs the multiplayer physics and collision pass for that system although it has no player; `IServerImpl::ElapseTime` takes the frame time as its real dt (`OracleSimFixElapsed`); `OracleSimLoadSystem`, a new export; `IServerImpl::Startup`'s `srand` takes `StartupSeed` instead of `timeGetTime()` under the fixed clock, and seeds again after `PlayerDB::init` (2026-11-19); `OracleSimControllerHeartbeats`, a new export (each controller's heartbeat interval and phase) |
+| `Server\IServerImpl.cpp` | `Server_StepSystems` steps `StepSystemId` and no other system; `StarSystem_Update` runs the multiplayer physics and collision pass for that system although it has no player; `IServerImpl::ElapseTime` takes the frame time as its real dt (`OracleSimFixElapsed`); `OracleSimLoadSystem`, a new export; `IServerImpl::Startup`'s `srand` takes `StartupSeed` instead of `timeGetTime()` under the fixed clock, and seeds again after `PlayerDB::init` (2026-11-19); `OracleSimControllerHeartbeats`, a new export (each controller's heartbeat interval and phase); `OracleSimAddPlayer`, a new export (P3.3, a scenario's `player`: the session's slot takes the system and the ship, then `StarSystem::add_player`; the client id stays 0) |
 | `Server\server_gameobject.cpp` | the three timer stamps (`EqObj::update` repair, `apply_damage_list`, `apply_equip_entry`) read `OracleSimTimingRead()`, which is `Timing::read()` unless the clock is fixed; `GameObject::on_collision` reports `CalcCollisionDamage`; `Ship::set_throttle`, `set_axis_throttle`, `set_nudge_vec`, `set_strafe_dir` and `EqObj::slot_34` report the `IObjAffect` call |
 | `Server\server_classes.cpp` | `StarSystem::munition_collision` reports the impact and its damage list; `StarSystem_MpCollisionFilter` takes its single-player branch when asked (`collisions sp`) |
 | `Common\common_physicalsystem.cpp` | `PhysicalSystem::Update` takes the single-player branch when asked |
@@ -778,6 +778,8 @@ the trade lanes).
 | `ship <name> <archetype> <loadout\|-> <x> <y> <z> [options]` | spawn a ship; options: `heading <degrees>` (about +Y; 0 faces −Z, 90 faces −X), `orient <9 numbers>` (row-major), `vel <x y z>`, `angvel <x y z>`, `ai <state graph>` (e.g. `FIGHTER`; without it the ship has no behaviour and keeps the commands it is given), `escort` (with `ai`: the graph's escort variant, `get_state_graph(name, ESCORT)`, as Content's `ResetFormationState` gives a wingman; without it the leader variant), `pilot <nickname>` (with `ai`: the personality of a `[Pilot]` of `missions\pilots_population.ini` or `pilots_story.ini`, as Content gives an NPC ship of an `npcships.ini` entry, without a job; without it the default personality), `faction <group>` (a reputation affiliated with a group of `initialworld.ini`, e.g. `he_p_grp`; without it none), `hp <n>` (default −1, the archetype's), `psi` (record its PSIs) |
 | `solar <name> <nickname> [psi]` | a system object of the loaded system |
 | `at <ticks> <name> <command> [arguments]` | `<ticks>` is `t`, `a..b` or `a..b/step` (ticks from 1) |
+| `player <session> <ship>` | (P3.3, decision record 0007 point 11) after the objects are spawned, session 1 to 16 joins the system with the ship, named before the line, as its own (`OracleSimAddPlayer`): its observer follows the ship and its packets are tick 0's; no login, no client id, so no other session or controller hears of it |
+| `dump replication` | (P3.3) SimClientStub also writes the packets of the replication comparison each client receives to `replication.jsonl`, from the players' join on (`SimClientStubRecordReplication`) |
 
 Commands. The first five call the ship's `IObjAffect` as the AI does; the
 directives go through `pub::AI::SubmitDirective`, each after a
@@ -893,7 +895,9 @@ notes.
 load-time draws `load_rand.jsonl` with its summary `load_rand.txt`, and
 the simulation units of the first PSIs, `units.jsonl`, since P2.4's
 remainder the asteroid cubes `asteroids.jsonl` and the docking points
-`dock.jsonl` (`oracle_sim_fields.cpp`; sim-records.md); the stub's `iclient.jsonl` and `controller.jsonl`;
+`dock.jsonl` (`oracle_sim_fields.cpp`; sim-records.md); the stub's `iclient.jsonl` and `controller.jsonl`,
+and with `dump replication` its `replication.jsonl` (P3.3: `CppSource\Oracle\replication.txt`,
+which the data job runs twice into `outpost-replication\replication\run_NN`);
 `server.ini`, `fdump.txt`, `metrics.txt`. The rand() recorder
 (`oracle_sim_rand.cpp`) replaces the `rand` import of every module bound
 to the universal CRT's `rand` (`Common.dll`, `Server.dll`, `Content.dll`

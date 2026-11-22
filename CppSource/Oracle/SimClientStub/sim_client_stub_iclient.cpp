@@ -5,7 +5,8 @@
 // interfaces with the exact signatures of rpc_iclient.h, so its vtables have the same
 // 126 + 1 slots in the same order. Every call is written to iclient.jsonl
 // (design/sim-records.md) and answered without a client: void slots do nothing, Startup
-// returns true, Update 1, the queue queries 0.
+// returns true, Update 1, the queue queries 0. The slots of the replication comparison
+// (P3.3) also go to replication.jsonl (sim_client_stub_replication.cpp).
 
 #include "rpc_iclient.h"
 #include "common_ini.h"           // Vector
@@ -13,6 +14,7 @@
 #include "common_server_types.h"  // CHAT_ID (by value)
 
 #include "sim_client_stub.h"
+#include "sim_client_stub_replication.h"
 
 #include <list>
 #include <string>
@@ -31,7 +33,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplFireWeapon(Seq, ClientId, Info);
     }
 
     // IClient slot 1
@@ -42,7 +44,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplActivateEquip(Seq, ClientId, Info);
     }
 
     // IClient slot 2
@@ -53,7 +55,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplActivateCruise(Seq, ClientId, Info);
     }
 
     // IClient slot 3
@@ -64,7 +66,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplActivateThrusters(Seq, ClientId, Info);
     }
 
     // IClient slot 4
@@ -75,7 +77,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplSetTarget(Seq, ClientId, Info);
     }
 
     // IClient slot 5
@@ -97,7 +99,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplGoTradeLane(Seq, ClientId, Info);
     }
 
     // IClient slot 7
@@ -110,7 +112,7 @@ public:
         J.Uint("TradelaneRing1", TradelaneRing1);
         J.Uint("TradelaneRing2", TradelaneRing2);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplStopTradeLane(Seq, ClientId, ShipId, TradelaneRing1, TradelaneRing2);
     }
 
     // IClient slot 8
@@ -121,7 +123,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplJettisonCargo(Seq, ClientId, Info);
     }
 
     // IClient slot 9
@@ -570,7 +572,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplCreateSolar(Seq, ClientId, Info);
     }
 
     // IClient slot 47
@@ -581,7 +583,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplCreateShip(Seq, ClientId, Info);
     }
 
     // IClient slot 48
@@ -592,7 +594,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplCreateLoot(Seq, ClientId, Info);
     }
 
     // IClient slot 49
@@ -603,7 +605,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplCreateMine(Seq, ClientId, Info);
     }
 
     // IClient slot 50
@@ -614,7 +616,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplCreateGuided(Seq, ClientId, Info);
     }
 
     // IClient slot 51
@@ -625,7 +627,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplCreateCounter(Seq, ClientId, Info);
     }
 
     // IClient slot 52
@@ -649,7 +651,7 @@ public:
         J.Uint("TargetId", TargetId);
         J.Uint("TargetSubObjId", TargetSubObjId);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplSetGuidedTarget(Seq, ClientId, GuidedId, TargetId, TargetSubObjId);
     }
 
     // IClient slot 54
@@ -660,7 +662,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplUpdateObject(Seq, ClientId, Info);
     }
 
     // IClient slot 55
@@ -671,7 +673,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplDestroyObject(Seq, ClientId, Info);
     }
 
     // IClient slot 56
@@ -682,7 +684,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplActivateObject(Seq, ClientId, Info);
     }
 
     // IClient slot 57
@@ -693,7 +695,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplSystemSwitchOut(Seq, ClientId, Info);
     }
 
     // IClient slot 58
@@ -704,7 +706,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplSystemSwitchIn(Seq, ClientId, Info);
     }
 
     // IClient slot 59
@@ -715,7 +717,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplLand(Seq, ClientId, Info);
     }
 
     // IClient slot 60
@@ -726,7 +728,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplLaunch(Seq, ClientId, Info);
     }
 
     // IClient slot 61
@@ -761,7 +763,7 @@ public:
         J.Uint("ObjectId", ObjectId);
         SimStubPresence(J, "Damage", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplDamageObject(Seq, ClientId, ObjectId, Damage);
     }
 
     // IClient slot 64
@@ -794,7 +796,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplSetReputation(Seq, ClientId, Info);
     }
 
     // IClient slot 67
@@ -1041,7 +1043,7 @@ public:
         J.Uint("ClientId", ClientId);
         SimStubPresence(J, "Info", true);
         SimStubCallEnd(J);
-        (void)Seq;
+        SimStubReplBurnFuse(Seq, ClientId, Info);
     }
 
     // IClient slot 88
