@@ -291,7 +291,7 @@ When a player enters a lane, the content controller may stage an ambush:
    encounter appears 1,400 m beyond the ring; its leader waits 25 s,
    then patrols the zone's path.
 
-The player drops out of the lane among ships of a faction with a reason
+The player drops out of the lane among ships of a faction with reason
 to be there.
 
 ### 3.10 Difficulty by place
@@ -354,7 +354,7 @@ sends the next if its speaker still exists.
 
 | Source | Trigger |
 | --- | --- |
-| Dock control | A ship enters a 2,500 m sensor volume around a dockable solar: hail and identification; later request, clearance, stand-by or refusal as the dock queue decides (chapter 04) |
+| Dock control | A ship enters a 2,500 m sensor volume around a dockable solar: hail and identification; later request, clearance, stand-by or refusal from the dock queue (chapter 04) |
 | Combat | Damage taken or dealt, a death, engaging or declining, fleeing with a reason, calls for help, friendly fire, all clear |
 | Cargo scan | Each step of the patrol's scan sequence |
 | Idle | A formation leader within 2,500 m of a player may start small talk with its wingmen: status, rumours, trade |
