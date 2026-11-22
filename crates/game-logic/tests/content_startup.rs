@@ -35,7 +35,7 @@ use std::sync::Arc;
 
 use game_logic::content::mission::{MISSION_PATH_BUFFER, MissionPath};
 use game_logic::content::random_mission::RmDataKey;
-use game_logic::content::{self, Instance, NoDispatch, game_support, population};
+use game_logic::content::{self, Instance, game_support, population};
 use game_logic::events::ControllerMessage;
 use game_logic::server::{ControllerKind, CreateParams, Cx, Logic, RecordingSink};
 use game_sim::data::config::{DataConfig, GameData};
@@ -546,7 +546,7 @@ fn a_take_around_a_dispatch_is_caught() {
         &CreateParams::None,
         Priority::Highest,
     );
-    let take = NoDispatch::begin(&cx.logic.content);
+    let take = game_logic::content::NoDispatch::begin(&cx.logic.content);
     let mut message = ControllerMessage::Heartbeat { elapsed: 1.0 };
     cx.dispatch(game, &mut message).unwrap();
     take.end(&cx.logic.content);

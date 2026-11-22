@@ -1,0 +1,9 @@
+# Oracle.exe sim session (P3.4b, decision record 0008 point 5): not a scenario. The server
+# starts as a multiplayer server, which creates GameSupport and so runs Content's
+# LoadContentGameTables; its tables are then written as content_<table>.txt
+# (Content.dll's OracleDumpContentTables). No system loads and nothing is stepped; the
+# parser still wants `system` and `ticks`.
+
+system he01
+ticks 1
+dump content_tables

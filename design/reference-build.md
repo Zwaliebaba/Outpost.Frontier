@@ -706,6 +706,7 @@ is zero, which only `Oracle.exe sim` changes:
 | `Server\server_gameobject.cpp` (P2.5) | `Ship::slot_5c`, `slot_60`, `go_tradelane`, `stop_tradelane` and `EqObj::slot_44` report the `IObjAffect` call; `Ship::request_returned`, `go_tradelane` and `slot_44` report their answers; `request_returned` runs the pending callback at affect depth 0 |
 | `Content\PilotPersonalities.cpp` | `OracleSimPilotPersonality`, a new export (P2.5) that only the `pilot` option calls: `GetPilotPersonality` of a pilot nickname |
 | `Content\Content.cpp` | `OracleSimSetGcsClamp`, a new export (2026-11-19) that only the `comms off` option calls: `ContentSetGcsClampEnabled`, the clamp a mission's `Act_GcsClamp` sets |
+| `Content\oracle_content_tables.cpp` (new), `PilotPersonalities.cpp`, `LootProps.cpp`, `Support.cpp` | `OracleDumpContentTables`, a new export (P3.4b) that only `dump content_tables` calls: Content's static tables as `LoadContentGameTables` left them, one `content_<table>.txt` per table; the three other files write the tables they keep file-static (`OracleContentDumpPilots`, with each pilot's personality from `GetPilotPersonality`, `OracleContentDumpLoot`, `OracleContentDumpToughness`) |
 
 `srand`, the frame time and the control words need no hook: the harness
 runs the frame loop itself.
@@ -775,6 +776,7 @@ the trade lanes).
 | `stepping sp\|mp` | default `mp` |
 | `collisions sp\|mp` | default `mp`; `sp` makes the server's collision filter take its single-player branch (below) |
 | `comms on\|off` | default `on`; `off` sets Content's comm clamp before the load, so `IsGcsCommAllowed` refuses every comm before its `rand()` roll (owner, 2026-11-19; record 0003: the G2 fights run with comms off) |
+| `dump content_tables` | not a scenario (P3.4b, `CppSource\Oracle\content_tables.txt`): right after the server starts, Content.dll's `OracleDumpContentTables` writes its static tables into the output folder as `content_<table>.txt`, and the run ends; no system loads |
 | `seed <n>` | `srand` after start-up; default `0x4f524143`; also the start-up seed |
 | `clock <seconds>` | the fixed clock at tick 0; default 1000 |
 | `ship <name> <archetype> <loadout\|-> <x> <y> <z> [options]` | spawn a ship; options: `heading <degrees>` (about +Y; 0 faces −Z, 90 faces −X), `orient <9 numbers>` (row-major), `vel <x y z>`, `angvel <x y z>`, `ai <state graph>` (e.g. `FIGHTER`; without it the ship has no behaviour and keeps the commands it is given), `escort` (with `ai`: the graph's escort variant, `get_state_graph(name, ESCORT)`, as Content's `ResetFormationState` gives a wingman; without it the leader variant), `pilot <nickname>` (with `ai`: the personality of a `[Pilot]` of `missions\pilots_population.ini` or `pilots_story.ini`, as Content gives an NPC ship of an `npcships.ini` entry, without a job; without it the default personality), `faction <group>` (a reputation affiliated with a group of `initialworld.ini`, e.g. `he_p_grp`; without it none), `hp <n>` (default −1, the archetype's), `psi` (record its PSIs) |
