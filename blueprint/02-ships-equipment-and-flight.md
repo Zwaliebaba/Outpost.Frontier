@@ -146,7 +146,7 @@ item *functions* when it is active and not destroyed.
 | Engine | internal | Forward and reverse thrust, most of the ship's drag, cruise. |
 | Power plant | internal | Capacity and recharge rate of both pools. |
 | Scanner | internal | Contact range (2,500 or 5,000 m) and cargo-scan range (2,000 m). |
-| Tractor | internal | Pulls loot in from up to 1,500 m (chapter 03). |
+| Tractor | internal | Pulls loot in from up to 1,500 m (chapter 03). The interface's collect-all command looks only within a fixed 1,000 m (chapter 09). |
 | Armour | internal | Divides hull damage by a scale; grades NPC toughness. Values run from 0.25 to 30, most on a ladder of ratio 1.17; one record of 1e30 is how the data marks an indestructible ship. |
 | Shield generator, gun, turret, launcher, mine and countermeasure dispenser | external | Chapter 03. |
 | Thruster | external | Extra forward thrust paid from the thrust pool. |
@@ -187,16 +187,16 @@ ammunition type by a global limit of 50.
 Nothing may overfill the hold; each path enforces it where the request is
 made:
 
-- *Loot pickup.* The tractor refuses a container outright, with a distinct
-  reason for each cause, when the hold lacks the volume of one unit of its
-  contents or the relevant carry limit is already reached. When a
+- *Loot pickup.* The tractor refuses a container, with a distinct reason
+  per cause, when the hold lacks the volume of one unit of its contents or
+  the relevant carry limit is reached. When a
   container does arrive, the authority transfers `min(units in container,
   free space for that type)` units (chapter 03 covers the remainder).
 - *Purchase and player-to-player trade.* The dealer and trade screens cap
   the selectable quantity at the free space for that type (chapters 07
-  and 10). A multiplayer authority does not re-check each purchase; the
-  save-time check of 3.3 also fails a character whose used volume exceeds
-  the hold. Single player has no such check.
+  and 10). In multiplayer the save-time check of 3.3 also fails a
+  character whose used volume exceeds the hold; single player has no such
+  check.
 
 Stacks merge by archetype and carry one health value; some commodities
 decay at an authored rate while carried. Jettisoning opens the bay doors
@@ -291,10 +291,10 @@ about 15 s and refills in 10 s.
 
 - **Throttle** runs from −1 to 1; the player's own controls cover 0 to 1.
   Holding the raise or lower control changes it by 1 per second, the wheel
-  steps it by 0.2. Setting it switches a killed engine back on. Cruise is
-  cancelled the moment the lower control is pressed, and whenever the
-  throttle arrives at exactly 0 by any route (so stepping down with the
-  wheel keeps cruise until zero). A general "cancel" control drops it too.
+  steps it by 0.2. Setting it switches a killed engine back on. Two
+  interface rules cancel cruise: pressing the lower control does so at
+  once, and so does a throttle that arrives at exactly 0 (stepping down
+  with the wheel keeps cruise until zero). The engine has no such rule.
 - **Reverse** is a switch that commands throttle −1; with drag this high
   it is mainly a brake.
 - **Strafe** has four held controls: left, right, up, down. One direction
@@ -329,9 +329,8 @@ and full speed arrives about 3.7 s after charging ends. The authority
 offers an instant engage that skips the charge; no shipped content uses it.
 
 While cruise is engaged, charging included, a global constant of 3 is
-added to the engine's drag. Against 599 it is negligible (normal top speed
-while charging falls from 80 to 79.6 m/s) and, by the definition above, it
-cannot change cruise speed.
+added to the engine's drag. Against 599 it is negligible, and by the
+definition above it cannot change cruise speed.
 
 A zone may scale drag (chapter 01). That lowers normal, thruster and
 strafe speeds in proportion but leaves cruise speed alone.
@@ -551,7 +550,8 @@ Design documents: `design/adr/0001-object-model.md`,
 
 Data, tabulated by script: `outdir/data/SHIPS/shiparch.ini` and the three
 loadout files; `outdir/data/EQUIPMENT/engine_equip.ini`, `misc_equip.ini`,
-`select_equip.ini`, `st_equip.ini` (thrusters), `goods.ini` (which hulls
+`select_equip.ini`, `st_equip.ini` (thrusters), `weapon_equip.ini`
+(cloak records), `goods.ini` (which hulls
 are purchasable, their default engines); `outdir/data/constants.ini`.
 Derived speeds and turn rates were computed from these with the formulas
 of 3.7.
@@ -569,7 +569,7 @@ Code under `CppSource/`: `Common/common_cship.cpp`, `common_ceengine.cpp`,
 `include/common_archetype.h`, `common_cequip.h`, `common_cobject.h`;
 `IVP/ivp_physics/ivp_core.cpp`, `ivp_environment.cpp`;
 `OutpostFrontier/Client/player_behavior.cpp`, `hud_maneuvers.cpp`,
-`nn_trade.cpp`, `client_gameobj.cpp`,
+`nn_trade.cpp`, `hud_status_core.cpp`, `client_gameobj.cpp`,
 `client_equip_fx.cpp`, `space_state.cpp`; `Server/server_gameobject.cpp`,
 `server_classes.cpp`, `server_pub.cpp`, `IServerImpl.cpp`;
 `Oracle/scenarios/free_flight.txt`, `turn_to_heading.txt`.

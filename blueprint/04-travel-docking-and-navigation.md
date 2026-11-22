@@ -42,14 +42,32 @@ force controller) are used as defined. This chapter adds:
 | --- | --- |
 | Manoeuvre | What the player orders from the interface: free flight, go to, dock, join formation. Each is issued as a directive to the manoeuvre layer of the player's ship, where it runs as a behaviour (chapter 05). One is active at a time. |
 | Docking point | One authored place on a solar or capital ship where a ship can dock: a kind, a mount pose, two approach poses, a radius and an optional door animation. |
-| Docking point kind | Berth (interior bay), mooring (the ship stays outside), ring pad (on a planetary docking ring), jump (the mouth of a jump point), airlock. The code knows three mooring sizes; the data uses medium and large only. |
-| Docking class | A label on a ship archetype saying which kind of docking point it may use: berths, medium moorings or large moorings. No ship has the small-mooring class. |
+| Docking point kind | Berth, ring pad, medium or large mooring, jump, airlock: see the table below. |
+| Docking class | A label on a ship archetype naming the kind of docking point the ship may use: berths, medium moorings or large moorings. |
 | Docking list, waiting list | The authority's two lists: ships cleared and flying in, and ships told to wait for a free docking point. |
 | Scripted mover | A force controller that takes a ship over completely: collisions off, pose set each tick. Lane travel, ring launch and NPC jump arrival are scripted movers. |
 | Control exclusion | A mask on a ship that suspends the manoeuvre layer, the player's steering and the free camera while a mover or sequence owns the ship. |
 | Lock | A marker that closes a jump point: for one player, for every player, or for ambient NPC traffic. |
 | Route, leg | The planner's answer is a route, an ordered list of legs. A leg is "ride this lane from ring X to ring Y" or "fly free to this point". |
 | Waypoint | A position in a named system, optionally tied to an object, held by the presentation. Up to 99. |
+
+| Kind | Found on | Accepts docking class | A completed dock is |
+| --- | --- | --- | --- |
+| Berth (interior bay) | Stations | Berths | A landing |
+| Ring pad | Planetary docking rings | Berths | A landing |
+| Medium mooring | Stations, some docking rings | Medium moorings | A mooring: the ship stays outside |
+| Large mooring | Stations | Large moorings | A mooring |
+| Jump | Gates and holes, one each | Any ship | A transfer |
+| Airlock | Two archetypes | Any ship | Open question 2 |
+
+The code also knows a small mooring; no data uses it.
+
+**Planets.** A planet the player can land on is two solars (chapter 01):
+the planet and a docking ring beside it that carries the base reference.
+The ring has two pads: arrivals are always sent to the first, departures
+leave from the second. A pad accepts the berth class, so every fighter
+and freighter can land on a planet as it can in a station's bay; a ship
+of a mooring class can only moor, at a ring that has moorings.
 
 ```text
 player ── orders ──▶ MANOEUVRE (directive to the ship's manoeuvre layer)
@@ -117,7 +135,8 @@ run in this order and the first failure decides.
 | 7 | The target is at rest (linear speed at most 0.01 m/s, angular 0.01 rad/s). | Wait |
 | — | All passed | Proceed, with a docking point |
 
-Among free fitting points the one nearest the ship is chosen.
+Among free fitting points the one nearest the ship is chosen, except at
+a docking ring, where the first pad is the only one offered.
 
 | Answer | Authority | Ship |
 | --- | --- | --- |
@@ -186,7 +205,7 @@ pads, 150 m for holes, 225 m for gates.
 
 | Kind | Result |
 | --- | --- |
-| Berth, ring pad | **Landing.** Every presentation in the system is told the ship landed on that base. An NPC ship is removed. A player's session leaves the system and enters the base (chapters 10, 11); in single player the system is then shut down. |
+| Berth, ring pad | **Landing.** Every presentation in the system is told the ship landed on that base. An NPC ship is removed. A player's session leaves the system and enters the base (chapters 10, 11). A multiplayer host saves the character at this moment; in single player the system is shut down and the save comes later, on leaving the base (chapter 11). |
 | Mooring | A "docked, not landed" event is raised and the ship stays in space. |
 | Jump, airlock | **Transfer** (3.7). "Dock complete" is raised; other pilots in the system are told the ship left through that object. |
 
@@ -205,7 +224,7 @@ the rules.
 The authority decides where a launching ship appears:
 
 1. Leaving a base: at the first solar in the system that docks to that
-   base. On a docking ring, its pad. On a station, space support is asked
+   base. On a docking ring, its second pad. On a station, space support is asked
    for a free berth, so that a departing player does not appear in a bay
    another ship is flying into.
 2. If the base has no such solar: 2.2 radii out from the base's solar,
@@ -388,10 +407,16 @@ all held by the authority and stored in the saved game (chapter 11).
 | Switch | Scope | Set by |
 | --- | --- | --- |
 | Jump point locked for everyone | All players | Initial world state (27 jump points); mission actions |
-| Jump point locked for one player | That player | Mission actions |
+| Jump point locked for one player | That player | New-game template (32); mission actions |
 | Jump point closed to ambient NPCs | Population traffic; mission-spawned ships pass | Initial world state (36); mission actions |
 | Player may dock: yes or no, plus exceptions | One player | Mission actions (about 120 uses in the campaign) |
 | Player may use lanes: yes or no, plus exception stretches given as ring pairs | One player | Mission actions (about 50 uses) |
+
+A new single-player game applies the template's 32 player locks and then
+the initial world's two lists. The three lists are disjoint, so the
+player starts with 59 jump points closed. The multiplayer character
+template carries no locks; whether the initial world's lists apply on a
+multiplayer host is settled in chapter 07, section 3.14.
 
 Unlocking a jump point "for the player" removes the per-player and the
 everyone lock. The campaign opens the universe region by region this way.
@@ -413,7 +438,7 @@ that calls it.
 | Launch position; invincibility | The own ship's launch; "launch complete" report |
 | Transfer between systems; arrival pose | Tunnel sequence; loading; "jump-in complete" report |
 | Locks and restrictions; route planning | Button availability; waypoint list, map tools, marker |
-| All of the left column and the manoeuvres, for NPCs | Told when another ship enters or leaves a lane |
+| All of this, and the manoeuvres, for NPCs | — |
 
 For an NPC a request and its answer happen inside one tick. For a player
 they are two messages, which is why the approach has a hold state.
@@ -428,20 +453,12 @@ they are two messages, which is why the approach has a hold state.
 | Ship archetype | docking class | Of 69 hulls: berths 42 (fighters, freighters), medium moorings 8 (mostly transports), large moorings 15 (gunboats and larger), none 4 |
 | Lane equipment, mounted on every lane ring | effects for entering, travelling, leaving and disruption; delays before each (2 s, 0.2 s, 0.3 s); ring spin rate and acceleration; two activation distances (750 m, 500 m) | One record |
 | Lane ring loadout | lane equipment, shield generator, unlimited power, two turrets, lights | Shield 1,000, regeneration 10 per second |
-| Initial world state | jump points locked for everyone, and for NPC traffic | 27 and 36 |
+| New-game template; initial world state | jump points locked for the new player; for everyone and for NPC traffic | 32; 27 and 36 |
 | Mission actions (chapter 08) | lock or unlock a jump point; player may dock; player may use lanes; drain a lane ring; force a landing; relocate a ship; give the player a route | — |
 
 The rule constants of section 3 (lane speeds and ramp, linking distance,
 route cap, timeouts, hostility threshold, approach speed cap, launch
 timings) are in code, not data.
-
-Three anonymised docking point lists (radius in m in brackets):
-
-| Archetype | Docking points |
-| --- | --- |
-| `example_docking_ring` | ring pad A (40, door animation), ring pad B (40, door animation), 2 medium moorings (5) |
-| `example_small_station` | 3 medium moorings (5), 1 large mooring (5) |
-| `example_gate` | 1 jump (225) |
 
 ## 5. Connections
 
@@ -461,8 +478,8 @@ Gives:
   as trigger events; the planner for mission waypoints.
 - 09: manoeuvre availability, dock answers and travel notices for voice
   and HUD; waypoints for the map and the marker.
-- 10, 11: the moment of entering and leaving a base; the save points at
-  landing and system arrival.
+- 10, 11: the moment of entering and leaving a base; the save on system
+  arrival and, on a multiplayer host, at landing.
 
 ## 6. Design notes for the builder
 
@@ -470,19 +487,18 @@ Gives:
 
 - *Docking as a request the world can refuse.* Reputation, campaign
   gating and mission pressure all act through one checkpoint.
-- *Locks on jump points.* The pacing of the campaign rests on a list of
-  closed doors that missions open.
+- *Locks on jump points.* The campaign's pacing rests on closed doors
+  that missions open.
 - *A fast lane that can be broken.* Lanes make a large map tolerable and
   concentrate traffic; their vulnerability makes them the natural ambush
-  site. A lane that could not be disrupted would be a loading screen.
+  site. 
 - *Routes planned by the authority, with locks applied.* The map must not
   offer a route the player cannot fly.
 
 **Feel.**
 
 - The three-pose approach, door animations and docking camera.
-- Spoken clearance, and the waiting queue, which matters only where
-  traffic is dense enough to fill a base's docking points.
+- Spoken clearance and the waiting queue.
 
 **Accidents of the era.**
 
@@ -503,8 +519,6 @@ Gives:
   under fire.
 - Lanes as teleports between end rings: lost, interdiction, traffic seen
   in passing, leaving mid-lane.
-- One lock scope instead of three: lost, multiplayer campaigns in which
-  players stand at different points.
 
 ## 7. Open questions
 
@@ -517,9 +531,7 @@ Gives:
 3. **Waypoints and lanes.** Whether go to on a marker that stands for a
    lane ring enters the lane, or the player must target the ring and
    order a dock, was not established.
-4. **Initial locks in multiplayer.** Whether the 27 initial locks apply
-   on a multiplayer host, where no campaign unlocks them, was not checked.
-5. **Unread code.** The lane equipment values (activation distances,
+4. **Unread code.** The lane equipment values (activation distances,
    spin) were read in data only, and the station launch manoeuvre was not
    read in full.
 
