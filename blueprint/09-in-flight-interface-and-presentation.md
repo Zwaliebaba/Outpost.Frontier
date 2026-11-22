@@ -98,7 +98,8 @@ An event is offered in this sequence:
    until one consumes it.
 
 Four contexts matter in flight: always present (pause, map, inventory,
-chat, screenshot, objective recall: 29 commands), space (target and
+chat, screenshot, objective recall: 29 commands, some of them debug
+aids), space (target and
 weapon selection: 24), flying (77) and chase view (21). Entering or
 leaving a state switches contexts on and off. This is how the same key
 can mean different things on a base and in space.
@@ -205,12 +206,15 @@ Each frame the presentation computes one aim point and gives it to every
 gun; chapter 03 describes how guns turn towards it and what they hit.
 
 1. Cast a ray from the camera through the cursor. Note the first object
-   it hits, ignoring shield bubbles and the player's own ship.
-2. Find the lead markers on screen (3.6). If the cursor lies within a
-   small screen radius of one, that contact is the intended target. If it
-   lies very close, and aim assistance is on, the aim point snaps to the
-   lead position. Otherwise the aim point is on the cursor ray at the
-   marker's distance.
+   it hits, ignoring shield bubbles and the player's own ship. Only an
+   object moving slower than 5 m/s counts, so the aim does not jump onto
+   ships crossing the sight.
+2. Find the lead markers on screen (3.6). If the cursor lies within
+   about 4.5 % of the screen size of one (5.5 % for the selected target),
+   that contact is the intended target. Inside about 3 %, unless the
+   player has set the aim option to its manual value, the aim point snaps
+   to the lead position. Otherwise the aim point is on the cursor ray at
+   the marker's distance.
 3. With no marker near, the aim point is on the cursor ray at the
    distance of the object hit, or else at the range of the longest-ranged
    active gun.
@@ -271,10 +275,10 @@ a lead marker.
 | --- | --- |
 | Click | The bracketed contact under the cursor; else the object the cursor ray hits; else the nearest pickable object whose enlarged bracket holds the cursor. A hostile contact under the cursor wins over a nearer object behind it. |
 | Click on a waypoint marker | Selects the waypoint |
-| Closest enemy | The nearest hostile contact |
+| Closest enemy | The nearest hostile contact, mission-critical ones first |
 | Next / previous enemy | Cycle through hostiles |
 | Next / previous contact | Step through the contact list in its current filter |
-| Double-click a list row | Select, and with a second action start the default manoeuvre (inferred from the list's separate double-click path) |
+| Double-click a list row | Select, and switch the panel to the target view |
 | Clear | No target |
 
 Selecting sets the target on the player's ship and reports it to the
@@ -336,10 +340,10 @@ range and the name, coloured by attitude.
 
 Ships must be within scanner range; other players' ships are listed at
 any range the presentation knows them. Solars and loot are taken from a
-14,000 m sphere and from the list of large solars. Solars the player
-has not yet visited appear with a kind label only, not a name. The
-formation list replaces the filters when the player is in a formation or
-a player group.
+14,000 m sphere and from the list of large solars. Most kinds of solar
+are listed only once the player has visited them (3.6). The formation
+list replaces the filters when the player is in a formation or a player
+group.
 
 ### 3.9 Cameras
 
@@ -353,8 +357,8 @@ outside the ship).
 | Chase | Behind and above the ship; see below | View toggle; default | View toggle |
 | Turret | On a tether behind the ship, free to look anywhere within ±60° of pitch; aimed by keys or by the cursor | Turret toggle | Turret toggle, cancel |
 | Rear | 5 m up and 20 m back, looking backwards | Held key | Key release |
-| Death | Shakes for 2 s with amplitude falling as the square of time left, then drifts with the wreck's velocity, capped at 100 to 200 m/s | Player ship destroyed | Hands over to the "ship lost" flow (chapter 10) |
-| Docking | Fixed outside point that keeps aiming at the ship; letterbox on; fade to black timed to end with the docking sequence | Authority starts a dock or lane entry (chapter 04) | Sequence end |
+| Death | Shakes for 2 s with amplitude falling as the square of the time left, while drifting with the wreck's velocity, capped at 200 m/s (100 m/s when other objects are within 50 m) | Player ship destroyed | Hands over to the "ship lost" flow (chapter 10) |
+| Docking | Fixed outside pose that keeps aiming at the ship; letterbox on; fade to black timed to end with the sequence | A docking sequence starts with a pose and a duration (chapter 04) | Sequence end |
 | Scripted | Driven by a scene script (chapter 10) | Mission or cutscene | Script end or cancel |
 | Parked | Fixed pose given by a script; letterbox on | Script | Cancel returns to the player |
 
@@ -364,24 +368,28 @@ Rear and turret are overlays that return to it.
 **The chase camera** is what makes mouse flight readable, and has four
 behaviours.
 
-- **Offset.** It sits at an authored offset per hull, for example 9 m up
-  and 35 m back for a fighter and 13 m up and 50 m back for a freighter.
-- **Speed lag.** It follows a smoothed copy of the ship's speed and
-  stretches back by 0.05 s of travel plus the accumulated lag, so
-  acceleration is seen as the ship pulling away.
-- **Turn look-ahead.** It rotates towards the ship's current axis
-  throttle by an authored angle: 17 to 23° sideways, 5 to 10° upward and
-  20 to 30° downward. The ship therefore slides towards the screen edge
-  it is turning to and the space it is turning into opens up. The turn
-  rate of the camera is limited by an authored angular acceleration.
+- **Offset.** It sits at an authored offset per hull, from 6 m up and
+  25 m back for the smallest hulls to 13 m up and 52 m back for the
+  largest.
+- **Speed lag.** It follows a smoothed copy of the ship's speed, whose
+  rate of change is limited. The offset grows by 0.05 s of travel at
+  that speed plus a slack that builds up while the ship out-accelerates
+  the camera. Acceleration is therefore seen as the ship pulling away.
+- **Turn look-ahead.** Its orientation is the ship's, turned further by
+  the current axis throttle times an authored angle: 17 to 23° sideways,
+  5 to 10° upward and 20 to 30° downward. The view swings into the turn
+  ahead of the ship (direction inferred) and shows the space the ship is
+  turning into. The camera's own turn rate is limited by an authored
+  angular acceleration, so the swing is smooth.
 - **Levelling.** The camera keeps its own "up" and tells the manoeuvre
   layer about it. Banking (chapter 02) is active only in this mode: the
   ship rolls into turns relative to the camera's up and rolls back when
   the input is released. In the cockpit view the camera reports "normal"
   and there is no banking. A command switches levelling off.
 
-All ship cameras shake on damage: amplitude 0.02 for a hull hit, 0.005
-for a shield hit, decaying by 0.001 per frame. A jump adds its own shake.
+All ship cameras shake on damage with a small random rotation:
+amplitude 0.02 for a hull hit, 0.005 for a shield hit, decaying by 0.001
+per frame. A jump adds its own shake.
 
 ### 3.10 What a frame is composed of
 
@@ -485,10 +493,12 @@ pitch variation. Typical distance pairs are 20 to 70 m near and 200 to
   The mixer sorts them and keeps the best N, 8 to 128 by option; the
   rest fall silent but keep their place in time.
 - **The listener** is the active camera, with its velocity for Doppler.
-  Camera modes report an inside or outside audio mode; the player's own
-  engine and thruster use different recordings inside.
+  Flight cameras and cinematic cameras report different audio modes;
+  what the mode changes was not traced. The player's own thruster uses
+  an interior recording in the cockpit view.
 - **Engine sound follows throttle**: pitch bends with it, and volume
-  rises while the throttle is changing and settles when it is steady.
+  rises while the throttle is changing and settles when it is steady
+  (inferred from the names of the engine-sound constants).
 - **Ducking.** Speech lowers everything else: 12 dB for a comm addressed
   to the player, 9 dB for in-flight speech, 10 dB in cutscenes, falling
   in 0.2 to 0.25 s and recovering in 0.75 to 0.85 s.
@@ -508,13 +518,15 @@ override any of the three, or force one track (chapter 08).
 | Danger | The player's scanner lists at least one hostile contact (checked every 2 s) |
 | Battle | This frame the player damaged a hostile, was damaged by one, or selected one as target |
 | Forced | A mission set an override track |
-| Silent | The player's ship is in a jump or docking sequence |
+| Silent | The player's ship is in a jump or docking sequence (inferred) |
 
-A state change starts a cross-fade (3 s) and locks the state for 10 s,
-after which the conditions are evaluated again. While in battle, each
-new battle event restarts the 10 s, so battle music holds until ten
-quiet seconds have passed and then falls to danger or calm. The lock is
-what prevents flicker when a single enemy drifts in and out of range.
+A state change starts a fade to the new track (3 s by configuration)
+and locks the state for 10 s, after which the conditions are evaluated
+again. While in battle, each new battle event restarts the 10 s, so
+battle music holds until ten quiet seconds have passed and then falls to
+danger or calm. Battle events during the lock of another state are
+ignored. The lock is what prevents flicker when a single enemy drifts in
+and out of range.
 
 ### 3.14 Voice lines and comms
 
@@ -586,10 +598,11 @@ cost of the authority having to trust or check that state.
 | System definition | Music | Calm, danger, battle tracks (chapter 01) |
 | Global constants | Comm, engine sound, music | Distances and attenuations of 3.14; cross-fade lock |
 
-Scale, for orientation: about 600 effects over 45 types and 1,200 visual
-effects; about 1,800 non-voice sound records; some 60 music tracks in
-calm/danger/battle sets plus mood cues; 33 reusable flight voices.
-Chapter 12 has the census.
+Scale, for orientation: about 700 effects over 45 types and 1,200 visual
+effects; about 670 sound-effect, interface and ambience records; 188
+music records, of which about 70 are calm, danger and battle tracks and
+the rest mood cues and base music; 33 reusable flight voices. Chapter 12
+has the census.
 
 ## 5. Connections
 
@@ -682,8 +695,8 @@ Chapter 12 has the census.
    chatter intervals, belong to chapter 05 and were only skimmed here.
 6. The comm window's open and close animation: a fly time is authored
    but nothing was found that uses it.
-7. Whether the contact list's double-click starts a manoeuvre is
-   inferred, not traced.
+7. What starts the docking camera, and with what pose and duration,
+   was not traced past its entry point.
 8. The internal format of the particle-effect libraries was not read;
    3.11 states only what game code asks of them.
 
@@ -727,9 +740,9 @@ Code, shared and authority: `Common/common_cescanner.cpp`,
 (banking gate); `Server/server_classes.cpp` (visibility radii);
 `Content/Gcs.cpp` (skimmed).
 
-Inference: the multiplayer limit on contacts in 3.6; the double-click
-rule in 3.6; the meaning of the "silent" music state as jump or docking;
-open question 1. The contents of the "important" filter were read from
+Inference: the multiplayer limit on contacts in 3.6; the direction of
+the chase camera's look-ahead; the engine-sound rule in 3.12; the meaning
+of the "silent" music state as jump or docking; open question 1. The contents of the "important" filter were read from
 code in part and completed from the element's structure. The effect
 capability list in 3.11 was assembled from the callers' interfaces, not
 from the particle library itself. Counts in section 4 are from scripts

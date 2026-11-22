@@ -23,7 +23,7 @@ content controller is a rules module of the authority.
 | Connection | The pairing of two jump points that links two systems. |
 | Solar archetype | The template of a kind of solar: its class, size, toughness and docking points. |
 | Immersion | A number from 0 to 1 for how deep a point lies in a zone: 0 outside, 1 in the core, a linear ramp across an outer band. |
-| Physical zone | The smallest zone containing an object that has damage, interference or drag. Only its effects apply. |
+| Physical zone | The smallest zone containing an object that has damage or interference. Only its effects apply. |
 | Field definition | The compact recipe that fills a zone with asteroids or with a nebula. |
 | Field cube | One cell of the lattice an asteroid field is generated on. Its content is a pure function of its position. |
 | Dynamic asteroid | A small drifting rock kept around the viewer inside a field; it can be shot and is the source of mined loot. |
