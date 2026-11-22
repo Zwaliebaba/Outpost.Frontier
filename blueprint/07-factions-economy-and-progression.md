@@ -54,7 +54,7 @@ chapter adds:
 | Nominal price | The price in the good's own record. A base without a row for the good uses it. |
 | Used rate | 0.3, the fraction of price paid for equipment the player already owned. |
 | Worth | Money plus the valued ship and equipment. |
-| Rank | The level number kept in a reputation record and shown with the object. An NPC ship's is the authored level of its NPC ship record, a solar's comes from its archetype, a player's is the table value of worth. Other chapters' "rank" is this number. |
+| Rank | The level number kept in a reputation record and shown with the object. An NPC ship's is the authored level of its NPC ship definition, a solar's comes from its archetype, a player's is the table value of worth. Other chapters' "rank" is this number. |
 | Campaign position | A counter, 0 to 42, of how far the campaign has advanced. |
 | Contraband | A commodity that some lawful faction's patrols scan for. |
 
@@ -103,7 +103,7 @@ regard(A towards B) =
   personal = the adjustment A's record stores against B itself (0 if none)
 ```
 
-Two cases cover almost everything:
+Two cases matter:
 
 - **NPC towards NPC:** the matrix value, plus any personal adjustment.
 - **NPC towards a player:** the player's standing with the NPC's faction,
@@ -211,7 +211,6 @@ turned hostile" event is sent:
   (the reconstructed test in this branch is doubtful, open question 8).
 
 Personal adjustments go when the object holding them does (inferred).
-Only kills leave a lasting mark.
 
 ### 3.6 What reputation affects
 
@@ -407,7 +406,7 @@ mechanism is piracy.
 An NPC target decides through its pilot (chapter 05). Each contraband
 commodity is sold at about a dozen bases and bought elsewhere at up to 2
 and 4.75 times its nominal price, so smuggling is ordinary trade with a
-30% chance per patrol met of losing the cargo or fighting for it.
+30% chance per patrol met of losing the cargo or a fight.
 
 ### 3.14 Worth and level
 
@@ -639,8 +638,8 @@ affiliation), `common_goodinfo.cpp`, `common_basedata.cpp` (market rows),
 `server_pub.cpp` (asset value); in `OutpostFrontier/Client/`:
 `client_base_market.cpp`, `nn_dealer.cpp`, `nn_inventory.cpp`,
 `nn_ship_trader.cpp`, `nn_repair.cpp`, `nn_help.cpp`, `hud_target.cpp`.
-`Common/common_repairmanager.cpp` concerns NPC use of repair consumables
-(chapter 05), not base repairs.
+`Common/common_repairmanager.cpp` concerns NPC repair consumables
+(chapter 05).
 
 Inference: that a player cannot gain an affiliation by play; the terms
 of the ship purchase cost; unused market fields as remnants; everything

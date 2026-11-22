@@ -98,7 +98,8 @@ content controller is a rules module of the authority.
 | Good | Anything that can be bought or sold: commodity, equipment, ship hull, ship package. |
 | Commodity | A good that exists only to be traded. |
 | Market | The list of goods a base sells and buys, with its prices and conditions. |
-| Level | The measure of the player's progress that gates purchases and missions. |
+| Level | The number dealers test before offering a good. It rises with the campaign and afterwards with worth; it gates nothing in multiplayer. |
+| Rank | The level number shown with an object: an NPC ship's authored level, or for a player the table value of worth. |
 | Campaign | The fixed sequence of scripted missions. |
 | Scripted mission | A mission authored as a definition of objects, objectives and triggers. |
 | Trigger | A rule in a mission definition: when its conditions hold, its actions run. |

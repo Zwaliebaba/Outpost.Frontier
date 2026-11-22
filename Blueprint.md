@@ -99,15 +99,21 @@ Dock; sell; repair; refit; read the job board; talk in the bar. Launch
 again.
 
 **Hours: the climb.** Worth (money plus the value of ship and equipment)
-is the single measure of progress. It sets the player's level, which
-unlocks better hulls and equipment and harder, better-paid jobs. Better
-ships allow more dangerous places, which hold better profit and loot.
+is the single measure of progress. Trading, fighting and jobs all feed
+it; it buys better hulls and equipment, which allow more dangerous
+places, which hold better profit and loot. The danger of a place is set
+by the place, never by the player, so the map itself is the difficulty
+curve. A level number gates what dealers offer: during the campaign it
+rises at fixed points of the story, afterwards it follows worth. In
+multiplayer a rank derived from worth is shown to others and gates
+nothing (chapter 07, section 3.14).
 
 **The whole game: the campaign.** Thirteen scripted missions lead the
 player across the map. Between missions the game waits until the player's
 worth has grown by a set amount, which pushes the player into trading and
-jobs. Missions open locked jump points, so the story paces exploration.
-After the campaign the universe stays open.
+jobs. The campaign's position also sets how hard the offered jobs are,
+and its missions open locked jump points, so the story paces both
+difficulty and exploration. After the campaign the universe stays open.
 
 ### Modes of play
 
@@ -223,8 +229,8 @@ others rely on.
 | Travel (04) | Dock and route requests; locks from missions; regard from factions | Arrival and departure events; lane traffic and ambush sites to population; the route to the map and HUD |
 | AI and pilots (05) | Directives from population, missions and the player's interface; regard for target selection | Steering and fire for every NPC; the player's automatic manoeuvres |
 | Population (06) | Zone population entries, faction ship definitions, player positions | NPC groups with itineraries; cargo scans; lane attacks; radio chatter |
-| Factions and economy (07) | Kills, job outcomes, bribes, purchases and sales | Regard to AI, docking, markets and offers; worth and level to dealers, job difficulty and the campaign's gates |
-| Missions and base services (08) | Events from the bus; inhabitants and rosters per base | Spawns and directives; objectives, comms and scenes; locks and unlocks; pay and standing; checkpoints |
+| Factions and economy (07) | Kills, job outcomes, bribes, purchases and sales | Regard to AI, docking, markets and offers; level to dealers; worth to the campaign's gates |
+| Missions and base services (08) | Events from the bus; inhabitants and rosters per base; the campaign position for job difficulty | Spawns and directives; objectives, comms and scenes; locks and unlocks; pay and standing; checkpoints |
 | In-flight interface (09) | Devices; contacts from the scanner; state from the own ship | Commands to flight, combat and travel; brackets, lists, alerts, music and speech to the player |
 | Bases, scenes, menus, text (10) | Room lists and offers from the authority; scene scripts; text identifiers | The base visit, the trade screens, conversations, the map, the front end |
 | Architecture (11) | Everything | Tick order, event bus, messages, replication, persistence, sessions |
@@ -275,7 +281,7 @@ little then and is expensive to add later.
 | 2. A place to be | One system with a star, planets, a station, zones and a hazard; dock, a one-room base, launch; save on launch | 01 (3.1 to 3.5); 04 (3.1 to 3.5); 10 (3.1 to 3.3, 3.7); 11 (3.10) | A full loop of launch, fly, dock and resume from a save |
 | 3. A fight | Guns, shields, hull, parts, death and loot; one opponent that attacks, evades and flees; targeting and the combat HUD | 03 (3.1 to 3.5, 3.9); 05 (3.1 to 3.8); 09 (3.6 to 3.8) | A duel has the rhythm of shield break and window; the opponent's skill is visible |
 | 4. A living system | Factions and regard; zone population with patrols and traders that dock and ride lanes; formations; lanes; comms and music states | 06 (3.2 to 3.8); 07 (3.1 to 3.6); 05 (3.9 to 3.11); 04 (3.6); 09 (3.12 to 3.14) | Shooting one faction's ship changes how two others treat the player |
-| 5. An economy | Goods, markets, cargo, dealers, ship purchase, repair; worth and level; tractor and loot sale | 07 (3.8 to 3.15); 10 (3.15); 03 (3.9, 3.10) | A trade route and a fight both raise worth; level opens a better hull |
+| 5. An economy | Goods, markets, cargo, dealers, ship purchase, repair; worth and level; tractor and loot sale | 07 (3.8 to 3.15); 10 (3.15); 03 (3.9, 3.10) | A trade route and a fight both raise worth; a dealer row opens when its level and standing conditions are met |
 | 6. A universe | Several systems; jump points, system paths, route planning, locks; asteroid fields, nebulae, exclusions; the map and discovery | 01 (3.6 to 3.10); 04 (3.7 to 3.10); 10 (3.11) | A route across three systems can be plotted and flown; the map fills as the player explores |
 | 7. Jobs and the bar | Job board, generated missions, inhabitants, rumours, bribes, news; acted conversations | 08 (3.11 to 3.14); 10 (3.4 to 3.6) | An offer names payer, enemy, site, difficulty and pay drawn from where it is made, and pays on completion |
 | 8. A campaign | Triggers, conditions, actions, directive lists, objectives, checkpoints; scene scripts in rooms and in space; worth gates | 08 (3.1 to 3.10); 10 (3.5, 3.6) | An author builds an escort-and-ambush mission from data alone, and a checkpoint resumes it |
