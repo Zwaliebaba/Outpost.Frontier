@@ -7,9 +7,9 @@
 //!
 //! Files are written in text mode (`"wt"`), so with CR LF, and read as
 //! [`read_save`] reads them. A multiplayer server keeps its accounts in
-//! [`neuron_server::registry::AccountRegistry`] (`Logic::accounts`). The
-//! multiplayer prologues of the character list (the autosave and leaving
-//! the system) arrive with character selection.
+//! [`neuron_server::registry::AccountRegistry`] (`Logic::accounts`). Of
+//! the multiplayer prologue of the character list the autosave is ported
+//! ([`crate::saves`]); leaving the system and the base is not yet.
 
 use std::path::{Path, PathBuf};
 
@@ -393,6 +393,16 @@ pub fn reload_saved_character(
     session: u32,
     file_name: &[u8],
 ) {
+    reload_saved_character_in(cx, &files.accounts, session, file_name);
+}
+
+/// [`reload_saved_character`] in the accounts folder `accounts`.
+pub fn reload_saved_character_in(
+    cx: &mut Cx<'_>,
+    accounts: &AccountsRoot,
+    session: u32,
+    file_name: &[u8],
+) {
     let mut key = file_name.to_vec();
     if !cx.logic.multiplayer_server {
         key.extend_from_slice(b".fl");
@@ -405,8 +415,7 @@ pub fn reload_saved_character(
     else {
         return;
     };
-    let path = files
-        .accounts
+    let path = accounts
         .account_dir(&account)
         .join(String::from_utf8_lossy(&key).as_ref());
     load_into(cx, session, &key, &path);
@@ -488,7 +497,21 @@ fn goes_before(new: &CharacterInfo, existing: &CharacterInfo) -> bool {
 /// `PlayerData_BuildCharacterSet`: one entry per saved character in id
 /// order, each placed before the first entry it goes before; the slot's
 /// save failure count moves to the list.
+///
+/// On a multiplayer server a slot with a selected character is first
+/// autosaved ([`crate::saves::auto_save`]). The rest of that prologue
+/// (leaving the system and the base, `SystemExit`, ending a trade) is not
+/// ported yet.
 pub fn build_character_set(cx: &mut Cx<'_>, session: u32) -> Option<CharacterSet> {
+    if cx.logic.multiplayer_server
+        && cx
+            .logic
+            .players
+            .get(session)
+            .is_some_and(|s| s.selected_character.is_valid())
+    {
+        let _ = crate::saves::auto_save(cx, session);
+    }
     let slot = cx.logic.players.get_mut(session)?;
     let mut set = CharacterSet::default();
     for (id, saved) in &slot.saved_characters {

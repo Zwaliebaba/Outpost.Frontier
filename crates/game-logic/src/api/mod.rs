@@ -5,7 +5,7 @@
 //! `pub::Market` lives in [`crate::bases`]. `pub::Reputation`, `Zone`,
 //! `System`, `Phantom`, `Controller`, `Audio`, `Player`, `AI` and
 //! `SpaceObj` are here in full (`SpaceObj::Launch` without the launch
-//! action), with the top-level getters ([`misc`]; `pub::Save` is open).
+//! action), with the top-level getters and `pub::Save` ([`misc`]).
 
 pub mod ai;
 pub mod audio;

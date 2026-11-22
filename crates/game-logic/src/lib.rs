@@ -21,6 +21,7 @@ pub mod player;
 pub mod receive;
 pub mod replication;
 pub mod save_writer;
+pub mod saves;
 pub mod selection;
 pub mod server;
 pub mod ship;

@@ -23,9 +23,9 @@
 //!   bus and ends the jump's invincibility.
 //!
 //! An NPC's jump goes through Content: `pub::SpaceObj::Relocate` to system
-//! 0 and `JumpIn` at the destination gate ([`crate::api::space_obj`]). The
-//! player's autosave at the end of the jump (`PlayerData_AutoSave`) is not
-//! ported yet.
+//! 0 and `JumpIn` at the destination gate ([`crate::api::space_obj`]). A
+//! player's jump ends with the autosave of the player's slot
+//! ([`crate::saves::auto_save`]).
 
 use game_sim::object::{KindData, ObjHandle, ObjectKind};
 use neuron_core::math::{Matrix, Transform, Vector, transform_xform};
@@ -142,8 +142,9 @@ fn find_jump_object(cx: &Cx<'_>, system: u32, id: u32) -> Option<ObjHandle> {
 /// player's system becomes the destination, and `SystemEnter` (the
 /// destination, the old system, the player, the arrival object and the
 /// position) goes to the bus. Without an arrival object the C++ faults
-/// reading its id; the message carries 0 (D683). The autosave that ends it
-/// is not ported yet.
+/// reading its id; the message carries 0 (D683). The player's slot is then
+/// autosaved ([`crate::saves::auto_save`]), in single player as on a
+/// multiplayer server.
 pub fn system_switch_out_complete(cx: &mut Cx<'_>, ship_id: u32, session: u32) {
     if !cx.logic.players.is_valid(session) {
         return;
@@ -231,6 +232,7 @@ pub fn system_switch_out_complete(cx: &mut Cx<'_>, ship_id: u32, session: u32) {
             position,
         },
     );
+    let _ = crate::saves::auto_save(cx, session);
 }
 
 /// `IServerImpl::JumpInComplete(Arg, Object)`: the client's report that

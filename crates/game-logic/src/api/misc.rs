@@ -6,7 +6,8 @@
 //!
 //! The 47 exports in the C++ order. Part 14 ported the ten system getters,
 //! `SetTimer` lives with the bus ([`super::controller`]); this part the
-//! rest, but for three:
+//! rest but for three, of which part 21 ported `Save` ([`crate::saves`]);
+//! the other two are not ported:
 //!
 //! | Export | Line | Port |
 //! | --- | --- | --- |
@@ -51,7 +52,7 @@
 //! | `TranslateSystemToMsgIdPrefix` | 679 | [`translate_system_to_msg_id_prefix`] |
 //! | `SinglePlayer` | 690 | [`single_player`] |
 //! | `GetLoadout` | 702 | [`loadout`] |
-//! | `Save` | 2072 | open: the single-player save game (`PlayerData_AutoSave`, `PlayerData_MissionSave`) is not ported |
+//! | `Save` | 2072 | [`save`] |
 //! | `SetTimer` | 6364 | [`super::controller::set_timer`] |
 //! | `FindHardpoint` | 7971 | [`find_hardpoint`] |
 //! | `GetShipID` | 7992 | [`ship_id`] |
@@ -865,6 +866,14 @@ pub fn loadout(cx: &Cx<'_>, loadout: u32) -> Result<Vec<EquipDesc>, PubError> {
         .get(loadout)
         .map(|l| l.items.clone())
         .ok_or(PubError::BAD_ID)
+}
+
+/// `Save(player, type)`: the single-player save game; type 1 is the
+/// autosave, any other a mission save with the type as the description's
+/// text id ([`crate::saves::pub_save`]). Nothing on a multiplayer server.
+/// The C++ always answers 0, so the port answers nothing.
+pub fn save(cx: &mut Cx<'_>, player: u32, save_type: u32) {
+    crate::saves::pub_save(cx, player, save_type);
 }
 
 /// `FindHardpoint`: a hardpoint of a ship archetype's model in its part's

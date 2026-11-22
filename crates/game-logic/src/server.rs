@@ -215,6 +215,9 @@ pub struct Logic {
     pub phantoms: crate::api::phantom::Phantoms,
     /// The loaded systems' solar BSPs (`StarSystem::Spatial`).
     pub solar_trees: crate::api::system::SolarTrees,
+    /// The save storage: the accounts folder, the local clock and the last
+    /// file written ([`crate::saves`]).
+    pub saves: crate::saves::Saves,
 }
 
 /// The 4096-bit map of player vibe ids (`g_VibeBitmap`, `g_VibeBitmapHint`,
@@ -308,6 +311,7 @@ impl Logic {
             space_obj: crate::api::space_obj::SpaceObjState::default(),
             phantoms: crate::api::phantom::Phantoms::default(),
             solar_trees: crate::api::system::SolarTrees::default(),
+            saves: crate::saves::Saves::default(),
         }
     }
 }
