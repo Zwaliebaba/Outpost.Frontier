@@ -1217,8 +1217,26 @@ fn replication_against_the_oracle() {
         mismatched.len(),
         groups.len()
     );
-    for m in mismatched.iter().take(30) {
-        let _ = writeln!(summary, "  {m}");
+    // The differences by side and packet kind, with the first few of each,
+    // so one kind's many lines (the join's reputations) hide no other.
+    let mut by_kind: std::collections::BTreeMap<(String, String), Vec<&String>> =
+        std::collections::BTreeMap::new();
+    for m in &mismatched {
+        let (side, rest) = if let Some(r) = m.split_once(": port only: ") {
+            ("port only", r.1)
+        } else if let Some(r) = m.split_once(": oracle only: ") {
+            ("oracle only", r.1)
+        } else {
+            ("differs", m.split_once(": ").map_or(m.as_str(), |r| r.1))
+        };
+        let kind = rest.split_whitespace().next().unwrap_or("?").to_owned();
+        by_kind.entry((kind, side.to_owned())).or_default().push(m);
+    }
+    for ((kind, side), list) in &by_kind {
+        let _ = writeln!(summary, "  {kind} {side}: {}", list.len());
+        for m in list.iter().take(5) {
+            let _ = writeln!(summary, "    {m}");
+        }
     }
     if !mismatched.is_empty() {
         gross.push(format!(
