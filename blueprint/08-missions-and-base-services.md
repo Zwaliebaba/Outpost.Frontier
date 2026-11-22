@@ -5,8 +5,7 @@ Depends on: 01, 02, 04, 05, 06, 07, 10, 11, 12
 
 ## 1. Purpose and player experience
 
-Missions give the open universe direction. There are two kinds, and they
-share one runtime.
+Missions give the open universe direction. Two kinds share one runtime.
 
 A **scripted mission** is an authored set piece of the campaign. The player
 is led to a room on a base, watches a scene, accepts, launches, and is then
@@ -30,7 +29,7 @@ items follow the campaign.
 
 | Concept | Definition |
 | --- | --- |
-| Mission definition | One record file that declares a scripted mission: cast, ships, solars, loot, directive lists, objectives, conversations, triggers. |
+| Mission definition | The record file of one scripted mission (section 3.2). |
 | Label | A group name on mission objects. Conditions and actions address one object by nickname or all members of a label. |
 | Directive list | Ordered orders for one scripted ship. |
 | Reminder | A watch on the player's progress towards a place; a companion nags, and ignoring it fails the mission. |
@@ -81,10 +80,9 @@ Multiplayer has generated missions and no campaign.
 | Formation | A formation type, a pose, its mission ships. |
 | Mission solar, mission loot | A placed solar with loadout, faction, pilot and labels; an item with amount, position and velocity. |
 | Mission encounter | An ambient-style attack group the mission can switch on (chapter 06). |
-| Directive list | Section 3.6. |
 | Objective | Text only; text with a waypoint; or text with a waypoint bound to an object. |
 | Conversation | A sequence of lines: speaker, listener, voice line. |
-| Trigger | Section 3.3. |
+| Directive list, trigger | Sections 3.6 and 3.3. |
 
 Nothing exists in the world until an action spawns it: the definition is
 a catalogue, and triggers decide when each entry appears.
@@ -496,7 +494,7 @@ scene finished, character selected.
 | Offer tree | Section 3.12 | 219 decision and data nodes, 6 weighted leaves |
 | Destroyable solar | Kind, faction, archetype, loadout, hit points, difficulty, zone restriction | 126, in 11 layouts |
 | Mission item, bonus loot | Item, kind or faction, difficulty band, weight | 62 and 143 |
-| Zone (chapter 01) | Site marking, lawful or unlawful, site kind | 13% of zones |
+| Zone (chapter 01) | Site marking, lawful or unlawful, kind | 13% of zones |
 
 A zone is recognised as a site by a fixed substring in its nickname; it
 is lawful unless a key says otherwise.
@@ -511,7 +509,7 @@ log, markers and voice playback (09); rooms and scene scripts (10); the
 event bus, heartbeat, timers and saving (11); the census (12).
 
 Gives: the campaign position to 06, 07 and 10; locked jump points to 04;
-the checkpoint to 11; job boards, bar offers and news to 10.
+checkpoints to 11; job boards, bar offers and news to 10.
 
 ## 6. Design notes for the builder
 
@@ -525,7 +523,7 @@ offer is made.
 
 **Feel.** Pacing by finished voice lines, companions who nag, and failure
 as the usual exit give the campaign its guided tone. The worth gates push
-the player into the economy between missions.
+the player into the economy.
 
 **Accidents of its era.** One condition per trigger. Activation in
 identifier sequence. Mission order, increments and per-mission hooks in
@@ -536,8 +534,7 @@ games to the generator's exact draw sequence. Sites found by substring.
 **Simplifications.** Twenty actions and ten conditions cover most of the
 campaign. A modern trigger language would allow boolean expressions and
 queue activations as written. Store a composed generated mission, not its
-seed. The offer tree could be a flat list of templates; the shipped tree
-has only six leaves.
+seed. The offer tree could be a flat list of templates; it has six leaves.
 
 ## 7. Open questions
 
@@ -552,7 +549,6 @@ has only six leaves.
    trigger spawns.
 5. Whether the ±0.15 reputation reward and penalty stored on each offer
    are used, or only the per-faction event rates.
-6. What the per-base difficulty number in the roster drives.
 
 ## 8. Basis
 
@@ -563,8 +559,8 @@ tabulated; the two `mission1 readme.doc`; one on-base scene file of
 `M08`; `MISSIONS/mbases.ini`, `news.ini`, `rankdiff.ini`, `empathy.ini`;
 `RANDOMMISSIONS/*.ini`; `outdir/OutpostFrontier.ini`; `outdir/newplayer.fl`.
 
-Code: `Content/MissionScript.cpp` (`GCndFactory`, `GActFactory`, trigger
-activation, dispatch, save, load), `MissionCnd.cpp`, `MissionAct.cpp`,
+Code: `Content/MissionScript.cpp` (`GCndFactory`, `GActFactory`),
+`MissionCnd.cpp`, `MissionAct.cpp`,
 `MissionObjList.cpp`, `MissionObject.cpp`, `MissionSave.cpp`, `Story.cpp`,
 `StoryLauncher.cpp`, `StoryMissions.cpp`, `RtcScripts.cpp`, `BaseDB.cpp`,
 `BaseNpcRecords.cpp`, `BaseSupport.cpp`, `Populators.cpp`, `LootProps.cpp`,

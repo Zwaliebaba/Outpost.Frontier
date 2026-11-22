@@ -35,7 +35,7 @@ defined in chapter 00. This chapter adds:
 
 | Concept | Definition |
 | --- | --- |
-| Launcher | External equipment that creates munitions: gun, turret, guided launcher, mine dispenser, countermeasure dispenser. All share one firing cycle. A launcher has one to eight barrels and every barrel fires on each shot. |
+| Launcher | External equipment that creates munitions: gun, turret, guided launcher, mine dispenser, countermeasure dispenser. All share one firing cycle. A launcher has one to eight barrels; all fire on each shot. |
 | Bolt | An unguided munition. It has no body: it moves in a straight line and is traced against collision shapes. |
 | Guided munition | A munition with a body, a motor (delay, acceleration, burn time) and usually a seeker (range, cone, turn-rate limit). It damages by exploding, not by touching. |
 | Explosion | A record of area damage: radius, hull damage, energy damage, impulse. |
@@ -66,12 +66,12 @@ collision, hazard zone, field mine, fuse action ────────┤
 
 | Matter | Authority | Presentation |
 | --- | --- | --- |
-| A player's firing | Trusts the fire command; in multiplayer checks and removes ammunition only | Runs the firing cycle for its own ship, then sends the launcher list and aim point |
-| NPC firing | Runs the cycle; tells presentations which launchers fired at which point | Replays the shots |
-| Bolt hits | Applies the damage of a reported hit; in multiplayer traces NPC bolts itself | Traces bolts; in multiplayer reports only its own player's hits |
-| Guided munitions, mines, countermeasures | Owns the objects, steering, proximity triggers and explosions | Mirrors them; reports a direct touch on an object its player owns |
+| A player's firing | Trusts the fire command; in multiplayer checks ammunition only | Runs the firing cycle for its own ship, sends the launcher list and aim point |
+| NPC firing | Runs the cycle; announces launchers and aim point | Replays the shots |
+| Bolt hits | Applies reported hits; in multiplayer traces NPC bolts itself | Traces bolts; in multiplayer reports only its own player's hits |
+| Guided munitions, mines, countermeasures | Owns objects, steering, triggers and explosions | Mirrors them |
 | Collisions | Computes damage to objects no player owns | Computes and reports damage to its own player's objects |
-| Shields, hull, parts, destructive fuse actions, death, loot | All of it; sends damage lists and fuse events | Applies the lists; plays fuse effects (inferred) |
+| Shields, hull, parts, fuse damage, death, loot | All of it; sends damage lists and fuse events | Applies the lists; plays fuse effects (inferred) |
 
 A hit report names the munition archetype, the shooter, the object and
 sub-object hit and the hit point. The authority does not re-check the
@@ -215,9 +215,8 @@ refire 0.25 s, 26.35 power per shot, 600 m/s, lifetime 0.916 s. That is
 `131.8 × 0.5 × 1.2 = 79`. The shield collapses at 15 %, after 2,451
 points: 31 shots, 7.8 s from one gun. A 1,600-point hull without armour
 then lasts 13 shots, 3.3 s. A power plant of capacity 1,800 charging 183
-per second feeds two such guns for about a minute (net drain 28 per
-second) and four for 7.5 s (net drain 239). Energy, not refire, limits
-sustained fire.
+per second feeds two such guns for about a minute and four for 7.5 s.
+Energy, not refire, limits sustained fire.
 
 ### 3.5 Shields and power
 
@@ -234,16 +233,14 @@ damage.
 | State | Event | Next | Effect |
 | --- | --- | --- | --- |
 | Up | health ≤ offline threshold | Down | Bubble stops colliding; "collapsed" announced; earliest return is now + rebuild time. |
-| Down | each update | Down | Regeneration continues. |
 | Down | rebuild time over, health above threshold, nothing inside the bubble's volume | Up | Bubble collides again; "rebuilt" announced. |
 | Down | shield consumable used | Up, if health is now above threshold | The wait is cancelled. |
 
-The "nothing inside" test keeps the bubble from switching on around an
-object that drifted in (inferred).
+Regeneration continues while the shield is down. The "nothing inside"
+test keeps the bubble from switching on around an intruder (inferred).
 
-The power plant refills the pool at `charge rate × dt` up to capacity
-(chapter 02). In the data the charge rate is about a tenth of capacity
-per second.
+The power plant refills the pool at `charge rate × dt` (chapter 02); in
+the data that is about a tenth of capacity per second.
 
 ### 3.6 Area damage
 
@@ -269,19 +266,17 @@ For a target with bounding radius `r` at centre distance `D`, let
 Because parts and equipment are tested one by one, a blast beside an
 unshielded ship can remove several guns at once.
 
-A cruise-disrupting munition is a fast guided munition with a wide
-seeker cone (90° to 120°), a large radius (50 m) and little damage. Its
-blast has its own damage cause. An NPC ship that receives a damage list
-with that cause has its cruise cancelled with the cooldown of chapter 02,
-even if only its shield was hit. The same should hold for the player's
-ship (inferred).
+A cruise disruptor is a fast guided munition with a wide seeker cone
+(90° to 120°), a large radius (50 m) and little damage. Its blast has its
+own damage cause. An NPC ship that receives a damage list with that
+cause loses cruise with the cooldown of chapter 02, even if only its
+shield was hit. The same should hold for a player's ship (inferred).
 
 ### 3.7 Other sources of damage
 
 - **Collisions** (chapter 02): damage by A to B is `0.5 × relative speed
-  × min(1, mass_A / mass_B)`. It goes to the sub-object touched and is
-  scaled like any hit. A touch on the bubble damages the shield without a
-  modifier.
+  × min(1, mass_A / mass_B)`. It goes to the sub-object touched, the
+  bubble included, and is scaled like any hit.
 - **Hazard zones** (chapter 01): a ship accumulates `rate × immersion ×
   dt`. Once more than 1 s has passed and the sum exceeds 1 % of the ship's
   total hit points, it is applied as a fraction `q`: the hull loses `q`
@@ -380,9 +375,8 @@ of each a ship may carry (chapter 02).
 ### 3.11 Weapon groups and firing controls
 
 Each launcher has an active flag. "Fire" fires every active gun at the
-cursor. Separate actions launch guided munitions, heavy guided munitions,
-cruise disruptors, mines and countermeasures, and fire launcher 1 to 10
-alone.
+cursor. Separate actions launch each kind of guided munition, mines and
+countermeasures, and fire launcher 1 to 10 alone.
 
 There are six weapon groups, each a list of hardpoint names. "Assign"
 stores the hardpoints of the active launchers, "select" makes exactly
@@ -397,8 +391,7 @@ protection and fuses were seen; mission scripts inferred). Each says:
 protect from everything, protect from players, and the largest fraction
 of health the object may lose. Flags combine by "or", fractions by
 "minimum". While protected, no sub-object falls below `1 − fraction` of
-its maximum: at 0 the object takes no hostile damage, below 1 it can be
-hurt but not killed. System causes bypass the rule.
+its maximum. System causes bypass the rule.
 
 ## 4. Data that defines it
 
@@ -437,30 +430,27 @@ higher: they strip shields and drain pools.
 | `example_missile_light` | 3 | blast 373.5 at 16 m | 1 s | ammunition | 33 rising to 100 m/s; turn 4.4 rad/s |
 
 **Weapon against shield.** Seven weapon families and three shield
-families are declared in three tiers each. The tiers carry identical
+families are declared in three tiers each; the tiers carry identical
 numbers and the data uses only the first. The seven families reduce to
-three patterns, each a rotation of (0.8, 1.0, 1.2) over the three shield
+three patterns, each a rotation of (0.8, 1.0, 1.2) over the shield
 families. 229 munitions name a weapon type; the rest get 1.0.
 
-**Guided weapons by role.** Light missiles: blast 245 to 4,890 by class,
-radius 16 m, 90 to 100 m/s. Shield-breaking missiles: the same flight
-with energy damage 652 to 7,824. Heavy guided munitions: blast 2,400 to
-11,700, radius 25 m, 50 to 60 m/s, turn 0.6 rad/s; useless against
-fighters, decisive against stations and capital ships. Cruise
-disruptors: 700 to 800 m/s, blast 37 to 159 at 50 m.
+**Guided weapons by role.** Light missiles: blast 245 to 4,890 by class
+at 16 m, 90 to 100 m/s. Shield-breaking missiles: the same flight with
+energy damage 652 to 7,824. Heavy guided munitions: blast 2,400 to
+11,700 at 25 m, 50 to 60 m/s, turn 0.6 rad/s; for stations and capital
+ships. Cruise disruptors: 700 to 800 m/s, blast 37 to 159 at 50 m.
 
 ## 5. Connections
 
 Needs:
 
-- 01: physical zone, immersion and damage rate; field mines and lethal
-  rocks.
-- 02: hardpoints and hardpoint classes; power pool; cruise and its
-  disruption cooldown; collision detection; parts and engine nozzles;
-  consumable limits.
+- 01: physical zone, immersion, damage rate; field mines, lethal rocks.
+- 02: hardpoints and their classes; power pool; cruise and its
+  disruption cooldown; collisions; parts and engine nozzles.
 - 11: fire command, hit and collision reports, damage-list and fuse
   messages; the player-against-player switch.
-- 12: record counts and the manifest.
+- 12: record counts.
 
 Gives:
 
@@ -503,14 +493,13 @@ Gives:
   NPC's. Losing equipment is a threat, rarely an event.
 - The 0.8/1.0/1.2 table rewards matching weapon to shield by a fifth: a
   reason to look at the target, not a hard counter.
-- Banded blasts, fuses that smoke before the end, the NPC death delay.
 
 **Accidents of the era.**
 
-- Hits are detected on the shooter's presentation and the authority
-  checks neither geometry nor a player's refire and power. It gives
-  lag-free hits and is easily abused. A builder should validate range,
-  rate and energy on the authority, or trace bolts there.
+- Hits are detected on the shooter's presentation, and the authority
+  checks neither geometry nor a player's refire and power. That gives
+  lag-free hits and is easily abused. Validate range, rate and energy on
+  the authority, or trace bolts there.
 - A fire attempt on an empty pool restarts the refire clock.
 - Lock time and shot dispersion exist in code and are zero or absent in
   the data.
