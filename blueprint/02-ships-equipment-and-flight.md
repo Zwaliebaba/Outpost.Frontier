@@ -1,6 +1,6 @@
 # 02 — Ships, equipment and flight
 
-Status: draft
+Status: reviewed
 Depends on: 00 (glossary), 01 (systems, zones, axes and scales), 11 (authority and the tick)
 
 ## 1. Purpose and player experience
@@ -20,8 +20,8 @@ and a handful of keys.
   fast. The player steers by moving the cursor away from the screen
   centre; the further out, the faster the turn.
 - **Four speed regimes, each with a price.** Normal flight (80 m/s) is
-  free and allows fighting. The thruster (200 m/s) burns a reserve that
-  lasts about fifteen seconds. Cruise (300 m/s) takes five seconds to
+  free and allows fighting. The thruster (200 m/s) burns a reserve of
+  about fifteen seconds. Cruise (300 m/s) takes five seconds to
   engage, forbids weapons and can be knocked out by an enemy. Engine kill
   removes drag, so the ship coasts on its velocity while the nose turns
   freely.
@@ -43,10 +43,10 @@ defined in chapter 00. This chapter adds:
 | Part | A separately damageable piece of the model with its own hit points and collision shape. |
 | Hardpoint | A named position and orientation in the model, fixed or revolving, to which external equipment attaches. |
 | Hardpoint class | A label such as "gun grade 4". A hull declares which classes each hardpoint accepts; an item declares its class. |
-| Sub-object identifier | A 16-bit number, unique within one ship, naming the hull, a part or one equipment item. Damage, activation and stored loadouts address items by it. |
+| Sub-object identifier | A small number, unique within one ship, naming the hull, a part or one equipment item. Damage, activation and stored loadouts address items by it. |
 | Power pool | Energy store for weapons, shield rebuilding and cruise. |
 | Thrust pool | A second, separate store for the thruster and for strafing. |
-| Controller | A contributor of force or torque to a body, run once per tick: engine, thruster, steering, strafe, nudge, and the scripted movers of chapter 04. |
+| Force controller | A contributor of force or torque to a body, run once per tick: engine, thruster, steering, strafe, nudge, and the scripted movers of chapter 04. |
 | Axis throttle | The steering demand: a vector whose direction is the wanted rotation axis and whose length (0 to 1) is the fraction of full torque. |
 | Nudge | A free thrust in any direction that pilots use for fine positioning. |
 
@@ -60,7 +60,7 @@ loadout ────────────────▶  body, parts        
   cargo × count            cargo stacks, pilot    external @ hardpoint: guns, shield,
                               │                     thruster, dispensers, lights
                               ▼
-       controllers push the body ─▶ damping ─▶ integration ─▶ pose
+  force controllers push the body ─▶ damping ─▶ integration ─▶ pose
 ```
 
 ## 3. How it works
@@ -69,7 +69,7 @@ loadout ────────────────▶  body, parts        
 
 | Kind | Hit points | Equipment | Notes |
 | --- | --- | --- | --- |
-| Ship | yes | yes | The only kind with flight controllers. |
+| Ship | yes | yes | The only kind that flies under force controllers. |
 | Solar | yes | yes | Fixed; may carry guns, shields, lights (chapter 01). |
 | Loot | yes | no | A drifting container of cargo (chapter 03). |
 | Asteroid, dynamic asteroid | — | no | Field members (chapter 01). |
@@ -77,17 +77,16 @@ loadout ────────────────▶  body, parts        
 | Detached equipment | no | no | External equipment with a body of its own, for example after being shot off. |
 
 Kinds form a hierarchy, and rules are written against the most general
-kind that fits. Docking, shields, power and targeting therefore work the
-same on a station as on a fighter.
+kind that fits, so docking, shields, power and targeting work the same on
+a station as on a fighter.
 
-Identifiers are 32-bit: a nickname hash for authored objects, a counter
-that only the authority advances for the rest. One bit separates the two.
+An identifier is a nickname hash for authored objects and, for the rest,
+a counter that only the authority advances; the two ranges never overlap.
 
 Objects are destroyed at the end of a tick, never inside one, and every
 reference another object holds (target, formation leader, gun lock, dock
 queue) then reads as "gone". A builder should make this the only way
-references behave; the original combines self-clearing references with
-plain ones (per design notes).
+references behave; the original also has plain ones (per design notes).
 
 ### 3.2 Archetype against instance
 
@@ -101,7 +100,7 @@ body is created with the archetype's mass and inertia; parts are created;
 each equipment item is created with health as a fraction of its archetype's
 hit points and attached to its hardpoint; the capacities of all power
 plants are summed into the maxima of the two pools, which start full; the
-flight controllers are enabled.
+force controllers are enabled.
 
 The player's ship is built the same way from the character's stored
 equipment list (chapter 11). Each entry has a sub-object identifier, an
@@ -119,7 +118,7 @@ hardpoint can swing within the joint's limits.
    1 to 10, turret grades 1 to 10, torpedo grades 1 and 2, shield grades 1
    to 10 for each of three hull families (light fighter, heavy fighter,
    freighter), and ungraded classes for thruster, mine dispenser,
-   countermeasure dispenser and cargo pod.
+   countermeasure dispenser and cargo pod. Ten of them are the gun grades.
 2. A ship archetype lists, for each class it supports, the hardpoints that
    accept it. A grade-3 gun position appears in the lists for grades 3, 2
    and 1: downward compatibility is authored, not implied by code.
@@ -146,7 +145,7 @@ item *functions* when it is active and not destroyed.
 | Power plant | internal | Capacity and recharge rate of both pools. |
 | Scanner | internal | Contact range (2,500 or 5,000 m) and cargo-scan range (2,000 m). |
 | Tractor | internal | Pulls loot in from up to 1,500 m (chapter 03). |
-| Armour | internal | Divides hull damage by a scale; grades NPC toughness. Values run from 0.25 to 30, most on a ladder of ratio 1.17. |
+| Armour | internal | Divides hull damage by a scale; grades NPC toughness. Values run from 0.25 to 30, most on a ladder of ratio 1.17; one record of 1e30 is how the data marks an indestructible ship. |
 | Shield generator, gun, turret, launcher, mine and countermeasure dispenser | external | Chapter 03. |
 | Thruster | external | Extra forward thrust paid from the thrust pool. |
 | Cargo pod | external | Visible containers on large NPC haulers. |
@@ -191,7 +190,7 @@ body, which is built from the archetype).
 ### 3.7 The flight model
 
 Ships fly in zero gravity as rigid bodies. A ship faces its −Z axis, +X is
-right and +Y is up; distances are metres (chapter 01).
+right and +Y is up; distances are metres (per design notes; chapter 01).
 
 **Linear motion**, each tick of length `dt`:
 
@@ -201,11 +200,11 @@ k      = D / m                                   [1/s]
 v_next = v × (1 − k·dt) + (ΣF / m) × dt
 ```
 
-`ΣF` is the sum of the controller forces below. Engine drag counts only
+`ΣF` sums the force controllers below. Engine drag counts only
 while the engine is active. When `k·dt` reaches 0.9 the factor becomes
 `exp(−k·dt)`, which keeps light ships stable on long steps.
 
-Two consequences shape the whole game:
+Two consequences shape the game:
 
 - **Top speed is `F / D`.** Mass cancels; it only sets the time constant
   `m / D` with which the ship approaches that speed.
@@ -221,7 +220,9 @@ k_i      = angular drag_i / inertia_i
 torque_i = steering torque_i × axis throttle_i
 ```
 
-The maximum turn rate about an axis is `steering torque / angular drag`,
+The exponential switch differs here: all three axes change together once
+the sum of their squared `k_i·dt` reaches 0.5. The maximum turn rate about
+an axis is `steering torque / angular drag`,
 the response time `inertia / angular drag`. All three are authored per
 axis, so a hull can roll quickly and pitch slowly.
 
@@ -246,16 +247,17 @@ steering torque (24,000, 24,000, 58,000), angular drag (15,000, 15,000,
 | Roll rate | 58,000 / 35,000 | 1.66 rad/s, response 0.03 s |
 | Coasting, engine off | k = 1 / 100 | speed halves in 69 s |
 
-All 32 purchasable hulls ship with engines of this thrust and drag, so
+The player buys a ship as a package of hull plus default equipment. All
+31 packages carry engines of this thrust and drag, so
 they share the 80, 200 and 300 m/s regimes. They differ in mass (50 to
 300, hence response of 0.08 to 0.5 s), turn rate (23 to 96°/s) and
 everything that is not flight. Large NPC ships use other engines: haulers
 80 m/s, gunboats 120 m/s, cruisers and capital ships 30 m/s, turning at 4
 to 29°/s.
 
-**Controllers.**
+**Force controllers.**
 
-| Controller | Force or torque | Cost |
+| Force controller | Force or torque | Cost |
 | --- | --- | --- |
 | Engine | `throttle × thrust` along the nose, times the reverse fraction (0.1 or 0.2) when throttle is negative | none (authored 0) |
 | Engine in cruise | see 3.8 | 20/s from the power pool; no thrust in a step the pool cannot pay |
@@ -280,7 +282,7 @@ about 15 s and refills in 10 s.
 - **Engine kill** deactivates the engine item. Thrust ends, engine drag is
   no longer counted, cruise is dropped, and the ship keeps its velocity
   while steering works at full authority, because steering has its own
-  controller and its own drag. This is the game's one doorway into
+  force controller and its own drag. This is the game's one doorway into
   inertial flight: fly past a target, kill the engine, turn and fire
   backwards while drifting. Throttle, strafe, thruster or cruise ends it,
   and the returning drag pulls the velocity back onto the nose within half
@@ -290,10 +292,10 @@ about 15 s and refills in 10 s.
 | State | Event | Next state | Effect |
 | --- | --- | --- | --- |
 | Off | engage | Charging | Throttle forced to 1; thrusters off; guns refuse to fire from now on; "charging" announced. |
-| Charging | charge time elapsed (5 s on every engine) | Cruising | "Cruising" announced. Until then thrust is normal engine thrust. |
+| Charging | charge time elapsed (5 s on every engine) | Cruising | "Cruising" announced. Until then thrust is normal engine thrust, but the 20/s drain already applies. |
 | Cruising | each tick | Cruising | Thrust = `D × cruise speed × throttle × r`; `r` grows by `dt / 5 s` up to 1. |
-| Charging, Cruising | disengage (toggle, zero throttle, engine off, pilot request) | Off | "Off" announced. |
-| Charging, Cruising | hit by a disrupting weapon (chapter 03) | Cooldown | A timer is set to −5 s; "disrupted" announced. |
+| Charging, Cruising | disengage (toggle, zero throttle, engine off, pilot request) | Off | Throttle forced to 1; "off" announced. |
+| Charging, Cruising | hit by a disrupting weapon (chapter 03) | Cooldown | Throttle forced to 1; a timer is set to −5 s; "disrupted" announced. |
 | Cooldown | timer reaches 0 | Off | — |
 | Cooldown | engage | Charging | The timer runs on from its negative value: the wait is the remaining cooldown plus the charge time. |
 
@@ -328,7 +330,7 @@ formation) replace it on the same ship with nothing changed below.
    bank angle (15° on freighters, 20 to 35° on fighters), scaled by the
    turn demand and by throttle (never less than 0.4), and rolls back
    towards a reference "up" when the demand is zero. The bank is real ship
-   orientation, produced through the roll axis of the steering controller.
+   orientation, produced through the roll axis of steering.
 4. **Demand to torque.** The result is the axis throttle, which steering
    turns into torque as in 3.7. The steady turn rate is proportional to the
    cursor's distance from the centre: rate control, so a cursor held still
@@ -346,7 +348,7 @@ Within one tick, for one system:
 1. Every object updates: scripted movers; zone membership; each equipment
    item (pools recharge, cruise timers advance); the pilot's decision step;
    then the ship recomputes its damping from its current drag and inertia.
-2. The physics step runs once: controllers accumulate pushes; velocities
+2. The physics step runs once: force controllers accumulate pushes; velocities
    are damped and the pushes committed; limits are applied; position and
    orientation advance; contacts are detected.
 3. Object poses are copied from the bodies.
@@ -374,10 +376,10 @@ dependent, which the high damping hides.
   heavier hurts the rammer at the full rate and the victim hardly at all.
   At cruise speed that is 150 points against a starter hull of 1,100:
   collisions punish, they rarely kill.
-- Bodies without flight controllers (loot, debris) use a default damping
+- Bodies without force controllers (loot, debris) use a default damping
   of 0.5 linear and 0.2 angular per second.
 - Docking, lane travel and jumps switch a ship's collisions off and move
-  it with scripted controllers (chapter 04).
+  it with scripted force controllers (chapter 04).
 
 ### 3.12 Authority and presentation
 
@@ -393,7 +395,8 @@ list are the authority's. In single player both sides share one world.
 ## 4. Data that defines it
 
 **Ship archetype** (69 records: 36 fighters, 8 freighters, 8 haulers, 4
-gunboats, 4 cruisers, 8 capital ships, 1 mining ship; 32 purchasable).
+gunboats, 4 cruisers, 8 capital ships, 1 mining ship; 31 purchasable as packages, and one more hull good without a
+package).
 
 | Field group | Fields | Player hulls |
 | --- | --- | --- |
@@ -421,9 +424,9 @@ the hull, breakaway mass and impulses, debris and damaged model
 **Engine** (60 records, 8 distinct flight profiles): thrust (48,000 to
 3,000,000), drag (160 to 100,000), reverse fraction (0.1 or 0.2), cruise
 charge time (5 s), cruise power rate (20/s), normal power rate (0),
-indestructible flag, and presentation fields: flame and trail effects, and
-audio cues for start, loop, kill and each cruise transition, with rules for
-how pitch and loudness follow throttle.
+indestructible flag, and presentation fields: flame and trail effects,
+audio cues for each engine and cruise transition, and how pitch and
+loudness follow throttle.
 
 **Power plant**: capacity and charge rate; thrust capacity and thrust
 charge rate. NPC plants are effectively bottomless (50,000 at 50,000/s).
@@ -435,13 +438,11 @@ hardpoint class, effects. **Scanner** (2), **tractor** (1), **armour**
 **Loadout** (494 records, median 22 equipment lines): nickname, intended
 archetype, equipment lines (item, optional hardpoint), cargo lines (item,
 count, optional pod hardpoint). NPC loadouts come in graded series per
-hull, which lets one hull serve many difficulty levels (chapter 06).
+hull, so one hull serves many difficulty levels (chapter 06).
 
 **Global constants**: cruise speed 300 m/s; cruise ramp 5 s; extra drag in
-cruise 3; disruption cooldown 5 s; collision damage factor 0.5; friction
-0.1, elasticity 0.9; default damping 0.5 and 0.2; velocity limit 1,000 m/s;
-rotation limit 0.94 rad per tick; 0.5 s between reported collisions;
-ammunition limit 50.
+cruise 3; disruption cooldown 5 s; collision damage factor 0.5; and the
+material, damping, limit and ammunition values quoted in section 3.
 
 ## 5. Connections
 
@@ -454,7 +455,7 @@ Gives:
 - 03: sub-object identifiers and parts as damage targets; the power pool;
   hardpoints and joints for guns; collision events; the cruise disruption
   entry; armour.
-- 04: the body and controller mechanism that docking, lane and jump movers
+- 04: the body and force controller mechanism that docking, lane and jump movers
   take over; the hull's berth size.
 - 05: the commands a pilot may issue (throttle, axis throttle, nudge,
   strafe, thruster, cruise, engine switch) and the predictions it derives
@@ -477,10 +478,9 @@ Gives:
 - *Cruise defined as a target speed, not a force.* One constant governs
   travel time across every system, and no ship is the slow one in a convoy.
 - *Cruise costs: charge time, no weapons, disruptable.* They make travel
-  and combat distinct states and give ambushers a tool. Drop any one and
-  fights can be left at will.
-- *Hardpoint classes with authored compatibility.* They are ship
-  progression: a hull is valuable for the grades it accepts.
+  and combat distinct states. Drop any one and fights can be left at will.
+- *Hardpoint classes with authored compatibility.* A hull is valuable for
+  the grades it accepts.
 - *One object model for player, NPC and station.*
 
 **Feel, tunable.** The time constants (0.1 to 0.5 s linear, 0.2 s
@@ -498,12 +498,9 @@ authority, a bandwidth compromise that trusts the player's machine.
 
 - No physics library: integrate the two formulas of 3.7 and sweep simple
   shapes for contacts. Loses tumbling debris; flight never needed more.
-- One pool instead of two: escaping and fighting then compete, which
-  changes the rhythm of combat.
+- One pool instead of two: escaping and fighting then compete.
 - No per-part collision shapes: shooting specific pieces off becomes
   imprecise.
-- No nudge: AI docking and formation keeping must work through steering
-  and throttle alone.
 
 ## 7. Open questions
 
@@ -514,18 +511,16 @@ authority, a bandwidth compromise that trusts the player's machine.
    traced.
 3. The rule that decides whether an external item is attached with its own
    collision shape or without one.
-4. Whether the player can strafe vertically; four directions exist in the
-   simulation, the bound controls were not read (chapter 09).
-5. How the player's throttle is stepped or set by the controls
-   (chapter 09).
-6. Whether a controller push takes effect in the same physics step or the
+4. Whether the player can strafe vertically, and how the controls step
+   or set the throttle; the bindings were not read (chapter 09).
+5. Whether a force controller's push takes effect in the same physics step or the
    next; steady-state behaviour is the same either way.
 
 ## 8. Basis
 
 Design documents: `design/adr/0001-object-model.md`,
 `design/adr/0003-simulation-oracle.md` (context section),
-`design/sim-records.md` (controller inputs, units, axis convention),
+`design/sim-records.md` (force-controller inputs, units, axis convention),
 `design/assessment/02-simulation-core.md` sections 1 and 4,
 `design/facts.md` F16.
 
@@ -553,8 +548,8 @@ Code under `CppSource/`: `Common/common_cship.cpp`, `common_ceengine.cpp`,
 `Oracle/scenarios/free_flight.txt`, `turn_to_heading.txt`.
 
 Inference: that cargo does not change mass; that banking is real
-orientation rather than a visual offset (read from the code path, not seen
-running); the 15 s thruster endurance and 3.7 s cruise ramp (computed from
-read values); the reasons in section 6. Owner-side authority, dead
+orientation, not a visual offset (read from the code path, not seen
+running); the 15 s thruster endurance and 3.7 s cruise ramp (computed);
+the reasons in section 6. Owner-side authority, dead
 reckoning, the minimum step and the role of the 16 Hz constant come from
 the design notes.
