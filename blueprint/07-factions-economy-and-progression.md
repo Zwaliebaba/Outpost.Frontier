@@ -81,7 +81,7 @@ enemies and 18% friends. A faction's reputation towards itself is 1.
 
 The matrix decides how NPCs treat each other. It is loaded with a new game
 and written into the single-player save, and a service can change a pair
-at run time, so the campaign can redraw alliances.
+at run time.
 
 A property record per faction (chapter 06 uses most of it) adds legality,
 the kind of jump point its ships prefer, the NPC ships it fields and the
@@ -253,8 +253,8 @@ reads the same authored entry directly, through the solar that docks to
 the current base. Solars created by missions get their faction from the
 mission definition.
 
-For a builder: a solar's owner is authored on the solar, and the base it
-carries inherits that owner.
+For a builder: a solar's owner is authored on the solar and passes to
+its base.
 
 ### 3.8 Goods
 
@@ -356,8 +356,7 @@ to 32 and never for standing.
 ### 3.11 Buying a ship
 
 A ship dealer lists packages. 59 bases have one; 46 of them offer one
-ship and 13 offer three. Every ship dealer also has a buy-only row for
-each of the other packages.
+ship and 13 offer three.
 
 Choosing a package opens an exchange between the old ship and the new
 one: own items go onto the new hull where a hardpoint accepts them, and
@@ -420,15 +419,15 @@ worth = money
 ```
 
 The rates are the resale rates of section 3.9: worth is roughly what the
-player could turn into money. A second valuation with the same rates, at
-the current base's prices, backs the multiplayer audit of chapter 11.
+player could turn into money. A second valuation, at the current base's
+prices, backs the multiplayer audit of chapter 11.
 
 A table maps worth to a level number: 38 authored points, from 11,000
 for level 1 to about 2.4 million for level 38, each step 9% to 25% above
 the last (level 10 at 59,000, level 20 at 211,000, level 30 at 842,000).
 It is consulted whenever money changes.
 
-Two numbers come out of this, and they differ by mode:
+Two numbers come out of this:
 
 - The **rank** in the player's reputation record is the table value of
   worth in every mode and follows it up and down. It is what others see.
@@ -561,9 +560,9 @@ dealer screens, price markers, the base information card.
 - Standing changes that propagate. Without empathy the factions are
   independent meters; with it they form blocs and every kill is a
   political act.
-- The split between standings (lasting, per faction, changed by kills and
-  jobs) and personal adjustments (temporary, per object, changed by
-  hits). Without it a stray shot is either meaningless or catastrophic.
+- The split between standings (lasting, per faction) and personal
+  adjustments (temporary, per object). Without it a stray shot is either
+  meaningless or catastrophic.
 - Prices that vary by place and not by time, with profit that grows with
   distance. The universe map becomes the trading game.
 - Worth as the single measure of progress. Trading, fighting and jobs
@@ -609,8 +608,7 @@ provocation; the dealer's refund.
    not traced.
 6. **Run-time changes to the matrix.** Which scripted events use the
    service was not traced.
-7. **A "jump distance" field on commodities** (1 to 10) is loaded; no
-   consumer was found.
+7. **A "jump distance" field on commodities** has no known consumer.
 8. **Taking sides.** In the branch for an affiliated victim the
    reconstructed code lets A act only when its regard of C is exactly
    −0.6, which cannot be the intent. The heartbeat period was not read.
