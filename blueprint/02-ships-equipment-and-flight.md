@@ -27,7 +27,7 @@ and a handful of keys.
   freely.
 
 The same object model and flight code drive every NPC ship and station,
-so what the player learns about their own ship holds for all they meet.
+so what the player learns about their own ship holds everywhere.
 
 ## 2. Concepts
 
@@ -204,7 +204,7 @@ v_next = v × (1 − k·dt) + (ΣF / m) × dt
 while the engine is active. When `k·dt` reaches 0.9 the factor becomes
 `exp(−k·dt)`, which keeps light ships stable on long steps.
 
-Two consequences shape the game:
+Two consequences follow:
 
 - **Top speed is `F / D`.** Mass cancels; it only sets the time constant
   `m / D` with which the ship approaches that speed.
@@ -303,8 +303,8 @@ The cruise speed is one global constant, 300 m/s. Because cruise thrust is
 defined as drag times that speed, every ship cruises at the same speed
 whatever its mass, engine or zone. `r` starts at the ratio of normal top
 speed to cruise speed (0.27 for player ships), so the hand-over is seamless
-and full speed arrives about 3.7 s after charging ends. Mission scripts can
-engage cruise instantly, skipping the charge.
+and full speed arrives about 3.7 s after charging ends. The authority
+offers an instant engage that skips the charge; no shipped content uses it.
 
 A zone may scale drag (chapter 01). That lowers normal, thruster and
 strafe speeds in proportion but leaves cruise speed alone.
@@ -351,14 +351,15 @@ Within one tick, for one system:
 2. The physics step runs once: force controllers accumulate pushes; velocities
    are damped and the pushes committed; limits are applied; position and
    orientation advance; contacts are detected.
-3. Object poses are copied from the bodies.
+3. Poses are copied from the bodies.
 4. Beams are traced and the tick's collision list is turned into damage.
 
-The step length is not fixed. In single player it is the frame time,
-capped at 0.1 s. A multiplayer authority accumulates time and steps in
-slices of 0.1 s plus a remainder. Per design notes, no step is shorter
-than 0.005 s, and the "simulation rate" constant of 16 Hz only tunes
-collision look-ahead. The flight formulas are therefore mildly frame-rate
+The physics step length is not fixed. In single player it is the frame
+time, capped at 0.1 s. In multiplayer the authority first cuts a system
+update into sub-steps of at most 0.2 s (chapter 11); within each, physics
+advances in slices of at most 0.1 s. Per design notes, no slice is shorter
+than 0.005 s, and the 16 Hz "simulation rate" constant only tunes
+collision look-ahead. The flight formulas are thus mildly frame-rate
 dependent, which the high damping hides.
 
 ### 3.11 Collisions in outline
@@ -485,9 +486,8 @@ Gives:
 
 **Feel, tunable.** The time constants (0.1 to 0.5 s linear, 0.2 s
 angular); the 0.25 s hold before mouse flight; banking; bouncy collisions;
-uniform player top speed. Varying top speed by hull is an easy
-differentiator; the original declined it, which keeps formations, escorts
-and pursuit simple.
+uniform player top speed, which keeps formations, escorts and pursuit
+simple.
 
 **Accidents of the era.** The variable step with linearised damping (use
 a fixed tick, or the exponential everywhere); kind tests by bit mask;
@@ -499,8 +499,7 @@ authority, a bandwidth compromise that trusts the player's machine.
 - No physics library: integrate the two formulas of 3.7 and sweep simple
   shapes for contacts. Loses tumbling debris; flight never needed more.
 - One pool instead of two: escaping and fighting then compete.
-- No per-part collision shapes: shooting specific pieces off becomes
-  imprecise.
+- No per-part collision shapes: shooting pieces off becomes imprecise.
 
 ## 7. Open questions
 

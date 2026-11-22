@@ -333,6 +333,10 @@ replicated as objects; each side flies its own from the fire message
   worth more than the remembered total, or whose hold is overfull.
   Valuation: stackable items at full price, other equipment at 0.3, the
   hull at 0.8.
+- **A player's fire is barely checked.** The authority tests only that
+  the launcher and its owner are alive and, outside single player, that
+  ammunition is there. It then deducts ammunition and power without
+  testing power or refire delay; the presentation enforces those.
 - Money is clamped to 0 … 999,999,999.
 
 ### 3.9 Single player against multiplayer
@@ -369,7 +373,7 @@ A character and a saved game are the same text record:
 | Ship | Hull archetype and status, damaged parts, mounted items with hardpoints, cargo with counts |
 | Base snapshot | Hull, parts and equipment as at the last base |
 | Interface state | Weapon groups, visit flags, mission log, interface flags |
-| Content, per player | Campaign position; the running mission's triggers, ships, solars and objectives; a pending generated mission; locked jump points; bar-inhabitant state; rumours; docking and lane permissions; statistics |
+| Content, per player | Campaign position; the running mission's triggers, ships, solars and objectives; a pending generated mission; locked jump points; base-inhabitant state; rumours; docking and lane permissions; statistics |
 | World (single player) | World clock, faction-to-faction feelings, content's world state |
 
 Content writes its own parts: the authority raises "player save" and
@@ -572,20 +576,17 @@ desktop program.
 
 ## 8. Open questions
 
-1. **Validation of player fire in multiplayer.** Whether the authority
-   checks refire delay, energy and ammunition for a player's weapons was
-   not read.
-2. **Host password.** The reconstructed presentation never sends it, so
+1. **Host password.** The reconstructed presentation never sends it, so
    protected hosts look unjoinable; original behaviour or reconstruction
    gap is unknown (per design notes).
-3. **Death penalty.** The host configuration has a percentage (100 as
+2. **Death penalty.** The host configuration has a percentage (100 as
    shipped); the reconstructed host reads and discards it and the code
    implements the fixed rule of 3.12.
-4. **Where a multiplayer character resumes** after logging out in space:
+3. **Where a multiplayer character resumes** after logging out in space:
    the file records the position; the resume path was not traced.
-5. **Which objects the unnamed tick lists hold** (3.2, sub-steps 2 to 4).
-6. **The list service protocol:** its module is not in the sources.
-7. **Mining trust.** The presentation tells the authority which loot a
+4. **Which objects the unnamed tick lists hold** (3.2, sub-steps 2 to 4).
+5. **The list service protocol:** its module is not in the sources.
+6. **Mining trust.** The presentation tells the authority which loot a
    mined asteroid yields; no check was found.
 
 ## 9. Basis
@@ -603,7 +604,8 @@ Data: `outdir/OutpostFrontier.ini`, `NeuronComponents.ini`,
 
 Code, read in part: `include/rpc_iserver.h`, `rpc_iclient.h`,
 `common_server_controller.h`; `Server/IServerImpl.cpp`,
-`server_observer.cpp`, `server_classes.cpp`, `server_savegame.cpp`,
+`server_observer.cpp`, `server_classes.cpp`, `server_gameobject.cpp`,
+`server_savegame.cpp`,
 `server_pub.cpp`, `server_chat.cpp`; `Common/common_remotephysics.cpp`,
 `common_deadreckonedvector.cpp`, `common_physicalsystem.cpp`,
 `common_ceqobj.cpp`; `IVP/ivp_physics/ivp_environment.cpp`; Client

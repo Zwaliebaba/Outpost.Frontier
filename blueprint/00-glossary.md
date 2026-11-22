@@ -88,6 +88,8 @@ content controller is a rules module of the authority.
 | Faction | A group that owns bases, fields NPCs and holds attitudes towards other factions and the player. |
 | Reputation | A number that states how one party regards another. |
 | Attitude | The class a reputation falls into: hostile, neutral or friendly. |
+| Regard | The reputation one object holds towards another at this moment, computed from standings and temporary personal adjustments. |
+| Inhabitant | A person the player meets in a room of a base. Never called a character. |
 
 ## Economy and missions
 

@@ -1,6 +1,6 @@
 # 10 — Bases, scenes, menus and text
 
-Status: draft
+Status: reviewed
 Depends on: 01, 02, 07, 08, 09, 11, 12
 
 ## 1. Purpose and player experience
@@ -38,7 +38,7 @@ Glossary terms are used as given.
 | Virtual room | A function that a base stages inside another room, by a second camera and a different set of buttons, instead of giving it a room of its own. |
 | Room hotspot | A record of a room that becomes one button of the room bar, with a behaviour. |
 | Room bar | The row of room buttons and, above the current one, the service tabs of that room. |
-| Character hotspot | The screen rectangle of a person in a room; hovering and clicking go to that person. |
+| Character hotspot | The screen rectangle of an inhabitant in a room; hovering and clicking go to that inhabitant. |
 | Entity, event | A thing a scene script controls; a timed instruction acting on one or two entities (3.5). |
 | Sequence | Scene scripts played one after another as a unit, branching on the player's answer. |
 | Costume | A person's appearance: body, head, two hands, up to eight accessories. |
@@ -73,7 +73,7 @@ has no room, the landing place hosts it as a virtual room.
 | Room | What it offers |
 | --- | --- |
 | Landing place | The player's ship on its pad; landing and launch scenes; launch; repair entry; on small bases the dealers as virtual rooms |
-| Bar | People to talk to (chapter 08), the news screen, the job board |
+| Bar | Inhabitants to talk to (chapter 08), the news screen, the job board |
 | Commodity trader | A desk with the trader; the commodity screen |
 | Equipment dealer | The player's ship on a stand, a desk; the equipment screen and repair |
 | Ship dealer | Up to three ships for sale on pads; the ship screen |
@@ -94,7 +94,7 @@ has no room, the landing place hosts it as a virtual room.
 - **Hotspots**: median 7 per room, at most 15 (3.3).
 - **Blinking light sets** for pad and skyline lights.
 
-Where NPCs may stand comes from the placement setpoints of the set,
+Where inhabitants may stand comes from the placement setpoints of the set,
 which the authority also reads to seat its inhabitants.
 
 ### 3.3 The room bar and hotspot behaviours
@@ -123,20 +123,20 @@ state change instead of the plain camera move. While a fade, a camera
 move or a panel animation runs, the cursor is hidden and clicks are
 ignored.
 
-### 3.4 People in a room
+### 3.4 Inhabitants of a room
 
 The authority sends, per room and per player, the inhabitants that
 chapter 08 chooses: a key, a name identifier, a faction, a costume, an
 idle script and optionally a behaviour. The presentation builds each
-person from the costume, stands it on a free placement and loops the
+one from the costume, stands it on a free placement and loops the
 idle script.
 
-A person with a behaviour or a dealer role has a character hotspot.
+An inhabitant with a behaviour or a dealer role has a character hotspot.
 Hovering shows the name and changes the cursor to announce the kind of
 talk: brush-off, bribe, rumour, job, information, campaign, or one of
 the three dealers. A click
 
-1. marks the person's faction as known (chapter 01);
+1. marks the inhabitant's faction as known (chapter 01);
 2. for a dealer standing in another virtual room, switches there first;
 3. with a behaviour, tells the authority which inhabitant was selected
    and plays the behaviour as a sequence (3.6);
@@ -244,12 +244,12 @@ or information entry, so the room ends as if the scene had played.
 
 | State | Event | Next state |
 | --- | --- | --- |
-| Arriving | Base and start room loaded behind the loading screen; the authority's room lists complete | Authority scene, if an inhabitant's behaviour is marked to start on entry; else landing scene, if arriving from space and the room has one; else idle |
+| Arriving | Base and start room loaded behind the loading screen; the authority's room lists complete | Conversation or scene, if an inhabitant's behaviour is marked to start on entry; else landing scene, if arriving from space and the room has one; else idle |
 | Landing scene | Ends or is skipped | Idle; a caption names the base |
 | Idle | Room or virtual-room button | Fade out; room exit and enter sent and room loaded, or camera cut; fade in; idle |
 | Idle | Dealer or desk tab | Camera move, then trade screen or idle |
 | Idle | News, job board, repair or ship tab | Panel open; closing returns to idle |
-| Idle | Click on a person | Conversation |
+| Idle | Click on an inhabitant | Conversation |
 | Conversation or scene | Offer or information entry | Waiting for the player |
 | Conversation or scene | Last script ends | Idle, in another room if the sequence names one |
 | Idle, start room | Launch pressed with engine, power plant and scanner mounted | Launch scene. Otherwise a spoken and written refusal |

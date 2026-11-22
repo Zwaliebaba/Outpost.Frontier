@@ -80,7 +80,7 @@ Four properties of the format matter for anyone who reproduces the model:
 2. **Hierarchy is expressed by adjacency.** The format is flat. A child
    record belongs to the nearest parent record above it. A ship record is
    followed by its parts, a fuse by its timed actions, a base roster (the
-   record of who is on a base, chapter 08) by its rooms and characters, a
+   record of who is on a base, chapter 08) by its rooms and inhabitants, a
    voice profile by its lines. The
    sequence of records in a file therefore carries meaning.
 3. **Unknown content is skipped.** Readers pass over keys and kinds they
@@ -119,7 +119,7 @@ over several files:
 | Fuses | 16 | both |
 | Explosions and debris | 1 (named twice) | both; debris by presentation |
 | Weapon-type against shield-type modifiers | 1 | both |
-| Character body parts; costumes | 1 + 1 | both |
+| Body parts; costumes | 1 + 1 | both |
 | Set pieces (logical name to model file, for rooms and props) | 1 | both |
 | New-character choices; cutscene detail levels | 1 + 1 | both |
 | Bases (no file: the key only fixes when base data is built) | 0 | both |
@@ -211,8 +211,8 @@ A worked example shows how deep a chain goes. A patrol appears in a zone:
 3. The encounter definition names a ship class and a formation class per
    slot, and a job for the pilots.
 4. The ship class table lists member classes. The faction's property
-   record lists the NPC ship records that this faction can field.
-5. An NPC ship record of the right class and level names a ship
+   record lists the NPC ship definitions that this faction can field.
+5. An NPC ship definition of the right class and level names a ship
    archetype, a loadout, a pilot and a state graph.
 6. The ship archetype names a model, material libraries, a cockpit, an
    explosion and fuses. The collision hull is found beside the model.
@@ -251,7 +251,7 @@ their original keys.
 | Kind | Records | Principal fields |
 | --- | --- | --- |
 | Universe | 53 systems, 197 bases, 1 clock | system: file, map position, name, card, map scale; base: system, file, name; seconds per game day |
-| System | 53 files; 3,430 objects, 5,428 zones | background, ambient colour, music set, light sources; object: archetype, position, rotation, names, faction, loadout, pilot, base, jump target, neighbouring lane rings; zone: shape, size, position, sort key, population entries, hazard and visual properties |
+| System | 53 files; 3,430 objects, 5,428 zones. A 54th file, for the front-end menu scenes (148 objects), is not listed by the universe file and not counted here | background, ambient colour, music set, light sources; object: archetype, position, rotation, names, faction, loadout, pilot, base, jump target, neighbouring lane rings; zone: shape, size, position, sort key, population entries, hazard and visual properties |
 | Solar archetype | 321, with 238 parts | type, model, radius, mass, hit points, docking points, loadout, fuse, explosion |
 | Star, asteroid archetypes | 38; 86 static, 26 dynamic, 9 mines | glow and flare shapes; model, explosion, detection radius |
 | Asteroid field definition | 153 | cube size and contents, fill distance, colours, exclusion zones, dynamic asteroids, distant sprites, lootable zones |
@@ -277,18 +277,18 @@ their original keys.
 | --- | --- | --- |
 | Faction | 55 | names; one reputation value towards each faction (55 by 55) |
 | Reputation effects | 55 | change per event kind; share passed on to each other faction |
-| Faction properties | 55 | lawful or not, NPC ship records, name ranges, voices, costumes, formation names, cargo scanning |
-| NPC ship | 404 shared, 218 mission-local | ship archetype, loadout, pilot, state graph, level, class tags |
+| Faction properties | 55 | lawful or not, NPC ship definitions, name ranges, voices, costumes, formation names, cargo scanning |
+| NPC ship definition | 404 shared, 218 mission-local | ship archetype, loadout, pilot, state graph, level, class tags |
 | Ship class | 78 | member tags |
 | Pilot | 64 ambient, 255 story | references to behaviour blocks of 16 kinds (239 blocks for the ambient pilots) |
 | Formation | 93 | slot positions |
 | Encounter definition | 42 files | per formation: ship classes with counts, formation class, pilot job, behaviour, arrival methods; size permutations |
 | Loot tables | 434 + 124 | per item: the conditions for a drop and the amounts |
-| Base roster | 194 bases, 1,642 characters | faction shares on the base, room densities, mission offers; per character: appearance, voice, room, rumours, bribes |
-| News | 403 items | text, icon, bases, campaign stage |
+| Base roster | 194 bases, 1,642 inhabitants | faction shares on the base, room densities, mission offers; per inhabitant: appearance, voice, room, rumours, bribes |
+| News | 403 items | text, icon, bases, campaign position |
 | Scripted mission | 14 files | NPCs, ships, formations, solars, loot, objective lists, objectives, dialogues, triggers |
 | On-base story scene | 69 files | location, scene scripts for offer, accept, decline; actors and reserved spots |
-| Generated-mission tables | 7 files | offer tree (219 nodes), reward by difficulty (23 rows), destroyable solar templates (126), bonus loot |
+| Generated-mission tables | 7 files | offer tree (219 nodes and 20 documentation nodes), reward by difficulty (23 rows), destroyable solar templates (126), bonus loot |
 | AI state graphs | 1 file | 10 graphs over 21 behaviours |
 
 **Presentation and interface** (chapters 09, 10)
@@ -316,7 +316,7 @@ their original keys.
 | Animation library | 11 | Named clips that drive joints by keyframe channels; scene scripts and records refer to clips by name |
 | Material and texture libraries | 107 + 104 | Named materials (type, colours, texture names, flags) and named textures; shared by many models |
 | Effect library | 596 | Particle effects as graphs of emitters, force fields and appearances with parameter curves (per design notes) |
-| Scene script | 1,506 | A duration, a list of entities (set, prop, character, camera, light, sound, marker, path, particle system, sub-scene) and a list of timed events. Stored compiled; every script is a pure data table without control flow (per design notes) |
+| Scene script | 1,506 | A duration, a list of entities (set, prop, person, camera, light, sound, marker, path, particle system, sub-scene) and a list of timed events. Stored compiled; every script is a pure data table without control flow (per design notes) |
 | Sound | 1,700 | One recording, uncompressed or compressed, with optional loop points |
 | Voice archive | 109 | All recordings of one voice profile, found by line identifier |
 | Movie, image | 3 + 27 | Start-up films; splash and loading images |
@@ -331,7 +331,7 @@ All numbers were counted from the data by script. "Median" and "max" are
 over the 53 systems unless stated.
 
 **Volume.** The data is 876 MB in 8,385 files: models 313 MB, sound and
-voice 228 MB, character meshes and animation 176 MB, textures and
+voice 228 MB, skinned meshes and animation 176 MB, textures and
 materials 52 MB, films 45 MB, record files 19 MB, scene scripts 17 MB,
 collision hulls 7 MB.
 
@@ -358,7 +358,7 @@ collision hulls 7 MB.
 | Ship archetypes | 69: 36 fighters, 8 freighters, 8 haulers, 4 gunboats, 4 cruisers, 8 capital ships, 1 mining ship |
 | Ships the player can buy | 32 hull goods and 31 ship packages. The player buys a package, which names a hull and its fitted items: 25 fighters, 6 freighters. 59 bases sell ships, 1 or 3 packages each |
 | Progression of bought ships | hull price 6,000 to 658,000, apart from one hull at 1,000; hit points 1,100 to 12,600; fighter hold 20 to 70, freighter hold 80 to 275; required level 0 to 32 |
-| Guns | 513, each with its own munition. 266 fit player ships: 166 energy guns, 81 turrets, 15 guided launchers, 4 heavy launchers. 247 have no hardpoint class and serve NPCs and solars (inferred) |
+| Guns | 513, each with its own munition. 266 fit player ships: 166 energy guns, 81 turrets, 15 guided launchers, 4 heavy launchers. 247 have no hardpoint class: 162 of them appear in ship or solar loadouts, 85 in none |
 | Gun grades | 10. These are the gun hardpoint classes only; chapter 02 gives the full table of hardpoint classes. Mountable guns per grade: 16, 13, 18, 27, 35, 52, 40, 33, 14, 18 |
 | Gun progression | median price per grade from 500 to about 120,000, roughly doubling each grade; median damage per second from 136 to about 2,150, about 1.35 times per grade |
 | Other weapons | 10 mine droppers, 3 countermeasure droppers, 71 seeking munitions |
@@ -375,11 +375,11 @@ collision hulls 7 MB.
 | --- | --- |
 | Factions | 55: 30 lawful, 25 unlawful |
 | Initial reputations | 3,025 values from −0.65 to 0.91; 15% below −0.3, 18% above 0.3, the rest in between |
-| NPC ship records per faction | median 8, max 39 |
-| NPC ship records | 404, drawing on 52 ship archetypes, 151 loadouts and 52 pilots; levels 1 to 25, most between 4 and 13 |
+| NPC ship definitions per faction | median 8, max 39 |
+| NPC ship definitions | 404, drawing on 52 ship archetypes, 151 loadouts and 52 pilots; levels 1 to 25, most between 4 and 13 |
 | Loadouts | 803; about 20 equipment lines each |
 | Encounter definitions | 42; 1 or 2 formations each; behaviours: patrol 24, trade 18, wander 15. A system uses a median of 26 |
-| Base characters | 1,642; per base median 8, max 24; 15,127 rumour references; 643 characters carry a mission entry |
+| Inhabitants | 1,642; per base median 8, max 24; 15,127 rumour references; 643 inhabitants carry a mission entry |
 
 **Missions and scripts.**
 
@@ -389,7 +389,7 @@ collision hulls 7 MB.
 | Per mission file | triggers 79 to 408 (median 189); scripted ships 21 to 181 (median 57); objectives 17 to 58; objective lists 14 to 119 |
 | Campaign totals | 2,984 triggers with on average 1.0 conditions and 4.8 actions; 78 kinds of action and 40 kinds of condition in use |
 | Generated missions | one mission type on offer; an offer tree of 219 nodes; 126 destroyable solar templates |
-| Scene scripts | 1,506: 635 for rooms and their ambience, 635 reusable character scenes, 206 story scenes, 30 others. Median size 4 KB, largest 170 KB |
+| Scene scripts | 1,506: 635 for rooms and their ambience, 635 reusable scenes for inhabitants, 206 story scenes, 30 others. Median size 4 KB, largest 170 KB |
 
 **Sound and text.**
 
@@ -399,7 +399,7 @@ collision hulls 7 MB.
 | Voice lines | 23,995 entries with 3,268 distinct identifiers. An ambient pilot voice has 420 to 680 fragments. Recorded durations total 6.4 hours for the 17,323 timed fragments; median 1.1 s |
 | Campaign speech | 13 in-flight line files of 62 to 175 lines; 962 cutscene lines as single sound records |
 | Other sound records | 855, of which 188 music; 108 music files, 568 effect files |
-| Text | 12,948 strings and 5,252 cards, about 2.2 million characters; 7,139 of the strings are names |
+| Text | 12,948 strings and 5,252 information cards; 7,139 of the strings are names |
 
 Three anonymised rows show the shape of a per-item table: bought ships
 at the bottom, middle and top of the range.
@@ -441,7 +441,7 @@ grade (inferred).
 
 **What the counts hide.** Much of the volume is systematic. Guns, shields
 and loadouts are grids of family by grade. Most scene scripts are reusable
-character scenes and room ambiences. Voice lines are fragments
+scenes for inhabitants and room ambiences. Voice lines are fragments
 recorded once per voice. 125 of 197 bases have the same two rooms. A
 comparable game needs the grids and the generators, not thousands of
 hand-made records.
@@ -481,16 +481,16 @@ hand-made records.
 11. **Bake for shipping.** Text is the source; a build produces compact
     packs, as the original reader already allowed.
 
-Points 1 and 5 matter most. With thousands of references by spelling, an
-unchecked typing error removes content without a message.
+Points 1 and 5 matter most: with thousands of references by spelling, a
+typing error removes content without a message.
 
 ## 7. Open questions
 
 1. Where do placed solars get their faction? The system files name one,
    but the reference does not resolve at load (per design notes).
 2. Which records are dead? One fuse file is in the data and not in the
-   manifest, and 247 guns have no hardpoint class. How many of those guns
-   the NPC and solar loadouts use was not counted.
+   manifest, and 85 guns appear in no ship or solar loadout. Whether
+   missions or code use them was not checked.
 3. What exactly do the per-system preload lists (ships, equipment,
    sounds, voices) do? They read as loading hints (inferred).
 4. The census does not look inside binary assets. Clips per animation

@@ -1,6 +1,6 @@
 # 08 — Missions and base services
 
-Status: draft
+Status: reviewed
 Depends on: 01, 02, 03, 04, 05, 06, 07, 09, 10, 11, 12
 
 ## 1. Purpose and player experience
@@ -10,15 +10,15 @@ Missions give the open universe direction. Two kinds share one runtime.
 A **scripted mission** is an authored set piece of the campaign. The player
 is led to a room on a base, watches a scene, accepts, launches, and is then
 carried through escorts, ambushes, chases and assaults by named NPCs who
-talk over the radio. Objectives appear one at a time, a marker shows where
-to go, and companions remind a player who strays. Between campaign
+talk over the radio. Objectives appear one at a time, with a marker, and
+companions remind a player who strays. Between campaign
 missions the player trades and fights until a wealth target is met.
 
 A **generated mission** is a paid job. On most bases a job board lists two
 to four offers, and people in the bar may offer one directly. Each offer
 names who pays, whom to attack, where, how hard it is and what it pays.
 The player accepts, flies to a marked site, fights what spawns there and
-is paid on the spot.
+is paid at once.
 
 The bar also holds people who tell rumours, sell the location of hidden
 places or take a bribe to repair a reputation, and a news screen whose
@@ -39,13 +39,13 @@ items follow the campaign.
 | Difficulty | 0 to 100 on a geometric scale; sizes a generated mission and sets its reward. |
 | Mission site | A zone marked for generated missions. |
 | Offer tree | The authored decision tree from which a generated mission is composed. |
-| Base roster | Per base: factions with their shares and characters, fixtures, job-board size. |
-| Fixture | A character at a fixed spot who provides a room's service: bartender, trader, dealer. |
+| Base roster | Per base: factions with their shares and inhabitants, fixtures, job-board size. |
+| Fixture | An inhabitant at a fixed spot who provides a room's service: bartender, trader, dealer. |
 | Job board | The job offers a base makes to one visiting player. |
 
 ```text
 campaign controller ──(position, worth gate)──► scripted mission
-job board, bar character ──(acceptance)──► generated mission
+job board, bar inhabitant ──(acceptance)──► generated mission
     both run as content controllers on the event bus (chapter 11)
 
 scripted mission ─► cast, ships with labels, solars, loot
@@ -54,7 +54,7 @@ scripted mission ─► cast, ships with labels, solars, loot
                  ─► triggers: condition ◄─ events; actions ─► services
 generated mission = offer (payer, enemy, site, difficulty, reward, seed)
                   + one path through the offer tree
-base roster ─► fixtures, bar characters ─► job, bribe, knowledge, rumour
+base roster ─► fixtures, bar inhabitants ─► job, bribe, knowledge, rumour
 ```
 
 ## 3. How it works
@@ -178,7 +178,7 @@ chapter 12).
 
 - A given voice line has finished; a given on-base story scene has finished.
 - The player accepted, or rejected, the offer.
-- The player selected a given character in a room.
+- The player selected a given inhabitant of a room.
 - The player answered a pop-up with a given button.
 - The player's ship is, or is not, performing a given manoeuvre (go to, dock, formation), optionally on a given target.
 - Unused: the player heard a given rumour.
@@ -194,9 +194,8 @@ progress.
 
 ### 3.5 Actions
 
-85 kinds are registered; 78 occur. Ten make up 63% of all uses: activate
-and deactivate trigger, give directive list, three attitude setters, set
-objective, send line, spawn ship, protect.
+85 kinds are registered; 78 occur. Ten make up 63% of all uses, led by
+activate and deactivate trigger and give directive list.
 
 **Flow**
 
@@ -296,6 +295,8 @@ behaviours of chapter 05. 23 directives are registered; 15 occur.
 | Settings | Hold to directives or allow distraction; collision avoidance on or off; lifetime; face an object or point; cancel. |
 
 The player's ship can receive a list too: so a script flies the player.
+The authority can also engage cruise at once for content, but no action
+or directive uses that.
 
 ### 3.7 How objectives reach the player
 
@@ -304,8 +305,7 @@ whole, or one changed entry, to the presentation. An entry is a text
 identifier, a state, a hidden flag and optionally a waypoint (system and
 position) and an object whose name and standing the text shows.
 
-Scripts usually show one objective at a time. A text can be queued as a
-banner, written to the mission log, or both. The route action asks the
+A text can be queued as a banner, written to the mission log, or both. The route action asks the
 route planner (chapter 04) for the legs to a distant object and shows them
 as waypoints, rebuilt as the player advances. Success and failure have
 their own message kinds; failure opens the mission log.
@@ -335,18 +335,18 @@ authority to save; the file is then copied to the autosave slot (chapter
 ones. On load it alone is activated, and its actions move the player,
 respawn companions and activate the triggers of the leg. The script
 rebuilds the scene; nobody serialises a battle. The campaign makes 36
-checkpoints, two or three per mission.
+checkpoints.
 
 There is no retry logic. Of the campaign's 118 end-mission actions, 104
-are failures. A failed scripted mission ends its controller and leaves the
-campaign position unchanged with nothing to restart it; the player returns
-by loading a save (inferred).
+are failures. A failed scripted mission ends its content controller, leaves the
+campaign position unchanged and has nothing to restart it; the player
+returns by loading a save (inferred).
 
 ### 3.10 The campaign as structure
 
 13 missions, the first split over two definitions that chain directly.
-Each mission owns three campaign positions: started, accepted, and free
-time after it.
+A mission owns three campaign positions (started, accepted, free time
+after it), except the first with five and the second with four.
 
 | After mission | Rule |
 | --- | --- |
@@ -369,14 +369,15 @@ or scanning the player until the script says otherwise.
 
 The second gate is the map. The new-game template is a saved game with
 campaign position 1 and 32 locked jump points; missions unlock them (118
-unlock actions against 64 locks). Missions also pay: 16 payments of 750
-to 25,000 credits. Mission sequence and increments are fixed in the
-program, not in data.
+unlock actions). Multiplayer takes its locks from the
+initial-world data: 27 for players, 36 for NPC traffic. Missions also
+pay: 16 payments of 750 to 25,000. Mission sequence and increments are
+fixed in the program, not in data.
 
 ### 3.11 How a job offer is generated
 
 The board is built when a player enters a base and rebuilt after a bribe;
-a bar character's job is drawn when the player enters the room.
+a bar inhabitant's job is drawn when the player enters the room.
 
 1. **How many.** A uniform draw from the base's range: 2 to 4 on 140 of
    194 bases, none on 33, 8 to 12 on the largest.
@@ -387,7 +388,9 @@ a bar character's job is drawn when the player enters the room.
    position gives a centre `d` (0.08 at the start, 1.23 before the ninth
    mission, 39 after the campaign) and a window `[d / s³, d · s³]` with
    `s = 1.3689`. The pick is `high − cos(u · π/2) · (high − low)` with `u`
-   uniform, which favours the low end. No overlap means no offer. In
+   uniform, which favours the low end. A window wholly below the range
+   gives no offer; one reaching above it picks from the range's top,
+   `[max(min, max / s³), max]`, so advanced players still get jobs. In
    multiplayer the entry's range is used; two times in three its top is
    raised by `s²`, `s⁴` or `s⁶`.
 4. **Where.** A mission site within a travel budget of 90 units from the
@@ -399,9 +402,10 @@ a bar character's job is drawn when the player enters the room.
    site, failing that anywhere in its system, and that the payer regards
    at −0.2 or worse. Drawn uniformly.
 6. **For how much.** A 23-row table maps difficulty to money, from
-   0 → 1,800 to 100 → 247,065, interpolated linearly and truncated.
-   Difficulty 1.0 lies between 0.900 → 7,264 and 1.233 → 9,001 and pays
-   7,784.
+   0 → 1,800 to 100 → 247,065, interpolated linearly. The result is cut
+   to two leading digits; when the first is below 5, a third is kept as
+   0 or 5. Difficulty 1.0 lies between 0.900 → 7,264 and 1.233 → 9,001:
+   7,784, paid as 7,700.
 7. **What.** Section 3.12. The offer keeps a random seed.
 
 An empty board says why: no willing faction, no difficulty in range, or
@@ -442,27 +446,30 @@ combat area (3,500 m, hysteresis 250 m) starts a 30 s countdown, 45 s in
 multiplayer; returning cancels it. The mission fails when the countdown
 ends, when the players are destroyed, or in single player when the player
 docks after reaching the site. Failure and abort lower standing with the
-payer (chapter 07).
+payer by chapter 07's event rates; the ±0.15 stored on each offer is
+not applied.
 
 ### 3.13 Who the player meets on a base
 
 **Fixtures** stand at authored spots and provide the room's service. Some
 also carry rumours and bribes.
 
-**Roster characters** fill a room when the player enters, up to the room's
-density (1 to 7). Each draw takes a faction by its share on the base, one
-of its characters allowed in that room, and a free spot. The character
-offers this player one thing, drawn by weight among what applies:
+**Roster inhabitants** fill a room when the player enters, up to the
+room's density (1 to 7). Each draw takes a faction by its share on the
+base, one of its inhabitants allowed in that room, and a free spot. The
+inhabitant offers this player one thing, drawn by weight among what
+applies:
 
 | Offer | Applies when | Weight | Effect |
 | --- | --- | --- | --- |
-| Job | The character has a mission entry | 30 | A generated mission, started on acceptance |
+| Job | The inhabitant has a mission entry | 30 | A generated mission, started on acceptance |
 | Bribe | Standing with a listed faction is below 0.6 | 20 | Pay; standing rises by the shortfall |
-| Knowledge | Standing with the character's faction is at least 0.2, 0.4 or 0.6; not yet bought | 15 | Pay 300 to 55,000; a place is revealed (chapter 01) |
+| Knowledge | Standing with the inhabitant's faction is at least the entry's step; not yet bought | 15 | Pay 300 to 55,000; a place is revealed (chapter 01) |
 | Rumour | Campaign position inside the rumour's window; standing high enough; not yet heard | 64 if tied to a campaign stretch, else 10 to 20 | A text; some reveal a place |
 
-A bribe costs `10 × base cost × (0.6 − standing)`, rounded to two leading
-digits. Every shipped base cost is 10,000: 60,000 at standing 0, 90,000 at
+The standing steps are 0, 0.2, 0.4 and 0.6; the data uses the upper
+three. A bribe costs `10 × base cost × (0.6 − standing)`, cut by the rule
+of section 3.11. Every shipped base cost is 10,000: 60,000 at standing 0, 90,000 at
 −0.3. A rumour once told is recorded for the player and withdrawn from the
 others in the room.
 
@@ -470,15 +477,14 @@ others in the room.
 
 A news item has a campaign-position window, a list of bases, an icon, an
 image and texts. A player entering a base receives the items that list
-the base and whose window holds the player's position. About half the
-shipped items are always available.
+the base and whose window holds the player's position.
 
 ### 3.15 Authority and presentation
 
 All of this runs on the authority. The presentation receives objective
 lists, messages, voice lines, music, camera and scene requests, offer and
 news lists, and answers with events: offer or pop-up answered, line or
-scene finished, character selected.
+scene finished, inhabitant selected.
 
 ## 4. Data that defines it
 
@@ -486,17 +492,16 @@ scene finished, character selected.
 | --- | --- | --- |
 | Mission definition | Section 3.2 | 14 files; 79 to 408 triggers each (chapter 12) |
 | On-base story scene | Base and room; scripts for offer, decision, accept, decline; cast; reserved spots | 69 |
-| Base roster | Local faction; board size; per faction: share, mission type with difficulty range and weight, characters | 194 bases |
-| Roster character | Appearance, voice, faction, room; bribes; knowledge with price and standing level; rumours with window and level; mission entry | 1,642, of which 560 fixtures; median 10 rumours |
+| Base roster | Local faction; board size; per faction: share, mission type with difficulty range and weight, inhabitants | 194 bases |
+| Roster inhabitant | Appearance, voice, faction, room; bribes; knowledge with price and standing level; rumours with window and level; mission entry | 1,642, of which 560 fixtures; median 10 rumours |
 | News item | Window, bases, icon, image, texts | 403; median 5 bases, at most 40 |
 | Difficulty tables | Campaign position to difficulty; difficulty to money; NPC level and formation size to difficulty | 9, 23 and 25 rows |
 | Offer tree | Section 3.12 | 219 decision and data nodes, 7 leaves |
 | Destroyable solar | Kind, faction, archetype, loadout, hit points, difficulty, zone restriction | 126, in 11 layouts |
 | Mission item, bonus loot | Item, kind or faction, difficulty band, weight | 62 and 143 |
-| Zone (chapter 01) | Site marking, lawful or unlawful, kind | 13% of zones |
 
-A zone is recognised as a site by a fixed substring in its nickname; it
-is lawful unless a key says otherwise.
+A zone (13% of them) is recognised as a site by a fixed substring in its
+nickname; it is lawful unless a key says otherwise.
 
 ## 5. Connections
 
@@ -515,19 +520,17 @@ checkpoints to 11; job boards, bar offers and news to 10.
 **Essential.** Triggers over events, labels, spawn-on-demand and directive
 lists form a small language in which authors, not programmers, build set
 pieces. Checkpoints as resume triggers are the cheapest save for
-scripted fights. The ambient switches matter as much as the spawns: a set
-piece fails if traffic wanders through it. A generated mission feels part
+scripted fights. The ambient switches matter as much as the spawns. A generated mission feels part
 of the world because payer, enemy and site come from the place where the
 offer is made.
 
 **Feel.** Pacing by finished voice lines, companions who nag, and failure
-as the usual exit give the campaign its guided tone. The worth gates push
-the player into the economy.
+as the usual exit give the campaign its guided tone.
 
 **Accidents of its era.** One condition per trigger. Activation in
 identifier sequence. Mission sequence, increments and per-mission hooks in
-the program. Ambient switches as process-wide flags, tolerable only in
-single player. A generated mission rebuilt from a seed, which ties saved
+the program. Ambient switches global to the authority, not per player:
+tolerable only in single player. A generated mission rebuilt from a seed, which ties saved
 games to the generator's exact draw sequence. Sites found by substring.
 
 **Simplifications.** Twenty actions and ten conditions cover most of the
@@ -541,13 +544,8 @@ seed. The offer tree could be a flat list of templates; it has seven leaves.
    player must load a save is inferred.
 2. What "hold to directives" and "lifetime" do exactly; their consumers
    were not traced.
-3. Chapter 02 says mission scripts can engage cruise instantly. The
-   authority offers that service to content, but no caller was found in
-   the actions or directives, which only demand or forbid cruise.
-4. How mission ships written by a checkpoint combine with what the resume
+3. How mission ships written by a checkpoint combine with what the resume
    trigger spawns.
-5. Whether the ±0.15 reputation reward and penalty stored on each offer
-   are used, or only the per-faction event rates.
 
 ## 8. Basis
 
@@ -556,7 +554,8 @@ Design: `design/assessment/04-server-content.md` sections 3, 6 and 7.
 Data: `MISSIONS/M08/m08.ini` read for form, all 14 definitions
 tabulated; the two `mission1 readme.doc`; one on-base scene file of
 `M08`; `MISSIONS/mbases.ini`, `news.ini`, `rankdiff.ini`, `empathy.ini`;
-`RANDOMMISSIONS/*.ini`; `outdir/OutpostFrontier.ini`; `outdir/newplayer.fl`.
+`RANDOMMISSIONS/*.ini`; `outdir/OutpostFrontier.ini`, `outdir/newplayer.fl`,
+`initialworld.ini`.
 
 Code: `Content/MissionScript.cpp` (`GCndFactory`, `GActFactory`),
 `MissionCnd.cpp`, `MissionAct.cpp`,

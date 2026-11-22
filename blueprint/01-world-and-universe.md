@@ -192,7 +192,7 @@ is normally also a population zone):
 | Mission site | site type (open, field, exclusion), lawful or unlawful | Generated missions (08) | 13 % |
 | Population | density, respawn time, battle size, encounters with faction weights | Ambient traffic (06). Carried by nearly every path segment and lane corridor; 12 % of zones are plain population areas | 70 % |
 | Exclusion | exclusion flag; optional edge fraction and tint | Field generation (3.6–3.8) | 10 % |
-| Field or cloud body | field-kind, density and cloud flags; dust, music, tint | Field generation, AI caution, map, presentation | 5 % |
+| Field or cloud body | field-kind, density and cloud flags; dust, music, tint | Field generation, AI target selection (05), map, presentation | 5 % |
 | Hazard | damage rate, interference, drag modifier | Section 3.5 | 4 % |
 | Named region | name and information card | Map and location read-out (09) | 3 % |
 | Lane corridor | lane number; a long thin box | Lane traffic and lane attacks (06) | 2 % |
@@ -204,8 +204,8 @@ Three conventions follow from zones being passive:
   site by its nickname likewise. Naming is part of the schema.
 - A path is the set of cylinders sharing a label, ordered by index. A
   segment's two ends are the ends of the cylinder's axis.
-- The AI does not see asteroids ahead of time. It reads the density,
-  danger and cloud flags of the zones around a ship (chapter 05).
+- The AI reads the density, danger and cloud flags of the zones around a
+  ship and a candidate as a tier that limits target selection (chapter 05).
 
 ### 3.5 Hazards
 
@@ -504,9 +504,9 @@ kind: lose the lawful/unlawful geography that factions build on (chapter
 
 ## 7. Open questions
 
-1. **Who owns a solar.** System definitions name an owner faction on most
-   solars, but the loader does not apply it (per design notes). Where
-   stations and platforms get their allegiance was not established.
+1. **Who owns a solar.** Answered in chapter 07: the content layer sets
+   each solar's affiliation from the system definition when the system
+   activates.
 2. **In-system route choice.** How the planner picks among several lanes
    and how player-specific locks alter a route was read only at the level
    of inputs and outputs. Chapter 04 should settle it.
@@ -523,12 +523,12 @@ kind: lose the lawful/unlawful geography that factions build on (chapter
    containment test always fails.
 7. **Field-kind flags.** Which property flag means which field kind was
    matched by counts against field definitions (inferred); the density
-   levels were read in the AI code.
+   levels were read in the target-selection code.
 
 ## 8. Basis
 
 Design: `design/assessment/02-simulation-core.md` sections 1 and 3;
-`design/facts.md` F17; `design/sim-records.md` (asteroid records).
+`design/sim-records.md` (asteroid records).
 
 Data, tabulated by script: `UNIVERSE/universe.ini`; all 58 files under
 `UNIVERSE/SYSTEMS/*/` (a pocket system and a mid-sized one read in full);

@@ -1,6 +1,6 @@
 # 03 — Combat and damage
 
-Status: draft
+Status: reviewed
 Depends on: 01, 02, 11, 12
 
 ## 1. Purpose and player experience
@@ -96,7 +96,6 @@ attempt that passed test 2, so trying to fire on an empty pool still costs
 a refire cycle.
 
 - Countermeasure dispensers skip test 8: decoys can be dropped in cruise.
-- Energy weapons need no ammunition and guided weapons no power.
 - A launcher on a revolving hardpoint slews towards the aim point at its
   turn rate (90°/s on every record). With no fresh aim point for 2 s, a
   gun with a target tracks the target's lead point.
@@ -208,17 +207,18 @@ refire 0.25 s, 26.35 power per shot, 600 m/s, lifetime 0.916 s. That is
 `131.8 × 0.5 × 1.2 = 79`. The shield collapses at 15 %, after 2,451
 points: 31 shots, 7.8 s from one gun. A 1,600-point hull without armour
 then lasts 13 shots, 3.3 s. A power plant of capacity 1,800 charging 183
-per second feeds two such guns for about a minute and four for 7.5 s.
+per second feeds two such guns for a minute and four for 7.5 s.
 Energy, not refire, limits sustained fire.
 
 ### 3.5 Shields and power
 
 A ship has one bubble and one or more generators. The bubble's capacity
 is the sum of the generators' capacities, its offline threshold their
-average (15 % on every record), its rebuild time their maximum (12 s).
+average (15 % on all 123 standard records), its rebuild time their
+maximum (12 s).
 
 Each generator, each update, while the shield is below full: if the power
-pool holds `rebuild draw × dt` (10 per second on every record), subtract
+pool holds `rebuild draw × dt` (10 per second on those records), subtract
 it and add `regeneration rate × dt` to the shield; otherwise do nothing.
 A drained pool stops shield recovery: the point of energy damage.
 
@@ -230,6 +230,10 @@ A drained pool stops shield recovery: the point of energy damage.
 
 Regeneration continues while the shield is down. The "nothing inside"
 test keeps the bubble from switching on around an intruder (inferred).
+
+Three special generators differ: one collapses at 30 %
+for 30 s and draws 20; two have a threshold and rebuild time of 0.001
+and no draw, which makes them unbreakable.
 
 The power plant refills the pool at `charge rate × dt` (chapter 02); in
 the data that is about a tenth of capacity per second.
@@ -254,8 +258,8 @@ For a target with bounding radius `r` at centre distance `D`, let
 - An explosion with an impulse pushes each object no player owns away
   from the centre.
 
-Parts and equipment are tested one by one, so a blast beside an
-unshielded ship can remove several guns at once.
+Parts and equipment are tested one by one, so one blast beside an
+unshielded ship can remove several guns.
 
 A cruise disruptor is a fast guided munition with a wide seeker cone
 (90° to 120°), a large radius (50 m) and little damage. Its blast has its
@@ -272,7 +276,7 @@ shield was hit. The same should hold for a player's ship (inferred).
   dt`. Once more than 1 s has passed and the sum exceeds 1 % of the ship's
   total hit points, it is applied as a fraction `q`: the hull, every
   external equipment item and every part each lose `q` of their maximum.
-  If `q > 1` the ship is destroyed. Lumps keep message traffic low.
+  If `q > 1` the ship is destroyed.
 - **Field mines** (chapter 01) are not munitions. Each has a detection
   radius (35 to 150 m) and a recharge time (1.5 to 3 s). While a ship is
   inside the radius and the mine is charged, it sets off its explosion,
@@ -340,7 +344,7 @@ return repair consumables.
 At most six containers are created, each with the item's container
 model, up to its units-per-container, the ship's velocity plus a random
 kick, and a spin. Loot that no player has come within 2,500 m of for 60 s
-is removed. A container has hit points and can be shot. The tractor
+is removed. Loot can be shot. The tractor
 (range 1,500 m) is told which loot to pull. This path makes loot for
 NPCs, and for a player's ship only in single player.
 
@@ -355,9 +359,9 @@ only: parts and equipment wait for a base (chapter 08). The shield item
 goes to the weakest shield and cancels the rebuild wait, so a collapsed
 shield returns at once.
 
-NPCs carry the same items: when the ratio falls to a threshold (default
-35 %), wait (2 s), use one unit, wait again (5 s). The pilot record
-overrides the three numbers (chapter 05).
+NPCs carry the same items: when the ratio falls to a threshold, wait,
+use one unit, wait again. The pilot record always supplies the three
+numbers; chapter 05 gives them.
 
 ### 3.11 Weapon groups and firing controls
 
@@ -390,7 +394,7 @@ Counts are from chapter 12.
 | Explosion (86 for munitions, 70 for objects) | radius, hull damage, energy damage, impulse; effect, debris | munitions: radius 2 to 50 m, hull 16 to 11,736, energy 0 to 7,824 |
 | Mine and dispenser (10) | seek distance, top speed, acceleration, drag, detonation distance, owner-safe time, lifetime, explosion | blast 326 to 3,912 at 16 m; refire 1 s |
 | Countermeasure and dispenser (3) | range, diversion percentage, lifetime; refire, release range | 70, 80, 90 %; refire 0.25 s |
-| Shield generator (123) | capacity, regeneration rate, shield type, offline threshold, rebuild time, rebuild draw, hardpoint class | capacity 450 to 12,900; two families refill in about 45 s; 30 records regenerate 1 per second |
+| Shield generator (123, and 3 special) | capacity, regeneration rate, shield type, offline threshold, rebuild time, rebuild draw, hardpoint class | capacity 450 to 12,900; two families refill in about 45 s; 30 records regenerate 1 per second |
 | Weapon type (21) | one multiplier per shield type (9) | 0.8, 1.0 or 1.2 |
 | Armour (24) | damage divisor | 0.25 to 30 |
 | Part (246 on ships, 238 on solars) | model node, hit points, hull-linked flag, debris kind, separation explosion, impulses, cap model, fuses | hit points 1 % to 100 % of hull; 224 of the ships' parts are hull-linked |
@@ -440,8 +444,7 @@ Needs:
 Gives:
 
 - 04: launch protection is an invulnerability command.
-- 05: launchers, the lead point, damage notifications; NPC use of
-  consumables and decoys.
+- 05: launchers, the lead point, damage notifications; decoys.
 - 06: armour as the toughness scale of spawned ships (inferred); rank
   for bonus loot.
 - 07: "damaged by" and "destroyed by" events for reputation and kill

@@ -1,6 +1,6 @@
 # 07 — Factions, economy and progression
 
-Status: draft
+Status: reviewed
 Depends on: 00 (glossary), 01 (solars, bases, jump points), 02 (equipment,
 hardpoint classes, hold), 11 (authority, character, worth audit), 12 (record
 kinds, census). Refers forward to 03, 05, 06, 08, 09, 10.
@@ -52,7 +52,7 @@ chapter adds:
 | Nominal price | The price in the good's own record. A base without a row for the good uses it. |
 | Used rate | 0.3, the fraction of price paid for equipment the player already owned. |
 | Worth | Money plus the valued ship and equipment. |
-| Campaign stage | A counter, 0 to 42, of how far the campaign has advanced. |
+| Campaign position | A counter, 0 to 42, of how far the campaign has advanced. |
 | Contraband | A commodity that some lawful faction's patrols scan for. |
 
 ```text
@@ -211,9 +211,10 @@ Only kills leave a lasting mark.
   is ≤ −0.6 refuses, with a spoken notice. Some solar classes are exempt.
 - **Dealers:** a market row may demand a minimum standing with the
   faction that owns the base (section 3.10).
-- **Base inhabitants (chapter 08):** a character sells knowledge at
-  standing ≥ 0, 0.2, 0.4 or 0.6 with its faction, depending on the item;
-  rumours use the same steps; a bribe is offered only below 0.6.
+- **Inhabitants (chapter 08):** an inhabitant sells knowledge and tells
+  rumours at a minimum standing with its faction. The table has four
+  steps (0, 0.2, 0.4, 0.6); the data uses only the upper three. A bribe
+  is offered only below 0.6.
 - **Population (chapter 06):** which formations spawn near a player
   depends on the standing with their faction.
 - **Cargo scans:** section 3.13.
@@ -236,7 +237,7 @@ two steps:
    that names a faction it sets the affiliation of the solar's
    reputation record, and it submits the solar's pilot (chapter 05).
 
-Of 3,578 placed objects, 2,124 name a faction. The dealer interface
+Of 3,430 placed objects, 1,977 name a faction. The dealer interface
 reads the same authored entry directly: it finds the solar that docks to
 the current base and looks up the player's standing with the faction
 named there. Solars created by missions get their faction from the
@@ -277,7 +278,7 @@ price at base = truncate(nominal price × multiplier)     fixed at load
 - **A good without a row** at a base is not sold there but is bought at
   its nominal price.
 - A per-base random price variance exists. No base sets it.
-- Nothing responds to trade. There is no supply, demand or time.
+- Nothing responds to trade.
 
 Selling to a base:
 
@@ -406,13 +407,13 @@ still needed for the next level.
   level is stored in the reputation record, so other players can see it
   (inferred).
 - **Single player, during the campaign:** the level rises by one at 18
-  fixed campaign stages and does not depend on worth. On finishing a
+  fixed campaign positions and does not depend on worth. On finishing a
   mission the campaign records "worth now plus a threshold" and starts
   the next mission when worth reaches that figure and no other mission is
   running. The thresholds are 3,500, 5,200, 7,000, 10,000 and 16,000
   after the first five missions, 36,000 and 30,000 after two later ones,
   and zero elsewhere.
-- **Single player, after the campaign (stage 42):** level follows the
+- **Single player, after the campaign (position 42):** level follows the
   table, upwards only.
 
 Level gates market rows in single player (section 3.10) and feeds job
@@ -420,9 +421,11 @@ difficulty and with it job pay (chapter 08). Kills, missions flown, bases
 and systems visited and total money earned are counted and displayed but
 unlock nothing.
 
-Progression is also geographic: the new-game data locks 27 jump points
-for the player and 36 for NPC traffic, and the campaign unlocks them
-(chapters 01 and 08).
+Progression is also geographic. A new single-player game is the
+new-character template followed by the initial-world file, and both lock
+jump points: the template 32 for this player, the world file 27 more for
+every player and 36 for NPC traffic. The campaign unlocks them (chapters
+01 and 08).
 
 ### 3.15 Money
 
@@ -440,16 +443,18 @@ and trades from other players (chapter 11).
 hardpoint class, chapter 12); ammunition and repair consumables; repairs;
 bribes; the loss on every resale; cargo lost on death in multiplayer.
 
-**Bribes.** A base character may offer to repair the player's standing
+**Bribes.** An inhabitant may offer to repair the player's standing
 with a faction while it is below 0.6:
 
 ```text
 shortfall = 0.6 − standing
-price     = 10,000 × shortfall × 10, rounded to two or three digits
+price     = 10,000 × shortfall × 10, then money rounding
 effect    = change(player, faction, +shortfall, with empathy)
 ```
 
-From neutral that is 60,000; from −0.65 it is 125,000. The offer names up
+Money rounding truncates to two leading digits and, when the first digit
+is below 5, keeps a third as 0 or 5. From neutral the price is 60,000;
+from −0.65 it is 125,000. The offer names up
 to three of the faction's enemies, from its most negative empathy
 entries, because paying also lowers the player with them.
 
@@ -464,8 +469,7 @@ the level.
 The presentation shows the regard it was sent. It also builds the dealer
 lists, computes each price, checks every restriction of section 3.10 and
 requests the resulting change of money and items. The authority only
-audits the outcome, in multiplayer, on leaving a base (chapter 11). A
-builder should not copy this split (section 6).
+audits the outcome, in multiplayer, on leaving a base (chapter 11).
 
 ## 4. Data that defines it
 
@@ -479,11 +483,8 @@ builder should not copy this split (section 6).
 | Per-faction trade goods | 48 | faction; the commodities its freighters may carry (0 to 38) |
 | Level table | 1 | 38 points (worth, level) |
 | Difficulty-to-money table | 1 | 23 points (difficulty, pay) |
-| Base roster (chapter 08) | 194 | per character: bribes (faction, cost factor 10,000, text) |
+| Base roster (chapter 08) | 194 | per inhabitant: bribes (faction, cost factor 10,000, text) |
 | New-character templates | 2 | money, starting ship package, one standing per faction |
-
-A base record also carries the unused price variance and the repair
-rate.
 
 Example market rows (placeholders, real proportions):
 
@@ -525,9 +526,8 @@ dealer screens, price markers, the base information card.
   all feed it.
 
 **Feel.** The five-step matrix; ±0.9 as the limit of earned standing;
-the resale rates (generous on hulls, harsh on guns, so changing ship is
-cheap and refitting is not); the 20 seconds to drop contraband; the
-warning before provocation; the refund while the dealer screen is open.
+the resale rates (generous on hulls, harsh on guns); the 20 seconds to
+drop contraband; the warning before provocation; the dealer's refund.
 
 **Accidents of the era.**
 
@@ -561,9 +561,9 @@ warning before provocation; the refund while the dealer screen is open.
    (lane rings and jump points, inferred).
 4. **Ship exchange.** The roles of the two equipment terms in the cost,
    and what happens to items that fit nowhere.
-5. **Multiplayer jobs.** Job difficulty reads the campaign stage, which
-   multiplayer never advances; how offers scale there was not traced
-   (chapter 08).
+5. **Kills of mission-spawned ships.** Whether they change standing was
+   not traced. (How job difficulty is chosen in multiplayer, where the
+   campaign position never advances, is in chapter 08, section 3.11.)
 6. **Run-time changes to the matrix.** Which scripted events use the
    service was not traced.
 7. **A "jump distance" field on commodities** (1 to 10) is loaded; no
@@ -571,7 +571,6 @@ warning before provocation; the refund while the dealer screen is open.
 8. **Taking sides.** In the branch for an affiliated victim the
    reconstructed code lets A act only when its regard of C is exactly
    −0.6, which cannot be the intent. The heartbeat period was not read.
-   Whether kills of mission-spawned ships change standing is also open.
 
 ## 8. Basis
 
