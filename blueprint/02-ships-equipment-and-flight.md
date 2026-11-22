@@ -509,12 +509,12 @@ authority, a bandwidth compromise that trusts the player's machine.
 2. What sets the turn-sensitivity factor of 3.9 and a per-ship multiplier
    on angular drag. Both default to no effect; their writers were not
    traced.
-3. The rule that decides whether an external item is attached with its own
-   collision shape or without one.
+3. What decides whether an external item is attached with its own
+   collision shape.
 4. Whether the player can strafe vertically, and how the controls step
    or set the throttle; the bindings were not read (chapter 09).
-5. Whether a force controller's push takes effect in the same physics step or the
-   next; steady-state behaviour is the same either way.
+5. Whether a force controller's push acts in the same physics step or
+   the next; steady-state behaviour is the same.
 
 ## 8. Basis
 
