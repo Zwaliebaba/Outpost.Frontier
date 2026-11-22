@@ -686,6 +686,27 @@ its member order w, x, y, z; archetypes are the full ids):
 | `SendServerLand` | `dock` u, `base` u |
 | `SendServerLaunch` | `dock` u, `index` u, `pos` f3, `q` f4 |
 
+## `dispatch.jsonl`
+
+The dispatch trace (record 0006 point 10; since P3.4a): every delivery
+of `Server.dll`'s controller registry, from `IServerImpl::Startup` on,
+written before the controller's `IDLL::HandleMessage` runs. The hook
+(`GOracleSimHooks.OnControllerDeliver`, `FOracleSimDeliverScope`) sits at
+the registry's three delivery sites: the broadcast and targeted arms of
+`Server_ControllerDispatch`, and the heartbeat walk of `Server_TimerTick`.
+A timer's `TimerExpired` is one of the first two (`Server_TimerFiring`
+dispatches it). Every controller is listed, the harness's own included,
+so a broadcast shows as one record per controller in list order.
+
+| `rec` | Fields |
+| --- | --- |
+| `deliver` | `tick` u (0 for the start-up, before frame 1), `seq` u (from 0, in delivery order), `depth` i (the deliveries already in progress: 0 for one no handler made, 1 for one sent by a handler, and so on), `flid` u (the receiving controller), `msg` i (the `pub::Controller::EMessage` value), `path` s (`broadcast`, `send` or `heartbeat`), [`elapsed` f (`Heartbeat`: the whole periods delivered)], [`p1` u, `p2` u (`TimerExpired`: the timer's two words; `p1` is Content's counter value for Content's timers)] |
+
+`crates/game-logic/tests/content_startup.rs` compares the heartbeats
+Content's controllers get with the port's bus and reports the
+`TimerExpired` words against Content's counter (P3.4a). The payloads of
+the other messages are not decoded yet.
+
 ## Other files of a run
 
 `ai.jsonl` (above) holds the behaviour ticks (P2.5), `load_rand.jsonl` and

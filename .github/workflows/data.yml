@@ -458,6 +458,22 @@ jobs:
           New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\outpost-sim-summaries" | Out-Null
           Copy-Item "$env:OUTPOST_ORACLE_DIR\rust-scenario-hooks.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
           exit $code
+      - name: Compare Content's start-up
+        # Work package P3.4a (decision record 0008): the port's start-up from the oracle's
+        # [Initial MP DLLs] rows against each scenario's session.jsonl `heartbeats` (ids,
+        # priorities, intervals and phases on the start-up seed), the heartbeats Content's
+        # controllers get in dispatch.jsonl (record 0006 point 10), and the TimerExpired words
+        # there reported against Content's counter (crates/game-logic/tests/content_startup.rs).
+        # Summary rust-content-startup.txt.
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-sim"
+          cargo test --locked --release -p game-logic --test content_startup -- --nocapture
+          $code = $LASTEXITCODE
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\outpost-sim-summaries" | Out-Null
+          Copy-Item "$env:OUTPOST_ORACLE_DIR\rust-content-startup.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
+          exit $code
       - name: Compare the system loads
         # Work package P3.3 (decision record 0007 point 11): the port loads every system through
         # game-logic::world and renders the lines the oracle wrote

@@ -137,6 +137,11 @@ fn he01_with_players(cx: &mut Cx<'_>) -> u32 {
         &CreateParams::None,
         neuron_server::controller::Priority::Normal,
     );
+    // Each constructor drew its heartbeat's phase (P3.4a). The oracle's
+    // harness seeds again after the controllers exist (design/reference-build.md
+    // section 10, start-up steps 3 to 5), so the transit draws from the
+    // generator as it was before them.
+    *cx.world.rng() = neuron_core::rng::CrtRand::default();
     world::load(cx, he01());
     let parked = [
         (1, Vector::new(4400.0, 600.0, -50000.0)),

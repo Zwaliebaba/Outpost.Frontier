@@ -655,6 +655,8 @@ As `OutpostServer.exe` (`OutpostServer.cpp:437`, `:523`, `:731-745`,
    controllers) and loads the stub as its client interface. Its `srand`
    takes the scenario's `seed` instead of `timeGetTime()` (the start-up
    seed, below under "Determinism"), and again after `PlayerDB::init`.
+   The dispatch trace (`dispatch.jsonl`, sim-records.md) records every
+   controller delivery from here on (P3.4a).
    With `comms off` the harness then sets Content's comm clamp
    (`OracleSimSetGcsClamp`).
 4. The load-time rand() recorder starts (`load_rand.jsonl`, below);
@@ -690,7 +692,7 @@ is zero, which only `Oracle.exe sim` changes:
 
 | File | Hook |
 | --- | --- |
-| `Server\IServerImpl.cpp` | `Server_StepSystems` steps `StepSystemId` and no other system; `StarSystem_Update` runs the multiplayer physics and collision pass for that system although it has no player; `IServerImpl::ElapseTime` takes the frame time as its real dt (`OracleSimFixElapsed`); `OracleSimLoadSystem`, a new export; `IServerImpl::Startup`'s `srand` takes `StartupSeed` instead of `timeGetTime()` under the fixed clock, and seeds again after `PlayerDB::init` (2026-11-19); `OracleSimControllerHeartbeats`, a new export (each controller's heartbeat interval and phase); `OracleSimAddPlayer`, a new export (P3.3, a scenario's `player`: the session's slot takes the system and the ship, then `StarSystem::add_player`; the client id stays 0) |
+| `Server\IServerImpl.cpp` | `Server_StepSystems` steps `StepSystemId` and no other system; `StarSystem_Update` runs the multiplayer physics and collision pass for that system although it has no player; `IServerImpl::ElapseTime` takes the frame time as its real dt (`OracleSimFixElapsed`); `OracleSimLoadSystem`, a new export; `IServerImpl::Startup`'s `srand` takes `StartupSeed` instead of `timeGetTime()` under the fixed clock, and seeds again after `PlayerDB::init` (2026-11-19); `OracleSimControllerHeartbeats`, a new export (each controller's heartbeat interval and phase); `OracleSimAddPlayer`, a new export (P3.3, a scenario's `player`: the session's slot takes the system and the ship, then `StarSystem::add_player`; the client id stays 0); the registry's three delivery sites (`Server_ControllerDispatch`'s broadcast and targeted arms, the heartbeat walk) report each delivery before the handler (`FOracleSimDeliverScope`, the dispatch trace `dispatch.jsonl`, P3.4a) |
 | `Server\server_gameobject.cpp` | the three timer stamps (`EqObj::update` repair, `apply_damage_list`, `apply_equip_entry`) read `OracleSimTimingRead()`, which is `Timing::read()` unless the clock is fixed; `GameObject::on_collision` reports `CalcCollisionDamage`; `Ship::set_throttle`, `set_axis_throttle`, `set_nudge_vec`, `set_strafe_dir` and `EqObj::slot_34` report the `IObjAffect` call |
 | `Server\server_classes.cpp` | `StarSystem::munition_collision` reports the impact and its damage list; `StarSystem_MpCollisionFilter` takes its single-player branch when asked (`collisions sp`) |
 | `Common\common_physicalsystem.cpp` | `PhysicalSystem::Update` takes the single-player branch when asked |

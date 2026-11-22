@@ -3,12 +3,13 @@
 //! `&mut` to every function that can dispatch a controller message.
 //!
 //! `Logic` holds the server's own state: the controller bus, the client
-//! sink and (from the later P3.2 increments) the player database. The
-//! controllers are the 23 kinds of Content's factory (`CreateInstance`,
-//! `Content/Content.cpp:84-108`); their handlers arrive with P3.5 to P3.7,
-//! and until then a delivery goes to the optional test hook. SpaceSupport's
-//! trade-lane handlers are ported ([`crate::tradelane::space_support`]) and
-//! run before the hook.
+//! sink, the player database and Content's state ([`crate::content`],
+//! decision record 0008). The controllers are the 23 kinds of Content's
+//! factory (`CreateInstance`, `Content/Content.cpp:94-135`): the bus's
+//! create runs their constructors ([`crate::content::instantiate`]), its
+//! teardown their destructors ([`crate::content::destroy_instance`]), and a
+//! delivery goes to Content's handler of the kind
+//! ([`crate::content::deliver`]), then to the optional test hook.
 
 use game_sim::object::World;
 use game_sim::protocol::ToClient;
@@ -98,14 +99,43 @@ impl ControllerKind {
 }
 
 /// What `pub::Controller::Create` hands a new controller
-/// (`pub::Controller::CreateParms` and its derived forms).
+/// (`pub::Controller::CreateParms` and its derived forms; record 0008
+/// point 2). A kind whose constructor reads parameters of another form
+/// reads zeros (D770).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CreateParams {
-    /// No parameters (the `[Initial * DLLs]` rows).
+    /// No parameters (the `[Initial * DLLs]` rows; a null `Parms`).
     #[default]
     None,
-    /// `FStoryCreateParms` and the mission forms: the player.
-    Player(u32),
+    /// `FStoryCreateParms` (StoryLauncher's create of `Story`,
+    /// `Content/StoryLauncher.cpp:64-77`): the player.
+    Story {
+        /// `PlayerId`.
+        player: u32,
+    },
+    /// `FStoryMissionCreateParms` (Story's create of a chapter's mission,
+    /// `Content/Story.cpp:162-169`): the player and the Story controller
+    /// whose `IStoryMissionEvents` the mission calls.
+    StoryMission {
+        /// `PlayerId`.
+        player: u32,
+        /// The Story controller (the C++'s `IStoryMissionEvents*`).
+        story: ControllerId,
+    },
+    /// `FStoryOnLoadCreateParms` for `GenericMission` (Story's restore,
+    /// `Content/Story.cpp:360-380`): the story mission's parameters and the
+    /// mission file, within the C++'s buffer (D773).
+    GenericMission {
+        /// `PlayerId`.
+        player: u32,
+        /// The Story controller.
+        story: ControllerId,
+        /// `GenericMissionPath`.
+        path: crate::content::mission::MissionPath,
+    },
+    /// `FRandomMissionData` for `DestroyMission`: a key into Content's
+    /// reference-counted mission data (P3.7).
+    RandomMission(crate::content::random_mission::RmDataKey),
 }
 
 /// Where the server's calls to the client go (`IClient`, through the
@@ -168,7 +198,8 @@ pub struct Logic {
     pub bus: ControllerBus<ControllerKind>,
     /// The client side of the transport.
     pub client: Box<dyn ClientSink>,
-    /// Deliveries go here until Content's handlers are ported.
+    /// A test seam: every delivery goes here after Content's handler
+    /// (record 0008 point 2).
     pub deliver_hook: Option<DeliverHook>,
     /// The session slots (`Players`, `PlayerDB::init(MaxPlayers, ...)`).
     pub players: neuron_server::session::SessionTable<crate::player::PlayerData>,
@@ -218,6 +249,9 @@ pub struct Logic {
     /// The save storage: the accounts folder, the local clock and the last
     /// file written ([`crate::saves`]).
     pub saves: crate::saves::Saves,
+    /// Content.dll's state (record 0008 point 1): its tables, its globals
+    /// and each controller's own state.
+    pub content: crate::content::Content,
 }
 
 /// The 4096-bit map of player vibe ids (`g_VibeBitmap`, `g_VibeBitmapHint`,
@@ -312,6 +346,7 @@ impl Logic {
             phantoms: crate::api::phantom::Phantoms::default(),
             solar_trees: crate::api::system::SolarTrees::default(),
             saves: crate::saves::Saves::default(),
+            content: crate::content::Content::new(),
         }
     }
 }
@@ -339,11 +374,8 @@ impl BusHost for Cx<'_> {
         kind: ControllerKind,
         message: &mut ControllerMessage<'_>,
     ) {
-        // The part of Content's SpaceSupport the port has: its trade-lane
-        // handlers (`crate::tradelane::space_support`).
-        if kind == ControllerKind::SpaceSupport {
-            crate::tradelane::space_support(self, message);
-        }
+        self.logic.content.count_delivery();
+        crate::content::deliver(self, id, kind, message);
         if let Some(hook) = self.logic.deliver_hook {
             hook(self, id, kind, message);
         }
@@ -351,15 +383,17 @@ impl BusHost for Cx<'_> {
 
     fn instantiate(
         &mut self,
-        _id: ControllerId,
+        id: ControllerId,
         _dll: &[u8],
         name: &[u8],
-        _params: &CreateParams,
+        params: &CreateParams,
     ) -> Option<ControllerKind> {
-        ControllerKind::from_instance_name(name)
+        crate::content::instantiate(self, id, name, params)
     }
 
-    fn destroy_instance(&mut self, _id: ControllerId, _kind: ControllerKind) {}
+    fn destroy_instance(&mut self, id: ControllerId, kind: ControllerKind) {
+        crate::content::destroy_instance(self, id, kind);
+    }
 
     fn allocate_id(&mut self) -> u32 {
         self.world.allocate_id()
