@@ -21,7 +21,7 @@ What the blueprint is:
   your own answer.
 - **Mechanics without a setting.** It names no faction, place, ship or
   character and tells no story. Roles stand in their place ("a major
-  house", "an outlaw faction") and example nicknames start with
+  power", "an outlaw faction") and example nicknames start with
   `example_`. The setting, the look and the sound are yours to make.
 - **Technology neutral.** It describes behaviour. Chapter 11, section 7,
   says what the original was built on and which of its traits are
@@ -190,10 +190,10 @@ ship.
 
 **The tick.** The authority aims at thirty ticks a second and passes the
 measured time as the step; the step is variable. One tick: drain
-messages, step every system that holds a player (ships: authority state,
-equipment, pilot; then other objects; deletions; dock queue), update the
-base database, run content heartbeats and timers, then replicate to each
-observer. A system without a player does not run.
+messages; step every system that holds a player (ships: authority state,
+equipment, pilot; then other objects; deletions; dock queue) and
+replicate that system to its observers; update the base database; run
+content heartbeats and timers. A system without a player does not run.
 
 **Content on an event bus.** The authority knows nothing about missions or
 population. It announces events (a ship destroyed, a dock requested, a
