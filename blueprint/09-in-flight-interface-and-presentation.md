@@ -1,7 +1,7 @@
 # 09 — In-flight interface and presentation
 
-Status: draft
-Depends on: 01, 02, 11, 12; refers to 03, 04, 05, 08, 10
+Status: reviewed
+Depends on: 01, 02, 11, 12; refers to 03 to 08, 10
 
 ## 1. Purpose and player experience
 
@@ -19,12 +19,11 @@ the automatic manoeuvres.
 
 The HUD answers four questions without opening a window: what state is
 my ship in, what is around me, what am I shooting at, and what can I do
-next. Music, spoken warnings and radio chatter carry the rest.
+next.
 
 ## 2. Concepts
 
-Terms of the glossary and of chapters 01, 02, 11 and 12 are used as
-defined. This chapter adds:
+Terms of the glossary and of chapters 01, 02, 11 and 12 apply. New here:
 
 | Concept | Definition |
 | --- | --- |
@@ -91,7 +90,7 @@ own. The options screen offers 92 commands for rebinding.
 
 ### 3.2 The command catalogue
 
-The data defines 151 commands, 22 of them debug aids.
+The data defines 146 commands, 22 of them debug aids.
 
 | Group | Commands |
 | --- | --- |
@@ -107,8 +106,7 @@ The data defines 151 commands, 22 of them debug aids.
 | View | Cockpit/chase toggle, turret view toggle, rear view (hold), look keys, level-camera toggle |
 | Interface | Minimise the HUD; open its status panel, target panel, contact, formation or weapon list; open map, inventory, objective, chat and the other windows of chapter 10 |
 
-A HUD button is only another source of the same commands. Nothing can be
-done with the mouse that has no command.
+A HUD button is only another source of the same commands.
 
 ### 3.3 Mouse flight against the free cursor
 
@@ -151,8 +149,7 @@ Pitch, yaw and roll keys build a vector with components −1, 0 or 1. It
 is multiplied by a ramp that rises from 0 to 1 at 2 per second while a
 key is held, so a tap nudges and a hold turns fully. With shift held and
 a target selected, the ramp is replaced by `1.5 × (1 − cos²θ)`, clamped
-to 0.1 to 1, where θ is the angle between nose and target: fine control
-for lining up.
+to 0.1 to 1, where θ is the angle between nose and target.
 
 Throttle keys move the throttle at 1.0 per second; the wheel steps it by
 0.2. Lowering the throttle, or reaching zero, drops cruise.
@@ -233,9 +230,10 @@ player can step through its parts and external equipment, or click one
 in the target panel; guns then aim at that sub-target.
 
 **Learning the map by flying.** Once a second the presentation checks
-what the player has come near and updates the knowledge state (chapter
-01): a solar within seven times its radius but at least 10,000 m, a zone
-within 7,500 m, and the faction of any ship within scanner range. Each
+what the player has come near and updates the knowledge state, by the
+rules of chapter 01 (3.10): a solar whose surface is closer than the
+larger of 7 radii and 10,000 m, among solars within 20,000 m; a zone
+within 7,500 m; and the faction of any ship within scanner range. Each
 new fact is reported to the authority.
 
 ### 3.7 HUD elements
@@ -248,7 +246,7 @@ with no player ship.
 | --- | --- |
 | Gauges | Power pool, shield and hull as three bars of 16 segments; speed along the nose, shown as 300 in cruise; thrust pool in percent, in a warning colour below 25 % |
 | Markers and reticle | 3.6; this element also computes the aim point and resolves clicks |
-| Alerts | Incoming guided munition; ship on your tail within 500 m; radiation; network lag above 600 ms, red above 1,200 ms. The munition alert blinks with a period of √distance × 0.001 s, at least 0.1 s, and triggers one spoken warning. |
+| Alerts | Incoming guided munition; ship on your tail within 500 m; radiation; network lag above 600 ms, red above 1,200 ms. The munition alert blinks with a period of distance × 0.001 s, at least 0.1 s, and triggers one spoken warning. |
 | Target panel | A wireframe view of the target, its parts coloured by damage in four steps; name, faction, range; buttons for scan, tractor, next enemy, trade. Switches to the contact list or the formation list. |
 | Status panel | The same wireframe for the player's ship; weapons with ammunition and on/off state; repair consumable counts; a button when loot is within 1,000 m |
 | Manoeuvre bar | One button per manoeuvre, lit only if the manoeuvre layer says it is possible for the current target; a cruise indicator |
@@ -257,9 +255,8 @@ with no player ship.
 | Comm window | An animated portrait of the speaker with name and caption (3.14) |
 | Captions | Cruise charge in percent; the active view or cursor mode, with the key that leaves it |
 
-Text that names a key is built from the live binding. Expensive lists
-refresh on timers: the contact list every 3 s, status counts every
-second.
+Text that names a key is built from the live binding. The contact list
+refreshes every 3 s.
 
 ### 3.8 The contact list
 
@@ -283,7 +280,7 @@ One camera is active at a time.
 | Chase | Behind and above the ship (below) | View toggle; default |
 | Turret | On a tether behind the ship, looking anywhere within ±60° of pitch; aimed by keys or cursor | Turret toggle |
 | Rear | 5 m up, 20 m back, looking backwards | Held key |
-| Death | Shakes for 2 s, amplitude falling as the square of the time left, while drifting with the wreck at up to 200 m/s | Loss of the ship |
+| Death | Shakes for 2 s with falling amplitude while drifting with the wreck at up to 200 m/s | Loss of the ship |
 | Docking | A fixed outside pose that keeps aiming at the ship; letterbox; fade to black timed to end with the sequence | Docking sequence (chapter 04) |
 | Scripted | Driven by a scene script, or parked at a pose it gives; letterbox (chapter 10) | Mission or cutscene |
 
@@ -382,9 +379,8 @@ About 45 effect types carry the rules:
 | Distance pair | Near and far limit; the detail option slides the cut-off between them | 50/150 to 2,000/7,000 m |
 | Detail class | Maps projected size in pixels to a detail blend, and to nothing below a minimum | Six classes |
 
-The rule to keep: effects are numerous and cheap to drop. Each is judged
-by its type every frame, and the player's detail setting moves one
-threshold.
+The rule to keep: effects are numerous and cheap to drop, each judged by
+its type every frame.
 
 ### 3.12 Sound
 
@@ -400,7 +396,6 @@ Typical pairs are 20 to 70 m and 200 to 500 m around ships, and
   The mixer keeps the best N (8 to 128 by option); the rest fall silent
   but keep their place in time.
 - **The listener** is the active camera, with its velocity for Doppler.
-  The player's thruster uses an interior recording in the cockpit view.
 - **Engine sound follows throttle** in pitch and volume (inferred from
   constant names).
 - **Ducking.** Speech lowers everything else: by 12 dB for a comm to the
@@ -421,7 +416,7 @@ override any of the three or force one track (chapter 08).
 | Forced | A mission set an override track |
 | Silent | The ship is in a jump or docking sequence (inferred) |
 
-A state change fades to the new track (3 s by configuration) and locks
+A state change fades to the new track (3 s) and locks
 the state for 10 s, after which the conditions are evaluated again. In
 battle each new battle event restarts the 10 s, so battle music holds
 until ten quiet seconds have passed. The lock prevents flicker when one
@@ -434,7 +429,7 @@ flight profile holds 400 to 500 lines: docking requests and replies,
 combat calls, acknowledgements, and many fragments: numbers, formation
 call signs, and one spoken reference per faction, ship class and base.
 
-The authority composes a comm (chapters 05 and 08 decide who says what):
+The authority composes a comm (chapters 06 and 08 decide who says what):
 sender, receiver, voice profile, caption and up to 16 line identifiers,
 such as "this is" + call sign + number + a docking request. The
 presentation only plays it.
@@ -483,10 +478,6 @@ moved by the presentation's own simulation and its state is sent up
 | Voice line | Nickname, duration, attenuation, priority |
 | Global constants | Comm distances and attenuations, music lock |
 
-For scale: about 700 effects, 1,200 visual effects, 670 non-speech sound
-records, 188 music records and 33 reusable flight voices (census:
-chapter 12).
-
 ## 5. Connections
 
 - **From 01:** zones with interference, immersion, fog, ambience and
@@ -496,13 +487,13 @@ chapter 12).
 - **From 03:** guns against launchers, lead position, damage events.
 - **From 04:** manoeuvres and their availability; waypoints; sequences
   that take the camera.
-- **From 05:** attitude of each contact; composed comms.
+- **From 06:** composed comms (its section on radio chatter).
+- **From 07:** the attitude of each contact.
 - **From 08:** objectives, music overrides, scripted cameras.
 - **From 11:** visibility radii; the messages for fire, target and
   manoeuvre.
 - **To 03, 04, 05:** the aim point; fire and manoeuvre requests.
 - **To 10:** the command system and focus rules, shared by base screens.
-- **To 12:** the record kinds of section 4.
 
 ## 6. Design notes for the builder
 
@@ -525,8 +516,8 @@ lock. Fragment-assembled radio speech: whole recorded lines would do,
 provided traffic talks and distance fades it.
 
 **Accidents of the era.** Pixel constants tied to an 800-pixel screen,
-including a click radius that shrinks as resolution grows. No game
-controller support; the lock mode is the natural basis for a stick
+including a click radius that shrinks as resolution grows. No gamepad
+or joystick support; the lock mode is the natural basis for a stick
 mapping. A shake decay per frame instead of per second.
 
 **Simplifications.**
@@ -545,10 +536,9 @@ mapping. A shake decay per frame instead of per second.
 2. The score a sound source computes for the mixer's ranking was not
    read.
 3. Zoom commands have default keys, but no in-flight handler was found.
-   A "trail" manoeuvre and several evasive manoeuvres have handlers but
-   no button and no default key.
+   A "trail" and several evasive manoeuvres have handlers but no key.
 4. How the authority picks the fragments of a comm, and how often NPCs
-   chatter, belong to chapter 05 and were only skimmed.
+   chatter, belong to chapter 06 and were only skimmed.
 5. What starts the docking camera, and with what pose, was not traced.
 6. The format of the particle-effect libraries was not read; 3.11 states
    only what game code asks of them.
@@ -564,13 +554,10 @@ camera fields of `SHIPS/shiparch.ini`; one file under `COCKPITS/`;
 
 Code, client: `menu_keymap_config.h`, `hud_command_dispatch.h`,
 `main_command_handler.cpp`, `input_manager.h`, `player_behavior.cpp`,
-`hud_maneuvers.cpp`, `hud_status_core.cpp`, `hud_target.h`,
-`hud_target_panel.cpp`, `hud_targetable_objects.*`,
-`hud_contact_list.cpp`, `hud_comm.*`, the smaller `hud_*.h`,
-`space_state.cpp`, `space_camera_game.cpp`, `space_camera_third.*`, the
-other `space_camera_*.h`, `space_scene_obj_draw.cpp`, `star_sys.cpp`,
-`menu_sound_arch.*`, `sound_config.cpp`, `voice_profiles.cpp`,
-`effect_type_info.h`, `particle_effect.*`.
+the `hud_*` files, `space_state.cpp`, the `space_camera_*` files,
+`space_scene_obj_draw.cpp`, `star_sys.cpp`, `menu_sound_arch.*`,
+`sound_config.cpp`, `voice_profiles.cpp`, `effect_type_info.h`,
+`particle_effect.*`.
 
 Code, shared and authority: `Common/common_cescanner.cpp`,
 `common_csimple.cpp`, `common_behaviormanager.cpp`,
@@ -580,4 +567,4 @@ Code, shared and authority: `Common/common_cescanner.cpp`,
 Inferred: the multiplayer limit on contacts; the watch list's source;
 the direction of the chase look-ahead; the engine-sound rule; the
 "silent" music state. The capability list of 3.11 comes from the
-callers, not from the particle library. Counts are rounded.
+callers, not from the particle library.

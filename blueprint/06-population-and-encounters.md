@@ -1,14 +1,14 @@
 # 06 — Population and encounters
 
-Status: draft
+Status: reviewed
 Depends on: 01, 02, 04, 05, 07, 11, 12
 
 ## 1. Purpose and player experience
 
 No NPC ship is placed by hand in a system file. Zones only state who
-lives there and how densely; a controller on the authority creates ships
-around each player, gives each group a task, and removes it when nobody
-is near.
+lives there and how densely; a content controller on the authority
+creates ships around each player, gives each group a task, and removes
+it when nobody is near.
 
 The player sees a world that seems to exist without them. Freighters with
 escorts leave lanes and dock at stations. Police fly patrol routes, scan
@@ -47,13 +47,13 @@ attitude in the glossary. This chapter adds:
 | Class tag | A label on an NPC ship definition: lawful or unlawful, its role (fighter, freighter, transport, gunboat …) and each level it serves. |
 | Class group | A named set of class tags. Ship lines and caps name groups, never ship archetypes. |
 | NPC ship definition | A record binding a ship archetype, a loadout, a pilot, a combat state graph, a level and class tags. |
-| Faction properties | Per faction: its NPC ship definitions, name pools, voices, pilot appearances, formation per class, cargo-scanning habits. |
+| Faction properties | Per faction: its NPC ship definitions, name pools, voice profiles, pilot appearances, formation per class, cargo-scanning habits. |
 | Arrival method | How a new group enters the scene: out of a lane, from a dock, cruising in, or passing the player. |
 | Itinerary | The standing task of a group's leader, which hands the pilot one directive after another: trade run, path patrol, wander. |
 | Lifetime budget | Seconds a ship may exist unobserved; refilled near players, drained faster with distance. |
 | Lane attack | A spawn that breaks a lane ring ahead of a travelling player and puts hostile ships there. |
 | Piloted solar | A station, gate or weapon platform with a faction, a loadout and a pilot. Permanent; outside the population loop. |
-| Line segment | One recorded piece of speech, with several variants per voice profile. |
+| Voice line | One recorded piece of speech (chapter 09); a voice profile holds several variants of each. |
 
 ```text
 zone (system file)
@@ -80,10 +80,11 @@ faction and level.
 ### 3.1 Where it runs
 
 The population is one content controller on the authority (chapter 11)
-with a heartbeat of 3 s. It works per player; a system without players
-is not simulated and has no NPCs. A second controller, which supports
-everything in space, runs the lifetime rule (3.8) once per second, the
-dock queues and the radio chatter.
+with a heartbeat of 3 s. It works per player, so a system nobody is in
+gains no NPCs, and those left behind expire at the full rate (3.8); such
+a system is not stepped either (chapter 11). A second content
+controller, which supports everything in space, runs the lifetime rule
+once per second, the dock queues and the radio chatter.
 
 | Occasion | Action |
 | --- | --- |
@@ -93,8 +94,8 @@ dock queues and the radio chatter.
 
 ### 3.2 Which zones speak for a position
 
-Zones overlap freely, so the controller first decides which population
-entries apply:
+Zones overlap freely, so the content controller first decides which
+population entries apply:
 
 - **At the ship:** every path segment containing the point, plus the
   smallest other populated zone containing it. A lane corridor counts as
@@ -168,16 +169,20 @@ A group is refused if any of these holds:
 | --- | --- |
 | Battle size | The player is in combat (a hostile object within 2,500 m) and has at least the zone's battle size of hostile contacts (typically 4). |
 | Relief | The player is not in combat, but the last fight ended less than the zone's relief time ago (typically 30 s). Friendly traffic waits too. |
-| Mission switches | A mission may switch the population off, declare spheres free of it, or forbid per player the factions hostile to that player, or all others. |
+| Mission switches | A mission may switch the population off, declare spheres free of it, or forbid the factions hostile to the player, or all others (chapter 08). |
 | Uniqueness | The template forbids a second copy while one lives, or has reached its creation limit. |
 | Class caps | The zone caps how many ships of a class group may be near (authored: one patrol of each kind near a path; four lawful, four unlawful in an area). See open question 1. |
 | Placement | No arrival method finds a valid position (3.7). |
 
 Battle size and relief pace the game. Without the first a busy zone
 would feed a fight without end; without the second the next patrol would
-arrive while the player still collects loot. A mission can also make
-ambient and mission ships tolerate each other: their mutual attitudes
-are raised to just above the hostile threshold.
+arrive while the player still collects loot.
+
+A mission can also stop ambient attacks: the attitudes between ambient
+ships on one side and players and mission ships on the other are raised
+to just above the hostile threshold. A scripted mission does this by
+default, and switches off lane attacks and cargo scans; a generated
+mission keeps population out of 10,000 m around its site (chapter 08).
 
 ### 3.6 Building the ships
 
@@ -195,14 +200,15 @@ Each ship also receives:
 
 - a **name** and a private reputation record affiliated to its faction
   (3.11; chapter 07);
-- a **pilot appearance** and a **voice** from the faction's lists, with
-  gender weighted by the faction's share of male voices;
+- a **pilot appearance** and a **voice profile** from the faction's
+  lists, with gender weighted by the faction's share of male voices;
 - the **formation** the faction uses for the template's formation class,
   so factions fly the same encounter in different shapes (chapter 05);
 - for a trade run, **cargo**: a commodity chosen by weight from what the
   two endpoint bases trade and the faction's goods list, filling 80 % of
   the hold. Freighters and transports behind the leader carry the same
-  good. A destroyed trader thus drops what its route plausibly carries.
+  good. A destroyed trader thus drops what its route plausibly carries
+  (drop rules: chapter 03).
 
 Only the leader gets the itinerary; the others follow in formation.
 
@@ -245,8 +251,9 @@ two objects on it, turning at the ends or looping. A patrol of a faction
 that scans cargo meanwhile looks for ships within 2,500 m: it closes in,
 announces the scan (if the faction does), scans, and on finding a good
 from the faction's list demands that it be dropped, waits for the answer,
-then collects the jettisoned cargo or turns hostile. Lawful and unlawful
-factions share the mechanism; one confiscates, the other robs.
+then turns hostile or collects the jettisoned cargo. The itinerary
+issues that tractor directive; pilots do not loot on their own (chapter
+05). Lawful and unlawful factions share the mechanism.
 
 **Wander.** The leader hops 1,500 to 3,000 m to random points in its
 zone that it can reach in a clear straight line, with shorter hops when
@@ -270,7 +277,7 @@ a jump point is created there (inferred).
 
 ### 3.9 Lane attacks
 
-When a player enters a lane, the controller may stage an ambush:
+When a player enters a lane, the content controller may stage an ambush:
 
 1. At most one roll per lane per 180 s.
 2. The probability is the largest "lane attack" value among the path
@@ -285,7 +292,7 @@ When a player enters a lane, the controller may stage an ambush:
    then patrols the zone's path.
 
 The player drops out of the lane among ships of a faction with a reason
-to be there. A mission can switch lane attacks off per player.
+to be there. Missions can switch lane attacks off (chapter 08).
 
 ### 3.10 Difficulty by place
 
@@ -330,20 +337,20 @@ living NPCs do not share a name while the pool lasts.
 
 ### 3.12 Radio chatter
 
-Speech is assembled from pieces. A **line** is a speaker, a listener and
-a list of line segments: "this is", the faction's short name, the
-designation word, the number, "to", the station's name, "requesting",
-"permission to dock". Stations, systems and factions carry a prefix from
-which their segment names are formed. For each segment the
-voice profile states how many recorded variants it has (typically 1 to
-8); one is drawn with a bias to the low numbers. A voice also declares
-the roles it can speak (dock controller, docking ship, combat at three
-intensities, scanning, idle chatter …); no line is built for a voice
-without the role.
+Speech is assembled from pieces. A **comm** (chapter 09) is a speaker, a
+listener and a list of voice lines: "this is", the faction's short name,
+the designation word, the number, "to", the station's name,
+"requesting", "permission to dock". Stations, systems and factions carry
+a prefix from which the names of their voice lines are formed. For each
+name the voice profile states how many recorded variants it has
+(typically 1 to 8); one is drawn with a bias to the low numbers. A
+profile also declares the roles it can speak (dock control, docking
+ship, combat at three intensities, scanning, idle chatter …); no comm is
+built for a profile without the role.
 
-A **conversation** is an ordered list of lines. The authority knows each
-segment's duration, plays a line, waits until it has finished, and plays
-the next if its speaker still exists.
+A **conversation** is an ordered list of comms. The authority knows each
+voice line's duration, sends a comm, waits until it has finished, and
+sends the next if its speaker still exists.
 
 | Source | Trigger |
 | --- | --- |
@@ -362,9 +369,9 @@ this a six-ship fight would talk without pause.
 ### 3.13 Authority and presentation
 
 Everything above runs on the authority. The presentation receives ship
-creations with name, faction, appearance, voice and rank, and "comm"
-messages naming speaker, listener, voice and segments; it plays the
-segments back to back and shows the speaker (chapter 09).
+creations with name, faction, appearance, voice profile and rank (the
+ship's level), and comms; it plays their voice lines back to back and
+shows the speaker (chapter 09).
 
 ## 4. Data that defines it
 
@@ -434,7 +441,7 @@ cruiser), level, class tags.
 ship role.
 
 **Faction properties** (55): lawful or unlawful; preferred kind of jump
-point; 0 to 39 NPC ship definitions (median 8); 1 to 4 voices; up to 12
+point; 0 to 39 NPC ship definitions (median 8); 1 to 4 voice profiles; up to 12
 pilot appearances; name pools as ranges of text identifiers (typically
 134 male and 83 female first names, 300 last names, 8 to 13 designation
 words, 40 to 60 ship names); three rank titles with two level
@@ -442,7 +449,7 @@ thresholds; formation per class; and, for 25 factions, the goods they
 scan for, whether they announce the scan, and a scan chance of 0.3.
 
 **Voice properties**: per voice profile, the roles and the variant count
-of each segment; the voice files give each segment's duration.
+of each voice line; the voice files give each recording's duration.
 **Piloted solars**: on the object in the system file, a faction, a
 loadout, a state graph and one of four pilot grades; about 1,500 objects
 have one.
@@ -460,15 +467,16 @@ radii (2,500 m unowned, 5,000 m other players, 10,000 m group members;
 multiplayer only); from 12, record formats, text identifiers, voice
 profiles.
 
-**Gives:** to 03 and 05, opponents with level, loadout and pilot; to 04,
+**Gives:** to 03 and 05, opponents with level (their rank, on which
+bonus loot is keyed), loadout and pilot; to 04,
 lane attacks and NPC dock traffic; to 07, the ships whose destruction
 moves reputation, and trader cargo as loot; to 08, the same builders
 (missions create ships through the faction ladder, names and formations
 of this chapter) and the switches that silence or restrict the
 population; to 09, names, ranks, faces and comm messages.
 
-Base inhabitants (people in rooms) come from a separate controller and
-belong to chapters 08 and 10.
+Base inhabitants (people in rooms) come from a separate content
+controller and belong to chapters 08 and 10.
 
 ## 6. Design notes for the builder
 
@@ -477,8 +485,8 @@ belong to chapters 08 and 10.
 - Population follows players, not zones. This makes the cost independent
   of world size and makes saving NPCs unnecessary.
 - Indirection through class and level. Zone → encounter → class group →
-  faction → ship definition lets about 40 encounter files and 400 ship
-  definitions populate 3,800 zones for 55 factions. Encounters written
+  faction → NPC ship definition lets about 40 encounter files and 400 NPC
+  ship definitions populate 3,800 zones for 55 factions. Encounters written
   per faction and level would be two orders of magnitude more data.
 - Give every group an itinerary with a destination. Traffic that docks,
   launches and rides lanes is what makes stations look like stations.
@@ -491,7 +499,7 @@ be dropped singly; together they make the world seem alive.
 
 **Accidents of the era.** Zone roles recognised by nickname; unread
 tool fields in zone records; chances that do not sum to one;
-segment-spliced speech, which fits thousands of lines on a disc; the
+spliced speech, which fits thousands of recordings on a disc; the
 single-player-only "ahead" list and view-cone test, which exist because
 single player shows the whole system.
 

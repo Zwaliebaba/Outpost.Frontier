@@ -1,6 +1,6 @@
 # 04 — Travel, docking and navigation
 
-Status: draft
+Status: reviewed
 Depends on: 00 (glossary), 01 (solars, lanes, jump points, system paths),
 02 (flight model, cruise, force controllers), 11 (authority, messages).
 Refers forward to 05, 06, 08, 09 and 10.
@@ -15,9 +15,9 @@ with as little hand flying as the player wants.
 The player has four layers of help.
 
 - **Cruise** (chapter 02): five seconds to engage, 300 m/s, no weapons.
-- **Manoeuvres** are orders to the ship's autopilot: fly to the selected
-  object, dock with it, join its formation, or return to free flight. The
-  autopilot is the pilot layer that also flies NPCs.
+- **Manoeuvres** are orders to the ship's manoeuvre layer: fly to the
+  selected object, dock with it, join its formation, or return to free
+  flight. NPCs are flown by the same layer (chapter 05).
 - **Lanes** are the motorways. The player orders a dock with a lane ring
   and is carried from ring to ring at 2,500 m/s until the lane ends, the
   player leaves, or somebody shoots a ring out.
@@ -40,19 +40,19 @@ force controller) are used as defined. This chapter adds:
 
 | Concept | Definition |
 | --- | --- |
-| Manoeuvre | An order to the pilot layer of the player's ship: free flight, go to, dock, join formation. One is active at a time. |
+| Manoeuvre | What the player orders from the interface: free flight, go to, dock, join formation. Each is issued as a directive to the manoeuvre layer of the player's ship, where it runs as a behaviour (chapter 05). One is active at a time. |
 | Docking point | One authored place on a solar or capital ship where a ship can dock: a kind, a mount pose, two approach poses, a radius and an optional door animation. |
-| Docking point kind | Berth (interior bay), mooring in three sizes (the ship stays outside), ring pad (on a planetary docking ring), jump (the mouth of a jump point), airlock. |
-| Docking class | A label on a ship archetype saying which kind of docking point it may use: berths, or one size of mooring. |
+| Docking point kind | Berth (interior bay), mooring (the ship stays outside), ring pad (on a planetary docking ring), jump (the mouth of a jump point), airlock. The code knows three mooring sizes; the data uses medium and large only. |
+| Docking class | A label on a ship archetype saying which kind of docking point it may use: berths, medium moorings or large moorings. No ship has the small-mooring class. |
 | Docking list, waiting list | The authority's two lists: ships cleared and flying in, and ships told to wait for a free docking point. |
 | Scripted mover | A force controller that takes a ship over completely: collisions off, pose set each tick. Lane travel, ring launch and NPC jump arrival are scripted movers. |
-| Control exclusion | A mask on a ship that suspends the pilot layer, the player's steering and the free camera while a mover or sequence owns the ship. |
+| Control exclusion | A mask on a ship that suspends the manoeuvre layer, the player's steering and the free camera while a mover or sequence owns the ship. |
 | Lock | A marker that closes a jump point: for one player, for every player, or for ambient NPC traffic. |
 | Route, leg | The planner's answer is a route, an ordered list of legs. A leg is "ride this lane from ring X to ring Y" or "fly free to this point". |
 | Waypoint | A position in a named system, optionally tied to an object, held by the presentation. Up to 99. |
 
 ```text
-player ── orders ──▶ MANOEUVRE (pilot layer on the player's ship)
+player ── orders ──▶ MANOEUVRE (directive to the ship's manoeuvre layer)
                         │ go to: steer, throttle, cruise
                         │ dock ─── request ──▶ AUTHORITY: space support
                         │         ◀─ answer ──   permission ▸ docking point ▸ queue
@@ -71,22 +71,22 @@ map ── route request ──▶ AUTHORITY: planner ── legs ──▶ WAYP
 ### 3.1 The manoeuvres a player can order
 
 The interface offers four manoeuvre buttons and a cruise switch (chapter
-09). A button is enabled when the pilot layer says the manoeuvre could
-start now.
+09). A button is enabled when the manoeuvre layer says the behaviour
+could start now.
 
 | Manoeuvre | Needs | What it does |
 | --- | --- | --- |
 | Free flight | — | Manual control (chapter 02). Selecting it cancels any other manoeuvre. |
-| Go to | Optional target | With a target: fly to within a stand-off range of it. Without: fly straight ahead (to a point 100,000 ahead, arrival range 500). |
+| Go to | Optional target | With a target: fly to within a stand-off range of it. Without: fly straight ahead (to a point 100 km ahead, arrival range 500 m). |
 | Dock | A dockable target | Sections 3.2 to 3.4. On a lane ring it means "enter the lane"; on a jump point, "jump". |
 | Join formation | A ship as target | Asks the authority for a slot in that ship's formation (chapter 05). |
 
 The go-to stand-off range is a multiple of the target's radius (5 for
 fighters and freighters, down to 0.5 for stars and planets), at least
-100, and 750 for a lane ring. A player's go to refuses a target moving
-faster than 5 m/s. It cruises only if the player has cruise switched on,
-the distance exceeded 1,750 when the manoeuvre began and the way ahead is
-clear.
+100 m, and 750 m for a lane ring. A player's go to refuses a target
+moving faster than 5 m/s. It cruises only if the player has cruise
+switched on, the distance exceeded 1,750 m when the manoeuvre began and
+the way ahead is clear.
 
 Dock is available when the target is a station, docking ring, lane ring,
 jump point or capital ship with docking points, or a planet served by a
@@ -100,8 +100,8 @@ request to the authority.
 ### 3.2 The dock request
 
 When the dock manoeuvre has brought the ship near, it sends a dock
-request. A player whose target is more than 10,000 away is told "too far"
-and nothing is sent.
+request. A player whose target is more than 10,000 m away is told "too
+far" and nothing is sent.
 
 Space support, a content controller of the authority, answers. The checks
 run in this order and the first failure decides.
@@ -114,7 +114,7 @@ run in this order and the first failure decides.
 | 4 | The target has docking points. | No dock |
 | 5 | At least one docking point's kind fits the ship's docking class. Jump and airlock points fit every ship. | Cannot dock |
 | 6 | One of the fitting points is not held by a ship in the docking list. | Wait |
-| 7 | The target is at rest (linear and angular speed at most 0.01). | Wait |
+| 7 | The target is at rest (linear speed at most 0.01 m/s, angular 0.01 rad/s). | Wait |
 | — | All passed | Proceed, with a docking point |
 
 Among free fitting points the one nearest the ship is chosen.
@@ -127,13 +127,13 @@ Among free fitting points the one nearest the ship is chosen.
 
 Every answer is spoken by the target to the ship (chapter 09).
 
-**The queue.** Each tick space support walks the docking list. A cleared
-ship near its docking point marks the point occupied, which opens its
-doors; they close when no cleared ship is near. A ship that has not
-arrived within 90 s is thrown out: an NPC leader is told to cancel and
-dock again. When a docking finishes, its point is freed and the waiting
-list is walked from the front, each waiter passing through the whole check
-again, so a waiter may be cleared, refused or left waiting.
+**The queue.** Space support walks the docking list once per second, on
+its heartbeat, and again after each finished docking. A cleared ship near
+its docking point marks the point occupied, which opens its doors; they
+close when no cleared ship is near. A ship that has not arrived within
+90 s is thrown out: an NPC leader is told to cancel and dock again. When
+a docking finishes, its point is freed and the waiting list is walked
+from the front, each waiter passing through the whole check again.
 
 **Formations.** When a leader is cleared at a jump point, every follower
 is cleared for the same point and goes through with it. At a base the
@@ -145,20 +145,20 @@ their own, players are released.
 A docking point supplies three poses in the target's model: the *mount*,
 where the ship ends up, and two *approach points* leading to it. The ship
 has a mount hardpoint of its own, and the aim is to bring one onto the
-other. The approach is a state machine in the pilot layer; this is its
-normal path, simplified.
+other. The approach is a state machine inside the dock behaviour; this is
+its normal path, simplified.
 
 | State | What the ship does | Leaves when |
 | --- | --- | --- |
-| Far approach | Go-to manoeuvre to within 1,000 of the target, cruise allowed. | In range → staging |
-| Staging | Flies to within 64 of a staging point. For a lane ring or gate: a spot about 140 short of the entry, on the ship's own side and spread randomly by up to 128 so that arrivals do not stack. | Arrived → request |
+| Far approach | Go-to behaviour to within 1,000 m of the target, cruise allowed. | In range → staging |
+| Staging | Flies to within 64 m of a staging point. For a lane ring or gate: a spot about 140 m short of the entry, on the ship's own side and spread randomly by up to 128 m so that arrivals do not stack. | Arrived → request |
 | Request | Sends the dock request (3.2) or lane request (3.6). | Sent → hold |
 | Hold | Stops and waits. "Wait" keeps it here. | Proceed → align; refusal → failed |
-| Align | Flies to the outer approach point at no more than 18 m/s and takes up its orientation. | Within 10 → inner; straight-in docks and holes → final |
-| Inner | Flies to the inner approach point, same speed cap. Cruise is locked out from here. | Within 15 → final |
+| Align | Flies to the outer approach point at no more than 18 m/s and takes up its orientation. | Within 10 m → inner; straight-in docks and holes → final |
+| Inner | Flies to the inner approach point, same speed cap. Cruise is locked out from here. | Within 15 m → final |
 | Final | Flies its mount onto the dock's mount. The player's manoeuvre buttons are locked. | Within 0.6 × the point's radius → completing; at a mooring → done |
 | Completing | Waits for the authority to confirm. | Confirmed → the ship is gone; 3 s without confirmation (10 s for a player in multiplayer) → start over |
-| Done, failed | Ends the manoeuvre with a result that the orderer (interface, NPC script) reads. | — |
+| Done, failed | Ends the directive with a result that its issuer (interface, NPC script) reads. | — |
 
 At a base the second and third rows swap: the ship asks as soon as it is
 in range, because only the answer tells it which docking point to stage
@@ -166,7 +166,7 @@ at, and then stages at that point's outer approach point. A dock is
 "straight-in" when the three poses lie on one line (within about 6°) and
 face along it.
 
-Guards run throughout. If the ship strays more than 1,050 from the target
+Guards run throughout. If the ship strays more than 1,050 m from the target
 while staging or aligning, or overshoots a lane entry, the manoeuvre
 starts again. While the target moves, the ship pauses. If the target is
 destroyed or the player picks another manoeuvre, the manoeuvre ends and
@@ -181,8 +181,8 @@ tick:
 docked  ⇔  | ship's mount hardpoint − docking point's mount | < docking point's radius
 ```
 
-The radius is authored: 2 to 10 for berths and moorings, 40 for ring
-pads, 150 for holes, 225 for gates.
+The radius is authored: 2 to 10 m for berths and moorings, 40 m for ring
+pads, 150 m for holes, 225 m for gates.
 
 | Kind | Result |
 | --- | --- |
@@ -217,21 +217,21 @@ messages):
 The ship is invincible while it is moved out by one of two means.
 
 - **From a docking ring**, a scripted mover. At time `t` after launch the
-  ship sits on the pad's axis at a distance `d` behind its release point:
+  ship sits on the pad's axis `d` metres behind its release point:
 
   ```text
   t < 2.5 s:  d = 150 × f² + 80 × (2.5 − t) + 40      with f = (2.5 − t) / 2.5
   t ≥ 2.5 s:  d = 80 × (3.0 − t)
   ```
 
-  It starts 390 back at 200 m/s, eases to 80 m/s and at 3 s is released
-  150 in front of the pad with 80 m/s of velocity and full throttle, so
+  It starts 390 m back at 200 m/s, eases to 80 m/s and at 3 s is released
+  150 m in front of the pad with 80 m/s of velocity and full throttle, so
   the hand-over to the flight model is seamless. In multiplayer a
   player's ship is released on a random heading within ±22.5° in yaw and
   pitch, so that players launching together diverge.
-- **From a station or capital ship**, a launch manoeuvre of the pilot
-  layer flies the ship out of the berth while the player's controls are
-  excluded.
+- **From a station or capital ship**, a launch directive makes the
+  manoeuvre layer fly the ship out of the berth while the player's
+  controls are excluded.
 
 The end of the launch lifts the exclusion, ends the invincibility and
 raises "launch complete", which missions listen for.
@@ -250,9 +250,9 @@ player's lane use (3.10); otherwise the ring is switched to its active
 state and the ship cleared. On a ring whose shield is down the manoeuvre
 refuses to start and says why.
 
-Once aligned on the track the ship is handed to a scripted mover. Pilot
-layer and steering are suspended, collisions are off, weapons refuse to
-fire.
+Once aligned on the track the ship is handed to a scripted mover. The
+manoeuvre layer and steering are suspended, collisions are off, weapons
+refuse to fire.
 
 **The ride.** Speed is `2,500 m/s × r`, with `r` a ramp value.
 
@@ -269,8 +269,8 @@ chain. Formation followers ride beside their leader at their lateral
 offset. On release, collisions and control return and the throttle is set
 to full.
 
-A median lane of 52,000 (chapter 01), ridden end to end from 80 m/s,
-takes about 28 s: 8 s and 10,000 of acceleration, 14 s at full speed,
+A median lane of 52 km (chapter 01), ridden end to end from 80 m/s,
+takes about 28 s: 8 s and 10 km of acceleration, 14 s at full speed,
 6.5 s across the last segment. At cruise it is nearly three minutes.
 
 **What interrupts it.**
@@ -280,7 +280,7 @@ takes about 28 s: 8 s and 10,000 of acceleration, 14 s at full speed,
 | The player cancels the manoeuvre | Exit phase at once, with a yaw of 0.56 rad/s that swings the ship off the track. From full speed it is released after about a second. |
 | The ring ahead is not functioning and the ship is past the middle of the segment | Forced exit with the same swerve; the player is told the lane is disrupted. |
 | The last ring is reached | Deceleration and exit. |
-| In multiplayer, a follower's formation leader is out of the lane and less than 500 ahead | The follower exits. |
+| In multiplayer, a follower's formation leader is out of the lane and less than 500 m ahead | The follower exits. |
 
 A ring functions while its shield generator is up. Its hull cannot be
 destroyed, but its shield (1,000 points, regenerating 10 per second) can
@@ -304,15 +304,15 @@ Chapter 01 defines connections; chapter 11 gives the messages. The rules:
    through that jump point, reads its destination system and paired jump
    point, and moves the ship. A system is loaded when its first player
    arrives (per design notes).
-4. The ship arrives 350 in front of the destination jump point, on a
-   circle of radius 500 around its axis at a random angle, facing along
+4. The ship arrives 350 m in front of the destination jump point, on a
+   circle of radius 500 m around its axis at a random angle, facing along
    the axis. Simultaneous arrivals do not overlap.
 5. Content is told "system entered" and the character is saved. When the
    presentation reports the arrival finished, the invulnerability ends
    and "jump-in complete" is raised.
 
 An NPC is slid in by a scripted mover: over half a second it decelerates
-along the axis from 1,000 back to its arrival point.
+along the axis from 1,000 m back to its arrival point.
 
 ### 3.8 Route planning
 
@@ -324,32 +324,33 @@ heuristic, not a shortest-path search.
 
 1. Find the ring nearest the origin. Its lane, ridden towards whichever
    end lies nearer the destination, is the first candidate. Every other
-   lane with an end within 11,000 of that lane's starting end is a
+   lane with an end within 11 km of that lane's starting end is a
    candidate too.
 2. Score each candidate by summing, over its lanes, the squared distances
    from both ends of the lane to the origin and to the destination. The
    lowest score wins; its last ring becomes the current ring.
 3. Stop when the current ring is the lane end nearest the destination, or
-   within 11,000 of it, or when no candidates remain. Otherwise extend the
-   winner by every unused lane with an end within 11,000 of the current
+   within 11 km of it, or when no candidates remain. Otherwise extend the
+   winner by every unused lane with an end within 11 km of the current
    ring, and score again. A lane is used once.
 4. The result is the winning chain plus a free leg to the destination.
    Its cost is travel time: free flight at 300 m/s (origin to first ring,
    and the last leg), lanes at 2,500 m/s. Hops between consecutive lanes
    are not counted.
-5. If the cost exceeds the direct distance divided by 300, the route is
-   one free leg. If the destination is nearer than the request's minimum
-   range (500 for a map request), the planner reports "no route".
+5. If the cost exceeds the direct distance divided by 300 m/s, the route
+   is one free leg. If the destination is nearer than the request's
+   minimum range (500 m for a map request), the planner reports "no
+   route".
 6. The first lane is joined at the nearest ring lying between the origin
    and the lane's far end, not at its end ring.
 
-Example: origin and destination 60,000 apart; one lane of 45,000 whose
-near end is 4,000 from the origin and whose far end is 12,000 from the
+Example: origin and destination 60 km apart; one lane of 45 km whose
+near end is 4 km from the origin and whose far end is 12 km from the
 destination. Direct: 60,000 / 300 = 200 s. By lane: 4,000 / 300 +
 45,000 / 2,500 + 12,000 / 300 = 13 + 18 + 40 = 71 s. The answer is two
 legs.
 
-The 11,000 is an authoring contract: lane ends meant to connect must lie
+The 11 km is an authoring contract: lane ends meant to connect must lie
 within that distance of each other (inferred).
 
 **Across systems** the planner takes the gates-only system path and
@@ -371,9 +372,9 @@ The presentation keeps the player's waypoint list. The map has two tools:
 with a planned route to it. If the planner fails, the map says so.
 
 In flight a waypoint in the current system becomes a targetable marker
-(chapter 09). Coming within 150 of it counts as reaching it: it and every
+(chapter 09). Coming within 150 m of it counts as reaching it: it and every
 waypoint before it are removed and the next becomes the marker. With no
-live marker, passing within 300 of any stored waypoint removes it and its
+live marker, passing within 300 m of any stored waypoint removes it and its
 predecessors, so a lane ride clears the waypoints it skips.
 
 Mission objectives arrive in the same form and take precedence: when a
@@ -400,8 +401,9 @@ A formation led through a gate sheds any player for whom it is locked.
 Missions also bypass the ceremony when the story needs it: they can force
 a landing, dock a ship instantly, relocate a ship, make an NPC jump in,
 and give NPCs go-to orders flagged "use cruise" or "never cruise". The
-authority can engage a ship's cruise at once, skipping the charge
-(chapter 02); no caller was found in the content code read.
+authority has a service that engages a ship's cruise at once, skipping
+the charge; neither this chapter's reading nor chapter 08's found content
+that calls it.
 
 ### 3.11 Authority and presentation
 
@@ -421,11 +423,11 @@ they are two messages, which is why the approach has a hold state.
 
 | Record | Principal fields | Values |
 | --- | --- | --- |
-| Docking point, repeatable on a solar archetype | kind; mount hardpoint; radius; optional door animation | 262 points on 55 archetypes; stations carry 2 to 18. Radius: berth 2 to 10, mooring 2 to 10, ring pad 40, hole 150, gate 225. |
+| Docking point, repeatable on a solar archetype | kind; mount hardpoint; radius; optional door animation | 262 points on 55 archetypes: 106 medium moorings, 96 berths, 47 large moorings, no small ones; stations carry 2 to 18. Radius in m: berth and mooring 2 to 10, ring pad 40, hole 150, gate 225. |
 | Solar archetype, other fields | docking camera yes or no; exit hardpoint and opening animation of a jump point | Docking camera on 42 archetypes |
 | Model hardpoints | per docking point a mount and two approach points; on a lane ring one per direction; on every ship one mount | — |
-| Ship archetype | docking class | Of 69 hulls: berths 42 (fighters, freighters), medium mooring 8 (mostly transports), large mooring 15 (gunboats and larger), none 4 |
-| Lane equipment, mounted on every lane ring | effects for entering, travelling, leaving and disruption; delays before each (2 s, 0.2 s, 0.3 s); ring spin rate and acceleration; two activation distances (750, 500) | One record |
+| Ship archetype | docking class | Of 69 hulls: berths 42 (fighters, freighters), medium moorings 8 (mostly transports), large moorings 15 (gunboats and larger), none 4 |
+| Lane equipment, mounted on every lane ring | effects for entering, travelling, leaving and disruption; delays before each (2 s, 0.2 s, 0.3 s); ring spin rate and acceleration; two activation distances (750 m, 500 m) | One record |
 | Lane ring loadout | lane equipment, shield generator, unlimited power, two turrets, lights | Shield 1,000, regeneration 10 per second |
 | Initial world state | jump points locked for everyone, and for NPC traffic | 27 and 36 |
 | Mission actions (chapter 08) | lock or unlock a jump point; player may dock; player may use lanes; drain a lane ring; force a landing; relocate a ship; give the player a route | — |
@@ -436,7 +438,7 @@ The rule constants of section 3 (lane speeds and ramp, linking distance,
 route cap, timeouts, hostility threshold, approach speed cap, launch
 timings) are in code, not data.
 
-Three anonymised docking point lists (radius in brackets):
+Three anonymised docking point lists (radius in m in brackets):
 
 | Archetype | Docking points |
 | --- | --- |
@@ -447,7 +449,7 @@ Three anonymised docking point lists (radius in brackets):
 ## 5. Connections
 
 Needs: solars, lane ring chains, connections and path tables (01); the
-flight model, cruise and force controllers (02); the pilot layer, in
+flight model, cruise and force controllers (02); the manoeuvre layer, in
 which go to, dock, launch and formation are behaviours (05); the attitude
 of a base's owner towards a ship (07); request and answer messages, the
 event bus, system loading and saving (11).
@@ -513,21 +515,18 @@ Gives:
 
 ## 7. Open questions
 
-1. **Medium moorings.** Ship data spells one docking class differently
-   from the label the reconstructed code hashes. If both are right, those
-   8 hulls fit no docking point.
-2. **Moored ships.** What content does on "docked, not landed" (how long
+1. **Moored ships.** What content does on "docked, not landed" (how long
    a moored NPC stays, how it leaves) was not traced.
-3. **Airlocks.** Two archetypes have an airlock docking point, with an
+2. **Airlocks.** Two archetypes have an airlock docking point, with an
    arrival rule of its own (the ship appears at the object, turned
    about). Permission treats them like jump points; what they are for was
    not established.
-4. **Waypoints and lanes.** Whether go to on a marker that stands for a
+3. **Waypoints and lanes.** Whether go to on a marker that stands for a
    lane ring enters the lane, or the player must target the ring and
    order a dock, was not established.
-5. **Initial locks in multiplayer.** Whether the 27 initial locks apply
+4. **Initial locks in multiplayer.** Whether the 27 initial locks apply
    on a multiplayer host, where no campaign unlocks them, was not checked.
-6. **Unread code.** The lane equipment values (activation distances,
+5. **Unread code.** The lane equipment values (activation distances,
    spin) were read in data only, and the station launch manoeuvre was not
    read in full.
 
@@ -565,6 +564,6 @@ The dock, lane, launch and fly-to scenarios in `Oracle/scenarios/`.
 Inference: the approach table condenses a larger machine and names its
 states, and its staging offsets are rounded; lane timings and the launch
 start values are computed from the formulas; the purposes given for the
-11,000 linking distance, for traffic competing over docking points and
+11 km linking distance, for traffic competing over docking points and
 for lane disruption are reasoned from the rules. The presentation
 sequences are described from header notes.

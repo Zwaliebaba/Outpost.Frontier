@@ -1,6 +1,6 @@
 # 05 — AI and pilots
 
-Status: draft
+Status: reviewed
 Depends on: 00, 01 (zones), 02 (flight model), 03, 04, 06, 07, 11
 
 ## 1. Purpose and player experience
@@ -24,7 +24,7 @@ make the universe look inhabited and are the opposition in every fight.
 
 The AI is deliberately shallow: no planning, no memory, coordination
 only between leader and follower. Variety comes from weighted random
-choice among a dozen manoeuvres with authored styles.
+choice among manoeuvres with authored styles.
 
 ## 2. Concepts
 
@@ -32,12 +32,12 @@ choice among a dozen manoeuvres with authored styles.
 | --- | --- |
 | Pilot | A named personality: sixteen parameter blocks, each referenced by nickname. |
 | Personality block | The parameters of one manoeuvre or reaction (3.11), shared between pilots. |
-| Job | The block for strategy: whom to attack, when to flee, whether to fight in formation. Content may replace it per spawn. |
+| Job | The block for strategy: whom to attack, when to flee, whether to fight in formation. An encounter's job replaces the pilot's own (chapter 06). |
 | Manoeuvre layer | Per ship, the owner of the current behaviour, the directive, target selection, fire control and the steering arbiter. |
 | Behaviour | One of 21 manoeuvres. It can say whether it applies now, and it can run. |
 | State graph | A 21 × 21 table of weights: row = current behaviour, column = candidate. One per ship role, in a leader and an escort variant. |
 | Directive | An order from outside (mission, population code, the player's interface) to run one behaviour with parameters. |
-| Steering primitive | A reusable controller that behaviours drive: move, face, dodge, break away, dodge a missile, match throttle, follow a spline. |
+| Steering primitive | A reusable steering routine that behaviours drive: move, face, dodge, break away, dodge a missile, match throttle, follow a spline. |
 | Steering arbiter | The one place that turns those wishes into the control values of chapter 02. |
 | Damage level | A decaying sum of recent damage, compared with eleven triggers. |
 | Scene threat ratio | Hostile strength near the ship divided by all strength near it. |
@@ -118,7 +118,7 @@ and cruiser escorts reach only formation, dock and launch: they fight
 with turrets from their slot. Two graphs are empty. With no target,
 formation is the only candidate that applies to an escort, so escorts
 return to station after a fight. The player's ship gets an empty graph
-and no automatic targeting or firing: only directives move it.
+and no automatic targeting or firing.
 
 **Directives.** A directive forces its behaviour at once and stays
 armed until the behaviour finishes, fails or is cancelled; the layer
@@ -189,8 +189,7 @@ needs to turn 90°, plus one second. Pick a point 300 to 600 m to the
 side in the horizontal plane and fly to it. *Come back:* once the nose
 points away and the target is farther than its radius plus that
 distance. The trigger range comes from the closed forms of 3.6, so a
-sluggish gunboat breaks off much earlier than a fighter with no authored
-number.
+sluggish gunboat breaks off earlier than a fighter.
 
 ### 3.5 Events
 
@@ -200,8 +199,8 @@ when its leader began to dock or entered a lane (followers copy the
 order), and when it died itself.
 
 It reports to content: combat state (engaged, overwhelmed, no
-enemies), "target in sights", follow and guide progress, a request for
-a flee destination, and combat drift (3.7).
+enemies), "target in sights", follow and guide progress, a flee
+destination request, and combat drift (3.7).
 
 ### 3.6 Steering, prediction and obstacles
 
@@ -210,8 +209,7 @@ torque about the axis of the needed rotation, then asks how far it would
 still rotate if it let go now. When the remaining angle is within 98 %
 of that coast angle, the demand drops to what holds the residual rate;
 close to the goal it is proportional to the remaining angle. Ships stop
-on their heading without overshoot at any turn rate. Roll is blended in
-to bank into turns.
+on their heading without overshoot at any turn rate.
 
 **Closed forms.** Such questions are answered from the flight model of
 chapter 02, not by trial simulation. With thrust `F`, drag `D`, mass `m`
@@ -290,11 +288,14 @@ are present, about two shoot at each player.
 ### 3.8 Fire control and accuracy
 
 **Rhythm.** Each gun alternates a burst (1 to 5 s) and a pause (0.5 to
-2.5 s), each jittered by up to ±50 %. It fires when it is in a burst,
-the target is within gun range, the line of fire is clear (a ray test,
-cached for a second) and the barrel points within 3° of the aim point.
-Gun range is the longest range among the ship's guns × 1.1 × a per-pilot
-random factor of 0.7 to 1.3, so pilots open fire at different distances.
+2.5 s), each jittered by up to ±50 %; inside a burst it fires at an
+authored interval of 0 to 0.5 s, 0 meaning as fast as the weapon
+allows. It fires when the target is within gun range, the line of fire
+is clear (a ray test, cached for a second) and the barrel points within
+3° of the aim point. Gun range is the longest range among the ship's
+guns × a range factor × a random spread drawn once per pilot. Both are
+gun-block fields, 1.1 and ±30 % in every shipped block, so pilots open
+fire at 0.77 to 1.43 times weapon range.
 Turret-mounted guns pick their own target once a second: the nearest
 hostile of an attackable class within 1.2 × gun range that the turret
 can reach. Armed solars fight this way (inferred).
@@ -309,8 +310,9 @@ offset = distance * tan(angle), in a random direction across the line of sight
 
 `cone` is 1° to 8° by pilot. The exponent `p` shapes the spread: above
 1 most shots fall near the centre, below 1 near the edge. It is authored
-separately for player targets (0.7 to 3) and NPC targets (usually 6), so
-NPCs kill each other efficiently while the player gets near misses. A
+separately for player targets (0.7 to 3; 1.1 in most blocks) and NPC
+targets (3 or 6 in 61 of 77 blocks), so NPCs kill each other
+efficiently while the player gets near misses. A
 player slower than about 3 m/s is aimed at without error.
 
 **Launchers.** Guided and unguided launchers fire every 10 to 60 s
@@ -343,7 +345,7 @@ damaged it is.
 | Drop mines | 0.25 | Drop all mines now. |
 | Break formation; break apart | 0.2 to 0.5 | See 3.10. |
 
-A fraction of 1 can hardly be reached and means "off".
+A fraction of 1 means "off" in practice.
 
 **Missiles.** For the nearest closing guided munition within 1,000 m,
 time to impact is estimated as distance ÷ (missile speed − own speed ×
@@ -351,9 +353,12 @@ cosine of the angle between the two velocities). The pilot reacts when
 it falls below a reaction time (0 to 1 s).
 
 **Repair consumables.** When hull or shield falls to an authored
-fraction and a consumable is carried: wait a pre-delay, use one, wait a
-post-delay. The repair block every shipped pilot references has the
-fraction at 0, so NPCs do not heal, though the mechanism is complete.
+fraction and a consumable is carried (chapter 03): wait a pre-delay,
+use one, wait a post-delay. The pilot's repair block always supplies
+the three numbers; a pilot without one gets 50 %, with 2 s and 3 s for
+shields, 1 s and 1 s for hull. Ambient pilots reference a block with
+the fraction at 0 and never heal. Four campaign pilots use one at 20 %
+(0.2 s before; 1.5 s after for hull, 5 s for shield).
 
 **Fleeing.** Flee becomes "must run" when (hull + shield) ÷ their maxima
 is below the job's fraction (0 to 0.75); or the scene threat ratio
@@ -366,7 +371,8 @@ base to dock at, an object or a point.
 it and demands a good (chapter 06), it jettisons if the scene threat
 ratio is at or above the job's loot threshold; otherwise it refuses and
 is attacked. The job's loot preference is never set successfully by
-the shipped data, so NPCs do not loot.
+the shipped data, so NPCs do not loot on their own; a patrol collects
+what it made a ship jettison through a tractor directive (chapter 06).
 
 ### 3.10 Formations
 
@@ -422,9 +428,8 @@ There is no global difficulty setting. Three things scale opposition:
    accuracy cone falls from 5° to 2°, the pause between bursts from 2 s
    to 0.5 s and the error refresh from 0.5 s to 0.25 s; the dodge cone
    widens from 60° to 90°. Manoeuvre choice does not change.
-2. **Ship and loadout level** (chapter 06). The NPC record that names
-   the pilot also names hull, loadout and level; level is the rank in
-   the scene threat ratio.
+2. **Ship and loadout level** (chapter 06); level is the rank in the
+   scene threat ratio.
 3. **The attacker limit** of 3.7.
 
 Tier is set per NPC record, not derived from level; every tier occurs
@@ -448,8 +453,7 @@ authority forwards directives for that ship there.
 
 Examples: `example_patrol_low` sets all 16 blocks (gun cone 5°, pause
 2 s); `example_patrol_high` inherits from the tier below and replaces
-gun block (cone 2°, pause 0.5 s) and dodge block; `example_hauler` sets
-only a gun block.
+gun block (cone 2°, pause 0.5 s) and dodge block.
 
 ## 5. Connections
 
@@ -461,7 +465,6 @@ only a gun block.
 - **Gives 08:** directives with completion reports, forced targets, the
   attacker limit, manoeuvre locks for the player.
 - **Gives 09:** which manoeuvres are available to the player now.
-- **Gives 11:** NPC control input originates on the authority.
 
 ## 6. Design notes for the builder
 
@@ -477,23 +480,22 @@ only a gun block.
 - Burst-based damage reactions: NPCs respond to being hit hard.
 
 **Feel.** The rhythm of extend, run in, pass; authored styles;
-staggered clocks; the per-pilot gun range factor; the engine-kill turn.
+staggered clocks; the per-pilot gun range; the engine-kill turn.
 
 **Era.** A fixed table of 21 behaviours; timers in place of
-perception; no memory, cover or focus fire beyond the leader's target;
-parameters the shipped loaders ignore.
+perception; parameters the shipped loaders ignore.
 
 **Simplifications.**
 
 - With a higher-order flight model the closed forms are lost, and the
-  builder needs numeric prediction or tuned controllers. Keeping the
+  builder needs numeric prediction or tuned feedback loops. Keeping the
   flight model first-order is cheaper.
 - Attack pass, evade, trail, formation, flee and travel give most of
-  the experience. Strafe and the capital manoeuvre need large ships.
+  the experience.
 - A behaviour tree or scoring system can replace the graph if the
   weighted randomness between equally valid manoeuvres survives.
 - Four tiers of one pilot per role would be hard to tell from the
-  original's 64, which differ mostly in dodge style.
+  original's 64.
 
 ## 7. Open questions
 
@@ -502,8 +504,8 @@ parameters the shipped loaders ignore.
 2. Whether asteroids have collision bodies on the authority away from
    players. If not, NPCs fly through fields unhindered and only the
    zone tier keeps them out.
-3. Trail, engine-kill turn, guide, follow and idle were read in part;
-   their state tables are not established.
+3. The state tables of trail, engine-kill turn, guide, follow and idle
+   (read in part).
 4. Job fields with no visible effect: target toughness preference, the
    component attack order outside strafing, and the combat drift
    distance, which the loader discards (10,000 m is built in).
