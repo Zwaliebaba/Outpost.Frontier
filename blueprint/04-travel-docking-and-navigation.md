@@ -545,7 +545,8 @@ Code, read in part. Common: `common_dockbehavior.cpp`,
 `common_cship.cpp`, `common_archetype*.cpp`. Content: `DockQueues.cpp`,
 `TradelaneRequests.cpp`, `SpacePaths.cpp` (in-system planner),
 `GameSupport.cpp` (route request), `SpaceSupport.cpp` (locks),
-`PlayerState.cpp`, `MissionAct.cpp`, `ContentStaticIds.h`. Server:
+`PlayerState.cpp`, `MissionAct.cpp`, `RandomMissionDB.cpp` and
+`ContentStaticIds.h` (docking class labels). Server:
 `server_gameobject.cpp` (completion test, arrival pose),
 `server_classes.cpp` (dock completion, launch position),
 `server_pub.cpp`, `IServerImpl.cpp`. Client: `hud_maneuvers.cpp`,

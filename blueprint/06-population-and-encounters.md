@@ -15,7 +15,7 @@ escorts leave lanes and dock at stations. Police fly patrol routes, scan
 the player's hold and demand contraband. Outlaws wait along the paths to
 their bases and sometimes break a lane. Space is busy at a gate and quiet
 in the open. Every ship has a faction, a name, a face and a voice, and
-they talk: to dock control, to each other, to the player.
+they talk: to dock control, each other and the player.
 
 Three properties shape play:
 
@@ -131,8 +131,8 @@ the neighbourhood fills and stops at `D` ships, which a group of up to
 five can overshoot.
 
 Worked example. A path segment in open space has density 3 and respawn
-time 90. With nobody around the chance is 3/90 per heartbeat: one group
-about every 90 s. With two ships present it is 1/90: about every 270 s. A
+time 90. With nobody around the chance is 3/90: one group about every
+90 s. With two ships present it is 1/90: about every 270 s. A
 gate zone has density 10 and respawn time 10: the chance is (10 − n)/10,
 certain when empty and one in two with five ships near. A major lane has
 6 and 15.
@@ -148,8 +148,8 @@ groups are created at once:
 1. The budget is `D`; in multiplayer minus the NPC ships already within
    9,200 m, since another player may have populated the place.
 2. Each zone gets a share of the budget proportional to `1 / T`.
-3. Encounters are drawn from each zone until its share is reached (at
-   least one ship), without the chance roll.
+3. Encounters are drawn from each zone until its share (at least one
+   ship) is reached, without the chance roll.
 
 These groups appear 100 to 1,875 m from the player, never by lane.
 
@@ -174,9 +174,9 @@ A group is refused if any of these holds:
 | Class caps | The zone caps how many ships of a class group may be near (authored: one patrol of each kind near a path; four lawful, four unlawful in an area). See open question 1. |
 | Placement | No arrival method finds a valid position (3.7). |
 
-Without the first rule a busy zone would feed a fight without end;
-without the second the next patrol would arrive while the player still
-collects loot.
+Battle size and relief pace play: without the first a busy zone feeds
+a fight without end; without the second the next patrol arrives while
+the player still collects loot.
 
 A mission can also stop ambient attacks: the attitudes between ambient
 ships on one side and players and mission ships on the other are raised
@@ -201,7 +201,7 @@ Each ship also receives:
 - a **name** and a private reputation record affiliated to its faction
   (3.11; chapter 07);
 - a **pilot appearance** and a **voice profile** from the faction's
-  lists, with gender weighted by the faction's share of male voices;
+  lists, with gender weighted by the faction's share of male profiles;
 - the **formation** the faction uses for the template's formation class,
   so factions fly the same encounter in different shapes (chapter 05);
 - for a trade run, **cargo**: a commodity chosen by weight from what the
@@ -297,8 +297,8 @@ to be there.
 ### 3.10 Difficulty by place
 
 Level is authored per encounter line, from 1 to 19. Each system occupies
-a band two to four levels wide: in the data the starting systems span 1
-to 4, most lie between 6 and 13, the remote ones reach 15 to 19. A
+a band two to four levels wide: the starting systems span 1 to 4, most
+lie between 6 and 13, the remote ones reach 15 to 19. A
 faction covers its levels with a ladder of NPC ship definitions. One
 faction's fighter ladder, typical of the rest:
 
@@ -482,8 +482,8 @@ controller and belong to chapters 08 and 10.
 
 **Essential.**
 
-- Population follows players, not zones. This makes the cost independent
-  of world size and makes saving NPCs unnecessary.
+- Population follows players, not zones: cost is independent of world
+  size and no NPC needs saving.
 - Indirection through class and level. Zone → encounter → class group →
   faction → NPC ship definition lets about 40 encounter files and 400
   NPC ship definitions populate 3,800 zones for 55 factions.
@@ -551,8 +551,8 @@ variant pick), `Voices.h`, `RandomEncounters.h`, `RandomMissionGen.h`
 `CppSource/Common/common_universe.cpp` (zone keys the shared loader
 reads).
 
-Inference: the link between spawn distance and visibility radius; silent
-removal; NPCs at jump points; capital ships outside the population; the
-authoring-tool reading of unread fields. The scan sequence, the chatter
+Inference: spawn distance and visibility radius; silent removal; NPCs at
+jump points; capital ships outside the population; the authoring-tool
+reading of unread fields. The scan sequence, the chatter
 triggers and the lane-attack spawn rest on the reconstructed headers'
 state lists and comments, not on a full reading of those functions.
