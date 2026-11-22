@@ -128,7 +128,7 @@ run in this order and the first failure decides.
 | 2 | The target is not a jump point locked for this ship (3.10). | Denied |
 | 3 | The target's owner faction is not hostile: its attitude towards the ship is above −0.6 (chapter 07). Jump points and airlocks skip this check: borders stay open to enemies. | Denied, hostile |
 | 4 | The target has docking points. | No dock |
-| 5 | At least one docking point's kind fits the ship's docking class. Jump and airlock points fit every ship. | Cannot dock |
+| 5 | At least one docking point's kind accepts the ship's docking class (table in section 2). | Cannot dock |
 | 6 | One of the fitting points is not held by a ship in the docking list. | Wait |
 | 7 | The target is at rest (linear speed at most 0.01 m/s, angular 0.01 rad/s). | Wait |
 | — | All passed | Proceed, with a docking point |
@@ -285,7 +285,7 @@ to full.
 
 A median lane of 52 km (chapter 01), ridden end to end from 80 m/s,
 takes about 28 s: 8 s and 10 km of acceleration, 14 s at full speed,
-6.5 s across the last segment. At cruise it is nearly three minutes.
+6.5 s across the last segment.
 
 **What interrupts it.**
 
@@ -416,8 +416,8 @@ the multiplayer character template adds none (chapters 07, section 3.14,
 and 11).
 
 Unlocking a jump point "for the player" removes the per-player and the
-everyone lock. The campaign opens the universe region by region this way.
-A formation led through a gate sheds any player for whom it is locked.
+everyone lock. A formation led through a gate sheds any player for whom
+it is locked.
 
 Missions also bypass the ceremony when the story needs it: they can force
 a landing, dock a ship instantly, relocate a ship, make an NPC jump in,
@@ -502,8 +502,7 @@ spoken clearance and the waiting queue.
 
 **Simplifications and their cost.**
 
-- No docking classes or moorings: lost, large ships parked outside
-  stations.
+- No docking classes: lost, large ships moored outside stations.
 - No approach flight, docking completes inside a radius after clearance:
   lost, the sense of arrival and the exposure of a ship near a base under
   fire.
@@ -538,7 +537,7 @@ open_anim; tabulated by script), `SOLAR/loadouts.ini`,
 `EQUIPMENT/select_equip.ini` (lane equipment, ring shield),
 `SHIPS/shiparch.ini` and `MISSIONS/mshipprops.ini` (docking class),
 `initialworld.ini` and `outdir/newplayer.fl` (locked gates), the mission
-files (counts of travel actions). `constants.ini` holds nothing specific to travel.
+files (counts of travel actions).
 
 Code, read in part. Common: `common_dockbehavior.cpp`,
 `common_laneaction.cpp`, `common_launchaction.cpp`,

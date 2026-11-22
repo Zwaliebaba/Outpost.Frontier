@@ -26,13 +26,13 @@ from knowing the map. Equipment and ships cost the same everywhere but
 are offered only in some places, to players of sufficient level and
 standing. No price reacts to trade and no stock runs out.
 
-**Progression.** The player's **worth** (money plus the value of ship and
-equipment) is the measure of progress. In the single-player campaign the
-next scripted mission is released by earning a set amount of worth, which
-pushes the player into trade and jobs, and the player's level rises with
-the campaign. After the campaign level follows worth. Level gates what
-dealers sell in single player and nothing else; in multiplayer it is only
-displayed. Job difficulty never reads it (chapter 08).
+**Progression.** **Worth** (money plus the value of ship and equipment)
+measures progress. In the single-player campaign the next scripted
+mission is released by earning a set amount of worth, which pushes the
+player into trade and jobs, and level rises with the campaign. Afterwards
+level follows worth. Level gates what dealers sell in single player and
+nothing else; in multiplayer it is only displayed. Job difficulty never
+reads it (chapter 08).
 
 ## 2. Concepts
 
@@ -127,13 +127,11 @@ The same two numbers are used by the AI, the dock queue, the contact
 list, the target display and the map, always on regard between two
 objects. The matrix values ±0.65 sit just outside them.
 
-A second, wider pair applies to the matrix alone. When content asks how
-one *faction* stands to another, with no objects involved, it reads the
-matrix value: −0.2 or lower is hostile, 0.2 or higher friendly, between
-is neutral. Population uses this to pick the attackers of a lane and the
-enemy faction of a tied encounter, and cargo generation uses it (chapter
-06). Under this test the −0.3 step counts as hostile, although ships of
-such factions do not shoot each other on sight.
+A second pair applies to the matrix alone. When content asks how one
+*faction* stands to another, with no objects involved, a matrix value of
+−0.2 or lower is hostile and 0.2 or higher friendly. Population and
+cargo generation use this test (chapter 06). Under it the −0.3 step
+counts as hostile, although such ships do not shoot each other on sight.
 
 ### 3.4 What changes a standing
 
@@ -251,9 +249,8 @@ two steps:
    reputation record, and it submits the solar's pilot (chapter 05).
 
 Of 3,430 placed objects, 1,977 name a faction. The dealer interface
-reads the same authored entry directly: it finds the solar that docks to
-the current base and looks up the player's standing with the faction
-named there. Solars created by missions get their faction from the
+reads the same authored entry directly, through the solar that docks to
+the current base. Solars created by missions get their faction from the
 mission definition.
 
 For a builder: a solar's owner is authored on the solar, and the base it
@@ -298,15 +295,14 @@ price at base = truncate(nominal price × multiplier)     fixed at load
 | Room | Sells and buys |
 | --- | --- |
 | Commodity trader | Commodities only. |
-| Equipment dealer | Weapons, ammunition, other equipment and repair consumables, each on its own tab. Also the repair service. |
+| Equipment dealer | Weapons, ammunition, other equipment and repair consumables, in separate lists. Also the repair service. |
 | Ship dealer | Ship packages, with the equipment exchange of section 3.11. |
 
-A base buys goods it does not list: the hold's commodities appear at the
-commodity trader and loose or mounted equipment at the equipment dealer
-whenever their price there is not zero, and an unlisted good has its
-nominal price. A base without the room cannot take the good (inferred).
-Loot is therefore sold like anything else, commodities at one desk and
-salvaged equipment at the other.
+A base buys goods it does not list: the player's commodities appear at
+the commodity trader and equipment at the equipment dealer whenever
+their price there is not zero, and an unlisted good has its nominal
+price. Loot is sold the same way. A base without the room cannot take
+the good (inferred).
 
 Selling to a base:
 
@@ -385,12 +381,11 @@ hull or part: (1 − condition) × its hit points × base repair rate
 equipment:    truncate(price at base × 0.3) × (1 − condition) × count
 ```
 
-The service belongs to the equipment dealer (chapter 10) and lists the
-hull, every damaged part and every damaged item of equipment that has a
-hardpoint type; items without one, such as cargo, are not repaired. The
-player ticks what to repair and pays the total. The repair rate is a
-per-base field with default 0.33 that no base overrides. A damaged entry
-costs at least 1.
+The service belongs to the equipment dealer (chapter 10). It lists the
+hull, damaged parts and damaged equipment that has a hardpoint type
+(cargo is not repaired); the player ticks entries and pays the total.
+The repair rate is a per-base field with default 0.33 that no base
+overrides. A damaged entry costs at least 1.
 
 ### 3.13 Contraband and cargo scans
 
@@ -435,29 +430,27 @@ It is consulted whenever money changes.
 
 Two numbers come out of this, and they differ by mode:
 
-- The **rank** in the player's reputation record is always the table
-  value of worth, in every mode, and follows it up and down. It is what
-  others see. In multiplayer a change is sent to all players, and the
-  table is extended in steps of 12.5% up to the money cap.
+- The **rank** in the player's reputation record is the table value of
+  worth in every mode and follows it up and down. It is what others see.
+  Multiplayer sends a change to all players and extends the table in
+  steps of 12.5% up to the money cap.
 - The **level** stored with the character is what dealers test.
 
 | Mode | What sets the character's level | What it gates |
 | --- | --- | --- |
-| Single player, campaign | Starts at 0. Rises by one on reaching each of 18 campaign positions: 3, 5, 7, 9, 10, 12, 13, 15, 16, 18, 19, 22, 24, 25, 27, 28, 31 and the last, 42. Worth plays no part. | Equipment and ship rows (section 3.10). |
-| Single player, after the campaign | The table value of worth, when that is higher. It never falls. | The same rows. |
-| Multiplayer | Nothing advances it (inferred: only the campaign and the after-campaign rule write it). | Nothing. Dealers skip the level test; money, standing and fit remain. |
+| Single player, campaign | Starts at 0. Rises by one at 18 campaign positions: 3, 5, 7, 9, 10, 12, 13, 15, 16, 18, 19, 22, 24, 25, 27, 28, 31 and the last, 42. Worth plays no part. | Equipment and ship rows (section 3.10). |
+| Single player, after the campaign | The table value of worth, when higher. It never falls. | The same rows. |
+| Multiplayer | Nothing advances it (inferred). | Nothing. Dealers skip the level test. |
 
-The positions fall at the start and the end of the early missions, so the
-level reaches 17 by the start of the tenth mission and 18 at the end
-(inferred, each position being passed once). Rows asking for more, up to
-30 for equipment and 32 for ships, open only after the campaign, at
-842,000 and about 1.1 million of worth.
+The positions are the starts and ends of the early missions: level 17 by
+the start of the tenth mission, 18 at the end (inferred, each position
+passed once). Rows asking for more, up to 30 for equipment and 32 for
+ships, open only after the campaign, at 842,000 and about 1.1 million of
+worth.
 
-Level does not feed job difficulty in any mode. In single player the
-generator reads the campaign position, in multiplayer the base's own
-range (chapter 08, section 3.11). What ties job pay to progress is
-therefore the campaign in single player and the choice of base in
-multiplayer.
+Level does not feed job difficulty in any mode. The generator reads the
+campaign position in single player and the base's own range in
+multiplayer (chapter 08, section 3.11).
 
 **Pacing.** On finishing a mission the campaign records "worth now plus
 a threshold" and starts the next mission when worth reaches that figure
@@ -474,9 +467,9 @@ single-player game is the new-character template followed by the
 initial-world file, and both lock jump points: the template 32 for this
 player, the world file 27 more for every player and 36 for NPC traffic.
 Mission actions lock and unlock them (chapter 08). A multiplayer host
-reads the same world file at every start, so the 27 are closed to all
-players and the 36 to NPCs. The multiplayer template adds none, and
-since no campaign runs on a host nothing opens them (inferred).
+reads the same world file at every start, so there the 27 are closed to
+all players and the 36 to NPCs; the multiplayer template adds none, and
+with no campaign nothing opens them (inferred).
 
 ### 3.15 Money
 
@@ -577,8 +570,8 @@ dealer screens, price markers, the base information card.
   all feed it.
 
 **Feel.** The five-step matrix; ±0.9 as the limit of earned standing;
-the resale rates (generous on hulls, harsh on guns); the 20 seconds to
-drop contraband; the warning before provocation; the dealer's refund.
+the resale rates; the 20 seconds to drop contraband; the warning before
+provocation; the dealer's refund.
 
 **Accidents of the era.**
 
@@ -596,9 +589,8 @@ drop contraband; the warning before provocation; the dealer's refund.
 - Fewer factions work as well. Keep a lawful and an unlawful bloc per
   region, or kills lose their second edge.
 - Dropping empathy costs the bloc politics. Dropping personal adjustments
-  costs the warning shot and makes bystander behaviour hard.
-- A dynamic economy is not required. If added, the authority must own
-  stock.
+  costs the warning shot.
+- A dynamic economy is not required.
 - The campaign's worth thresholds can be replaced by any pacing gate, at
   the loss of the reason to trade and explore between missions.
 
@@ -614,8 +606,7 @@ drop contraband; the warning before provocation; the dealer's refund.
 4. **Ship exchange.** The roles of the two equipment terms in the cost,
    and what happens to items that fit nowhere.
 5. **Kills of mission-spawned ships.** Whether they change standing was
-   not traced. (How job difficulty is chosen in multiplayer, where the
-   campaign position never advances, is in chapter 08, section 3.11.)
+   not traced.
 6. **Run-time changes to the matrix.** Which scripted events use the
    service was not traced.
 7. **A "jump distance" field on commodities** (1 to 10) is loaded; no
