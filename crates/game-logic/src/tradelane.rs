@@ -171,8 +171,9 @@ pub fn handle_release(cx: &mut Cx<'_>, ship: u32, ring: u32) {
         crate::api::space_obj::activate(cx, ring, false, i32::from_ne_bytes(ship.to_ne_bytes()));
 }
 
-/// SpaceSupport's trade-lane messages (`Content/SpaceSupport.cpp:669`),
-/// the part of the controller this module ports: `TradelaneRequest` and
+/// SpaceSupport's trade-lane messages (`Content/SpaceSupport.cpp:669-676`),
+/// the cases of its main switch that Content's SpaceSupport handler
+/// ([`crate::content::space_support`]) hands here: `TradelaneRequest` and
 /// `TradelaneRelease` to their handlers; any other message is not this
 /// module's.
 pub fn space_support(cx: &mut Cx<'_>, message: &ControllerMessage<'_>) {

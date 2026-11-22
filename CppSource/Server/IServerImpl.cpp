@@ -3265,7 +3265,11 @@ extern "C" int __cdecl Server_ControllerDispatch(unsigned int Flid, pub::Control
         g_ReentrancyGuard++;
         FControllerNode* cur = g_ControllerListSentinel.Next;
         while (cur != &g_ControllerListSentinel) {
-            cur->InterfacePtr->HandleMessage(MsgId, MsgData);
+            {
+                // Oracle instrumentation (P3.4a, the dispatch trace): inert outside Oracle.exe sim.
+                FOracleSimDeliverScope OracleDeliver(cur->FLID, (int)MsgId, MsgData, OracleSimDeliverBroadcast);
+                cur->InterfacePtr->HandleMessage(MsgId, MsgData);
+            }
             cur = cur->Next;
         }
         g_ReentrancyGuard--;
@@ -3276,7 +3280,11 @@ extern "C" int __cdecl Server_ControllerDispatch(unsigned int Flid, pub::Control
     // Targeted arm (baseline 0x06d44148-0x06d4416c).
     FControllerNode* node = Server_ControllerFind(Flid);
     if (node == nullptr) return -2;
-    node->InterfacePtr->HandleMessage(MsgId, MsgData);
+    {
+        // Oracle instrumentation (P3.4a, the dispatch trace): inert outside Oracle.exe sim.
+        FOracleSimDeliverScope OracleDeliver(node->FLID, (int)MsgId, MsgData, OracleSimDeliverSend);
+        node->InterfacePtr->HandleMessage(MsgId, MsgData);
+    }
     return 0;
 }
 
@@ -4387,7 +4395,12 @@ static void Server_TimerTick(float dt) {
             const double Period = static_cast<double>(cur->HeartbeatTimer);
             if (Sum >= Period) {
                 float WrapTime = static_cast<float>(floor(Sum / Period) * Period);
-                cur->InterfacePtr->HandleMessage(pub::Controller::EMessage::Heartbeat, &WrapTime);
+                {
+                    // Oracle instrumentation (P3.4a, the dispatch trace): inert outside Oracle.exe sim.
+                    FOracleSimDeliverScope OracleDeliver(cur->FLID, (int)pub::Controller::EMessage::Heartbeat,
+                                                         &WrapTime, OracleSimDeliverHeartbeat);
+                    cur->InterfacePtr->HandleMessage(pub::Controller::EMessage::Heartbeat, &WrapTime);
+                }
                 cur->HeartbeatAccum = cur->HeartbeatAccum - WrapTime;
             }
         }

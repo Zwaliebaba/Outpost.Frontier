@@ -524,11 +524,12 @@ namespace
         FileCalls,
         FileMetrics,
         FileDump,
+        FileDispatch,
         kFileCount
     };
 
     char const* const kFileNames[kFileCount] = {"session.jsonl", "tick.jsonl", "events.jsonl", "psi.jsonl",
-                                                "calls.jsonl",   "metrics.txt", "fdump.txt"};
+                                                "calls.jsonl",   "metrics.txt", "fdump.txt", "dispatch.jsonl"};
 
     struct FSimObject
     {
@@ -1543,6 +1544,38 @@ namespace
         else
             J.Null("v");
         Write(FileCalls, J);
+    }
+
+    // P3.4a, the dispatch trace (dispatch.jsonl, design/sim-records.md; record 0006 point 10):
+    // every delivery of Server.dll's controller registry, before the handler runs, numbered in
+    // order from the start-up on.
+    unsigned int GDispatchSeq = 0;
+
+    void __cdecl OnControllerDeliver(unsigned int Flid, int MsgId, void const* MsgData, int Path, int Depth)
+    {
+        static char const* const kPaths[] = {"broadcast", "send", "heartbeat"};
+        FOracleJson J;
+        J.Str("rec", "deliver");
+        J.Uint("tick", GTick);
+        J.Uint("seq", GDispatchSeq++);
+        J.Int("depth", Depth);
+        J.Uint("flid", Flid);
+        J.Int("msg", MsgId);
+        J.Str("path", Path >= 0 && Path < 3 ? kPaths[Path] : "?");
+        if (MsgData != nullptr)
+        {
+            if (MsgId == (int)pub::Controller::EMessage::Heartbeat)
+            {
+                J.Float("elapsed", *static_cast<float const*>(MsgData));
+            }
+            else if (MsgId == (int)pub::Controller::EMessage::TimerExpired)
+            {
+                unsigned int const* const Words = static_cast<unsigned int const*>(MsgData);
+                J.Uint("p1", Words[0]);
+                J.Uint("p2", Words[1]);
+            }
+        }
+        Write(FileDispatch, J);
     }
 
     // SimClientStub's controller hands every controller message here.
@@ -2712,6 +2745,8 @@ namespace oracle
         GOracleSimHooks.StartupSeed = GScenario.Seed;
         GOracleSimHooks.FrameSeconds = GScenario.Frame;
         GOracleSimHooks.ClockSeconds = GScenario.ClockStart;
+        // The dispatch trace from the start-up on (Server_LoadWorldState's LoadGame included).
+        GOracleSimHooks.OnControllerDeliver = OnControllerDeliver;
         SetIsMPServer(true);
         if (!NeuronRuntime::Startup(nullptr, "NEURONCOMPONENTSsrv.ini"))
         {

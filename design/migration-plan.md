@@ -319,10 +319,10 @@ separate runner (owner, 2026-11-18).
 | P3.1 | `Server`: save container, account hashing and files, paths, session slots, controller registry, heartbeats, timers, tick driver | `neuron-server` | M | A |
 | P3.2 | `Server`: typed events replacing 81 message IDs, client sink, character file schema and templates, player database, worth and cheat checks, groups, chat | `game-logic::{events, player, character_file}` | L | A |
 | P3.3 | `Server`: star systems, object wrappers, munitions (with the mine and counter-measure controllers; the guided-missile controller moved to P2.4's remainder, owner 2026-11-18), fuses, loot drops, debris, docking, observers and replication, asteroid fields, base database (the server parts moved from P2.4, owner 2026-11-17; they remove D125, narrowed to the mines and counter-measures, and D126; D124 was removed by the P2.4 follow-up); the `pub::` functions become methods on the world | `game-logic::{world, objects, replication, bases}` | XL | B |
-| P3.4 | `Content`: static tables, factions, loot, cargo, system connections | `game-logic::tables` | L | A |
-| P3.5 | `Content`: mission script parser (44 conditions, 85 actions as enums) and runtime, mission object, object lists, dialogs, save sections, story shell | `game-logic::mission`, `::story` | XL | A for parse and save, B for runtime |
-| P3.6 | `Content`: encounters, spawn placement, patrol paths, NPC ships and pilots, guides, comm chatter, space support, dock queues, trade lanes | `game-logic::{population, npc}` | XL | B |
-| P3.7 | `Content`: random mission database, offer generator, vignette tree, runtime machines | `game-logic::random_mission` | XL | A for offers from a seed, B for runtime |
+| P3.4 | `Content`: static tables, factions, loot, cargo, system connections | `game-logic::content::{tables, game_support}` (decision O47) | L | A |
+| P3.5 | `Content`: mission script parser (44 conditions, 85 actions as enums) and runtime, mission object, object lists, dialogs, save sections, story shell | `game-logic::content::{mission, story}` | XL | A for parse and save, B for runtime |
+| P3.6 | `Content`: encounters, spawn placement, patrol paths, NPC ships and pilots, guides, comm chatter, space support, dock queues, trade lanes | `game-logic::content::{population, npc, gcs, space_support, base_support}` | XL | B |
+| P3.7 | `Content`: random mission database, offer generator, vignette tree, runtime machines | `game-logic::content::{random_mission, router}` | XL | A for offers from a seed, B for runtime |
 | P3.8 | `NeuronRuntime` transport, `RemoteClient`, `RemoteServer`: QUIC host and connection, handshake with version and password, length-prefixed frames, batching, send-backlog governor, certificate pinning | `neuron-server::net`, `neuron-client::net` | M | B |
 | P3.9 | `OutpostServer`: TOML config, command console (accounts, kick, ban, chat, news, status), logging | `apps/outpost-server`, `game-logic::admin` | M | — |
 
