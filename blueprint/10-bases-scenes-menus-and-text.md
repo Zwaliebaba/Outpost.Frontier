@@ -9,22 +9,20 @@ Everything the player does outside the cockpit happens here: the screens
 before play, the visit to a base, the map, and all text.
 
 A base is the pause between flights. The player lands, watches the ship
-set down, and is then inside a few rooms shown as staged 3D scenes with a
-fixed camera, without walking. A bar of buttons moves the view from
+set down, and is then inside a few rooms shown as staged 3D scenes with
+a fixed camera, without walking. A bar of buttons moves the view from
 room to room, and each room offers its services: the landing place gives
-repair and launch, the bar gives people to talk to, news and a job board,
-the dealers give the trade panels (3.15; their rules are chapter 07's). People stand or sit at
-authored spots, fidget, and answer a click with a short acted
-conversation. Campaign scenes play in the same rooms with the same
-machinery, with the interface hidden and the picture letterboxed.
+repair and launch, the bar gives people to talk to, news and a job
+board, the dealers give the trade panels (3.15; their rules are chapter
+07's). People stand or sit at authored spots, fidget, and answer a click
+with a short acted conversation. Campaign scenes play in the same rooms
+with the same machinery, with the interface hidden and the picture
+letterboxed.
 
 The front end is a column of five choices over a live scene. Multiplayer
 adds a host list, a character list and a character creation page. In
 play, a bar of icons opens the map, the inventory, the mission log, the
 player's standing and help; a pause menu saves, loads and leaves.
-
-Scenes instead of menus give each base a sense of place while the rules
-behind the buttons stay the same everywhere.
 
 ## 2. Concepts
 
@@ -281,8 +279,8 @@ at random, run as ordinary rooms without an authority.
 | Load game | Saves with description and time; for the selected one ship, level, money and location; load, delete | Loading |
 | Options | Interface, audio and video settings (29) and the key bindings of chapter 09 | Main menu |
 
-A single-player session starts with the main menu, so the save list is
-the in-process authority's character list (chapter 11).
+The save list is the in-process authority's character list (chapter
+11).
 
 ### 3.9 The multiplayer front end
 
@@ -363,10 +361,11 @@ text to an object's card once the flag for it is set.
 
 **Identification.** All visible text is referred to by a text
 identifier, which names a catalogue and an entry in it. A catalogue
-holds strings, cards, or both under separate number spaces. The shipped set has seven catalogues with
-about 12,800 strings and 5,250 cards; names (7,100 strings) and
-bar-talk cards (3,090) are the largest. Records and messages carry
-identifiers only; the authority never resolves text.
+holds strings, cards, or both under separate number spaces. The shipped
+set has seven catalogues with about 12,800 strings and 5,250 cards;
+names (7,100 strings) and bar-talk cards (3,090) are the largest.
+Records and messages carry identifiers only; the authority never
+resolves text.
 
 **Format strings.** Text composed at run time (job offers, objectives,
 news) travels as a template identifier plus a list of typed values:
@@ -386,33 +385,31 @@ can also insert images and other loaded text. Layout wraps, aligns and
 can truncate with an ellipsis.
 
 **Localisation.** Replace the catalogues and the voice archives; nothing
-else holds language. Fonts are named in data by role.
+else holds language.
 
 ### 3.14 Authority and presentation
 
-The authority decides which inhabitants a room has, their behaviours,
-extra scenes, job offers and news; it reacts to "inhabitant selected",
-offer answers and "scene done"; it stores knowledge flags and the
-character's location (base and room); it owns markets, repair, purchases
-and saving. The presentation owns room sets, cameras, all scene
-playback, the room bar and every screen; it raises knowledge flags and
-reports them; for everything else it asks and shows the result.
+The authority decides a room's inhabitants, behaviours, extra scenes,
+job offers and news; it reacts to "inhabitant selected", offer answers
+and "scene done"; it stores knowledge flags and the character's
+location; it owns markets and saving. The presentation owns room sets,
+cameras, scene playback, the room bar and every screen; it raises
+knowledge flags and reports them.
 
 The authority does not run scenes, so a scene's length is known only to
 the presentation; that is why "scene done" exists as a message.
 
 ### 3.15 The service and inventory panels
 
-Chapter 07 owns the rules behind these panels; this is what the player
-handles.
+Chapter 07 owns the rules; this is what the player handles.
 
 **Inventory and the two dealers.** One window serves the inventory icon,
 the commodity trader and the equipment dealer. It shows the player's
-ship in 3D with its hardpoints, a list of five rows with a scroll bar,
-five filter buttons (weapons, ammunition, equipment, cargo-bay items,
+ship in 3D with its hardpoints, a scrolling list of five rows, five
+filter buttons (weapons, ammunition, equipment, cargo-bay items,
 commodities), the money and a bar for hold space. At a dealer a second
-window of the same kind shows the base's stock beside it, sorted so that
-what this player may buy comes first.
+such window shows the base's stock beside it, with what this player may
+buy listed first.
 
 A row shows icon, name, quantity and, at a dealer, the unit price; a
 health bar when damaged; a mounted toggle for mountable items; a label
@@ -420,9 +417,9 @@ on mission cargo. The commodity trader adds a three-level marker (good,
 average, poor) that rates the local price against authored thresholds,
 separately for buying and selling. Selecting a row opens the item's
 card: its description and, for equipment, a two-column table of its
-statistics. No side-by-side comparison with the mounted item was found.
-For a commodity, a "trade routes" button lists its price at each known
-base, and choosing a base opens the map there.
+statistics. No comparison with the mounted item was found. For a
+commodity, a "trade routes" button lists its price at each known base;
+choosing a base opens the map there.
 
 Selecting a row on either side opens a transfer strip between the lists:
 the item, a buy or sell arrow, the unit price, a quantity (slider or
@@ -437,30 +434,26 @@ There is no basket and no confirmation. Each press of buy or sell
 changes the local lists and is sent to the authority at once, as a
 market request, an item change and a money change. Equipment bought with
 a free matching hardpoint is mounted immediately; otherwise it goes to
-the hold. The mounted toggle and dragging an item onto a hardpoint of the
-ship view send a modify request the same way. The inventory also has a
-jettison button, which asks for a quantity when the stack is larger than
-one.
+the hold. The mounted toggle, and dragging an item onto a hardpoint of
+the ship view, send a modify request the same way. A jettison button
+asks for a quantity when the stack is larger than one.
 
 **Ship dealer.** A panel lists up to three ships on sale and the
 player's own: icon, name, class, price, and a lock when level or standing
 is too low. Picking one shows it rotating in 3D with three panes of
-facts. Buying opens the two-list window with the old ship on one side
-and the new one on the other. The old ship's equipment is moved across
-automatically, most valuable first, as far as it fits; the player may
-move items either way, except engines. The price shown is the package
-less the trade-in of the old ship and of what stays on it. "Continue"
-sends ship, loadout, hull state and money together; "back" abandons the
-purchase.
+facts. Buying opens the two-list window with the old ship beside the
+new. The old equipment is moved across automatically, most valuable
+first, as far as it fits; the player may move items either way, except
+engines. The price shown is the package less the trade-in of the old
+ship and of what stays on it. "Continue" sends ship, loadout, hull state
+and money together; "back" abandons the purchase.
 
 **Repair.** A list of the hull, damaged parts and damaged equipment,
 each with a check box, name, price and health bar. The checked rows are
-totalled and charged on confirmation, which is refused when the money
-does not cover them.
+totalled and charged on confirmation, which needs enough money.
 
-**Player trade (multiplayer).** A window between the two players' cargo
-lists: each side puts up items, with the same quantity control, and
-money, and sees the other's offer.
+**Player trade (multiplayer).** A window between two players' cargo
+lists: each puts up items and money and sees the other's offer.
 
 ## 4. Data that defines it
 
@@ -478,20 +471,19 @@ money, and sees the other's offer.
 | Tooltip map; card extension map | caption and long text identifiers; card identifier, extra text, stock lists to append | 298; 174 |
 | Knowledge table | text identifier, nickname, flags | 4,752 |
 
-Example: the deck of a two-room station has a room switch to the bar,
-a virtual-room switch `example_equipment_room`, and inside that virtual
-room a desk hotspot (shown in state 1, sends 2) and a dealer hotspot
-(shown in state 2, sends 1).
+Example: a two-room station's deck has a room switch to the bar, a
+virtual-room switch `example_equipment_room`, and in that virtual room a
+desk hotspot (shown in state 1, sends 2) and a dealer hotspot (shown in
+state 2, sends 1).
 
 ## 5. Connections
 
-Needs: the knowledge state and route planning (01); ship models and the
-mounted equipment for the launch check (02); what each trade and repair
-screen does (07); who is in a room, what they say and offer, news, job
-offers, campaign scenes (08); cursor, commands, key bindings, sound,
-voice, effects, the scripted camera in flight (09); messages for base,
-room, lists, launch, saving, accounts and characters (11); asset kinds
-and catalogues (12).
+Needs: the knowledge state and route planning (01); ship models and
+mounted equipment (02); the rules of trade and repair (07); who is in a
+room, what they say and offer, news, job offers, campaign scenes (08);
+cursor, commands, key bindings, sound, voice, effects, the scripted
+camera in flight (09); messages for base, room, lists, launch, saving,
+accounts and characters (11); asset kinds and catalogues (12).
 
 Gives: the rooms and scenes in which 07 and 08 appear; the screen flow
 and panels to 09; enter and exit, selection and scene-done reports to 08
@@ -501,8 +493,7 @@ and 11; text identifiers and format strings to every chapter.
 
 Essential:
 
-- A base as a few staged rooms with services on buttons. The rules are
-  in the panels; the room is a place.
+- A base as a few staged rooms with services on buttons.
 - Late-bound, data-only scene scripts. One mechanism serves sets,
   ambience, landing, conversations and campaign scenes; 635 of about
   1,500 scripts are reusable clips.
@@ -513,14 +504,13 @@ Essential:
 - Knowledge granted by reading, which ties bar talk and news to the map.
 
 Feel: landing and launch scenes, walk-ins, fidgets, carts, traffic and
-blinking lights, which the original can already drop by priority; the
-cursor that announces the kind of talk; the camera that travels to the
-dealer.
+blinking lights; the cursor that announces the kind of talk; the camera
+that travels to the dealer.
 
 Accidents of the era:
 
-- Virtual rooms save sets on the 125 bases with two rooms (inferred). A builder may give every function a panel on the landing
-  place.
+- Virtual rooms save sets on the 125 bases with two rooms (inferred). A
+  builder may give every function a panel on the landing place.
 - An interface drawn as 3D meshes before its own camera, for a 4:3
   screen only (per design notes). Any modern toolkit that meets 3.12
   will do.
@@ -530,23 +520,19 @@ Accidents of the era:
 
 Simplifications: static backdrops instead of scenes lose the sense of
 place and none of the rules; text boxes instead of acted conversations
-keep offers, rumours and bribes; without the knowledge table, talk no
-longer feeds exploration.
+keep offers, rumours and bribes.
 
 ## 7. Open questions
 
 1. How an inhabitant record selects among the free placements of a room,
    and what happens when a room has fewer placements than inhabitants.
-2. How sound is handed over between a room's theme and a scene's own.
-3. Several flags of sequences and scripts have no recovered meaning; one
+2. Several flags of sequences and scripts have no recovered meaning; one
    gates skipping together with a second.
-4. Whether the authored pages for ship choice, tutorial and credits are
+3. Whether the authored pages for ship choice, tutorial and credits are
    reachable. The flow traced here never opens them.
-5. How text was fitted per language. The original measured text with the
-   operating system's font engine (per design notes), so line breaks
-   cannot be reproduced from data alone.
-6. What sub-scenes, user events and subtitle events were meant for.
-7. Whether the films at start can be skipped.
+4. How text was fitted per language. The original measured text with the
+   operating system's font engine (per design notes).
+5. What sub-scenes, user events and subtitle events were meant for.
 
 ## 8. Basis
 
@@ -570,8 +556,9 @@ Code, `CppSource/OutpostFrontier/Client/`: `client_state`, `gameflow`,
 `room_control*`, `nav_bar`, `gf_hotspot`, `gf_character_object`,
 `gf_script*`, `engine_character`, `fade_to_black`, `page_server_select`,
 `server_filter`, `login_mgr`, `page_character_*`, `nn_main_button`,
-`nn_pause`, `nn_load_save`, `nn_navmap*`, `knowledge_map`,
-`infocard_map`, `ids_strings`.
+`nn_pause`, `nn_load_save`, `nn_navmap*`, `nn_inventory`, `nn_dealer`,
+`nn_ship_trader`, `nn_repair`, `nn_trade`, `dealer_equip_stats`,
+`commodity_by_base`, `knowledge_map`, `infocard_map`, `ids_strings`.
 `CppSource/Common/`: `common_roomdata`, `common_costume`,
 `common_fmtstr`, `common_rdlio`, `common_rtcslider`.
 `CppSource/include/`: `scenescript_iface.h`, `scenescript_controls.h`,
@@ -579,7 +566,6 @@ Code, `CppSource/OutpostFrontier/Client/`: `client_state`, `gameflow`,
 (five-character limit).
 
 Inference: script lengths (the constant after the duration key in each
-compiled script, not playback); name variants as grammatical forms (the
-code shows only identifier offsets); the purpose of virtual rooms;
-"skippable" as the meaning of the flag that gates skipping; sub-scenes.
-Map modes are named from their button names and drawing code.
+compiled script, not playback); name variants as grammatical forms; the
+purpose of virtual rooms; "skippable" as the meaning of the flag that
+gates skipping; sub-scenes. Map modes are named from their buttons.

@@ -11,7 +11,7 @@ This chapter covers the slow systems that give flying and fighting a
 purpose: who likes whom, what things cost, how far the player has come.
 
 **Factions.** Every ship and station the player meets belongs to one of a
-few dozen factions: house militaries and police, corporations, outlaw
+few dozen factions: the militaries and police of major powers, corporations, outlaw
 bands, guilds. Each has a view of every other and of the player. The
 player sees it as the colour of a contact, as a list of bars in the
 status screen, and as consequences: patrols that open fire, stations that
@@ -26,11 +26,13 @@ from knowing the map. Equipment and ships cost the same everywhere but
 are offered only in some places, to players of sufficient level and
 standing. No price reacts to trade and no stock runs out.
 
-**Progression.** The player's level is a function of **worth**: money plus
-the value of ship and equipment. Level gates what dealers sell and how
-hard offered jobs are. In the campaign the next scripted mission is
-released by earning a set amount of worth, which pushes the player into
-trade and jobs before the story continues.
+**Progression.** The player's **worth** (money plus the value of ship and
+equipment) is the measure of progress. In the single-player campaign the
+next scripted mission is released by earning a set amount of worth, which
+pushes the player into trade and jobs, and the player's level rises with
+the campaign. After the campaign level follows worth. Level gates what
+dealers sell in single player and nothing else; in multiplayer it is only
+displayed. Job difficulty never reads it (chapter 08).
 
 ## 2. Concepts
 
@@ -52,6 +54,7 @@ chapter adds:
 | Nominal price | The price in the good's own record. A base without a row for the good uses it. |
 | Used rate | 0.3, the fraction of price paid for equipment the player already owned. |
 | Worth | Money plus the valued ship and equipment. |
+| Rank | The level number kept in a reputation record and shown with the object. An NPC ship's is the authored level of its NPC ship record, a solar's comes from its archetype, a player's is the table value of worth. Other chapters' "rank" is this number. |
 | Campaign position | A counter, 0 to 42, of how far the campaign has advanced. |
 | Contraband | A commodity that some lawful faction's patrols scan for. |
 
@@ -121,8 +124,16 @@ last sent for each object.
 | ≥ 0.6 | Friendly | Shown as friendly; friends take the player's side in a fight. |
 
 The same two numbers are used by the AI, the dock queue, the contact
-list, the target display and the map. The matrix values ±0.65 sit just
-outside them; −0.3 changes nothing by itself.
+list, the target display and the map, always on regard between two
+objects. The matrix values ±0.65 sit just outside them.
+
+A second, wider pair applies to the matrix alone. When content asks how
+one *faction* stands to another, with no objects involved, it reads the
+matrix value: −0.2 or lower is hostile, 0.2 or higher friendly, between
+is neutral. Population uses this to pick the attackers of a lane and the
+enemy faction of a tied encounter, and cargo generation uses it (chapter
+06). Under this test the −0.3 step counts as hostile, although ships of
+such factions do not shoot each other on sight.
 
 ### 3.4 What changes a standing
 
@@ -152,8 +163,8 @@ zero; the rest lie between −0.45 and 0.4, with a few at 1.0. Because two
 negatives multiply to a positive, killing a faction's ships *raises* the
 player with that faction's enemies.
 
-**Worked example.** The player destroys a patrol ship of a house police
-faction (rate −0.03). Its house military has empathy 0.4 with it, an
+**Worked example.** The player destroys a patrol ship of a major power's
+police (rate −0.03). That power's military has empathy 0.4 with it, an
 outlaw faction −0.45. Results: police −0.03, military −0.012, outlaws
 +0.0135. Starting from neutral 0, twenty such kills make the police
 hostile (−0.6), leave the military at −0.24 and lift the outlaws to 0.27.
@@ -215,8 +226,10 @@ Only kills leave a lasting mark.
   rumours at a minimum standing with its faction. The table has four
   steps (0, 0.2, 0.4, 0.6); the data uses only the upper three. A bribe
   is offered only below 0.6.
-- **Population (chapter 06):** which formations spawn near a player
-  depends on the standing with their faction.
+- **Population (chapter 06):** standing decides whether a spawned group
+  attacks, not whether it appears. Spawning reads zones only. The one
+  exception is a switch that scripted missions can set in single player,
+  which keeps groups of factions hostile to the player from spawning.
 - **Cargo scans:** section 3.13.
 - **Interface (chapter 09):** contact and target colour in three bands,
   map symbols, the list of standings in the status screen.
@@ -279,6 +292,21 @@ price at base = truncate(nominal price × multiplier)     fixed at load
   its nominal price.
 - A per-base random price variance exists. No base sets it.
 - Nothing responds to trade.
+
+**Who trades what.** Each dealer room handles one kind of good:
+
+| Room | Sells and buys |
+| --- | --- |
+| Commodity trader | Commodities only. |
+| Equipment dealer | Weapons, ammunition, other equipment and repair consumables, each on its own tab. Also the repair service. |
+| Ship dealer | Ship packages, with the equipment exchange of section 3.11. |
+
+A base buys goods it does not list: the hold's commodities appear at the
+commodity trader and loose or mounted equipment at the equipment dealer
+whenever their price there is not zero, and an unlisted good has its
+nominal price. A base without the room cannot take the good (inferred).
+Loot is therefore sold like anything else, commodities at one desk and
+salvaged equipment at the other.
 
 Selling to a base:
 
@@ -357,8 +385,12 @@ hull or part: (1 − condition) × its hit points × base repair rate
 equipment:    truncate(price at base × 0.3) × (1 − condition) × count
 ```
 
-The repair rate is a per-base field with default 0.33 that no base
-overrides. A damaged entry costs at least 1.
+The service belongs to the equipment dealer (chapter 10) and lists the
+hull, every damaged part and every damaged item of equipment that has a
+hardpoint type; items without one, such as cargo, are not repaired. The
+player ticks what to repair and pays the total. The repair rate is a
+per-base field with default 0.33 that no base overrides. A damaged entry
+costs at least 1.
 
 ### 3.13 Contraband and cargo scans
 
@@ -396,36 +428,55 @@ The rates are the resale rates of section 3.9: worth is roughly what the
 player could turn into money. A second valuation with the same rates, at
 the current base's prices, backs the multiplayer audit of chapter 11.
 
-A table maps worth to level: 38 authored points, from 11,000 for level 1
-to about 2.4 million for level 38, each step 9% to 25% above the last
-(level 10 at 59,000, level 20 at 211,000, level 30 at 842,000). The level
-is recomputed whenever money changes. The status screen shows the worth
-still needed for the next level.
+A table maps worth to a level number: 38 authored points, from 11,000
+for level 1 to about 2.4 million for level 38, each step 9% to 25% above
+the last (level 10 at 59,000, level 20 at 211,000, level 30 at 842,000).
+It is consulted whenever money changes.
 
-- **Multiplayer:** level is the table value of worth and follows it both
-  ways. The table is extended in steps of 12.5% up to the money cap. The
-  level is stored in the reputation record, so other players can see it
-  (inferred).
-- **Single player, during the campaign:** the level rises by one at 18
-  fixed campaign positions and does not depend on worth. On finishing a
-  mission the campaign records "worth now plus a threshold" and starts
-  the next mission when worth reaches that figure and no other mission is
-  running. The thresholds are 3,500, 5,200, 7,000, 10,000 and 16,000
-  after the first five missions, 36,000 and 30,000 after two later ones,
-  and zero elsewhere.
-- **Single player, after the campaign (position 42):** level follows the
-  table, upwards only.
+Two numbers come out of this, and they differ by mode:
 
-Level gates market rows in single player (section 3.10) and feeds job
-difficulty and with it job pay (chapter 08). Kills, missions flown, bases
-and systems visited and total money earned are counted and displayed but
-unlock nothing.
+- The **rank** in the player's reputation record is always the table
+  value of worth, in every mode, and follows it up and down. It is what
+  others see. In multiplayer a change is sent to all players, and the
+  table is extended in steps of 12.5% up to the money cap.
+- The **level** stored with the character is what dealers test.
 
-Progression is also geographic. A new single-player game is the
-new-character template followed by the initial-world file, and both lock
-jump points: the template 32 for this player, the world file 27 more for
-every player and 36 for NPC traffic. The campaign unlocks them (chapters
-01 and 08).
+| Mode | What sets the character's level | What it gates |
+| --- | --- | --- |
+| Single player, campaign | Starts at 0. Rises by one on reaching each of 18 campaign positions: 3, 5, 7, 9, 10, 12, 13, 15, 16, 18, 19, 22, 24, 25, 27, 28, 31 and the last, 42. Worth plays no part. | Equipment and ship rows (section 3.10). |
+| Single player, after the campaign | The table value of worth, when that is higher. It never falls. | The same rows. |
+| Multiplayer | Nothing advances it (inferred: only the campaign and the after-campaign rule write it). | Nothing. Dealers skip the level test; money, standing and fit remain. |
+
+The positions fall at the start and the end of the early missions, so the
+level reaches 17 by the start of the tenth mission and 18 at the end
+(inferred, each position being passed once). Rows asking for more, up to
+30 for equipment and 32 for ships, open only after the campaign, at
+842,000 and about 1.1 million of worth.
+
+Level does not feed job difficulty in any mode. In single player the
+generator reads the campaign position, in multiplayer the base's own
+range (chapter 08, section 3.11). What ties job pay to progress is
+therefore the campaign in single player and the choice of base in
+multiplayer.
+
+**Pacing.** On finishing a mission the campaign records "worth now plus
+a threshold" and starts the next mission when worth reaches that figure
+and no other mission is running. The thresholds are 3,500, 5,200, 7,000,
+10,000 and 16,000 after the first five missions, 36,000 and 30,000 after
+two later ones, and zero elsewhere. The status screen shows the worth
+still needed.
+
+Kills, missions flown, bases and systems visited and total money earned
+are counted and displayed but unlock nothing.
+
+**Locked jump points.** Progression is also geographic. A new
+single-player game is the new-character template followed by the
+initial-world file, and both lock jump points: the template 32 for this
+player, the world file 27 more for every player and 36 for NPC traffic.
+Mission actions lock and unlock them (chapter 08). A multiplayer host
+reads the same world file at every start, so the 27 are closed to all
+players and the 36 to NPCs. The multiplayer template adds none, and
+since no campaign runs on a host nothing opens them (inferred).
 
 ### 3.15 Money
 
@@ -464,7 +515,7 @@ The authority owns the matrix, all reputation records and every change
 to them, computes regard, and sends changed standings and affiliations.
 It loads the markets, answers price queries, holds money and inventory,
 raises "good bought" and "good sold" events for content and recomputes
-the level.
+rank and level.
 
 The presentation shows the regard it was sent. It also builds the dealer
 lists, computes each price, checks every restriction of section 3.10 and
@@ -505,8 +556,8 @@ nickname hashing.
 **Gives.** 03: who is an enemy; provocation is fed by damage reports. 04:
 the docking refusal. 05: regard as the input of targeting. 06: faction
 properties, market rows for NPC cargo, hostility events for chatter. 08:
-event rates for mission outcomes, job pay, the campaign's worth
-thresholds, bribes. 09: attitude bands and standings for display. 10:
+event rates for mission outcomes, the campaign's worth thresholds,
+bribes. 09: attitude bands and standings for display. 10:
 dealer screens, price markers, the base information card.
 
 ## 6. Design notes for the builder
@@ -534,8 +585,9 @@ drop contraband; the warning before provocation; the dealer's refund.
 - The presentation computes purchases and the authority audits worth
   afterwards. Put the rules on the authority.
 - Solars get their faction in a second pass. Apply the owner at load.
-- Level is stored in two places with different rules for single and
-  multiplayer, and multiplayer skips the level gate on purchases.
+- Level exists twice, as the character's level and as the record's rank,
+  with different rules per mode, and multiplayer gates nothing by it. Use
+  one number.
 - Stock ranges, price variance and the sells-only direction look like
   remnants of a more dynamic economy (inferred).
 

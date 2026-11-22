@@ -14,7 +14,7 @@ with as little hand flying as the player wants.
 
 The player has four layers of help.
 
-- **Cruise** (chapter 02): five seconds to engage, 300 m/s, no weapons.
+- **Cruise** (chapter 02): 300 m/s, no weapons.
 - **Manoeuvres** are orders to the ship's manoeuvre layer: fly to the
   selected object, dock with it, join its formation, or return to free
   flight. NPCs are flown by the same layer (chapter 05).
@@ -27,10 +27,10 @@ The player has four layers of help.
 
 Docking is a small ceremony, not a teleport. The player asks, the station
 answers by voice (cleared, wait, refused), the ship flies an authored
-approach into a bay, a ring or a jump point, the camera cuts outside, and
-the screen changes to the base or to the next system. Launching plays it
-backwards. The ceremony is where the world gets to say no: a hostile
-station, a closed border, a mission that forbids leaving, a full pad.
+approach into a bay, a ring or a jump point, and the screen changes to
+the base or to the next system. Launching plays it backwards. The
+ceremony is where the world gets to say no: a hostile station, a closed
+border, a mission that forbids leaving, a full pad.
 
 ## 2. Concepts
 
@@ -41,8 +41,7 @@ force controller) are used as defined. This chapter adds:
 | Concept | Definition |
 | --- | --- |
 | Manoeuvre | What the player orders from the interface: free flight, go to, dock, join formation. Each is issued as a directive to the manoeuvre layer of the player's ship, where it runs as a behaviour (chapter 05). One is active at a time. |
-| Docking point | One authored place on a solar or capital ship where a ship can dock: a kind, a mount pose, two approach poses, a radius and an optional door animation. |
-| Docking point kind | Berth, ring pad, medium or large mooring, jump, airlock: see the table below. |
+| Docking point | One authored place on a solar or capital ship where a ship can dock: a kind (table below), a mount pose, two approach poses, a radius and an optional door animation. |
 | Docking class | A label on a ship archetype naming the kind of docking point the ship may use: berths, medium moorings or large moorings. |
 | Docking list, waiting list | The authority's two lists: ships cleared and flying in, and ships told to wait for a free docking point. |
 | Scripted mover | A force controller that takes a ship over completely: collisions off, pose set each tick. Lane travel, ring launch and NPC jump arrival are scripted movers. |
@@ -81,7 +80,6 @@ ship archetype ── docking class ── fits? ───┤─ mooring ──�
 lane ring ── next / previous ring ──────────┴─ (lane) ──────────▶ scripted mover along the chain
 
 map ── route request ──▶ AUTHORITY: planner ── legs ──▶ WAYPOINTS ──▶ HUD marker (09)
-           uses each system's lanes and the gates-only system path (01), and locks
 ```
 
 ## 3. How it works
@@ -214,10 +212,8 @@ On a multiplayer authority an NPC that completed a dock loses its
 collisions and, at a jump point, lingers 12 s before removal so that the
 jump effect can play.
 
-The presentation dresses this up with a fixed exterior camera that fades
-to black as the ship reaches the door, a three-second glide into a
-planetary ring, and a tunnel sequence at a jump point. None of it affects
-the rules.
+The presentation adds a fixed exterior camera, a three-second glide into
+a planetary ring and a tunnel sequence. None of it affects the rules.
 
 ### 3.5 Launching
 
@@ -306,12 +302,12 @@ be shot down, and a mission action can drain it. That is how lane
 attackers (chapter 06) pull traffic into an ambush and how a mission
 stops the player at a chosen spot.
 
-NPCs use lanes through the same dock order, or through a shortcut
-manoeuvre that carries a ship waiting at a ring to another named ring.
+NPCs use lanes through the same dock directive, or through a shortcut
+directive from one named ring to another.
 
 ### 3.7 Transfer between systems
 
-Chapter 01 defines connections; chapter 11 gives the messages. The rules:
+The rules (chapter 11 gives the messages):
 
 1. Docking at a jump point passes through 3.2 like any dock, minus the
    hostility check. A jump point has one docking point, so while one ship
@@ -414,9 +410,10 @@ all held by the authority and stored in the saved game (chapter 11).
 
 A new single-player game applies the template's 32 player locks and then
 the initial world's two lists. The three lists are disjoint, so the
-player starts with 59 jump points closed. The multiplayer character
-template carries no locks; whether the initial world's lists apply on a
-multiplayer host is settled in chapter 07, section 3.14.
+player starts with 59 jump points closed. A multiplayer host reads the
+initial world's lists at each start, so its 27 and 36 hold there too;
+the multiplayer character template adds none (chapters 07, section 3.14,
+and 11).
 
 Unlocking a jump point "for the player" removes the per-player and the
 everyone lock. The campaign opens the universe region by region this way.
@@ -435,8 +432,7 @@ that calls it.
 | --- | --- |
 | Dock permission, choice of docking point, both lists, timeouts | The player's manoeuvres: go to, the approach, the own ship's lane ride |
 | Completion test; landing; removal from the system | Docking camera, door and ring animation, lane and jump effects |
-| Launch position; invincibility | The own ship's launch; "launch complete" report |
-| Transfer between systems; arrival pose | Tunnel sequence; loading; "jump-in complete" report |
+| Launch position; transfer between systems; arrival pose | The own ship's launch; tunnel sequence; loading; completion reports |
 | Locks and restrictions; route planning | Button availability; waypoint list, map tools, marker |
 | All of this, and the manoeuvres, for NPCs | — |
 
@@ -449,16 +445,13 @@ they are two messages, which is why the approach has a hold state.
 | --- | --- | --- |
 | Docking point, repeatable on a solar archetype | kind; mount hardpoint; radius; optional door animation | 262 points on 55 archetypes: 106 medium moorings, 96 berths, 47 large moorings, no small ones; stations carry 2 to 18. Radius in m: berth and mooring 2 to 10, ring pad 40, hole 150, gate 225. |
 | Solar archetype, other fields | docking camera yes or no; exit hardpoint and opening animation of a jump point | Docking camera on 42 archetypes |
-| Model hardpoints | per docking point a mount and two approach points; on a lane ring one per direction; on every ship one mount | — |
 | Ship archetype | docking class | Of 69 hulls: berths 42 (fighters, freighters), medium moorings 8 (mostly transports), large moorings 15 (gunboats and larger), none 4 |
 | Lane equipment, mounted on every lane ring | effects for entering, travelling, leaving and disruption; delays before each (2 s, 0.2 s, 0.3 s); ring spin rate and acceleration; two activation distances (750 m, 500 m) | One record |
 | Lane ring loadout | lane equipment, shield generator, unlimited power, two turrets, lights | Shield 1,000, regeneration 10 per second |
 | New-game template; initial world state | jump points locked for the new player; for everyone and for NPC traffic | 32; 27 and 36 |
-| Mission actions (chapter 08) | lock or unlock a jump point; player may dock; player may use lanes; drain a lane ring; force a landing; relocate a ship; give the player a route | — |
 
-The rule constants of section 3 (lane speeds and ramp, linking distance,
-route cap, timeouts, hostility threshold, approach speed cap, launch
-timings) are in code, not data.
+Models carry the docking hardpoints. The mission actions are those of
+3.10. The rule constants of section 3 are in code, not data.
 
 ## 5. Connections
 
@@ -470,14 +463,14 @@ event bus, system loading and saving (11).
 
 Gives:
 
-- 05, 06: the dock, launch and lane orders that NPC scripts and ambient
-  traffic are built from; docking points as places where NPCs appear and
-  leave; the NPC lock on jump points.
-- 08: locks and restrictions as mission actions; "launch complete", "dock
-  complete", "system entered", "jump-in complete" and lane entry and exit
-  as trigger events; the planner for mission waypoints.
-- 09: manoeuvre availability, dock answers and travel notices for voice
-  and HUD; waypoints for the map and the marker.
+- 05, 06: the dock, launch and lane orders of NPC scripts and ambient
+  traffic; docking points as places where NPCs appear and leave; the NPC
+  lock on jump points.
+- 08: locks and restrictions as mission actions; launch, dock, system
+  entry, jump-in and lane events as triggers; the planner for mission
+  waypoints.
+- 09: manoeuvre availability, dock answers and travel notices; waypoints
+  for the map and the marker.
 - 10, 11: the moment of entering and leaving a base; the save on system
   arrival and, on a multiplayer host, at landing.
 
@@ -492,21 +485,18 @@ Gives:
 - *A fast lane that can be broken.* Lanes make a large map tolerable and
   concentrate traffic; their vulnerability makes them the natural ambush
   site. 
-- *Routes planned by the authority, with locks applied.* The map must not
-  offer a route the player cannot fly.
+- *Routes planned with locks applied.* The map must not offer a route the
+  player cannot fly.
 
-**Feel.**
-
-- The three-pose approach, door animations and docking camera.
-- Spoken clearance and the waiting queue.
+**Feel.** The three-pose approach, door animations, docking camera,
+spoken clearance and the waiting queue.
 
 **Accidents of the era.**
 
 - The presentation flies the player's approach and lane ride and the
   authority trusts the reported pose (chapter 11).
-- The in-system planner is a greedy heuristic with an odd score. With a
-  handful of lanes per system, an exact shortest-time search over rings
-  is simpler and better.
+- The in-system planner is a greedy heuristic; with a handful of lanes
+  per system an exact shortest-time search is simpler and better.
 - Cross-system routes fail outright on a locked gate. Searching the
   connections per request, with the requester's locks, removes that.
 
@@ -515,10 +505,10 @@ Gives:
 - No docking classes or moorings: lost, large ships parked outside
   stations.
 - No approach flight, docking completes inside a radius after clearance:
-  lost, the sense of arrival and the exposure of a slow ship near a base
-  under fire.
-- Lanes as teleports between end rings: lost, interdiction, traffic seen
-  in passing, leaving mid-lane.
+  lost, the sense of arrival and the exposure of a ship near a base under
+  fire.
+- Lanes as teleports between end rings: lost, interdiction and leaving
+  mid-lane.
 
 ## 7. Open questions
 
@@ -547,29 +537,26 @@ Data: `SOLAR/solararch.ini` (docking_sphere, docking_camera, jump_out_hp,
 open_anim; tabulated by script), `SOLAR/loadouts.ini`,
 `EQUIPMENT/select_equip.ini` (lane equipment, ring shield),
 `SHIPS/shiparch.ini` and `MISSIONS/mshipprops.ini` (docking class),
-`initialworld.ini` (locked gates), the mission files (counts of travel
-actions). `constants.ini` holds nothing specific to travel.
+`initialworld.ini` and `outdir/newplayer.fl` (locked gates), the mission
+files (counts of travel actions). `constants.ini` holds nothing specific to travel.
 
 Code, read in part. Common: `common_dockbehavior.cpp`,
 `common_laneaction.cpp`, `common_launchaction.cpp`,
 `common_gotobehavior.cpp`, `common_cruisebehavior.cpp`,
-`common_iobjinspectimpl.cpp` (docking poses, lane start, ring status),
-`common_cship.cpp`, `common_archetype*.cpp`. Content: `DockQueues.cpp`,
-`TradelaneRequests.cpp`, `SpacePaths.cpp` (in-system planner),
-`GameSupport.cpp` (route request), `SpaceSupport.cpp` (locks),
-`PlayerState.cpp`, `MissionAct.cpp`, `RandomMissionDB.cpp` and
-`ContentStaticIds.h` (docking class labels). Server:
-`server_gameobject.cpp` (completion test, arrival pose),
-`server_classes.cpp` (dock completion, launch position),
-`server_pub.cpp`, `IServerImpl.cpp`. Client: `hud_maneuvers.cpp`,
+`common_iobjinspectimpl.cpp`, `common_cship.cpp`,
+`common_archetype*.cpp`. Content: `DockQueues.cpp`,
+`TradelaneRequests.cpp`, `SpacePaths.cpp`, `GameSupport.cpp`,
+`SpaceSupport.cpp`, `Support.cpp`, `PlayerState.cpp`, `MissionAct.cpp`,
+`RandomMissionDB.cpp`, `ContentStaticIds.h`. Server:
+`server_gameobject.cpp`, `server_classes.cpp`, `server_pub.cpp`,
+`server_savegame.cpp`, `IServerImpl.cpp`. Client: `hud_maneuvers.cpp`,
 `hud_waypoint.cpp`, `best_path.cpp`, `player_spawn.cpp`,
 `nn_navmap_input.cpp`, `client_iclient_space.cpp`, `client_gameobj.cpp`;
 headers of `space_camera_docking`, `client_land_action`, `jump_effect`.
 The dock, lane, launch and fly-to scenarios in `Oracle/scenarios/`.
 
 Inference: the approach table condenses a larger machine and names its
-states, and its staging offsets are rounded; lane timings and the launch
-start values are computed from the formulas; the purposes given for the
-11 km linking distance, for traffic competing over docking points and
-for lane disruption are reasoned from the rules. The presentation
-sequences are described from header notes.
+states; lane timings and the launch start values are computed from the
+formulas; the purposes given for the 11 km linking distance and for lane
+disruption are reasoned from the rules. The presentation sequences are
+described from header notes.
