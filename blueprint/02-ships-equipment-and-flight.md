@@ -31,19 +31,19 @@ so what the player learns about their own ship holds for all they meet.
 
 ## 2. Concepts
 
+Archetype, instance, loadout and the other glossary terms are used as
+defined in chapter 00. This chapter adds:
+
 | Concept | Definition |
 | --- | --- |
 | World object | Anything simulated in a system. It has an identifier, a pose, an archetype and, if it can collide, a body. |
 | Simple object | A world object with hit points, an owning player (or none) and a current zone. |
 | Equipped object | A simple object that carries equipment, a power pool, parts, docking points and a pilot: a ship or a solar. |
-| Archetype | The immutable template: model, mass, hit points, parts, flight coefficients, legal hardpoint classes. |
-| Instance | A live object made from an archetype, a loadout and a pose. |
 | Body | The rigid body of an instance: mass, inertia about the three ship axes, linear and angular velocity, one convex collision shape per part. |
 | Part | A separately damageable piece of the model with its own hit points and collision shape. |
 | Hardpoint | A named position and orientation in the model, fixed or revolving, to which external equipment attaches. |
 | Hardpoint class | A label such as "gun grade 4". A hull declares which classes each hardpoint accepts; an item declares its class. |
 | Sub-object identifier | A 16-bit number, unique within one ship, naming the hull, a part or one equipment item. Damage, activation and stored loadouts address items by it. |
-| Loadout | An authored list of equipment (each with a hardpoint, or none for internal items) and cargo (each with a count). |
 | Power pool | Energy store for weapons, shield rebuilding and cruise. |
 | Thrust pool | A second, separate store for the thruster and for strafing. |
 | Controller | A contributor of force or torque to a body, run once per tick: engine, thruster, steering, strafe, nudge, and the scripted movers of chapter 04. |
@@ -71,7 +71,7 @@ loadout ────────────────▶  body, parts        
 | --- | --- | --- | --- |
 | Ship | yes | yes | The only kind with flight controllers. |
 | Solar | yes | yes | Fixed; may carry guns, shields, lights (chapter 01). |
-| Loot | yes | no | A drifting container holding one cargo stack. |
+| Loot | yes | no | A drifting container of cargo (chapter 03). |
 | Asteroid, dynamic asteroid | — | no | Field members (chapter 01). |
 | Munition, guided munition, beam, mine, countermeasure | some | no | Chapter 03. Beams are rays, not bodies. |
 | Detached equipment | no | no | External equipment with a body of its own, for example after being shot off. |
@@ -124,15 +124,15 @@ hardpoint can swing within the joint's limits.
    accept it. A grade-3 gun position appears in the lists for grades 3, 2
    and 1: downward compatibility is authored, not implied by code.
 3. An equipment archetype states its class (a gun may state several).
-4. An item may be mounted only on an empty hardpoint that is in the hull's
-   list for the item's class.
+4. An item may be mounted only on a hardpoint that is in the hull's list
+   for the item's class.
 
-When a character is loaded, the authority also checks that no mounted gun
-or shield has a grade above the best grade the hull declares in that
-family: a cheap guard against edited characters.
+The authority also verifies that no gun or shield mounted on a
+character's ship has a grade above the best grade the hull declares in
+that family: a cheap guard against edited characters.
 
 Internal equipment has no hardpoint and cannot be hit. Lights and effects
-are mounted by authored loadouts only and have no class.
+have no class; only authored loadouts mount them.
 
 ### 3.4 Equipment categories
 
@@ -183,10 +183,10 @@ consumables by two per-hull limits (10 to 71 on player hulls) and for each
 ammunition type by a global limit of 50.
 
 Stacks merge by archetype and carry one health value; some commodities
-decay at an authored rate while carried. Jettisoning opens the bay doors,
-removes units and spawns loot; the doors stay open for the animation plus
-four seconds. Cargo does not change the ship's mass (inferred: mass is read
-from the body, which is built from the archetype).
+decay at an authored rate while carried. Jettisoning opens the bay doors
+and spawns loot; the doors stay open for the animation plus four seconds.
+Cargo does not change the ship's mass (inferred: mass is read from the
+body, which is built from the archetype).
 
 ### 3.7 The flight model
 
@@ -225,7 +225,7 @@ The maximum turn rate about an axis is `steering torque / angular drag`,
 the response time `inertia / angular drag`. All three are authored per
 axis, so a hull can roll quickly and pitch slowly.
 
-Two global limits guard the integration: 1,000 m/s, and 0.94 rad of
+Two global limits guard the integration: 1,000 m/s and 0.94 rad of
 rotation per tick.
 
 **Worked example**, a first-tier light fighter as authored: mass 100, hull
@@ -265,23 +265,23 @@ to 29°/s.
 | Steering | axis throttle taken into the ship frame, scaled per axis by steering torque | none |
 
 Better thrusters are not faster: they drain less and survive more damage.
-With the basic model the net drain is 165 − 100 = 65/s, so a full pool
-lasts about 15 s and refills in 10 s.
+The basic model's net drain is 165 − 100 = 65/s, so a full pool lasts
+about 15 s and refills in 10 s.
 
 ### 3.8 Throttle, reverse, strafe, thruster, engine kill and cruise
 
 - **Throttle** runs from −1 to 1. Setting it switches a killed engine back
   on; setting it to exactly 0 cancels cruise.
-- **Reverse** is a switch that commands throttle −1. With drag this high
-  it works mainly as a brake.
+- **Reverse** is a switch that commands throttle −1; with drag this high
+  it is mainly a brake.
 - **Strafe** is a switch with four directions.
 - **Thruster** is a switch. It is refused in cruise, and engaging cruise
   switches it off.
 - **Engine kill** deactivates the engine item. Thrust ends, engine drag is
   no longer counted, cruise is dropped, and the ship keeps its velocity
   while steering works at full authority, because steering has its own
-  controller and its own drag. This is the game's one deliberate doorway
-  into inertial flight: fly past a target, kill the engine, turn and fire
+  controller and its own drag. This is the game's one doorway into
+  inertial flight: fly past a target, kill the engine, turn and fire
   backwards while drifting. Throttle, strafe, thruster or cruise ends it,
   and the returning drag pulls the velocity back onto the nose within half
   a second.
@@ -315,12 +315,11 @@ manoeuvre fed with the player's direction, throttle, cruise wish, engine
 wish and reverse flag. Automatic manoeuvres (go to a point, dock, join a
 formation) replace it on the same ship with nothing changed below.
 
-1. **Cursor to direction.** The cursor position relative to the screen
-   centre is divided by half the screen width and height, giving `x` and
-   `y` in −1 to 1. Mouse flight is on once the steering button has been
-   held for 0.25 s (sooner if the cursor moves clear of where the press
-   began), or after the player toggles a lock. It is suppressed during
-   cutscenes and while riding a lane.
+1. **Cursor to direction.** The cursor offset from the screen centre is
+   divided by half the screen width and height, giving `x` and `y` in −1
+   to 1. Mouse flight is on once the steering button has been held for
+   0.25 s (sooner if the cursor moves clear of where the press began), or
+   after the player toggles a lock. Cutscenes and lane travel suppress it.
 2. **Direction to demand.** Pitch demand is `−y`, yaw demand `−x`, each
    divided by a turn-sensitivity factor and clamped. Roll has no direct
    input.
@@ -367,8 +366,7 @@ dependent, which the high damping hides.
   attached equipment is merged into the ship's body and split off when
   detached.
 - All bodies share one material: friction 0.1, elasticity 0.9. Collisions
-  are bouncy and nearly frictionless. Fast objects are caught by
-  continuous detection between ticks.
+  are bouncy and nearly frictionless.
 - A contact between the same pair is reported at most once per 0.5 s. A
   munition leaves collision detection after its first contact.
 - Damage dealt *by* object A *to* object B is
@@ -459,14 +457,12 @@ Gives:
 - 04: the body and controller mechanism that docking, lane and jump movers
   take over; the hull's berth size.
 - 05: the commands a pilot may issue (throttle, axis throttle, nudge,
-  strafe, thruster, cruise, engine on and off) and the predictions it
-  derives from 3.7: speed for a throttle, time and distance to reach a
-  speed, the same for turning.
+  strafe, thruster, cruise, engine switch) and the predictions it derives
+  from 3.7: speed for a throttle, time and distance to reach a speed.
 - 06: loadouts and armour as the NPC difficulty dial.
 - 07: hulls and equipment as goods; hold volume and carry limits.
 - 09: throttle, pool levels, cruise and steering state for the HUD;
   per-hull camera parameters.
-- 12: record counts.
 
 ## 6. Design notes for the builder
 
@@ -488,10 +484,10 @@ Gives:
 - *One object model for player, NPC and station.*
 
 **Feel, tunable.** The time constants (0.1 to 0.5 s linear, 0.2 s
-angular); the 0.25 s hold before mouse flight; banking and its throttle
-floor; bouncy collisions; the separate thrust pool; uniform player top
-speed. Varying top speed by hull would be an easy differentiator; the
-original declined it, which keeps formations, escorts and pursuit simple.
+angular); the 0.25 s hold before mouse flight; banking; bouncy collisions;
+uniform player top speed. Varying top speed by hull is an easy
+differentiator; the original declined it, which keeps formations, escorts
+and pursuit simple.
 
 **Accidents of the era.** The variable step with linearised damping (use
 a fixed tick, or the exponential everywhere); kind tests by bit mask;
@@ -500,9 +496,8 @@ authority, a bandwidth compromise that trusts the player's machine.
 
 **Simplifications and their cost.**
 
-- No physics library: integrate the two formulas of 3.7 directly and
-  sweep spheres or hulls for contacts. Loses bouncing debris and tumbling
-  wrecks; flight never needed more.
+- No physics library: integrate the two formulas of 3.7 and sweep simple
+  shapes for contacts. Loses tumbling debris; flight never needed more.
 - One pool instead of two: escaping and fighting then compete, which
   changes the rhythm of combat.
 - No per-part collision shapes: shooting specific pieces off becomes
@@ -524,8 +519,7 @@ authority, a bandwidth compromise that trusts the player's machine.
 5. How the player's throttle is stepped or set by the controls
    (chapter 09).
 6. Whether a controller push takes effect in the same physics step or the
-   next. It does not change steady-state behaviour.
-7. Several fields of the manoeuvre layer are understood from use only.
+   next; steady-state behaviour is the same either way.
 
 ## 8. Basis
 
@@ -551,8 +545,7 @@ Code under `CppSource/`: `Common/common_cship.cpp`, `common_ceengine.cpp`,
 `common_thrustmanager.cpp`, `common_behaviormanager.cpp`,
 `common_gotobehavior.cpp`, `common_freeflightbehavior.cpp`,
 `common_faceidea.cpp`, `common_aisteer.cpp`, `common_cegun.cpp`;
-`include/common_archetype.h` (`HpAttachmentType`), `common_cequip.h`
-(`EEquipType`), `common_cobject.h` (`CObject::Class`);
+`include/common_archetype.h`, `common_cequip.h`, `common_cobject.h`;
 `IVP/ivp_physics/ivp_core.cpp`, `ivp_environment.cpp`;
 `OutpostFrontier/Client/player_behavior.cpp`, `client_gameobj.cpp`,
 `client_equip_fx.cpp`, `space_state.cpp`; `Server/server_gameobject.cpp`,
@@ -562,6 +555,6 @@ Code under `CppSource/`: `Common/common_cship.cpp`, `common_ceengine.cpp`,
 Inference: that cargo does not change mass; that banking is real
 orientation rather than a visual offset (read from the code path, not seen
 running); the 15 s thruster endurance and 3.7 s cruise ramp (computed from
-read values); the reasons given in section 6. Owner-side authority, dead
-reckoning and the role of the 16 Hz constant come from the design notes
-without re-reading the network code.
+read values); the reasons in section 6. Owner-side authority, dead
+reckoning, the minimum step and the role of the 16 Hz constant come from
+the design notes.

@@ -13,7 +13,7 @@ room, effect, voice line and piece of text. A new ship is a record, a
 model and a collision hull, and no program change. A new system is one
 record file and a line in the universe file.
 
-About 1,250 plain-text record files hold the definitions, about 5,400
+About 1,250 plain-text record files hold the definitions, about 7,100
 binary assets hold the shapes, sounds and timelines, and eight text
 catalogues hold the words. One manifest starts the loading. Section 3
 explains how the files are found and how they refer to each other.
@@ -29,9 +29,7 @@ Section 6 proposes a modern form of the same model.
 | Record file | A text file of records. One file usually holds one kind of content (ships, goods, one system, one room). |
 | Record | One block in a record file: a kind and a list of entries. It defines one thing, such as an archetype, a zone or a trigger. |
 | Entry | One line of a record: a key and one or more values. A key may repeat inside a record. |
-| Nickname | The text key of a record (glossary). Other records refer to it by that text. At load it becomes a number by a case-insensitive hash. |
-| Reference | An entry whose value is the nickname of another record, the path of a file, a hardpoint name or a text identifier. |
-| Text identifier | A number that selects one string or information card in the text catalogues (glossary). |
+| Reference | An entry whose value is the nickname of another record, the path of a file, a hardpoint name or a text identifier. Nickname and text identifier are glossary terms. |
 | Text catalogue | One table of localised text: plain strings, rich-text cards, or both. |
 | Asset | A binary file that a record names by path: model, collision hull, material or texture library, animation library, effect library, scene script, sound, voice archive, image, movie. |
 | Voice profile | A named speaker with the list of lines it can say. Its recordings sit in one archive that carries the profile's nickname. |
@@ -78,8 +76,7 @@ Four properties of the format matter for anyone who reproduces the model:
 
 1. **Kinds and keys repeat.** A file holds many records of one kind, and a
    record may hold many entries with one key. Lists are written that way:
-   one line per hardpoint class, per equipped item, per market row, per
-   reputation value.
+   one line per equipped item, per market row, per reputation value.
 2. **Hierarchy is expressed by adjacency.** The format is flat. A child
    record belongs to the nearest parent record above it. A ship record is
    followed by its damageable groups, a fuse by its timed actions, a base
@@ -92,15 +89,14 @@ Four properties of the format matter for anyone who reproduces the model:
    the same file: typed values and a shared string table (per design
    notes). None of the 1,256 record files in this data set uses it.
 
-Two kinds of record support inheritance: a blinking-light definition may
-name a parent light, and a mission's voice profile may extend a base
-profile. All other records are written out in full, which is why some
-files are long and repetitive.
+Only two kinds of record can inherit: a light may name a parent light,
+and a mission's voice profile may extend a base profile. All other
+records are written out in full, which makes some files long and
+repetitive.
 
 ### 3.2 How a file is found
 
-There are three routes, and a builder should know that the original uses
-all three.
+There are three routes.
 
 **Route 1: the manifest.** One section of the configuration file lists 99
 entries under 34 keys. They name 96 record files. The key says what kind
@@ -134,9 +130,9 @@ over several files:
 | List of models whose collision hull is concave | 1 | reader not established |
 
 "Both" means the authority and the presentation read the same file with
-the same code. Presentation-only content never reaches a dedicated host.
-The table of AI state graphs is loaded right after the manifest, from a
-fixed path.
+the same code. A dedicated host does not load presentation-only content
+(inferred). The table of AI state graphs is loaded right after the
+manifest, from a fixed path.
 
 **Route 2: named by other data.** About 1,000 of the record files are
 reached from a record already loaded. The universe file names one file
@@ -169,25 +165,25 @@ after goods and bases, because a market row for an unknown good or with
 no current base is dropped. The profiles of recurring voices load before
 the mission-specific line files that extend them.
 
-A second rule is hidden in the same file. In multiplayer, messages name
-archetypes by a short index instead of the full identifier. The index is
-the position of the archetype in the load sequence. Both sides must
-therefore load the same archetype files in the same sequence, or objects
-arrive as the wrong thing. The data file warns its editors about this.
+A third comment in the same file states a network rule. Multiplayer
+messages carry an archetype as a 16-bit value instead of its 32-bit
+identifier, and for that to work both sides must initialise the shared
+archetypes in the same sequence. The comment warns that a mismatch gives
+unpredictable results.
 
-Order-dependent loading is fragile. One example (per design notes): the
-systems place stations with a faction entry, but the universe loads
-before the faction table, so that reference cannot resolve at load time.
-Where placed objects get their faction is an open question.
+Loading that depends on sequence is fragile. One example (per design
+notes): the systems place stations with a faction entry, but the
+universe loads before the faction table, so that reference cannot
+resolve at load time. Where placed objects get their faction is an open
+question.
 
 ### 3.4 Identity and references
 
 - **Nicknames.** Every record that others refer to has one. At load it is
   folded to lower case and hashed to a 32-bit number, with the top bit
   set; objects created at run time get counted numbers with the top bit
-  clear, so the two never collide (per design notes). Faction nicknames
-  use a 16-bit hash, in which collisions can occur (per design notes).
-  Nothing checks that two different nicknames hash apart.
+  clear, so the two never collide. Faction nicknames use a 16-bit hash,
+  in which collisions can occur (all per design notes).
 - **Paths.** Assets are named by a path relative to the data root. Some
   paths are derived, not written. The collision hull is the file beside
   the model with the same name and another extension; a sphere model has
@@ -198,12 +194,12 @@ Where placed objects get their faction is an open question.
 - **Text identifiers.** The upper half of the number selects a catalogue,
   the lower half an entry in it. The catalogue number is the position in
   the configuration file's list, after one catalogue that the program
-  registers first (per design notes). A record usually carries two identifiers: a name and
-  an information card.
+  registers first (per design notes). A record usually carries two
+  identifiers: a name and an information card.
 - **Effects.** A gameplay record names an effect by nickname. The effect
   record names an effect type, a visual effect, and optionally a sound
   and a light. The visual effect's index record gives the library file,
-  a checksum of the effect's name inside it, and the textures it needs.
+  a numeric key of the effect inside it, and the textures it needs.
 
 A worked example shows how deep a chain goes. A patrol appears in a zone:
 
@@ -224,16 +220,15 @@ A worked example shows how deep a chain goes. A patrol appears in a zone:
 8. Name and voice: the faction's property record lists name ranges in
    the text catalogue and voice profiles; the voice profile lists lines.
 
-Ten kinds of record file take part before the first shot. Chapter 06
-describes the choice rules; this chapter only shows that every step is a
-reference by nickname.
+Ten kinds of record file take part before the first shot, and every
+step is a reference by nickname. Chapter 06 gives the choice rules.
 
 ### 3.5 Which side needs what
 
 | Data | Authority | Presentation |
 | --- | --- | --- |
 | Archetypes, loadouts, goods, markets, factions, universe, fuses, constants | yes | yes, the same files |
-| Models | hierarchy and hardpoints only | everything |
+| Models | hierarchy and hardpoints only (inferred) | everything |
 | Collision hulls | yes | yes |
 | NPC tables, pilots, encounters, missions, rosters, news, loot tables | yes | no; results arrive as messages |
 | Effects, sounds, voices, scene scripts, interface, fonts | no | yes |
@@ -266,14 +261,13 @@ their original keys.
 | Kind | Records | Principal fields |
 | --- | --- | --- |
 | Ship archetype | 69, with 246 damage groups and 157 loose parts; 46 cutscene stubs | type, model, mass, hit points, hold, drag and torque vectors, hardpoint classes with the hardpoints of each, cockpit, camera values, consumable limits, fuses, explosion |
-| Equipment archetype | about 1,900 in 20 kinds | common: names, model, mass, volume, hit points, lootable; then per kind (engine thrust and drag; power capacity and charge; shield capacity, regeneration and type; gun refire, power use, muzzle speed and munition; munition damage, lifetime, seeker; and so on) |
+| Equipment archetype | about 1,800 in 24 kinds | common: names, model, mass, volume, hit points, lootable; then per kind (engine thrust and drag; power capacity and charge; shield capacity, regeneration and type; gun refire, power use, muzzle speed and munition; munition damage, lifetime, seeker; and so on) |
 | Loadout | 494 for ships, 309 for solars | archetype; item and hardpoint per line; cargo and count |
 | Good | 855 | category (commodity, equipment, hull, ship package), price, item, icon; a package lists a hull and its fitted items |
 | Market | 413 base records, 14,694 rows | base; per row: good, minimum level, minimum reputation, stock range, sell-and-buy or buy-only, price multiplier |
 | Weapon modifiers | 21 weapon types, 9 shield types each | damage multiplier per pair |
 | Explosion, debris | 70 + 86; 41 | effect, radius, damage, impulse, pieces; lifetime, drag |
 | Fuse | 209, with about 1,960 timed actions | lifetime; actions at a fraction of it: start effect at hardpoint, destroy group, destroy attachment, ignite another fuse, impulse, destroy root |
-| Global constants | 6 records | collision damage factor, cruise disruption time, default damping, radio ranges, loot limits |
 
 **Factions, NPCs, missions** (factions chapter 07; pilots, formations, state graphs 05; NPC ships, encounters 06; the rest 08)
 
@@ -284,7 +278,7 @@ their original keys.
 | Faction properties | 55 | lawful or not, NPC ship records, name ranges, voices, costumes, formation names, cargo scanning |
 | NPC ship | 404 shared, 218 mission-local | ship archetype, loadout, pilot, state graph, level, class tags |
 | Ship class | 78 | member tags |
-| Pilot | 64 ambient, 255 story | references to behaviour blocks of 17 kinds (176 ambient blocks) |
+| Pilot | 64 ambient, 255 story | references to behaviour blocks of 16 kinds (239 blocks for the ambient pilots) |
 | Formation | 93 | slot positions |
 | Encounter definition | 42 files | per formation: ship classes with counts, formation class, pilot job, behaviour, arrival methods; size permutations |
 | Loot tables | 434 + 124 | per item: the conditions for a drop and the amounts |
@@ -299,7 +293,7 @@ their original keys.
 
 | Kind | Records | Principal fields |
 | --- | --- | --- |
-| Sound | 1,817 | file, category, attenuation, range, pitch variation, streamed or not |
+| Sound | 1,817, of which 962 cutscene speech lines | file, category, attenuation, range, pitch variation, streamed or not |
 | Voice | 109 profiles, 23,995 lines | profile: idle animations, roles; line: identifier, duration, priority, attenuation |
 | Effect | 705, 45 types, 55 beams, 1,218 library index entries | type (priority, visibility radius, run time), visual, sound, light |
 | Base and room | 197 + 446 | rooms; per room: set script, ambient scripts, sound, camera, placements, hotspots with behaviour and target |
@@ -349,12 +343,10 @@ collision hulls 7 MB.
 | Bases | 197; per system median 3, quartiles 2 and 5, max 18; 4 systems have none |
 | Objects per system | median 47, quartiles 26 and 72, max 438 |
 | Object mix | lane rings 981, buoys and satellites 1,010, scenery 590, stations 220, weapon platforms 168, depots 77, planets 73, suns 53, docking rings 26 |
-| Lanes | 124 with 981 rings, about 8 per lane; per system median 2, max 10; a quarter of systems have none |
+| Lanes | 124 with 981 rings, about 8 per lane; per system median 2, max 10; 24 systems have none |
 | Zones per system | median 98, quartiles 47 and 131, max 414 |
-| Zone use | 70% carry population, 56% a patrol-path label, 13% are sites for generated missions, 3% do damage, 1% disturb sensors |
-| Zone shapes | cylinder 56%, sphere 34%, ellipsoid 6%, box 4% |
+| Zone use | 70% carry population, 56% a patrol-path label, 13% are sites for generated missions, 3% do damage, 1% carry sensor interference |
 | Fields per system | asteroid: median 3, max 11; nebula: median 1, max 3 |
-| Scale | half of all objects lie within 38,500 units of the origin on every axis, 90% within 71,000 |
 | Rooms | 461; per base median 2, max 5. 125 bases are a bar and a landing deck; 18 have the full set of five; 16 have only a deck. Hotspots per room: median 7 |
 
 **Ships and equipment.**
@@ -363,29 +355,29 @@ collision hulls 7 MB.
 | --- | --- |
 | Ship archetypes | 69: 36 fighters, 8 freighters, 8 transports, 4 gunboats, 4 cruisers, 8 capital ships, 1 mining ship |
 | Ships the player can buy | 31 packages: 25 fighters, 6 freighters; 59 bases sell ships, 1 or 3 packages each |
-| Progression of bought ships | hull price 6,000 to 658,000; hit points 1,100 to 12,600; fighter hold 20 to 70, freighter hold 80 to 275; required level 0 to 32 |
-| Guns | 513, each with its own munition. 266 fit player ships: 166 energy guns, 81 turrets, 15 guided launchers, 4 heavy launchers. 247 are for NPCs and solars only |
+| Progression of bought ships | hull price 6,000 to 658,000, apart from one special hull at 1,000; hit points 1,100 to 12,600; fighter hold 20 to 70, freighter hold 80 to 275; required level 0 to 32 |
+| Guns | 513, each with its own munition. 266 fit player ships: 166 energy guns, 81 turrets, 15 guided launchers, 4 heavy launchers. 247 have no mount class and serve NPCs and solars (inferred) |
 | Mount classes | 10; mountable guns per class 16, 13, 18, 27, 35, 52, 40, 33, 14, 18 |
 | Gun progression | median price per class from 500 to about 120,000, roughly doubling each class; median damage per second from 136 to about 2,150, about 1.35 times per class |
 | Other weapons | 10 mine droppers, 3 countermeasure droppers, 71 seeking munitions |
-| Shields | 123: three hull classes by three shield types by about ten levels (inferred); capacity 450 upwards, median 2,360 |
+| Shields | 123, in three mount families and three shield types of about 40 each; capacity 450 upwards, median 2,360 |
 | Other equipment | 60 engines, 32 power plants, 6 thrusters, 2 scanners, 1 tractor |
 | Goods | 855: 752 equipment, 40 commodities, 32 hulls, 31 packages |
 | Commodity base price | 2 to 1,200, median 120 |
 | Commodity markets | 178 bases; rows per base median 9, max 38; a base sells a median of 3 and only buys the rest; multiplier quartiles 0.67 and 3.0 |
-| Equipment markets | 176 bases; rows per base median 64; 366 distinct goods on sale somewhere |
+| Equipment markets | 176 bases; rows per base median 64; 366 distinct goods listed |
 
 **Factions and NPCs.**
 
 | Measure | Value |
 | --- | --- |
 | Factions | 55: 30 lawful, 25 unlawful |
-| Initial reputations | 3,025 values from −0.65 to 0.91; 15% below −0.3, 18% above 0.3, the rest neutral |
+| Initial reputations | 3,025 values from −0.65 to 0.91; 15% below −0.3, 18% above 0.3, the rest in between |
 | NPC ship records per faction | median 8, max 39 |
 | NPC ship records | 404, drawing on 52 ship archetypes, 151 loadouts and 52 pilots; levels 1 to 25, most between 4 and 13 |
 | Loadouts | 803; about 20 equipment lines each |
 | Encounter definitions | 42; 1 or 2 formations each; behaviours: patrol 24, trade 18, wander 15. A system uses a median of 26 |
-| Base characters | 1,642; per base median 8, max 24; 15,127 rumour references; 643 characters offer missions |
+| Base characters | 1,642; per base median 8, max 24; 15,127 rumour references; 643 characters carry a mission entry |
 
 **Missions and scripts.**
 
@@ -393,9 +385,9 @@ collision hulls 7 MB.
 | --- | --- |
 | Campaign | 13 missions in 14 definition files of 31 to 214 KB |
 | Per mission file | triggers 79 to 408 (median 189); scripted ships 21 to 181 (median 57); objectives 17 to 58; objective lists 14 to 119 |
-| Campaign totals | 2,984 triggers, each with one condition and on average 4.8 actions; 78 kinds of action and 40 kinds of condition in use |
+| Campaign totals | 2,984 triggers with on average 1.0 conditions and 4.8 actions; 78 kinds of action and 40 kinds of condition in use |
 | Generated missions | one mission type on offer; an offer tree of 219 nodes; 126 destroyable solar templates |
-| Scene scripts | 1,506: 635 for rooms and their ambience, 635 reusable conversations, 206 story scenes, 30 others. Median size 4 KB, largest 170 KB |
+| Scene scripts | 1,506: 635 for rooms and their ambience, 635 reusable character scenes, 206 story scenes, 30 others. Median size 4 KB, largest 170 KB |
 
 **Sound and text.**
 
@@ -403,12 +395,12 @@ collision hulls 7 MB.
 | --- | --- |
 | Voice profiles | 109 |
 | Voice lines | 23,995 entries with 3,268 distinct identifiers. An ambient pilot voice has 420 to 680 fragments. Recorded durations total 6.4 hours for the 17,323 timed fragments; median 1.1 s |
-| Campaign speech | 13 line files of 62 to 175 lines; 962 further cutscene lines as single files |
-| Other sound records | 1,817, of which 188 music; 108 music files, 568 effect files |
+| Campaign speech | 13 in-flight line files of 62 to 175 lines; 962 cutscene lines as single sound records |
+| Other sound records | 855, of which 188 music; 108 music files, 568 effect files |
 | Text | 12,948 strings and 5,252 cards, about 2.2 million characters; 7,139 of the strings are names |
 
-Three anonymised rows show the shape of a per-item table, here the
-bought ships at the bottom, middle and top of the range:
+Three anonymised rows show the shape of a per-item table: bought ships
+at the bottom, middle and top of the range.
 
 | Nickname | Type | Hull price | Hit points | Hold | Hardpoint class lines | Level |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -431,8 +423,8 @@ bought ships at the bottom, middle and top of the range:
 **Essential.** Content is data, and every cross-reference is a name. One
 archetype table is shared by authority and presentation. Models carry
 named hardpoints and parts that data refers to. Text is separated from
-data by identifiers. Without these the game cannot be extended by
-authoring, and its size (section 4.3) could not have been produced.
+data by identifiers. Without these, content of the size shown in
+section 4.3 could not have been authored.
 
 **Feel, not essence.** The exact split into files, the folder layout and
 the three routes of section 3.2.
@@ -442,12 +434,12 @@ Hashing without collision checks, and a 16-bit hash for factions.
 Dependence on load sequence, including for network indexes. Numeric text
 identifiers bound to the position of a catalogue in a list. Silent
 skipping of unknown keys. Fixed paths in the program. Repetition instead
-of inheritance: the 513 guns are a few dozen families written out per
+of inheritance: the 513 guns read as families written out once per
 class (inferred).
 
 **What the counts hide.** Much of the volume is systematic. Guns, shields
-and loadouts are grids of family by class. Half of the scene scripts are
-reusable conversations and room ambiences. Voice lines are fragments
+and loadouts are grids of family by class. Most scene scripts are reusable
+character scenes and room ambiences. Voice lines are fragments
 recorded once per voice. 125 of 197 bases have the same two rooms. A
 comparable game needs the grids and the generators, not thousands of
 hand-made records.
@@ -487,23 +479,20 @@ hand-made records.
 11. **Bake for shipping.** Text is the source; a build produces compact
     packs, as the original reader already allowed.
 
-Leaving out the checks of points 1 and 5 costs nothing at first and much
-later: with thousands of references by spelling, silent failures are the
-main source of missing content.
+Points 1 and 5 matter most. With thousands of references by spelling, an
+unchecked typing error removes content without a message.
 
 ## 7. Open questions
 
 1. Where do placed solars get their faction? The system files name one,
    but the reference does not resolve at load (per design notes).
-2. Which records are dead? The data holds files that no route reaches (a
-   fuse file outside the manifest, a test table of NPC ships, two empty
-   files) and 247 guns without a mount class. How many of those guns
-   NPC and solar loadouts use was not counted.
+2. Which records are dead? One fuse file is in the data and not in the
+   manifest, and 247 guns have no mount class. How many of those guns
+   the NPC and solar loadouts use was not counted.
 3. What exactly do the per-system preload lists (ships, equipment,
    sounds, voices) do? They read as loading hints (inferred).
-4. The census does not look inside binary assets: clips per animation
-   library, textures per library, polygon counts and the number of
-   distinct hardpoint names are unknown.
+4. The census does not look inside binary assets. Clips per animation
+   library, textures per library and polygon counts are unknown.
 5. Did the shipped game use the compiled form of record files? This data
    set is all text.
 6. Whether the five-system cluster and the lone system are reached by

@@ -2,6 +2,8 @@
 
 The shared vocabulary of the blueprint. One concept, one word. Chapters
 define their own terms in their "Concepts" section and use these as given.
+"Controller" is never used alone: a force controller acts on a body, a
+content controller is a rules module of the authority.
 
 ## World
 
@@ -19,6 +21,14 @@ define their own terms in their "Concepts" section and use these as given.
 | Lane ring | One element of a lane; ships enter and leave at rings. |
 | Jump point | A solar that transfers a ship to another system. A regulated one is a gate, an unregulated one a hole. |
 | Connection | The pairing of two jump points that links two systems. |
+| Solar archetype | The template of a kind of solar: its class, size, toughness and docking points. |
+| Immersion | A number from 0 to 1 for how deep a point lies in a zone: 0 outside, 1 in the core, a linear ramp across an outer band. |
+| Physical zone | The smallest zone containing an object that has damage, interference or drag. Only its effects apply. |
+| Field definition | The compact recipe that fills a zone with asteroids or with a nebula. |
+| Field cube | One cell of the lattice an asteroid field is generated on. Its content is a pure function of its position. |
+| Dynamic asteroid | A small drifting rock kept around the viewer inside a field; it can be shot and is the source of mined loot. |
+| System path | The precomputed shortest sequence of systems between two systems, for one connection kind. |
+| Knowledge state | Per player, flags for each system, solar, zone and faction that say what the player has seen and learned. |
 
 ## Objects and equipment
 
@@ -36,6 +46,11 @@ define their own terms in their "Concepts" section and use these as given.
 | Cargo | Items carried in the hold. They take volume and have no behaviour while carried. |
 | Part | A separately damageable piece of a model's hierarchy. |
 | Loot | A world object floating in space that a ship can collect. |
+| Simple object | A world object with hit points, an owning player (or none) and a current zone. |
+| Equipped object | A simple object that carries equipment, a power pool, parts, docking points and a pilot: a ship or a solar. |
+| Body | The rigid body of an instance: mass, inertia, linear and angular velocity, one convex collision shape per part. |
+| Hardpoint class | A label on an item and on a hardpoint; an item mounts only where its class is accepted. |
+| Sub-object identifier | A small number, unique within one ship, naming the hull, a part or one equipment item. |
 
 ## Flight and combat
 
@@ -43,11 +58,15 @@ define their own terms in their "Concepts" section and use these as given.
 | --- | --- |
 | Tick | One step of the simulation. |
 | Throttle | The player's or pilot's requested fraction of engine thrust. |
-| Thruster | Equipment that adds forward thrust for a short time at an energy cost. |
+| Thruster | Equipment that adds forward thrust for a short time, paid from the thrust pool. |
 | Cruise | A slow-to-engage, fast travel mode in which weapons cannot be used. |
 | Engine kill | Cutting engine thrust so that the ship coasts while it turns freely. |
 | Strafe | Sideways thrust. |
-| Power | The ship's energy store, filled by the power plant and drawn on by weapons and thrusters. |
+| Power pool | The ship's energy store, filled by the power plant and drawn on by weapons, shield rebuilding and cruise. |
+| Thrust pool | A second, separate store that pays for the thruster and for strafing. |
+| Force controller | A contributor of force or torque to a body, run once per tick: engine, thruster, steering, strafe, nudge, scripted movers. |
+| Axis throttle | The steering demand: a vector whose direction is the wanted rotation axis and whose length (0 to 1) is the fraction of full torque. |
+| Nudge | A free thrust in any direction that pilots use for fine positioning. |
 | Shield | A regenerating layer that absorbs damage before the hull does. |
 | Hull | The hit points of the ship itself. |
 | Munition | A projectile in flight, guided or unguided. |
@@ -93,7 +112,28 @@ define their own terms in their "Concepts" section and use these as given.
 | Presentation | The part that shows the world to one player and collects input. |
 | Session | One player's connection to an authority. |
 | Character | A player's persistent identity: ship, equipment, cargo, money, reputation, progress. |
+| Account | The identity a session logs in with; it holds several characters. |
+| Content | The game rules layered on the authority as a set of content controllers: population, missions, campaign, base inhabitants. |
+| Content controller | One content module on the authority's event bus, with a priority, an optional heartbeat and timers. A running mission is one. |
+| Event bus | The synchronous channel by which the authority tells content controllers what happened. |
+| Transport | What carries messages between presentation and authority: an in-process loopback or a network connection. |
+| Observer | The authority's record of one session in one system: which objects that presentation knows and what it extrapolates. |
+| Host | The program that runs an authority for remote sessions, with an administration interface. |
+| Player group | A small set of players who see each other from further away and share a chat channel. |
 | Scene script | An authored timeline that drives cameras, characters, lights and sound in a room or cutscene. |
 | HUD | The in-flight interface overlay. |
 | Information card | A marked-up text describing an object, good or place. |
 | Text identifier | The number by which the game refers to a piece of localised text. |
+
+## Data
+
+| Term | Meaning |
+| --- | --- |
+| Manifest | The one list, in the game's configuration file, that names the record files of each kind to load at start, in sequence. |
+| Record file | A text file of records. One file usually holds one kind of content. |
+| Record | One block in a record file: a kind and a list of entries. It defines one thing, such as an archetype, a zone or a trigger. |
+| Entry | One line of a record: a key and one or more values. A key may repeat inside a record. |
+| Reference | An entry whose value is the nickname of another record, the path of a file, a hardpoint name or a text identifier. |
+| Asset | A binary file that a record names by path: model, collision hull, material, animation, effect library, scene script, sound, image, movie. |
+| Text catalogue | One table of localised text: plain strings, information cards, or both. |
+| Voice profile | A named speaker with the list of lines it can say. |
