@@ -583,7 +583,7 @@ Code, shared and authority: `Common/common_cescanner.cpp`,
 `common_faceidea.cpp`; `Server/server_classes.cpp`; `Content/Gcs.cpp`
 (skimmed).
 
-Inferred: the multiplayer limit on contacts; the full-hold feedback; the watch list's source;
-the direction of the chase look-ahead; the engine-sound rule; the
-"silent" music state. The capability list of 3.11 comes from the
-callers, not from the particle library.
+Inferred: the multiplayer limit on contacts; the full-hold feedback; the
+watch list's source; the direction of the chase look-ahead; the
+engine-sound rule; the "silent" music state. The capability list of 3.11 comes
+from the callers, not from the particle library.

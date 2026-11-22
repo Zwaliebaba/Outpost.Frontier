@@ -72,7 +72,7 @@ is live from acceptance to its end, so the rules are:
 - A campaign mission that has started but is not yet accepted is not
   live. The player may take and fly a job meanwhile.
 - Accepting a campaign mission destroys a live job's content controller;
-  the job simply ends, without its failure path.
+  the job ends without running its failure path (inferred).
 - While any mission is live, a job cannot be accepted. The board is still
   built and shown on entering a base; choosing an offer is refused with a
   reason. A bar inhabitant's job offer is dropped without effect.
@@ -408,9 +408,9 @@ a bar inhabitant's job is drawn when the player enters the room.
      picks between the higher of the two lower bounds and the window's
      top. One reaching above it picks from the range's top,
      `[max(min, max / s³), max]`.
-   - *After the campaign* (position 42) `d` is 39, above almost every
-     range, so each base offers the top of its own range: where the
-     player takes the job decides how hard it is.
+   - *After the campaign* (position 42) `d` is 39 and the window reaches
+     above every shipped range, so each entry offers the top of its own
+     range: where the player takes the job decides how hard it is.
    - *Multiplayer.* Only the entry's range counts; two times in three its
      top is raised by `s²`, `s⁴` or `s⁶`.
 
@@ -584,7 +584,8 @@ Code: `Content/MissionScript.cpp` (`GCndFactory`, `GActFactory`),
 `MissionCnd.cpp`, `MissionAct.cpp`,
 `MissionObjList.cpp`, `MissionObject.cpp`, `MissionSave.cpp`, `Story.cpp`,
 `StoryLauncher.cpp`, `StoryMissions.cpp`, `RtcScripts.cpp`, `BaseDB.cpp`,
-`BaseNpcRecords.cpp`, `BaseSupport.cpp`, `Populators.cpp`, `LootProps.cpp`,
+`BaseNpcRecords.cpp`, `BaseSupport.cpp`, `PlayerState.cpp`, `Support.cpp`,
+`Populators.cpp`, `LootProps.cpp`,
 `DestroyMission.cpp`, `RandomMissionDB.cpp`, `RandomMissionGen.cpp`,
 `RandomMissionVignette.cpp`, `RandomMissionMachine.cpp`, `Zones.cpp`;
 `Server/server_pub.cpp` (`Save`, `SetInvincible`, `ActivateEquipment`);

@@ -85,7 +85,7 @@ with the first reason that applies:
 2. the clock is below the refire delay;
 3. the power pool holds less than `power per shot × barrels`;
 4. it needs ammunition and the hold has fewer units than barrels;
-5. the owner is cloaked;
+5. the owner is fully cloaked;
 6. the owner is travelling in a lane;
 7. guns only: the aim point lies more than 40° off the barrel axis;
 8. guns and mine dispensers: cruise is engaged.
@@ -96,6 +96,9 @@ attempt that passed test 2, so trying to fire on an empty pool still costs
 a refire cycle.
 
 - Countermeasure dispensers skip test 8: decoys can be dropped in cruise.
+- A cloak device fades its owner out and in over an authored time (4 to
+  10 s). NPC and solar loadouts carry them. Only this firing block was
+  traced.
 - A launcher on a revolving hardpoint slews towards the aim point at its
   turn rate (90°/s on every record). With no fresh aim point for 2 s, a
   gun with a target tracks the target's lead point.
@@ -172,15 +175,15 @@ a ship or solar:
 
 | Target | Scaling |
 | --- | --- |
-| Hull | ÷ armour; × difficulty |
-| Part | ÷ armour; ÷ 3 if a player owns the object; × difficulty |
-| External equipment | ÷ 5 if a player owns the object; × difficulty |
-| Shield, power pool | × difficulty |
+| Hull | ÷ armour; × scale |
+| Part | ÷ armour; ÷ 3 if a player owns the object; × scale |
+| External equipment | ÷ 5 if a player owns the object; × scale |
+| Shield, power pool | × scale |
 
-"Difficulty" is the player's difficulty scale, 0 to 2, default 1. It
-applies to the ship a player is flying, in single player only. The two
-divisors mean a player loses wings and guns three and five times more
-slowly than an NPC in the same hull.
+"Scale" is the single-player difficulty scale, 0 to 2, default 1. It
+applies only to the ship the player is flying, and not in multiplayer.
+The two divisors mean a player loses wings and guns three and five times
+more slowly than an NPC in the same hull.
 
 What reaching zero does:
 
@@ -314,7 +317,8 @@ NPC ships get a generic version. When an NPC takes fatal damage, the
 authority asks the content controllers for a delay and, if it is
 positive, lights a death fuse of that length: the ship leaves its
 formation, its wingmen are told, and it dies when the fuse ends. The
-delay is for the pilot's last words (chapter 05).
+delay leaves time for the radio chatter of a death (chapter 06, section
+3.12) (inferred).
 
 ### 3.9 Death and loot
 
@@ -334,8 +338,9 @@ and not a cargo pod. The content side rewrites the list first:
    and the drop is `n × p`, its fraction rounded up with that
    probability, at most `k`.
 4. Give each item 50 to 80 % health.
-5. Add bonus loot: for each bonus record whose rank range holds the dead
-   ship's rank, roll its chance and add a random count of its item.
+5. Add bonus loot: for each bonus record whose level range holds the
+   dead ship's level (0 to 19, chapter 06), roll its chance and add a
+   random count of its item.
 
 Items without a rule use a default with chance zero, so an NPC's guns
 drop only if the item has a rule. The bonus table is how any fight can
@@ -344,9 +349,31 @@ return repair consumables.
 At most six containers are created, each with the item's container
 model, up to its units-per-container, the ship's velocity plus a random
 kick, and a spin. Loot that no player has come within 2,500 m of for 60 s
-is removed. Loot can be shot. The tractor
-(range 1,500 m) is told which loot to pull. This path makes loot for
-NPCs, and for a player's ship only in single player.
+is removed. Loot can be shot. This path makes loot for NPCs, and for a
+player's ship only in single player.
+
+**Collecting loot.** The presentation asks the authority to tractor one
+loot object or a list of them ("target" and "all", chapter 09). The
+authority decides. Each object is tested when asked and again on every
+update until it is taken:
+
+- it still holds units;
+- it lies within tractor range of the ship's tractor-source hardpoint
+  (1,500 m in the single tractor record);
+- the hold has room for one unit of the item (chapter 02); items without
+  volume skip this test;
+- the ship is below its carry limit for the item: the archetype's cap
+  for each repair consumable, 50 units per type for ammunition.
+
+A failed test refuses or drops the request with a reason (out of range,
+hold full, limit reached) that the interface reports. An accepted object
+gets its own beam; any number run at once. The loot is not moved and
+there is no capture distance. The beam's tip travels from ship to loot at
+the tractor's reach speed (2,000 m/s) and then holds for 1 s. After that
+the authority moves `min(units, room for that item)` units into the hold
+with their health, tells the content controllers "loot acquired" and the
+presentations "item tractored", and removes the container; if units
+were left over it stays, holding the rest.
 
 ### 3.10 Repair consumables
 
@@ -355,7 +382,8 @@ unit). A use asks the authority for a count. It computes `missing / per
 unit`, rounds up when the remainder exceeds 5 % of a unit, caps the
 result by the count and the stack, applies the new value as a damage list
 with a system cause and removes the units. The hull item repairs the hull
-only: parts and equipment wait for a base (chapter 08). The shield item
+only: parts and equipment wait for a base (chapter 07, section 3.12).
+The shield item
 goes to the weakest shield and cancels the rebuild wait, so a collapsed
 shield returns at once.
 
@@ -366,7 +394,8 @@ numbers; chapter 05 gives them.
 ### 3.11 Weapon groups and firing controls
 
 Each launcher has an active flag. "Fire" fires every active gun at the
-cursor. Separate actions launch each kind of guided munition, mines and
+cursor. Separate actions launch missiles, heavy guided munitions (the
+"torpedoes" of other chapters), cruise disruptors, mines and
 countermeasures, and fire launcher 1 to 10 alone.
 
 There are six weapon groups, each a list of hardpoint names. "Assign"
@@ -399,7 +428,7 @@ Counts are from chapter 12.
 | Armour (24) | damage divisor | 0.25 to 30 |
 | Part (246 on ships, 238 on solars) | model node, hit points, hull-linked flag, debris kind, separation explosion, impulses, cap model, fuses | hit points 1 % to 100 % of hull; 224 of the ships' parts are hull-linked |
 | Fuse (209; about 1,960 actions) | lifetime, death flag; per action its time or time range and parameters | lifetime 0.01 to 15 s |
-| Loot rule (434), bonus loot (124) | the six numbers of 3.9; item, rank range, chance, count range | chance 0 to 100 %, median 8 %; bonus chance 0.5 to 44 % |
+| Loot rule (434), bonus loot (124) | the six numbers of 3.9; item, level range, chance, count range | chance 0 to 100 %, median 8 %; bonus chance 0.5 to 44 % |
 
 **Shape of the gun list.** 266 guns fit player ships: 166 fixed energy
 guns, 81 turrets, 15 guided launchers and 4 heavy launchers, in ten
@@ -445,12 +474,12 @@ Gives:
 
 - 04: launch protection is an invulnerability command.
 - 05: launchers, the lead point, damage notifications; decoys.
-- 06: armour as the toughness scale of spawned ships (inferred); rank
-  for bonus loot.
+- 06: armour as the toughness scale of spawned ships (inferred); NPC
+  level for bonus loot.
 - 07: "damaged by" and "destroyed by" events for reputation and kill
   credit; loot as income.
-- 08: invulnerability and fuses as mission tools; damage left for base
-  repair.
+- 07: damage left for base repair.
+- 08: invulnerability and fuses as mission tools; "loot acquired".
 - 09: shield, hull and power read-outs; lead marker; launcher status;
   weapon groups.
 
@@ -507,13 +536,13 @@ Gives:
 3. What does a player's ship drop on death in multiplayer? The loot path
    here excludes it.
 4. What do the "automatic turret" flag on guns and the "toughness" number
-   on guns and shields control? Where is the cap of 50 units per
-   munition type on a player (a code default) enforced?
+   on guns and shields control? What does a cloak change besides firing?
 5. Do the 85 guns that are neither mountable nor in a loadout file serve
    NPC tables elsewhere, or are they dead records?
 6. Not traced: the blast resistance of shield bubbles, a test that
-   excludes some ships from bonus loot, the tractor's pull, and which
-   data marks a part whose loss destroys the whole object.
+   excludes some ships from bonus loot, how "tractor all" chooses its
+   list on the presentation, and which data marks a part whose loss
+   destroys the whole object.
 
 ## 8. Basis
 
@@ -532,12 +561,14 @@ outside the manifest.
 Code, under `CppSource/`: `Common/common_celauncher.cpp`,
 `common_cegun.cpp`, `common_cedroppers.cpp`, `common_cprojectile.cpp`,
 `common_cmine.cpp`, `common_ceshield.cpp`, `common_cepower.cpp`,
-`common_fuses.cpp`, `common_repairmanager.cpp`, `common_physys.cpp`
+`common_fuses.cpp`, `common_repairmanager.cpp`, `common_cetractor.cpp`,
+`common_tractorarm.cpp`, `common_cecloak.cpp`, `common_cship.cpp` (carry
+limits), `common_physys.cpp`
 (`Collision::CalcCollisionDamage`), `common_misc.cpp`;
 `Server/server_gameobject.cpp`, `server_guided.cpp`, `server_mine.cpp`,
 `server_countermeasure.cpp`, `server_fuse.cpp`, `server_loot.cpp`,
 `server_classes.cpp` (`StarSystem::explode`, `munition_collision`,
-`collision_damage`, `MedMine`), `IServerImpl.cpp`;
+`collision_damage`, `tractor_loot`, `MedMine`), `IServerImpl.cpp`;
 `Content/SpaceSupport.cpp`, `LootProps.cpp`;
 `OutpostFrontier/Client/client_gameobj.cpp`, `hud_weapon_groups.*`,
 `hud_status_core.cpp`, `cli_projectile_fx.cpp`.

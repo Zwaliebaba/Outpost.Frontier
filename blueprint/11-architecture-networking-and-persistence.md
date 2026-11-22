@@ -196,7 +196,7 @@ presentation's message to every observer that has the object.
 | Object state | position, orientation, timestamp, throttle, a one-byte flight state |
 | Controls | fire weapons (hardpoints, aim point), activate equipment, cruise, thruster, set target, tractor, enter and leave lane, jettison |
 | Opaque state | weapon groups, visit flags, mission log, interface state |
-| Queries | best path, player statistics, rank, group positions |
+| Queries | best path, player statistics, level (answered in single player only), group positions |
 | Social | chat; player trade: request, open, set money, add and remove item, accept, close |
 
 **Presentation to authority.**
@@ -221,7 +221,7 @@ presentation's message to every observer that has the object.
 | Changing place | launch (where, from what), land, system switch out and in, start room, reply to a dock or formation request |
 | Base lists | per room or base: update, remove and "list complete" for inhabitants, their behaviours, ambient scenes, job offers, news |
 | Missions and scenes | mission message, objectives, mark object, comm line, scripted scene, camera, story cue, music, sound, dialog, checkpoint request, directive for the player's ship |
-| Social | player list; other players' rank, group, system, affiliation; message of the day; scan result |
+| Social | player list; other players' level, group, system, affiliation; message of the day; scan result |
 
 A list is a stream of items closed by "complete", so the receiver knows
 when a room is fully described.
@@ -353,7 +353,7 @@ by the same pumps.
 | Systems | Unloaded on leaving or landing | Kept loaded until shutdown |
 | Inventory requests | Accepted anywhere | Only while docked; audited |
 | Saving | Manual, autosave, checkpoints | Automatic only |
-| World clock, faction-to-faction feelings | In the saved game | From the initial-world data |
+| World clock, faction-to-faction feelings, world-wide jump-point locks | In the saved game, seeded from the initial world | Read from the initial world at each host start |
 | Pause, difficulty scale | Yes | No |
 | Death | Load a saved game (inferred) | Back to the last base with a loss (3.12) |
 
@@ -367,7 +367,7 @@ A character and a saved game are the same text record:
 | Part | Content |
 | --- | --- |
 | Header | Description, time stamp |
-| Identity | Name, rank, appearance, voice, affiliation |
+| Identity | Name, level, appearance, voice, affiliation |
 | Standing | One reputation per faction (55 shipped), kill and mission counts |
 | Location | System, and a base or a position and orientation in space; room; last base |
 | Ship | Hull archetype and status, damaged parts, mounted items with hardpoints, cargo with counts |
@@ -383,13 +383,19 @@ stays ignorant of missions.
 | Save | Trigger | Allowed when |
 | --- | --- | --- |
 | Manual (single player) | The player | Only while docked. A named or a new slot. |
-| Autosave (single player) | Leaving a base; arriving after a jump | Unless the base forbids it or the presentation asked to skip one. One slot. |
-| Checkpoint (single player) | A mission action; the presentation acknowledges first | Anywhere, space included. Copied to the autosave slot. |
+| Autosave (single player) | Leaving a base; arriving after a jump; a mission action. Not on landing. | Unless the base forbids it or the presentation asked to skip one. One slot. |
+| Checkpoint (single player) | A mission action that names a description; the presentation acknowledges first | Anywhere, space included. Copied to the autosave slot. |
 | Character (multiplayer) | Leaving a base, landing, arriving after a jump, logout | Passes the worth audit. Written completely before it replaces the previous save. |
 
-A new single-player game copies a template to a restart slot. The shipped
-one starts in space with 500 credits, a ship with 16 mounted items, the
-first campaign mission and 32 locked jump points.
+A new single-player game writes a restart slot: the new-player template
+followed by a copy of the initial world. The shipped template starts in
+space with 500 money, a ship with 16 mounted items, the first campaign
+mission and 32 jump points locked for the player. The initial world adds
+the faction feelings, 27 jump points locked for every player and 36
+closed to NPC traffic. A lock applies if it names the player or everyone.
+A host reads the same initial world at start-up, so the 27 and the 36
+hold there too; with no campaign to lift them they presumably stay
+(inferred).
 
 ### 3.11 Sessions, accounts and characters
 
@@ -413,7 +419,7 @@ first campaign mission and 32 locked jump points.
 - A new multiplayer character is a template with placeholders: name,
   money, appearance, voice, home system and base, and a package of ship
   and loadout. The shipped data offers one pilot, one package (2,000
-  credits) and one starting faction, presets reputations between −0.65
+  money) and one starting faction, presets reputations between −0.65
   and 0.91 and marks 25 objects as visited.
 
 ### 3.12 Multiplayer rules
@@ -447,7 +453,7 @@ another version (per design notes).
 | --- | --- | --- |
 | Game configuration | Developer | Data root; single-player transport; initial-world file; content controller lists per mode (name, priority); text modules in order; the data manifest (chapter 12); log filters |
 | Engine configuration, one per program | Developer | Engine modules to load; renderer, sound and particle settings. The host's lists no sound or effects modules. |
-| Initial world | Designer | Per faction its feelings towards every other; jump points locked at the start of a multiplayer universe |
+| Initial world | Designer | Per faction its feelings towards every other; jump points locked for all players and those closed to NPC traffic. Seeds every new single-player game and every host start (3.10). |
 | New-player template | Designer | A complete single-player character (3.10) |
 | New-character template and options | Designer | A character with placeholders; pilots, packages (ship, loadout, money), factions (home base, package, pilot) |
 | Host settings; character files | Operator; the authority | 3.13; 3.10 |
@@ -606,7 +612,8 @@ Code, read in part: `include/rpc_iserver.h`, `rpc_iclient.h`,
 `common_server_controller.h`; `Server/IServerImpl.cpp`,
 `server_observer.cpp`, `server_classes.cpp`, `server_gameobject.cpp`,
 `server_savegame.cpp`,
-`server_pub.cpp`, `server_chat.cpp`; `Common/common_remotephysics.cpp`,
+`server_pub.cpp`, `server_chat.cpp`; `Content/SpaceSupport.cpp`,
+`GameSupport.cpp`, `MissionAct.cpp`; `Common/common_remotephysics.cpp`,
 `common_deadreckonedvector.cpp`, `common_physicalsystem.cpp`,
 `common_ceqobj.cpp`; `IVP/ivp_physics/ivp_environment.cpp`; Client
 `client_frame_tick.cpp`, `client_objdb.cpp`, `client_gameobj.cpp`;
@@ -620,4 +627,5 @@ controller-order details, the three clocks, host settings, and the
 networking, threading and save-container details of section 7.
 
 Inferred: the unnamed tick lists; unguided shots flown separately on each
-side; the single-player death path; what the audit counts as income.
+side; the single-player death path; what the audit counts as income; that
+the stored "rank" number is the level; that host locks never lift.
