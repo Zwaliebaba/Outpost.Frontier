@@ -1,7 +1,7 @@
 # 05 — AI and pilots
 
 Status: draft
-Depends on: 00 (glossary), 01 (zone property sets), 02 (flight model, force controllers), 03 (weapons, damage), 04 (docking, lanes), 06 (who spawns NPCs), 07 (reputation, rank), 11 (authority, tick)
+Depends on: 00, 01 (zones), 02 (flight model), 03, 04, 06, 07, 11
 
 ## 1. Purpose and player experience
 
@@ -32,14 +32,14 @@ choice among a dozen manoeuvres with authored styles.
 | Concept | Definition |
 | --- | --- |
 | Pilot | A named personality: sixteen parameter blocks, each referenced by nickname. |
-| Personality block | The parameters of one manoeuvre or reaction (3.11). Blocks are shared between pilots. |
+| Personality block | The parameters of one manoeuvre or reaction (3.11), shared between pilots. |
 | Job | The block for strategy: whom to attack, when to flee, whether to fight in formation. Content may replace it per spawn. |
-| Manoeuvre layer | Per ship, the owner of the current behaviour, the directive, target selection, fire control and the steering arbiter. The player's ship has one too. |
+| Manoeuvre layer | Per ship, the owner of the current behaviour, the directive, target selection, fire control and the steering arbiter. |
 | Behaviour | One of 21 manoeuvres. It can say whether it applies now, and it can run. |
 | State graph | A 21 × 21 table of weights: row = current behaviour, column = candidate. One per ship role, in a leader and an escort variant. |
-| Directive | An order from outside (mission, population code, the player's interface) to run one behaviour with parameters; it reports completion. |
-| Steering primitive | A reusable controller that behaviours drive: move, face, dodge, break away, dodge a missile, match throttle, follow a spline, hold the thruster. |
-| Steering arbiter | The one place that turns those wishes into throttle, axis throttle, nudge, strafe, thruster, engine and cruise settings (chapter 02). |
+| Directive | An order from outside (mission, population code, the player's interface) to run one behaviour with parameters. |
+| Steering primitive | A reusable controller that behaviours drive: move, face, dodge, break away, dodge a missile, match throttle, follow a spline. |
+| Steering arbiter | The one place that turns those wishes into the control values of chapter 02. |
 | Damage level | A decaying sum of recent damage, compared with eleven triggers. |
 | Scene threat ratio | Hostile strength near the ship divided by all strength near it. |
 | Attack preference | An ordered list of (target class, range, weapon kinds) in the job. |
@@ -192,11 +192,10 @@ number.
 
 ### 3.5 Events
 
-The authority tells the layer when the ship took damage (feeding the
-damage level), when a guided munition was launched at it, when an
-object it refers to left or died (references are dropped), when its
-leader began to dock or entered a lane (the order is copied to
-followers), and when it died itself.
+The authority tells the layer when the ship took damage, when a guided
+munition was launched at it, when an object it refers to left or died,
+when its leader began to dock or entered a lane (followers copy the
+order), and when it died itself.
 
 It reports to content: combat state (engaged, overwhelmed, no
 enemies), "target in sights", follow and guide progress, a request for
@@ -247,10 +246,10 @@ around a point (chapter 01), reduced to a tier:
 | 3 | anything else | | |
 
 The job's field-targeting setting (never, low density, high density,
-always: tier 0 to 3) is the worst tier into which the pilot will chase
-a target from outside. A pilot already inside a worse tier fights
-whoever is there. Patrols therefore do not follow prey into dense rock
-or minefields, and fields work as hiding places.
+always: tier 0 to 3) is the worst tier into which the pilot chases a
+target from outside. A pilot already inside a worse tier fights whoever
+is there. Patrols thus do not follow prey into dense rock or
+minefields: fields work as hiding places.
 
 ### 3.7 Target selection
 
@@ -313,8 +312,7 @@ NPCs kill each other efficiently while the player gets near misses. A
 player slower than about 3 m/s is aimed at without error.
 
 **Launchers.** Guided and unguided launchers fire every 10 to 60 s
-(±25 to 50 %) within 1,000 m when the target is inside a cone of 20° to
-22.5°. A cruise-disrupting launcher fires only at a target that has
+within 1,000 m when the target is inside a cone of about 20°. A cruise-disrupting launcher fires only at a target that has
 cruised for 2 s and is 150 to 2,500 m away, then waits 5 s. Mines are
 dropped at most every 10 s when a hostile follows within 250 m inside a
 30° cone astern and own speed exceeds 20 m/s; on an attack pass if so
@@ -394,8 +392,6 @@ In combat the formation block and the job decide cohesion:
 - Starting a run-in, a pass, a dodge or a break can tell the leader
   "break apart" for a time and "regroup" afterwards, so a flight
   scatters and re-forms on one pilot's manoeuvre.
-- "Leader makes me tougher" lets a follower use its leader's gun and
-  repair parameters.
 
 A player joins an NPC's formation through the same behaviour. The
 target must be a ship below capital class, within 5,000 m, not hostile,
@@ -412,7 +408,7 @@ not launching or in a lane, and not itself following the player.
 | Mine; missile | Intervals, cones, ranges; cruise-disruptor rules. |
 | Damage reaction; missile reaction | The nine combat triggers; detection distance and three reaction times. |
 | Repair; countermeasure | Thresholds and delays; on and off times. |
-| Formation | Cohesion cycle, break triggers, exit style, toughness sharing. |
+| Formation | Cohesion cycle, break triggers, exit style; a flag that lends a follower its leader's gun and repair blocks. |
 | Job | Attack preferences, threat and flee thresholds, field targeting, loot rules, leader rules, scan chance. |
 
 ### 3.12 Difficulty
@@ -436,8 +432,7 @@ at most levels.
 
 NPC manoeuvre layers run on the authority. The player's layer runs with
 the player's ship on the presentation side (per design notes), and the
-authority forwards directives for a player's ship there. Random draws
-make AI unrepeatable between runs.
+authority forwards directives for that ship there.
 
 ## 4. Data that defines it
 
@@ -506,8 +501,7 @@ parameters the shipped loaders ignore.
    (chapter 07).
 2. Whether asteroids have collision bodies on the authority away from
    players. If not, NPCs fly through fields unhindered and only the
-   zone tier keeps them out. The navigation layer also caches the
-   zone's flags periodically; no reader of that cache was found.
+   zone tier keeps them out.
 3. Trail, engine-kill turn, guide, follow and idle were read in part;
    their state tables are not established.
 4. Job fields with no visible effect: target toughness preference, the
@@ -551,9 +545,7 @@ DrasticEvade; lane travel = InstantTradeLane; steering primitive =
 idea; steering arbiter = thrust manager; manoeuvre layer = behaviour
 manager with its system manager.
 
-Inference: the description of trail; what each dodge and break style
-looks like in flight (from style names and parameters; the two
-primitives were not read line by line); that the value added to the
-damage level is the damage amount; the reading of 0.05 weights; the
-purposes attached to the attacker limit, the zone tiers and the
-accuracy exponents.
+Inference: trail; what each dodge and break style looks like (from
+style names and parameters); that the value added to the damage level
+is the damage amount; the reading of 0.05 weights; the purposes given
+for the attacker limit, the zone tiers and the accuracy exponents.
