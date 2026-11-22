@@ -99,7 +99,7 @@ The data defines 146 commands, 22 of them debug aids.
 | Manoeuvres | Free flight, go to, dock, join formation, cancel: each a directive to the manoeuvre layer (chapters 04, 05) |
 | Guns | Fire active weapons (hold), fire straight ahead, fire weapon 1–10, toggle weapon 1–10 |
 | Weapon groups | Select, fire and store group 1–6; a group is a remembered set of active weapons |
-| Launchers | Missiles, torpedoes, cruise-disrupting munitions, mines, countermeasures: one command per kind, firing every launcher of that kind |
+| Launchers | Missiles, torpedoes (chapter 03's heavy guided munitions), cruise-disrupting munitions, mines, countermeasures: one command per kind, firing every launcher of that kind |
 | Targeting | Select under cursor, next and previous contact, closest enemy, next and previous enemy, clear, next and previous sub-target |
 | Target actions | Scan cargo, tractor target, tractor all loot, hail, invite to group, request trade |
 | Consumables | Use a hull or shield repair consumable |
@@ -117,15 +117,15 @@ targets, so a press must be told apart from a hold.
 | --- | --- | --- | --- |
 | Free | Press over empty space | Arming | Store the cursor position; start a timer |
 | Arming | Timer reaches 0.25 s | Steering | — |
-| Arming | Cursor leaves a radius of 50 pixels | Steering | Steering starts on the next frame |
+| Arming | Cursor leaves a small radius | Steering | Steering starts on the next frame |
 | Arming | Release | Free | The press was a click: select under the cursor |
 | Steering | Each frame | Steering | Send direction (x, y) |
 | Steering | Release, lock off | Free | Send (0, 0); the ship stops turning |
 | Any | Lock toggled on | Steering | Steers with no button held |
 | Any | Letterbox, or riding a lane | Free | Direction reset; steering refused |
 
-The radius holds for an 800-pixel-wide screen and shrinks in inverse
-proportion to the width.
+The radius is one sixteenth of the screen width at the original's
+reference resolution; it does not scale properly (section 6).
 
 The direction is the cursor offset from the centre divided by half the
 screen width and height, so each component runs from −1 to 1. An option
@@ -152,7 +152,11 @@ a target selected, the ramp is replaced by `1.5 × (1 − cos²θ)`, clamped
 to 0.1 to 1, where θ is the angle between nose and target.
 
 Throttle keys move the throttle at 1.0 per second; the wheel steps it by
-0.2. Lowering the throttle, or reaching zero, drops cruise.
+0.2. Two rules end cruise from here. Pressing the throttle-down key
+drops cruise at once, whatever the throttle value. And any throttle of
+exactly zero, however reached, drops it; a wheel step down therefore
+ends cruise only when it arrives at zero. Both rules live in the
+interface, not in the engine equipment (chapter 02, 3.8).
 
 Cancel returns the ship to free flight and drops cruise. In the turret
 view it leaves that view instead.
@@ -229,6 +233,19 @@ authority (chapter 11). The player can then step through the target's
 parts and external equipment, or click one in the target panel; guns
 aim at that sub-target.
 
+**Collecting loot.** Two commands drive the tractor (chapter 03 has the
+rule). "Tractor target" pulls in the selected loot, within the tractor's
+authored reach of 1,500 m. "Tractor all" addresses every loot object
+within 1,000 m, a figure fixed in the interface and shorter than the
+reach, most valuable first: items without volume, then repair
+consumables, then by price. The status panel shows its loot button only
+while some loot within those 1,000 m still fits in the hold, the ship is
+not in cruise and not in a lane; when the hold is full the button
+disappears. A pull shows as a beam and ends with a sound. A failed one
+is announced by the interface voice: "out of range", or a general
+tractor failure for the other causes, a full hold presumably among them
+(inferred).
+
 **Learning the map by flying.** Once a second the presentation checks
 what the player has come near and updates the knowledge state, by the
 rules of chapter 01 (3.10): a solar whose surface is closer than the
@@ -248,7 +265,7 @@ with no player ship.
 | Markers and reticle | 3.6; this element also computes the aim point and resolves clicks |
 | Alerts | Incoming guided munition; ship on your tail within 500 m; radiation; network lag above 600 ms, red above 1,200 ms. The munition alert blinks with a period of distance × 0.001 s, at least 0.1 s, and triggers one spoken warning. |
 | Target panel | A wireframe view of the target, its parts coloured by damage in four steps; name, faction, range; buttons for scan, tractor, next enemy, trade. Switches to the contact list or the formation list. |
-| Status panel | The same wireframe for the player's ship; weapons with ammunition and on/off state; repair consumable counts; a button when loot is within 1,000 m |
+| Status panel | The same wireframe for the player's ship; weapons with ammunition and on/off state; repair consumable counts; a loot button (3.6) |
 | Manoeuvre bar | One button per manoeuvre, lit only if the manoeuvre layer says it is possible for the current target; a cruise indicator |
 | Damage direction | Four edge flashes that light on the side a hit came from and fade in 0.7 s |
 | Waypoint | A marker at the next point of the plotted route; advances within 150 m (chapter 04) |
@@ -516,7 +533,8 @@ lock. Fragment-assembled radio speech: whole recorded lines would do,
 provided traffic talks and distance fades it.
 
 **Accidents of the era.** Pixel constants tied to an 800-pixel screen,
-including a click radius that shrinks as resolution grows. No gamepad
+including the click radius of 3.3: 50 pixels × 800 / width, so it
+shrinks as resolution grows. No gamepad
 or joystick support; the lock mode is the natural basis for a stick
 mapping. A shake decay per frame instead of per second.
 
@@ -550,21 +568,22 @@ Design: assessments 06 (1, 2), 05 (9), 07 (3, 7).
 Data: `INTERFACE/keymap.ini`, `keylist.ini`, `hud.ini`; `mouse.ini`,
 `cameras.ini`, `constants.ini`; the INI files in `AUDIO/` and `FX/`;
 camera fields of `SHIPS/shiparch.ini`; one file under `COCKPITS/`;
-`[Music]` and `interference` in system files; scanner records.
+`[Music]` and `interference` in system files; scanner and tractor
+records.
 
 Code, client: `menu_keymap_config.h`, `hud_command_dispatch.h`,
 `main_command_handler.cpp`, `input_manager.h`, `player_behavior.cpp`,
 the `hud_*` files, `space_state.cpp`, the `space_camera_*` files,
 `space_scene_obj_draw.cpp`, `star_sys.cpp`, `menu_sound_arch.*`,
 `sound_config.cpp`, `voice_profiles.cpp`, `effect_type_info.h`,
-`particle_effect.*`.
+`particle_effect.*`, `client_equip_fx.cpp` (tractor feedback).
 
 Code, shared and authority: `Common/common_cescanner.cpp`,
 `common_csimple.cpp`, `common_behaviormanager.cpp`,
 `common_faceidea.cpp`; `Server/server_classes.cpp`; `Content/Gcs.cpp`
 (skimmed).
 
-Inferred: the multiplayer limit on contacts; the watch list's source;
+Inferred: the multiplayer limit on contacts; the full-hold feedback; the watch list's source;
 the direction of the chase look-ahead; the engine-sound rule; the
 "silent" music state. The capability list of 3.11 comes from the
 callers, not from the particle library.

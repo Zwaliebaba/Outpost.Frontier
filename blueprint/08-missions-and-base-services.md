@@ -36,7 +36,7 @@ items follow the campaign.
 | Campaign position | 0 to 42: where the player stands in the campaign. |
 | Worth gate | A wealth target to reach before the next campaign mission starts. |
 | On-base story scene | A record that binds scene scripts (offer, accept, decline) and a cast to one room. |
-| Difficulty | 0 to 100 on a geometric scale; sizes a generated mission and sets its reward. |
+| Job difficulty | 0 to 100 on a geometric scale; sizes a generated mission and sets its reward. Not the player's level, and not the single-player difficulty scale. |
 | Mission site | A zone marked for generated missions. |
 | Offer tree | The authored decision tree from which a generated mission is composed. |
 | Base roster | Per base: factions with their shares and inhabitants, fixtures, job-board size. |
@@ -52,7 +52,7 @@ scripted mission ─► cast, ships with labels, solars, loot
                  ─► directive lists ─► behaviours (chapter 05)
                  ─► objectives ─► interface and map (chapters 04, 09)
                  ─► triggers: condition ◄─ events; actions ─► services
-generated mission = offer (payer, enemy, site, difficulty, reward, seed)
+generated mission = offer (payer, enemy, site, job difficulty, reward, seed)
                   + one path through the offer tree
 base roster ─► fixtures, bar inhabitants ─► job, bribe, knowledge, rumour
 ```
@@ -64,7 +64,20 @@ base roster ─► fixtures, bar inhabitants ─► job, bribe, knowledge, rumou
 Starting a mission creates a content controller above the priority of
 space and base support, so it sees each event before them (chapter 11).
 It belongs to one player; that player's group joins it and shares
-objectives and reward. A player or group holds at most one live mission.
+objectives and reward.
+
+Each player has one live-mission slot, shared with the group. A mission
+is live from acceptance to its end, so the rules are:
+
+- A campaign mission that has started but is not yet accepted is not
+  live. The player may take and fly a job meanwhile.
+- Accepting a campaign mission destroys a live job's content controller;
+  the job simply ends, without its failure path.
+- While any mission is live, a job cannot be accepted. The board is still
+  built and shown on entering a base; choosing an offer is refused with a
+  reason. A bar inhabitant's job offer is dropped without effect.
+- The campaign does not start a worth-gated mission while a job is live;
+  it waits for the job to end.
 
 The campaign controller is in the single-player start-up list only:
 multiplayer has no campaign.
@@ -363,8 +376,8 @@ mission is live.
 
 A started mission is not yet accepted. Its entry trigger guides the player
 to a room; an on-base story scene plays there and ends in a choice. Reject
-swaps in a repeatable re-offer scene. Accept ends any generated mission,
-advances the position, and by default stops ambient ships from attacking
+swaps in a repeatable re-offer scene. Accept ends a live job (section
+3.1), advances the position, and by default stops ambient ships from attacking
 or scanning the player until the script says otherwise.
 
 The second gate is the map. The new-game template is a saved game with
@@ -384,15 +397,25 @@ a bar inhabitant's job is drawn when the player enters the room.
 2. **Who.** A faction on the base with a mission entry and not hostile to
    the player, drawn by its share; then a mission type by weight. The
    shipped data has one type.
-3. **How hard.** The entry gives a range. In single player the campaign
-   position gives a centre `d` (0.08 at the start, 1.23 before the ninth
-   mission, 39 after the campaign) and a window `[d / s³, d · s³]` with
-   `s = 1.3689`. The pick is `high − cos(u · π/2) · (high − low)` with `u`
-   uniform, which favours the low end. A window wholly below the range
-   gives no offer; one reaching above it picks from the range's top,
-   `[max(min, max / s³), max]`, so advanced players still get jobs. In
-   multiplayer the entry's range is used; two times in three its top is
-   raised by `s²`, `s⁴` or `s⁶`.
+3. **How hard.** The roster entry gives a range of job difficulty. The
+   player's level (chapter 07) is never read; what narrows the range
+   depends on the mode.
+   - *Single player.* The campaign position gives a centre `d` from a
+     nine-row table: 0.08 at the start, rising to 1.23 in the free time
+     before the ninth mission and staying there to the end of the
+     campaign. The window is `[d / s³, d · s³]` with `s = 1.3689`. A
+     window wholly below the range gives no offer. One that overlaps it
+     picks between the higher of the two lower bounds and the window's
+     top. One reaching above it picks from the range's top,
+     `[max(min, max / s³), max]`.
+   - *After the campaign* (position 42) `d` is 39, above almost every
+     range, so each base offers the top of its own range: where the
+     player takes the job decides how hard it is.
+   - *Multiplayer.* Only the entry's range counts; two times in three its
+     top is raised by `s²`, `s⁴` or `s⁶`.
+
+   In every case the pick is `high − cos(u · π/2) · (high − low)` with `u`
+   uniform, which favours the low end.
 4. **Where.** A mission site within a travel budget of 90 units from the
    base: a unit is 300 m of flight, a lane ride costs 10, a jump 45
    (multiplayer: 30 more per other player in the system, at most 300).
@@ -401,14 +424,14 @@ a bar inhabitant's job is drawn when the player enters the room.
 5. **Against whom.** A faction that populates zones within 7,500 m of the
    site, failing that anywhere in its system, and that the payer regards
    at −0.2 or worse. Drawn uniformly.
-6. **For how much.** A 23-row table maps difficulty to money, from
+6. **For how much.** A 23-row table maps job difficulty to money, from
    0 → 1,800 to 100 → 247,065, interpolated linearly. The result is cut
    to two leading digits; when the first is below 5, a third is kept as
-   0 or 5. Difficulty 1.0 lies between 0.900 → 7,264 and 1.233 → 9,001:
+   0 or 5. Job difficulty 1.0 lies between 0.900 → 7,264 and 1.233 → 9,001:
    7,784, paid as 7,700.
 7. **What.** Section 3.12. The offer keeps a random seed.
 
-An empty board says why: no willing faction, no difficulty in range, or
+An empty board says why: no willing faction, no job difficulty in range, or
 no site.
 
 ### 3.12 How a generated mission is composed and run
@@ -419,16 +442,16 @@ large solar, are there defensive solars, a fight on the way, a named
 target, friendly ships after 30 s, reinforcements, an item. Data nodes
 carry offer-text fragments with placeholders, an objective text per step,
 radio sequences keyed to run-time moments, permitted payers, enemies and
-site kinds, a difficulty window and a leaf weight.
+site kinds, a job-difficulty window and a leaf weight.
 
-Composition takes the leaves that fit payer, enemy and difficulty, draws
-one by weight, then one root-to-leaf path whose windows admit the
-difficulty. The path's facts split the difficulty into shares. A second
-table turns a share into an NPC level and a formation size of 1 to 8:
-level 5 with four ships is 0.475. Solars come from templates with a
+Composition takes the leaves that fit payer, enemy and job difficulty,
+draws one by weight, then one root-to-leaf path whose windows admit it.
+The path's facts split the job difficulty into shares. A second table
+turns a share into an NPC level and a formation size of 1 to 8: level 5
+with four ships is 0.475. Solars come from templates with their own job
 difficulty, hit points and a choice of pilots.
 
-A saved generated mission stores payer, enemy, site, difficulty, reward
+A saved generated mission stores payer, enemy, site, job difficulty, reward
 and seed; loading reseeds the generator and composes it again.
 
 A state machine runs it:
@@ -492,13 +515,13 @@ scene finished, inhabitant selected.
 | --- | --- | --- |
 | Mission definition | Section 3.2 | 14 files; 79 to 408 triggers each (chapter 12) |
 | On-base story scene | Base and room; scripts for offer, decision, accept, decline; cast; reserved spots | 69 |
-| Base roster | Local faction; board size; per faction: share, mission type with difficulty range and weight, inhabitants | 194 bases |
+| Base roster | Local faction; board size; per faction: share, mission type with job-difficulty range and weight, inhabitants | 194 bases |
 | Roster inhabitant | Appearance, voice, faction, room; bribes; knowledge with price and standing level; rumours with window and level; mission entry | 1,642, of which 560 fixtures; median 10 rumours |
 | News item | Window, bases, icon, image, texts | 403; median 5 bases, at most 40 |
-| Difficulty tables | Campaign position to difficulty; difficulty to money; NPC level and formation size to difficulty | 9, 23 and 25 rows |
+| Job-difficulty tables | Campaign position to job difficulty; job difficulty to money; NPC level and formation size to job difficulty | 9, 23 and 25 rows |
 | Offer tree | Section 3.12 | 219 decision and data nodes, 7 leaves |
-| Destroyable solar | Kind, faction, archetype, loadout, hit points, difficulty, zone restriction | 126, in 11 layouts |
-| Mission item, bonus loot | Item, kind or faction, difficulty band, weight | 62 and 143 |
+| Destroyable solar | Kind, faction, archetype, loadout, hit points, job difficulty, zone restriction | 126, in 11 layouts |
+| Mission item, bonus loot | Item, kind or faction, job-difficulty band, weight | 62 and 143 |
 
 A zone (13% of them) is recognised as a site by a fixed substring in its
 nickname; it is lawful unless a key says otherwise.

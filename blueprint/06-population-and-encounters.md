@@ -19,12 +19,12 @@ they talk: to dock control, each other and the player.
 
 Three properties shape play:
 
-- **Place sets the danger.** Each zone names a level from 1 to 19. The
-  same faction fields a weak ship at level 3 and a strong one at level
-  15. Travelling outward is the difficulty curve.
-- **Reputation sets the tone.** Who appears depends on the zone; whether
-  they attack depends on the player's standing with their faction
-  (chapter 07).
+- **Place sets the danger.** The encounter lines of a zone carry a level
+  from 1 to 19. The same faction fields a weak ship at level 3 and a
+  strong one at level 15. Travelling outward is the difficulty curve.
+- **Reputation sets the tone.** Who appears depends on the zone, not on
+  the player's standing; whether they attack depends on the player's
+  standing with their faction (chapter 07).
 - **Combat is paced.** A fight is capped in size, and after a fight the
   population waits before sending anyone new.
 
@@ -70,9 +70,9 @@ zone (system file)
                  └─ arrival methods, lifetime
 ```
 
-A ship line never names a ship. It names a class group and inherits a
-level from the zone; the faction drawn for the group supplies the
-matching NPC ship definition. One encounter definition thus serves every
+A ship line never names a ship. It names a class group and takes its
+level from the encounter line; the faction drawn for the group supplies
+the matching NPC ship definition. One encounter definition thus serves every
 faction and level.
 
 ## 3. How it works
@@ -169,7 +169,7 @@ A group is refused if any of these holds:
 | --- | --- |
 | Battle size | The player is in combat (a hostile object within 2,500 m) and has at least the zone's battle size of hostile contacts (typically 4). |
 | Relief | The player is not in combat, but the last fight ended less than the zone's relief time ago (typically 30 s). Friendly traffic waits too. |
-| Mission switches | A mission may switch the population off, declare spheres free of it, or forbid the factions hostile to the player, or all others (chapter 08). |
+| Mission switches | A mission may switch the population off or declare spheres free of it. In single player a scripted mission may also refuse every group whose faction the player's standing with is −0.6 or lower (chapter 08). |
 | Uniqueness | The template forbids a second copy while one lives, or has reached its creation limit. |
 | Class caps | The zone caps how many ships of a class group may be near (authored: one patrol of each kind near a path; four lawful, four unlawful in an area). See open question 1. |
 | Placement | No arrival method finds a valid position (3.7). |
@@ -177,6 +177,13 @@ A group is refused if any of these holds:
 Battle size and relief pace play: without the first a busy zone feeds
 a fight without end; without the second the next patrol arrives while
 the player still collects loot.
+
+That last switch is the only place where the player's standing decides
+whether a group spawns. By default it is off: the draw of encounter,
+template and faction never reads the player's standing, and hostile and
+friendly groups appear alike. (The check also holds two per-player
+refusals, of hostile factions and of all others; no code found sets
+them.)
 
 A mission can also stop ambient attacks: the attitudes between ambient
 ships on one side and players and mission ships on the other are raised
@@ -188,7 +195,8 @@ mission keeps population out of 10,000 m around its site (chapter 08).
 
 For each ship line the count is uniform between minimum and maximum; a
 minimum of 0 makes escorts optional. The line's class group and the level
-tag (zone level plus the line's offset, at least 1) select the faction's
+tag (the encounter line's level plus the ship line's offset, at least 1)
+select the faction's
 candidate NPC ship definitions; one is chosen uniformly. From it come
 ship archetype, loadout, state graph and pilot. The line's job replaces
 the job block of the pilot (chapter 05), so one pilot record serves as
@@ -283,6 +291,9 @@ When a player enters a lane, the content controller may stage an ambush:
 2. The probability is the largest "lane attack" value among the path
    segments within 2,000 m of the lane's rings whose factions include
    one hostile to the ring's owner (authored 5 to 80 %, median 15 %).
+   Between factions, hostile here means a reputation of −0.2 or lower
+   in the faction matrix (friendly: 0.2 or higher); the same test
+   serves a template that ties its faction to another's (3.5).
 3. A ring ahead of the player, beyond the next one, with no player
    within 5,000 m is chosen by weight; then one such zone and one
    hostile faction.
@@ -296,7 +307,11 @@ to be there.
 
 ### 3.10 Difficulty by place
 
-Level is authored per encounter line, from 1 to 19. Each system occupies
+The level that selects NPC ship definitions is the one written on the
+encounter line, from 1 to 19, shifted by the ship line's offset. In the
+data every encounter line of a zone carries the same value, so one may
+speak of a zone's level; the separate zone-wide level field holds that
+value too but is not read (section 4). Each system occupies
 a band two to four levels wide: the starting systems span 1 to 4, most
 lie between 6 and 13, the remote ones reach 15 to 19. A
 faction covers its levels with a ladder of NPC ship definitions. One
@@ -311,8 +326,8 @@ faction's fighter ladder, typical of the rest:
 
 A definition can serve a range of levels, so a faction confined to one
 region needs only a few.
-Capital ships sit at 22 and 25, above every zone level; only missions
-place them (inferred).
+Capital ships sit at 22 and 25, above every authored level; only
+missions place them (inferred).
 
 The ambient population is not scaled to the player: nothing in the spawn
 path reads the player's level, ship or wealth. Generated missions do
@@ -429,9 +444,9 @@ example_lane_freighter
 ```
 
 The files form a grid: area, path and lane variants of trade
-(freighter, transport, armoured, smuggler, prisoner transport), patrol
-(lawful, unlawful, bounty hunters), assault, scout, defend, scavenger
-and service ships.
+(freighter, transport, armoured, smuggler, an escorted high-value
+transport), patrol (lawful, unlawful, hunters for hire), assault, scout,
+defend, scavenger and service ships.
 
 **NPC ship definition** (404 shared): nickname, ship archetype, loadout,
 pilot, state graph (fighter for three quarters; transport, gunboat,
@@ -459,8 +474,8 @@ have one.
 **Needs:** from 01, zones, spatial queries, paths, lanes and rings; from
 02, ship archetypes, loadouts, hold sizes; from 04, docking, dock
 queues, lane travel and interruption; from 05, pilots,
-jobs, state graphs, formations, directives; from 07, attitudes (±0.2
-between factions, −0.6 for hostility to the player), per-object
+jobs, state graphs, formations, directives; from 07, the faction matrix and
+the player's standings (hostile at −0.6 or lower), per-object
 reputation, base markets; from 11, the content controller with heartbeat
 and timers, the rule that only occupied systems run, and the visibility
 radii (2,500 m unowned, 5,000 m other players, 10,000 m group members;
