@@ -57,6 +57,7 @@ Conventions:
 | `error`, `critical_warning`, `note` | `tick` u, `text` s (`note`: an object marked `psi` whose PSIs are not recorded, and why; once per object) |
 | `fault` | `tick` u, `first_chance` b (from the vectored handler; false: the frame's `__except` filter, which ends the run with code 4), `code` s (hex), `code_name` s, `address` s (hex), `at` {`module` s\|null, `offset` s (hex, from the module base), `functions` s[] (the innermost inlined function first), `line` s (`file:line` under `CppSource/`, `""` when unknown)}, for an access violation `access` s (`read`, `write`, `execute`), `target` s (hex), `target_memory` s (`free`, `reserved`, `committed`, `committed, not readable`); `symbols` b (dbghelp started), `regs` {`eax` .. `ebp`: {`v` s, [`in` s (module+offset and symbol)], `words` s[4] and [`word0_in` s] when it points at readable memory (a vtable names the class), else `memory` s}, `esp` s, `eip` s, `eflags` s}, `esp_words` s[16], `stack` [{`module`, `offset`, `functions`, `line`}] (at most 48 frames; frame 0 is the faulting instruction, the others are resolved at their call) |
 | `env` | (cross-runner reproducibility, owner 2026-11-19; just before `end`, after everything the run computes) `msc_full_ver` u, `msc_build` u (`_MSC_FULL_VER`, `_MSC_BUILD` of the compiler that built Oracle.exe; the solution builds every DLL with it), `cpu` {`vendor` s, `brand` s, `signature` s (CPUID leaf 1 EAX), `leaf1_ecx` s, `leaf1_edx` s, `leaf7_ebx` s (hex feature words), `logical` u}, `os` {`build` s, `ubr` u, `display_version` s}, `process_heap` s (hex), `stack_local` s (the address of a local of the writer, hex), `modules` [{`name` s, `loaded` b, [`path` s, `base` s (hex), `version` s (the file version)]}, …] (Oracle.exe, Server.dll, Common.dll, Content.dll, SimClientStub.dll and the CRT and system DLLs) |
+| `content_tables` | (`dump content_tables`, P3.4b) `lines` i: the lines `OracleDumpContentTables` wrote, −1 when a file could not be opened or Content.dll lacks the export |
 | `end` | `tick` u, `psi_total` u, `code` i (the exit code) |
 
 ## `tick.jsonl`
@@ -714,6 +715,35 @@ the other messages are not decoded yet.
 populators left out), `fdump.txt` every `FDUMP` message (`tick`, flags in
 hex, text) and `metrics.txt` the plain-text input of `--runs`
 (`oracle_sim.h`). None of them is a record for the tests.
+
+## `content_<table>.txt` (`dump content_tables`)
+
+Content's static tables after a multiplayer start-up (P3.4b, decision
+record 0008 point 5; `Content/oracle_content_tables.cpp`), read by
+`crates/game-logic/tests/content_tables.rs`. Plain text, one record per
+line, fields `key=value` separated by one space: ids and unsigned values
+decimal, signed values decimal, floats as eight hex digits of their bits,
+strings as the hex of their bytes, lists comma-separated (empty for an empty
+list). Maps in key order, vectors in their order.
+
+| File | Line |
+| --- | --- |
+| `content_voice_lines.txt` | `voice msg duration` |
+| `content_voice_properties.txt` | `voice flags permutations` (`nickname:count`, …) |
+| `content_empathy.txt` | `group events` (4 floats) `rates` (`group:rate`, …) |
+| `content_formations.txt` | `formation nickname slots` (`x:y:z:player`, …) |
+| `content_pilots.txt` | `pilot refs` (inherit and the 16 references) `found personality` (the 0x3d8 bytes `GetPilotPersonality` fills over a default personality, as `OracleSimPilotPersonality` does; padding included, compared through `Personality::from_bytes`); then `blocks=<kind> ids` for each of the 16 block tables |
+| `content_npc_ships.txt` | `npc_ship nickname ship loadout pilot state_graph level classes` |
+| `content_factions.txt` | `faction npc_ships jump scan_cargo` (`archetype:level`, …) `scan_chance scan_announce market_goods assassinate legality singular formations` (`key:value`, …) `costumes` (`head,body,left,right,count,accessories…`, `;`-separated) `voices mc_costume msg_id_prefix` |
+| `content_faction_names.txt` | `faction group female male last formation large_ship` (each `count:first-last,…`) `large_ship_desig short_name rank_desig thresholds name_ids` |
+| `content_faction_groups.txt` | `group` |
+| `content_ship_classes.txt`, `content_ship_mission_properties.txt` | `class` or `ship`, `members` |
+| `content_loot.txt` | `loot drop_chance drop_properties` |
+| `content_phantom_loot.txt` | `phantom toughness chance num_to_drop` |
+| `content_gcs_exclusions.txt` | `voice scripts` |
+| `content_toughness.txt` | `experience toughness` |
+| `content_rank_difficulty.txt` | `stage difficulty` |
+| `content_news.txt` | `news` (the index) `bases from to audio logo` (lower case, D785) `breaking autoselect icon category headline text` (the three `FmtStr`s flattened) |
 
 ## `spread.jsonl` (`--runs N`)
 

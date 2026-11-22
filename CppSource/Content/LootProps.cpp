@@ -19,6 +19,7 @@
 #include "common_text.h"        // FmtStr
 #include "common_weighted_vector.h" // weighted_vector<unsigned int> (vendor candidates)
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <utility>
@@ -162,6 +163,32 @@ void __cdecl CollectPhantomLoot(int const* Toughness, std::vector<FPhantomLoot c
             continue;
         Out->insert(Out->end(), 1, &*It);
     }
+}
+
+// Oracle instrumentation (P3.4b, decision record 0008 point 5): the loot and phantom loot
+// lines of OracleDumpContentTables (oracle_content_tables.cpp), whose tables are
+// file-static here, in file order; floats as their bit patterns. Returns the lines written.
+// No game module calls it.
+int __cdecl OracleContentDumpLoot(FILE* Loot, FILE* Phantom)
+{
+    for (size_t Index = 0; Index < GLootProps.size(); ++Index)
+    {
+        FLootProps const& L = GLootProps[Index];
+        unsigned int Chance = 0;
+        memcpy(&Chance, &L.DropChance, sizeof(Chance));
+        fprintf(Loot, "loot=%u drop_chance=%08x drop_properties=%d,%d,%d,%d,%d\n", L.Nickname.Id, Chance,
+                L.DropProperties[0], L.DropProperties[1], L.DropProperties[2], L.DropProperties[3],
+                L.DropProperties[4]);
+    }
+    for (size_t Index = 0; Index < GPhantomLoots.size(); ++Index)
+    {
+        FPhantomLoot const& P = GPhantomLoots[Index];
+        unsigned int Chance = 0;
+        memcpy(&Chance, &P.PercentChance, sizeof(Chance));
+        fprintf(Phantom, "phantom=%u toughness=%d,%d chance=%08x num_to_drop=%d,%d\n", P.Nickname.Id,
+                P.ToughnessMin, P.ToughnessMax, Chance, P.NumToDropMin, P.NumToDropMax);
+    }
+    return static_cast<int>(GLootProps.size() + GPhantomLoots.size());
 }
 
 // (06f041c0-06f042c2).

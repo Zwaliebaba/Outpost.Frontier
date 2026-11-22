@@ -149,6 +149,12 @@ namespace
         // `dump replication`: the packets of the replication comparison are written to
         // replication.jsonl from the players' join on (SimClientStub, P3.3).
         bool bDumpReplication = false;
+
+        // `dump content_tables`: right after the server starts, Content.dll's static tables
+        // (LoadContentGameTables, run by the GameSupport the start-up creates) are written as
+        // content_<table>.txt through its OracleDumpContentTables; no system loads and no
+        // scenario runs (P3.4b, decision record 0008 point 5).
+        bool bDumpContentTables = false;
         unsigned int Seed = 0x4f524143u;
         double ClockStart = 1000.0;
         std::vector<FObjectDesc> Objects;
@@ -436,6 +442,10 @@ namespace
                 }
                 Out.Players.push_back(Player);
             }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "content_tables")
+            {
+                Out.bDumpContentTables = true;
+            }
             else if (Key == "seed" && T.size() == 2 && ParseUnsigned(T[1], Value))
             {
                 Out.Seed = (unsigned int)Value;
@@ -504,7 +514,7 @@ namespace
         }
         if (Out.System.empty() || !bTicks)
             return Error = "a scenario needs `system` and `ticks`", false;
-        if (Out.Objects.empty() && !Out.bDumpSystemLoads)
+        if (Out.Objects.empty() && !Out.bDumpSystemLoads && !Out.bDumpContentTables)
             return Error = "a scenario needs at least one object", false;
         std::stable_sort(Out.Commands.begin(), Out.Commands.end(),
                          [](FCommand const& A, FCommand const& B) { return A.Tick < B.Tick; });
@@ -2777,6 +2787,26 @@ namespace oracle
             SessionNote("error", "IServerImpl::Startup failed (DataConfig::startup)");
             EndProcess(3);
             return 3;
+        }
+
+        // `dump content_tables` (P3.4b): the tables as the start-up left them, through
+        // Content.dll's Oracle export, then the end of the run.
+        if (GScenario.bDumpContentTables)
+        {
+            typedef int(__cdecl * FDumpContentTables)(char const*);
+            HMODULE const Content = GetModuleHandleA("Content.dll");
+            FDumpContentTables const DumpContentTables =
+                Content != nullptr ? (FDumpContentTables)GetProcAddress(Content, "OracleDumpContentTables")
+                                   : nullptr;
+            int const Lines = DumpContentTables != nullptr ? DumpContentTables(OutDir.c_str()) : -1;
+            if (DumpContentTables == nullptr)
+                SessionNote("error", "dump content_tables: Content.dll is not loaded or lacks OracleDumpContentTables");
+            FOracleJson J;
+            J.Str("rec", "content_tables");
+            J.Int("lines", Lines);
+            Write(FileSession, J);
+            EndProcess(Lines < 0 ? 3 : 0);
+            return Lines < 0 ? 3 : 0;
         }
 
         // `comms off`: the GCS clamp through Content.dll's Oracle export, before the load.

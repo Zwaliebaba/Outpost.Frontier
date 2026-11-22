@@ -39,7 +39,7 @@ pub fn construct(cx: &mut Cx<'_>, id: ControllerId) -> Instance {
     let router = Router::new(&mut cx.logic.content.state.ids);
     // A second GameSupport replaces the router; the C++ leaks the first.
     cx.logic.content.state.router = Some(router);
-    let tables = ContentTables::load(cx);
+    let tables = ContentTables::load_from_world(cx);
     cx.logic.content.tables = Arc::new(tables);
     Instance::GameSupport
 }

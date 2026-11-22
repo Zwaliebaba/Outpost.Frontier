@@ -62,22 +62,7 @@ use neuron_server::controller::ControllerId;
 use crate::events::ControllerMessage;
 use crate::server::{ControllerKind, CreateParams, Cx};
 
-/// The tables the C++ never changes after loading (record 0008 point 1):
-/// built by GameSupport's constructor (`LoadContentGameTables`), dropped by
-/// its destructor (`UnloadContentGameTables`). The tables of
-/// `LoadContentGameTables` are P3.4b's ([`tables`]); until then the value
-/// is empty.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct ContentTables {}
-
-impl ContentTables {
-    /// `LoadContentGameTables` (`Content/Encounters.cpp:497-591`), called by
-    /// GameSupport's constructor. P3.4b reads the tables here.
-    #[must_use]
-    pub fn load(_cx: &Cx<'_>) -> Self {
-        Self::default()
-    }
-}
+pub use tables::ContentTables;
 
 /// Content's live globals (record 0008 point 1): the namespace-scope
 /// state of Content.dll that its handlers change.
