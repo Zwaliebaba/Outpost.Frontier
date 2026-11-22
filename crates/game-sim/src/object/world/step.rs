@@ -394,6 +394,21 @@ pub trait ServerHooks {
         false
     }
 
+    /// `StarSystem_UpdateNearShips`' fill from the system's solar BSP
+    /// (`StarSystem::GetBucket`, the partition `StarSystem::load` builds):
+    /// for each player of the system, in arrival order, whose ship exists,
+    /// the solars the partition's sphere query of 10000 m around the ship
+    /// finds, all appended to one list of at most
+    /// [`RESULT_CAPACITY`](crate::data::spatial::RESULT_CAPACITY) entries
+    /// (a solar near two players is in it twice). `None` when the system
+    /// has no partition, which skips the whole pass, the always-updated
+    /// list included. Without a server there is neither a partition nor a
+    /// player: an empty list, so only the always-updated entries update.
+    fn near_solars(&mut self, world: &World, system: u32) -> Option<Vec<ObjHandle>> {
+        let _ = (world, system);
+        Some(Vec::new())
+    }
+
     /// After a sub-step's deferred deletes: `StarSystem_Update`'s dock
     /// queue.
     fn after_reap(&mut self, world: &mut World, system: u32) {
@@ -598,41 +613,31 @@ impl World {
         }
     }
 
-    /// `StarSystem_UpdateNearShips`: the solars within 10000 m of a
-    /// player's ship, then every entry of the always-updated list
-    /// (`ListD4`, with its repeats), with the reference's de-duplication:
-    /// each item drops only the first later repeat of itself, so an object
-    /// listed three times updates twice. A near solar enters the list once
-    /// whatever the number of players near it, and the list has no cap
-    /// (D628).
+    /// `StarSystem_UpdateNearShips`: the scan list the server fills from
+    /// the system's solar BSP ([`ServerHooks::near_solars`], once per
+    /// player, so a solar near two players is in it twice), then every
+    /// entry of the system's always-updated list (`ListD4`, with its
+    /// repeats) while the list holds fewer than
+    /// [`RESULT_CAPACITY`](crate::data::spatial::RESULT_CAPACITY) entries.
+    /// The reference's de-duplication follows: each item drops only the
+    /// first later repeat of itself, so an object listed three times
+    /// updates twice. Without a partition the pass does nothing.
     fn tick_near_solars(&mut self, system: u32, dt: f32, hooks: &mut dyn ServerHooks) {
-        let players: Vec<Vector> = self
-            .list(system, TickList::Ships)
-            .into_iter()
-            .filter_map(|h| self.objects.get(h))
-            .filter(|o| o.simple.owner_player != 0)
-            .map(|o| o.engine.position)
-            .collect();
-        let mut scan: Vec<Option<ObjHandle>> = Vec::new();
-        if !players.is_empty() {
-            for h in self.list(system, TickList::Solars) {
-                let Some(o) = self.objects.get(h) else {
-                    continue;
-                };
-                let near = players.iter().any(|p| {
-                    let d = [
-                        f64::from(p.x) - f64::from(o.engine.position.x),
-                        f64::from(p.y) - f64::from(o.engine.position.y),
-                        f64::from(p.z) - f64::from(o.engine.position.z),
-                    ];
-                    (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) <= 10000.0 * 10000.0
-                });
-                if near {
-                    scan.push(Some(h));
-                }
+        use crate::data::spatial::RESULT_CAPACITY;
+        let Some(mut near) = hooks.near_solars(self, system) else {
+            return;
+        };
+        near.truncate(RESULT_CAPACITY);
+        let mut scan: Vec<Option<ObjHandle>> = near.into_iter().map(Some).collect();
+        for &h in self.always_update() {
+            let here = self
+                .objects
+                .get(h)
+                .is_some_and(|o| o.simple.system == Some(system));
+            if here && scan.len() < RESULT_CAPACITY {
+                scan.push(Some(h));
             }
         }
-        scan.extend(self.always_update().iter().map(|&h| Some(h)));
         let mut chosen = Vec::new();
         if scan.len() > 1 {
             for index in 0..scan.len() {
@@ -648,6 +653,11 @@ impl World {
             chosen.extend(scan.into_iter().flatten());
         }
         for h in chosen {
+            // The `GameObject` narrowing: an object the world no longer
+            // has is not updated.
+            if !self.objects.contains(h) {
+                continue;
+            }
             if hooks.object_update(self, h, dt) {
                 let flags = hooks.object_update_flags(self, h);
                 self.update_object_hooked(h, dt, flags, hooks);

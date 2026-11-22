@@ -18,6 +18,7 @@ pub mod loot;
 pub mod munitions;
 pub mod objects;
 pub mod player;
+pub mod receive;
 pub mod replication;
 pub mod save_writer;
 pub mod selection;

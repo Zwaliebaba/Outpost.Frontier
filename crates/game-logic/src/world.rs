@@ -16,8 +16,10 @@
 //! - **Stepping** (`Server_StepSystems`, `Server/IServerImpl.cpp:4155`):
 //!   each distinct system of the active players, in session order;
 //!   `StarSystem_Update` (`:3863`) runs the world's sub-steps with the
-//!   server's hooks: the dock queue after each sub-step's deferred
-//!   deletes, and the physics only while the system has players.
+//!   server's hooks: the solars near the players from the system's solar
+//!   BSP (`StarSystem_UpdateNearShips`, [`near_solars`]), the dock queue
+//!   after each sub-step's deferred deletes, and the physics only while
+//!   the system has players.
 //! - **Unloading**: single player unloads a system when its player
 //!   leaves or lands (`player_switched_out`, `shutdown`); a multiplayer
 //!   server keeps every system.
@@ -153,9 +155,9 @@ pub fn has_player(logic: &Logic, system: u32, session: u32) -> bool {
 
 /// `StarSystem::load`: the physics world (`PhySys::Startup`), the solars
 /// and asteroid fields, the loaded flag, then `SystemLoaded` to the bus.
-/// A loaded or unknown system is left alone. The C++'s solar BSP
-/// (`NewSpatial("BSP")`) is not built: nothing reads it until the
-/// replication part.
+/// A loaded or unknown system is left alone. The solar BSP
+/// (`NewSpatial("BSP")`) is built after the solars
+/// ([`crate::api::system::build_solar_tree`]).
 pub fn load(cx: &mut Cx<'_>, system: u32) {
     match system_mut(cx, system) {
         Some(s) if !s.loaded => {}
@@ -585,6 +587,10 @@ impl ServerHooks for Hooks<'_> {
         let _ = crate::ship::launch_complete(&mut cx, object, base);
     }
 
+    fn near_solars(&mut self, world: &World, system: u32) -> Option<Vec<ObjHandle>> {
+        near_solars(world, self.logic, system)
+    }
+
     fn steps_physics(&mut self, world: &World, system: u32) -> bool {
         !world.config().single_player
             && self
@@ -594,6 +600,54 @@ impl ServerHooks for Hooks<'_> {
                 .get(&system)
                 .is_some_and(|s| !s.observers.is_empty())
     }
+}
+
+/// The radius of `StarSystem_UpdateNearShips`' query around each player's
+/// ship (`0x461c4000`).
+pub const NEAR_SOLAR_RADIUS: f32 = 10000.0;
+
+/// `StarSystem_UpdateNearShips`' scan list before the always-updated
+/// entries: `None` when the system has no solar BSP (`GetBucket` null:
+/// not loaded), which skips the pass. Otherwise, for each player of the
+/// system in arrival order (the observers), the ship
+/// (`Players[...].ship_object_id`, looked up by id; a player without one
+/// is skipped) gives the sphere of [`NEAR_SOLAR_RADIUS`] around its
+/// position, and the BSP appends the solars it overlaps to the one list
+/// of at most 0x800 entries, so a solar near two players is in it twice.
+#[must_use]
+pub fn near_solars(world: &World, logic: &Logic, system: u32) -> Option<Vec<ObjHandle>> {
+    let tree = logic.solar_trees.get(system)?;
+    let mut scan = game_sim::data::spatial::QueryResult::default();
+    let observers = logic
+        .server_world
+        .systems
+        .get(&system)
+        .map(|s| s.observers.as_slice())
+        .unwrap_or_default();
+    for view in observers {
+        let ship = logic
+            .players
+            .get(view.player)
+            .map_or(0, |p| p.ship_object_id);
+        let Some(position) = world
+            .find(ship)
+            .and_then(|h| world.get(h))
+            .map(|o| o.engine.position)
+        else {
+            continue;
+        };
+        let sphere = game_sim::data::zone::query::Sphere {
+            center: position,
+            radius: NEAR_SOLAR_RADIUS,
+        };
+        tree.query_sphere(&sphere, &mut scan);
+    }
+    Some(
+        scan.items
+            .into_iter()
+            .filter_map(|item| tree.solar(item))
+            .collect(),
+    )
 }
 
 /// `GameObject::destroy(kind, killer)` through the server's hooks.

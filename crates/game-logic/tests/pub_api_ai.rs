@@ -17,6 +17,7 @@ use game_logic::api::ai::{
     self, BaseOp, CallbackArg, Op, OpRType, SetFlagParams, SetPersonalityParams,
     SetZoneBehaviorParams,
 };
+use game_logic::api::reputation;
 use game_logic::api::space_obj::{self, ShipInfo};
 use game_logic::server::{ClientSink, CreateParams, Cx, Logic};
 use game_logic::world;
@@ -28,6 +29,7 @@ use game_sim::data::config::{DataConfig, GameData};
 use game_sim::object::world::{Assets, ShipSpawn, WorldConfig};
 use game_sim::object::{ObjHandle, World};
 use game_sim::protocol::ToClient;
+use game_sim::protocol::fmtstr::FmtStr;
 use game_sim::protocol::to_client::ServerMessage;
 use neuron_core::id::create_id;
 use neuron_core::math::{Matrix, Vector};
@@ -702,9 +704,10 @@ fn an_npc_in_he01_takes_its_state_and_its_directives() {
     );
 
     // The scan response: the hostile power ratio around the ship is 0
-    // (the world gives every object toughness 0, so the total is not
-    // above 0.01), below any loot-flee threshold: 1, even with the
-    // follower hostile both ways and the lowest threshold (kind 0, 0.15).
+    // (both fighters were made without a reputation group, so their
+    // toughness is 0 and the total is not above 0.01), below any
+    // loot-flee threshold: 1, even with the follower hostile both ways and
+    // the lowest threshold (kind 0, 0.15).
     // No client hears of it.
     assert_eq!(ai::scan_response(&mut cx, follower_id, ship_id, 0), 1);
     cx.world.set_attitude(ship, follower, -1.0);
@@ -958,4 +961,112 @@ fn a_formation_change_tells_the_players_in_it() {
         Ok(())
     );
     assert_eq!(formation(sink.take()), [(1, 0, vec![])]);
+}
+
+/// An NPC fighter of `rank` in its own reputation group
+/// (`pub::Reputation::Alloc`, `ShipInfo::rank`, which `CShip::init`
+/// gives the group with `Vibe::SetRank`).
+fn ranked_fighter(cx: &mut Cx<'_>, controller: u32, at: Vector, rank: u32) -> (ObjHandle, u32) {
+    let name = FmtStr::new(0);
+    let vibe = reputation::alloc(cx, &name, &name).expect("a vibe");
+    let mut info = ShipInfo::new(
+        controller,
+        he01(),
+        create_id(b"he_fighter"),
+        create_id(b"li_p_he_fighter_loadout01"),
+        at,
+        Matrix::IDENTITY,
+    );
+    info.vibe = vibe;
+    info.rank = rank;
+    let id = space_obj::create(cx, &info).expect("the ship is made");
+    (cx.world.find(id).unwrap(), id)
+}
+
+#[test]
+fn the_scan_weighs_the_toughness_of_the_ships_around() {
+    let sink = Shared::default();
+    let Some((mut world, mut logic)) = setup("the scan's toughness", &sink) else {
+        return;
+    };
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    let controller = he01_with_a_player(&mut cx);
+    let at = |x: f32| Vector::new(15000.0 + x, 3000.0, -25000.0);
+    let (ship, ship_id) = ranked_fighter(&mut cx, controller, at(0.0), 3);
+    let (hostile, _) = ranked_fighter(&mut cx, controller, at(300.0), 2);
+    let (scanner, scanner_id) = ranked_fighter(&mut cx, controller, at(-300.0), 7);
+    let graph = fighter_graph(&cx);
+    assert_eq!(
+        ai::submit_state(&mut cx, ship_id, &state_op(graph)),
+        OpRType::SUCCESS
+    );
+    // `get_toughness`: each ship's group rank.
+    assert_eq!(cx.world.ai_view(ship).unwrap().toughness, 3);
+    assert_eq!(cx.world.ai_view(hostile).unwrap().toughness, 2);
+    assert_eq!(cx.world.ai_view(scanner).unwrap().toughness, 7);
+    let threshold = |cx: &mut Cx<'_>, kind: i32| {
+        let mut personality = ai::personality(cx, ship_id).expect("a manager");
+        personality.job.loot_flee_threshold = kind;
+        let op = BaseOp::new(Op::SetPersonalityParams(Box::new(SetPersonalityParams {
+            state_graph: graph,
+            set_personality: true,
+            personality,
+            ..SetPersonalityParams::default()
+        })));
+        assert_eq!(ai::submit_state(cx, ship_id, &op), OpRType::SUCCESS);
+    };
+    let scan = |cx: &mut Cx<'_>| ai::scan_response(cx, scanner_id, ship_id, 0);
+
+    // `GetHostilePowerRatio`: nobody hostile or friendly, so the hostile
+    // sum is 0 and the ratio 0 / 3: below every threshold, 1.
+    threshold(&mut cx, 0);
+    assert_eq!(scan(&mut cx), 1);
+    // The ship hostile to one of rank 2: 2 / (3 + 2) = 0.4, below 0.65
+    // (kind 2) but not below 0.35 (kind 1).
+    cx.world.set_attitude(ship, hostile, -1.0);
+    cx.world.set_attitude(hostile, ship, 0.0);
+    threshold(&mut cx, 2);
+    assert_eq!(scan(&mut cx), 1);
+    threshold(&mut cx, 1);
+    assert_eq!(scan(&mut cx), 0);
+    // The scanner (rank 7) hostile to the ship only one way (its reverse
+    // attitude): 9 / 12 = 0.75, not below 0.65, below 0.85 (kind 3).
+    cx.world.set_attitude(scanner, ship, -0.6);
+    cx.world.set_attitude(ship, scanner, 0.0);
+    threshold(&mut cx, 2);
+    assert_eq!(scan(&mut cx), 0);
+    threshold(&mut cx, 3);
+    assert_eq!(scan(&mut cx), 1);
+    // The scanner friendly instead (reverse 0.6 and the ship's -0.5 not
+    // hostile): it adds to the own side, 2 / (3 + 7 + 2) = 0.1667, below
+    // 0.35 (kind 1) and not below 0.15 (kind 0).
+    cx.world.set_attitude(scanner, ship, 0.6);
+    cx.world.set_attitude(ship, scanner, -0.5);
+    threshold(&mut cx, 1);
+    assert_eq!(scan(&mut cx), 1);
+    threshold(&mut cx, 0);
+    assert_eq!(scan(&mut cx), 0);
+    // A rank set at run time (`pub::Reputation::SetRank`) is read: the
+    // hostile of rank 20 gives 20 / 30 = 0.6667, not below 0.65.
+    let vibe = cx
+        .world
+        .get(hostile)
+        .and_then(|o| o.as_equipped())
+        .unwrap()
+        .vibe;
+    reputation::set_rank(&mut cx, vibe, 20.0).unwrap();
+    assert_eq!(cx.world.ai_view(hostile).unwrap().toughness, 20);
+    threshold(&mut cx, 2);
+    assert_eq!(scan(&mut cx), 0);
+    // Every rank 0: the total is not above 0.01, the ratio 0, so 1 even
+    // with the lowest threshold.
+    for h in [ship, hostile, scanner] {
+        let vibe = cx.world.get(h).and_then(|o| o.as_equipped()).unwrap().vibe;
+        reputation::set_rank(&mut cx, vibe, 0.0).unwrap();
+    }
+    threshold(&mut cx, 0);
+    assert_eq!(scan(&mut cx), 1);
 }
