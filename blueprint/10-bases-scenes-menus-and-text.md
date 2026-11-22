@@ -13,7 +13,7 @@ set down, and is then inside a few rooms shown as staged 3D scenes with a
 fixed camera, without walking. A bar of buttons moves the view from
 room to room, and each room offers its services: the landing place gives
 repair and launch, the bar gives people to talk to, news and a job board,
-the dealers give the trade screens of chapter 07. People stand or sit at
+the dealers give the trade panels (3.15; their rules are chapter 07's). People stand or sit at
 authored spots, fidget, and answer a click with a short acted
 conversation. Campaign scenes play in the same rooms with the same
 machinery, with the interface hidden and the picture letterboxed.
@@ -65,10 +65,10 @@ format string ── template identifier + values ──► sentence
 
 A base definition names its rooms and its start room, normally the
 landing place. Five room functions exist: landing place, bar, commodity
-trader, equipment dealer and ship dealer. Of 197 bases, 67 % have a
-landing place and a bar, 10 % all five functions as separate rooms, 10 %
-a landing place only, and the rest three or four rooms. Where a dealer
-has no room, the landing place hosts it as a virtual room.
+trader, equipment dealer and ship dealer. Of 197 bases, 125 have a
+landing place and a bar, 18 all five functions as separate rooms, 16 a
+landing place only, and the rest other mixes (chapter 12). Where a
+dealer has no room, the landing place hosts it as a virtual room.
 
 | Room | What it offers |
 | --- | --- |
@@ -344,8 +344,7 @@ text to an object's card once the flag for it is set.
 - A tree of named windows with position, size, draw layer, visibility
   and enable state, created by class name from layout data.
 - Layout in fractions of the screen; text height as a fraction of screen
-  height (0.015 to 0.06 in the 21 shipped styles). The original is 4:3
-  only (per design notes).
+  height (0.015 to 0.06 in the 21 shipped styles).
 - Widgets: static text, text button, mesh or image button, toggle,
   single-line text edit with filter, length limit and composed input for
   East Asian text, list box, table with sortable columns and rich text
@@ -363,10 +362,8 @@ text to an object's card once the flag for it is set.
 ### 3.13 Text: identification, formatting, localisation
 
 **Identification.** All visible text is referred to by a text
-identifier: catalogue index × 65,536 + number within the catalogue. The
-order of the catalogue list in the configuration fixes the index, so it
-is part of the data contract. A catalogue holds strings, cards, or both
-under separate number spaces. The shipped set has seven catalogues with
+identifier, which names a catalogue and an entry in it. A catalogue
+holds strings, cards, or both under separate number spaces. The shipped set has seven catalogues with
 about 12,800 strings and 5,250 cards; names (7,100 strings) and
 bar-talk cards (3,090) are the largest. Records and messages carry
 identifiers only; the authority never resolves text.
@@ -403,6 +400,67 @@ reports them; for everything else it asks and shows the result.
 
 The authority does not run scenes, so a scene's length is known only to
 the presentation; that is why "scene done" exists as a message.
+
+### 3.15 The service and inventory panels
+
+Chapter 07 owns the rules behind these panels; this is what the player
+handles.
+
+**Inventory and the two dealers.** One window serves the inventory icon,
+the commodity trader and the equipment dealer. It shows the player's
+ship in 3D with its hardpoints, a list of five rows with a scroll bar,
+five filter buttons (weapons, ammunition, equipment, cargo-bay items,
+commodities), the money and a bar for hold space. At a dealer a second
+window of the same kind shows the base's stock beside it, sorted so that
+what this player may buy comes first.
+
+A row shows icon, name, quantity and, at a dealer, the unit price; a
+health bar when damaged; a mounted toggle for mountable items; a label
+on mission cargo. The commodity trader adds a three-level marker (good,
+average, poor) that rates the local price against authored thresholds,
+separately for buying and selling. Selecting a row opens the item's
+card: its description and, for equipment, a two-column table of its
+statistics. No side-by-side comparison with the mounted item was found.
+For a commodity, a "trade routes" button lists its price at each known
+base, and choosing a base opens the map there.
+
+Selecting a row on either side opens a transfer strip between the lists:
+the item, a buy or sell arrow, the unit price, a quantity (slider or
+typed number, from 1 to what fits and can be paid for, or to the stack
+size when selling) and the total. Where nothing can be bought the strip
+states why: no hold space, not enough money, no ship, level too low
+(with the level needed), standing too low, no hardpoint of that class,
+no free hardpoint, or a carrying limit reached. Mission cargo and the
+engine cannot be sold.
+
+There is no basket and no confirmation. Each press of buy or sell
+changes the local lists and is sent to the authority at once, as a
+market request, an item change and a money change. Equipment bought with
+a free matching hardpoint is mounted immediately; otherwise it goes to
+the hold. The mounted toggle and dragging an item onto a hardpoint of the
+ship view send a modify request the same way. The inventory also has a
+jettison button, which asks for a quantity when the stack is larger than
+one.
+
+**Ship dealer.** A panel lists up to three ships on sale and the
+player's own: icon, name, class, price, and a lock when level or standing
+is too low. Picking one shows it rotating in 3D with three panes of
+facts. Buying opens the two-list window with the old ship on one side
+and the new one on the other. The old ship's equipment is moved across
+automatically, most valuable first, as far as it fits; the player may
+move items either way, except engines. The price shown is the package
+less the trade-in of the old ship and of what stays on it. "Continue"
+sends ship, loadout, hull state and money together; "back" abandons the
+purchase.
+
+**Repair.** A list of the hull, damaged parts and damaged equipment,
+each with a check box, name, price and health bar. The checked rows are
+totalled and charged on confirmation, which is refused when the money
+does not cover them.
+
+**Player trade (multiplayer).** A window between the two players' cargo
+lists: each side puts up items, with the same quantity control, and
+money, and sees the other's offer.
 
 ## 4. Data that defines it
 
@@ -461,13 +519,14 @@ dealer.
 
 Accidents of the era:
 
-- Virtual rooms save sets on the two thirds of bases with two rooms
-  (inferred). A builder may give every function a panel on the landing
+- Virtual rooms save sets on the 125 bases with two rooms (inferred). A builder may give every function a panel on the landing
   place.
-- An interface drawn as 3D meshes before its own camera (per design
-  notes). Any modern toolkit that meets 3.12 will do.
-- Text identifiers that depend on the load order of catalogues, and name
-  variants reached by numeric offsets. Use explicit keys.
+- An interface drawn as 3D meshes before its own camera, for a 4:3
+  screen only (per design notes). Any modern toolkit that meets 3.12
+  will do.
+- Text identifiers packed as catalogue index × 65,536 + entry number,
+  the index being the catalogue's place in the load list; name variants
+  reached by numeric offsets. Use explicit keys.
 
 Simplifications: static backdrops instead of scenes lose the sense of
 place and none of the rules; text boxes instead of acted conversations

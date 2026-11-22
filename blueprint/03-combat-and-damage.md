@@ -353,9 +353,11 @@ is removed. Loot can be shot. This path makes loot for NPCs, and for a
 player's ship only in single player.
 
 **Collecting loot.** The presentation asks the authority to tractor one
-loot object or a list of them ("target" and "all", chapter 09). The
-authority decides. Each object is tested when asked and again on every
-update until it is taken:
+loot object or a list of them. Chapter 09, section 3.6, has the player's
+side: "tractor all" lists only loot within 1,000 m, a figure fixed in the
+interface and shorter than the equipment's reach. The authority decides.
+Each object is tested when asked and again on every update until it is
+taken:
 
 - it still holds units;
 - it lies within tractor range of the ship's tractor-source hardpoint
@@ -540,9 +542,8 @@ Gives:
 5. Do the 85 guns that are neither mountable nor in a loadout file serve
    NPC tables elsewhere, or are they dead records?
 6. Not traced: the blast resistance of shield bubbles, a test that
-   excludes some ships from bonus loot, how "tractor all" chooses its
-   list on the presentation, and which data marks a part whose loss
-   destroys the whole object.
+   excludes some ships from bonus loot, and which data marks a part
+   whose loss destroys the whole object.
 
 ## 8. Basis
 
