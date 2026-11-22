@@ -799,6 +799,28 @@ impl DirectiveOp {
     }
 }
 
+/// The payload of the manager's type-4 event (`FBehaviorTradelaneEvent`,
+/// `include/common_iface.h`): the server's `notify_go_tradelane` (a ship
+/// entered a lane) and `notify_stop_tradelane` (it left), and
+/// `CShip::request_exit_tradelane` to a leader's followers.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct LaneEvent {
+    /// +0x00 1 entering a lane, 0 leaving it.
+    pub entering: bool,
+    /// +0x01 the leader asked its followers out of the lane.
+    pub exit_requested: bool,
+    /// +0x02 `bFastExit`.
+    pub fast_exit: bool,
+    /// +0x04 the lane speed `go_tradelane` was given.
+    pub speed: f32,
+    /// +0x0c the ship.
+    pub ship: u32,
+    /// +0x10 the entrance ring.
+    pub entrance: u32,
+    /// +0x14 the exit ring (0 when leaving).
+    pub exit: u32,
+}
+
 /// One behaviour (`class Behavior`). Slot numbers of the reference's
 /// vtable in brackets; the defaults are `Behavior`'s own bodies.
 pub trait Behavior<W: AiEnv + ?Sized> {
@@ -950,6 +972,14 @@ pub trait Behavior<W: AiEnv + ?Sized> {
     /// (21) an object left the system.
     fn object_left(&mut self, cx: &mut Cx<'_, W>, id: u32) {
         let _ = (cx, id);
+    }
+
+    /// (22) the manager's type-4 event (`IBehaviorManager::Slot00` case 4
+    /// hands it to the current behaviour's `Slot22`): a ship entered or
+    /// left a trade lane, or a leader asked its followers out. `Behavior`'s
+    /// own slot does nothing.
+    fn lane_event(&mut self, cx: &mut Cx<'_, W>, event: &LaneEvent) {
+        let _ = (cx, event);
     }
 
     /// (23) `cancel_notify`: the directive flag cleared.

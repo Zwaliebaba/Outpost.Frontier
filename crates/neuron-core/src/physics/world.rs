@@ -48,7 +48,7 @@ pub struct ControllerContext<'a> {
     /// The environment's time at the start of this PSI.
     pub current_time: IvpTime,
     core: &'a mut Core,
-    beam: Option<(Vector, Matrix)>,
+    beam: Option<(Vector, Matrix, bool)>,
 }
 
 impl ControllerContext<'_> {
@@ -80,7 +80,15 @@ impl ControllerContext<'_> {
     /// controller returns, before the PSI's next controller runs, as the
     /// golems' beams are. The last call of a controller wins.
     pub fn beam(&mut self, position: Vector, orientation: Matrix) {
-        self.beam = Some((position, orientation));
+        self.beam = Some((position, orientation, false));
+    }
+
+    /// [`ControllerContext::beam`] with `beam_object`'s last argument true
+    /// (`PhySys::BeamR(.., true)`, as `LaneAction`'s controller beams): the
+    /// core's rotation since its last PSI is kept for its rotation axis
+    /// (`beam_object_to_new_position`'s `optimize_for_repeated_calls`).
+    pub fn beam_optimized(&mut self, position: Vector, orientation: Matrix) {
+        self.beam = Some((position, orientation, true));
     }
 }
 

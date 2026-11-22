@@ -5,7 +5,8 @@
 //!
 //! * [`Scenario`] and [`parse`]: the scenario files of
 //!   `CppSource/Oracle/scenarios` ([`scenarios_dir`], [`scenario_files`]),
-//!   and [`needs_ai`], why one cannot run yet.
+//!   and [`needs_ai`], why one cannot run yet, and [`needs_server`], why
+//!   one runs only through the server's hooks.
 //! * [`run`]: the driver. It spawns the scenario's objects in a world made
 //!   with [`world_config`], applies its commands and steps the system
 //!   through the given [`ServerHooks`](crate::object::world::ServerHooks)
@@ -40,7 +41,8 @@ pub use driver::{
     run, world_config,
 };
 pub use file::{
-    Cmd, ObjDesc, Scenario, needs_ai, parse, scenario_files, scenarios_dir, spawn_orientation,
+    Cmd, ObjDesc, Scenario, needs_ai, needs_server, parse, scenario_files, scenarios_dir,
+    spawn_orientation,
 };
 pub use judge::{
     EXACT_SCENARIOS, GROSS_POSITION, dist, first_event, first_event_of, fmt_contact, judge,

@@ -2,7 +2,7 @@
 //! controllers read, the drag and damping the update recomputes, and the
 //! ship-only commands.
 
-use neuron_core::math::{Matrix, Vector};
+use neuron_core::math::{Matrix, Quaternion, Transform, Vector};
 
 use crate::data::constants::EngineEquipConsts;
 use crate::equip::flight::{EngineState, Nudge, ShipFlightArch, Steering, Strafe};
@@ -131,6 +131,110 @@ pub struct ShipData {
     /// The launch action in the ship's `ActionDB` (`LaunchAction`), from
     /// `CShip::launch` until it completes.
     pub launch: Option<Launch>,
+    /// The trade-lane action in the ship's `ActionDB` (`LaneAction`), from
+    /// `CShip::go_tradelane` until the ship's update after its end.
+    pub lane: Option<Box<Lane>>,
+}
+
+/// `LaneRingTransform` (0x34 bytes): a ring's lane frame, its `HpRightLane`
+/// or `HpLeftLane` hardpoint (`LaneAction::BuildRingTransform`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct LaneRing {
+    /// +0x00 the ring's id (`Ring`, an `IObjInspect`; `None` for null).
+    pub ring: Option<u32>,
+    /// +0x04 the frame's orientation.
+    pub orientation: Matrix,
+    /// +0x28 the frame's position.
+    pub position: Vector,
+}
+
+/// What the lane's controller reads of a ring, the ring in the frame the
+/// lane runs (refreshed before each physics step, D732).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct LaneRingInput {
+    /// The ring's lane frame.
+    pub frame: LaneRing,
+    /// `get_status(Health)`, 1 when the ring answers nothing.
+    pub health: f32,
+    /// `traverse_rings(Next, forward)`: the next ring's id (0 for none),
+    /// `None` when the object is not a lane ring (nothing written).
+    pub next: Option<u32>,
+}
+
+/// What the lane's controller reads of the traveller's formation or
+/// follow leader (refreshed before each physics step, D732).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct LaneLeader {
+    /// The formation leader is another ship.
+    pub formation: bool,
+    /// The follow leader lives (asked only of a ship no player flies).
+    pub follow: bool,
+    /// The formation leader's `is_using_tradelane`.
+    pub in_lane: bool,
+    /// The formation leader's position.
+    pub position: Vector,
+}
+
+/// `LaneAction` (0xfc bytes, `Common/common_laneaction.cpp`): a ship in a
+/// trade lane, beamed each PSI along the line from ring to ring.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Lane {
+    /// +0x20 the entrance ring's id.
+    pub entrance_ring: u32,
+    /// +0x24 the exit ring's id.
+    pub exit_ring: u32,
+    /// +0x28 the frame of the leg's first ring (`EntranceRingXform`).
+    pub entrance: LaneRing,
+    /// +0x5c the frame of the leg's last ring (`ExitRingXform`).
+    pub exit: LaneRing,
+    /// +0x90 the state (`ExitState`): 1 speeding up, 2 at speed, 3 the last
+    /// leg, 4 leaving, 5 left, 0 stopped.
+    pub exit_state: i32,
+    /// +0x94 the leaving turn (`bExitFlag`).
+    pub exit_flag: bool,
+    /// +0x96 the lane runs in the rings' forward direction
+    /// (`bHpLeftLane`): the ring after the entrance ring is the exit ring.
+    pub forward: bool,
+    /// +0x97 the fast entry at full speed (`bRingApproachValid`,
+    /// `bFastExit`).
+    pub fast_exit: bool,
+    /// +0x98 `go_tradelane`'s speed.
+    pub speed: f32,
+    /// +0x9c the pose the ship is beamed to (`LanePose`).
+    pub pose: Transform,
+    /// +0xcc the ship's position at the start, moved with the lane.
+    pub captured_position: Vector,
+    /// +0xd8 the ship's orientation at the start.
+    pub captured_orientation: Quaternion,
+    /// +0xe8 the time the controller has run (`TransitElapsed`).
+    pub elapsed: f32,
+    /// +0xec the speed's fraction of 2500 m/s (`TransitRamp`).
+    pub ramp: f32,
+    /// +0xf0 the fraction to leave at (`TransitRampTarget`).
+    pub ramp_target: f32,
+    /// +0xf4 the fraction the leaving started from (`ExitRampStart`).
+    pub exit_ramp_start: f32,
+    /// The rings ahead, from the exit ring on (the controller's reads of
+    /// the rings, D732).
+    pub rings: Vec<LaneRingInput>,
+    /// The traveller has an object database (`CSimple::ObjectDb`: it is in
+    /// a system).
+    pub in_system: bool,
+    /// The traveller's leaders.
+    pub leader: LaneLeader,
+    /// `SinglePlayer()`.
+    pub single_player: bool,
+    /// `LaneAction::stop(0)` ran in the physics step: the end the world
+    /// finishes after the step (D731).
+    pub stopped_in_step: bool,
+}
+
+impl Lane {
+    /// The ring input for a ring id.
+    #[must_use]
+    pub fn ring_input(&self, id: u32) -> Option<&LaneRingInput> {
+        self.rings.iter().find(|r| r.frame.ring == Some(id))
+    }
 }
 
 /// `LaunchAction` (0x78 bytes, `Common/common_launchaction.cpp:61`): a

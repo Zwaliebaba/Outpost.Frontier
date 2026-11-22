@@ -243,10 +243,10 @@ impl PhysicsWorld {
                 } else {
                     None
                 };
-                if let Some((position, orientation)) = beam
+                if let Some((position, orientation, optimize)) = beam
                     && let Some(&body) = self.controllers.get(handle.0)
                 {
-                    self.beam(body, position, &orientation, false);
+                    self.beam(body, position, &orientation, optimize);
                 }
             }
             ControllerKind::Golem(body) => {

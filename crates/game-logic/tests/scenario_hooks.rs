@@ -5,7 +5,12 @@
 //! [`Logic`] instead of `NoServerHooks`. The oracle's harness forces the
 //! physics of a scenario's system on (`GOracleSimHooks.StepSystemId`),
 //! where the server steps it only while the system has players, so the
-//! hooks are wrapped ([`ScenarioHooks`]) to step it every sub-step.
+//! hooks are wrapped ([`ScenarioHooks`]) to step it every sub-step. A
+//! scenario marked `# rust: server` (the trade lanes: SpaceSupport answers
+//! `dock_trade_lane`'s lane request, and the server's
+//! `notify_stop_tradelane` ends both lanes' behaviours) gets a SpaceSupport
+//! controller and sends the AI's requests to the server
+//! (`ServerHooks::server_requests`); the other scenarios do not.
 //!
 //! With `OUTPOST_ORACLE_DIR` set, each run is judged against the oracle's
 //! `tick.jsonl` as `game-sim/tests/scenario_replay.rs` judges the run
@@ -25,11 +30,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use game_logic::server::{Logic, RecordingSink};
+use game_logic::server::{CreateParams, Cx, Logic, RecordingSink};
 use game_logic::world::Hooks;
 use game_sim::data::config::{DataConfig, GameData};
 use game_sim::object::damage::DamageList;
-use game_sim::object::world::{Assets, DamageState, ServerHooks};
+use game_sim::object::world::{Assets, DamageState, ServerHooks, ServerRequest};
 use game_sim::object::{ObjHandle, World};
 use game_sim::scenario::{
     self, dist, judge, needs_ai, oracle_ai_inputs, oracle_run, parse, report_guided,
@@ -37,9 +42,18 @@ use game_sim::scenario::{
 };
 use neuron_core::math::Vector;
 use neuron_core::vfs::Host;
+use neuron_server::controller::Priority;
 
-/// The scenarios run without the oracle: two contacts and an AI ship.
-const SMOKE: [&str; 3] = ["ram_ship", "ram_asteroid", "turn_to_heading"];
+/// The scenarios run without the oracle: two contacts, an AI ship and the
+/// two trade lanes (the instant one and the dock behaviour's, whose
+/// request SpaceSupport answers).
+const SMOKE: [&str; 5] = [
+    "ram_ship",
+    "ram_asteroid",
+    "turn_to_heading",
+    "trade_lane",
+    "dock_trade_lane",
+];
 
 fn outdir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../outdir")
@@ -59,6 +73,10 @@ fn game_data() -> Option<Arc<GameData>> {
 /// method is the server's.
 struct ScenarioHooks<'l> {
     server: Hooks<'l>,
+    /// The AI's requests go to the server (a scenario marked `# rust:
+    /// server`); the other scenarios run without, as they were judged
+    /// before.
+    requests: bool,
 }
 
 impl ServerHooks for ScenarioHooks<'_> {
@@ -108,6 +126,12 @@ impl ServerHooks for ScenarioHooks<'_> {
         self.server.after_reap(world, system);
     }
 
+    fn server_requests(&mut self, world: &mut World, requests: Vec<ServerRequest>) {
+        if self.requests {
+            self.server.server_requests(world, requests);
+        }
+    }
+
     fn steps_physics(&mut self, _world: &World, _system: u32) -> bool {
         true
     }
@@ -145,11 +169,29 @@ fn scenarios_through_the_server_hooks() {
             .as_ref()
             .map(|d| oracle_ai_inputs(d, &s.name))
             .unwrap_or_default();
-        let world = World::new(data.clone(), world_config(&s))
+        let mut world = World::new(data.clone(), world_config(&s))
             .with_assets(Assets::new(outdir().join("data")));
         let mut logic = Logic::new(Box::new(RecordingSink::default()), 16, true);
+        if s.rust_server.is_some() {
+            // The oracle's server runs Content's controllers (`[Initial MP
+            // DLLs]`); a scenario that needs their answers gets SpaceSupport,
+            // whose trade-lane handlers the port has.
+            let mut cx = Cx {
+                world: &mut world,
+                logic: &mut logic,
+            };
+            let id = neuron_server::controller::create(
+                &mut cx,
+                b"Content.dll",
+                b"SpaceSupport",
+                &CreateParams::None,
+                Priority::Normal,
+            );
+            assert_ne!(id.0, 0, "SpaceSupport");
+        }
         let mut hooks = ScenarioHooks {
             server: Hooks { logic: &mut logic },
+            requests: s.rust_server.is_some(),
         };
         let ours = scenario::run(world, &s, &ai, &mut hooks);
         if let Some((b, tick)) = ours.unported {
