@@ -21,8 +21,6 @@ consequences:
 - **Saving as a place, not a moment.** Single player saves itself on every
   launch and jump; the player can save by hand only while docked.
   Multiplayer has no save command; the character is simply kept.
-- **A host anyone can run:** one program with a small administration
-  window.
 
 ## 2. Concepts
 
@@ -119,7 +117,8 @@ sub-steps; single player takes one.
 | 6 | Process the dock queue. For each finished docking: tell every observer, raise the event; remove an NPC ship; take a player's session out of the system. |
 | 7 | Multiplayer only: move projectiles, step physics, resolve collisions. |
 
-After the sub-steps: the replication pass for each observer (3.7).
+After the sub-steps, still inside this system's step and so before
+steps 4 to 7 of the tick: the replication pass for each observer (3.7).
 
 An object appended to a list during its walk is updated in the same walk;
 content relies on that when it spawns ships from inside an event.
@@ -146,8 +145,8 @@ system switch. (Subsection per design notes.)
   step; it has no rate of its own.
 - **Pause** exists only in single player: it zeroes the frame time and
   skips the authority's tick (per design notes).
-- Three clocks coexist: the step, a saved wall-clock world clock, and
-  content's clock fed by heartbeats (per design notes). Have one.
+- Three clocks coexist (step, wall-clock world clock, content's heartbeat
+  clock; per design notes). Have one.
 
 ### 3.5 The event bus
 
@@ -223,8 +222,7 @@ presentation's message to every observer that has the object.
 | Missions and scenes | mission message, objectives, mark object, comm line, scripted scene, camera, story cue, music, sound, dialog, checkpoint request, directive for the player's ship |
 | Social | player list; other players' level, group, system, affiliation; message of the day; scan result |
 
-A list is a stream of items closed by "complete", so the receiver knows
-when a room is fully described.
+A list is a stream of items closed by "complete".
 
 Two sequences show how the groups combine.
 
@@ -300,9 +298,8 @@ or when the time since the last sample exceeds a back-off that starts at
 Scale is 3.6, so 7.2 m of position error is tolerated; the axis tolerance,
 1.8, is near the possible maximum of 2, so orientation alone hardly ever
 triggers. While the fit holds, only the refreshes at 5, 10, 20 s are
-sent. When the NPC starts combat manoeuvres the error soon passes 7.2 m
-and samples flow as fast as the saturation gate allows. At 200 m the same
-NPC is held within 2 m.
+sent. In combat manoeuvres the error soon passes 7.2 m and samples flow
+as fast as the saturation gate allows. At 200 m the tolerance is 2 m.
 
 **Players' ships** go the other way. Each presentation runs the check on
 its own ship with scale 1 and reports when it trips. The authority
@@ -357,8 +354,8 @@ by the same pumps.
 | Pause, difficulty scale | Yes | No |
 | Death | Load a saved game (inferred) | Back to the last base with a loss (3.12) |
 
-In the original the two sides also share one set of objects in single
-player. That is an optimisation, not a concept (section 7).
+That the original's two sides share one set of objects in single player
+is an optimisation, not a concept (section 7).
 
 ### 3.10 Persistence
 
@@ -392,10 +389,9 @@ followed by a copy of the initial world. The shipped template starts in
 space with 500 money, a ship with 16 mounted items, the first campaign
 mission and 32 jump points locked for the player. The initial world adds
 the faction feelings, 27 jump points locked for every player and 36
-closed to NPC traffic. A lock applies if it names the player or everyone.
-A host reads the same initial world at start-up, so the 27 and the 36
-hold there too; with no campaign to lift them they presumably stay
-(inferred).
+closed to NPC traffic. A host reads the same initial world at start-up,
+so both lists hold there too; with no campaign to lift them they
+presumably stay (inferred).
 
 ### 3.11 Sessions, accounts and characters
 
@@ -439,7 +435,7 @@ hold there too; with no campaign to lift them they presumably stay
 ### 3.13 What the host can administer
 
 Settings: name, description, password, admit new players, list publicly,
-player limit, player-versus-player, port, tick rate, logging. At run time:
+player limit, player-versus-player, port, tick rate. At run time:
 ban, kick or delete an account; delete a character; send text to one
 player, one system or everyone; edit the message of the day; watch tick
 load, player count and per-session bandwidth. A host advertises its name,
@@ -499,7 +495,6 @@ account rules.
 
 - Autosave on launch and jump, manual save only when docked: bases become
   safe harbours and combat cannot be save-scummed.
-- Send-on-divergence replication: quiet traffic costs almost nothing.
 
 **Accidents of its era**
 
@@ -519,8 +514,6 @@ account rules.
   one frame of latency to hide.
 - *No multiplayer:* drops social messages, observers and accounts; keep
   the split anyway.
-- *Snapshot interpolation* instead of extrapolation: more traffic,
-  simpler code.
 
 ## 7. The original technology
 
@@ -560,12 +553,10 @@ desktop program.
 - *Saved games are text files* behind a byte-wise obfuscation. An account
   is a directory named by a hash of its identifier; a multiplayer save
   goes to a temporary file that is then renamed.
-- *Names.* The original calls the authority "server" and the presentation
-  "client".
+- *Names:* the original says "server" and "client".
 - *Identity from the machine:* derived from the operating system's product
   identifier and the user name.
-- *Hosting needs a full install:* the host loads renderer and material
-  modules too.
+- *Hosting needs a full install,* renderer modules included.
 
 **What a modern builder should not copy**
 

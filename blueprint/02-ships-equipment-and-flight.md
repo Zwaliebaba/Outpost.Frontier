@@ -73,7 +73,7 @@ loadout ────────────────▶  body, parts        
 | Solar | yes | yes | Fixed; may carry guns, shields, lights (chapter 01). |
 | Loot | yes | no | A drifting container of cargo (chapter 03). |
 | Asteroid, dynamic asteroid | — | no | Field members (chapter 01). |
-| Munition, guided munition, beam, mine, countermeasure | some | no | Chapter 03. Beams are rays, not bodies. |
+| Munition, guided munition, beam, mine, countermeasure | some | no | Chapter 03. A beam is an ordinary unguided gun shot: it has no body, moves in a straight line each tick and is tested against bodies as a ray. |
 | Detached equipment | no | no | External equipment with a body of its own, for example after being shot off. |
 
 Kinds form a hierarchy, and rules are written against the most general
@@ -112,7 +112,8 @@ the hold), a health fraction, a count and a mounted flag.
 Hardpoints live in the model file, named by kind plus number (weapon,
 turret, torpedo, shield, thruster, mine, countermeasure, engine nozzle,
 lights, trail, bay door, tractor source, cargo pod). A gun on a revolving
-hardpoint can swing within the joint's limits.
+hardpoint can swing within the joint's limits. A "torpedo" position takes
+the launcher of what chapter 03 calls a heavy guided munition.
 
 1. The game has a fixed table of about sixty hardpoint classes: gun grades
    1 to 10, turret grades 1 to 10, torpedo grades 1 and 2, shield grades 1
@@ -126,9 +127,10 @@ hardpoint can swing within the joint's limits.
 4. An item may be mounted only on a hardpoint that is in the hull's list
    for the item's class.
 
-The authority also verifies that no gun or shield mounted on a
-character's ship has a grade above the best grade the hull declares in
-that family: a cheap guard against edited characters.
+A multiplayer authority also verifies, when a character is saved at a
+base, that no mounted gun or shield has a grade above the best grade the
+hull declares in that family: a cheap guard against edited characters. A
+failing character is reported and the save refused.
 
 Internal equipment has no hardpoint and cannot be hit. Lights and effects
 have no class; only authored loadouts mount them.
@@ -149,7 +151,8 @@ item *functions* when it is active and not destroyed.
 | Shield generator, gun, turret, launcher, mine and countermeasure dispenser | external | Chapter 03. |
 | Thruster | external | Extra forward thrust paid from the thrust pool. |
 | Cargo pod | external | Visible containers on large NPC haulers. |
-| Cloak, scripted-effect and lane equipment | mixed | Used by solars and scripted ships. |
+| Cloak | external | NPC-only (9 records, never sold). Fades the ship out over an authored time (4 s); a fully cloaked ship cannot be targeted and cannot fire. |
+| Scripted-effect and lane equipment | internal | Used by solars and scripted ships. |
 | Light, attached effect | external | Presentation only. |
 | Cargo | hold | A stack of identical items with a count; no behaviour. |
 
@@ -180,6 +183,20 @@ player equipment has 0. Free space for an item type is
 `floor(remaining / unit volume)`, further capped for repair and shield
 consumables by two per-hull limits (10 to 71 on player hulls) and for each
 ammunition type by a global limit of 50.
+
+Nothing may overfill the hold; each path enforces it where the request is
+made:
+
+- *Loot pickup.* The tractor refuses a container outright, with a distinct
+  reason for each cause, when the hold lacks the volume of one unit of its
+  contents or the relevant carry limit is already reached. When a
+  container does arrive, the authority transfers `min(units in container,
+  free space for that type)` units (chapter 03 covers the remainder).
+- *Purchase and player-to-player trade.* The dealer and trade screens cap
+  the selectable quantity at the free space for that type (chapters 07
+  and 10). A multiplayer authority does not re-check each purchase; the
+  save-time check of 3.3 also fails a character whose used volume exceeds
+  the hold. Single player has no such check.
 
 Stacks merge by archetype and carry one health value; some commodities
 decay at an authored rate while carried. Jettisoning opens the bay doors
@@ -272,11 +289,16 @@ about 15 s and refills in 10 s.
 
 ### 3.8 Throttle, reverse, strafe, thruster, engine kill and cruise
 
-- **Throttle** runs from −1 to 1. Setting it switches a killed engine back
-  on; setting it to exactly 0 cancels cruise.
+- **Throttle** runs from −1 to 1; the player's own controls cover 0 to 1.
+  Holding the raise or lower control changes it by 1 per second, the wheel
+  steps it by 0.2. Setting it switches a killed engine back on. Cruise is
+  cancelled the moment the lower control is pressed, and whenever the
+  throttle arrives at exactly 0 by any route (so stepping down with the
+  wheel keeps cruise until zero). A general "cancel" control drops it too.
 - **Reverse** is a switch that commands throttle −1; with drag this high
   it is mainly a brake.
-- **Strafe** is a switch with four directions.
+- **Strafe** has four held controls: left, right, up, down. One direction
+  acts at a time; releasing a key falls back to another still held.
 - **Thruster** is a switch. It is refused in cruise, and engaging cruise
   switches it off.
 - **Engine kill** deactivates the engine item. Thrust ends, engine drag is
@@ -305,6 +327,11 @@ whatever its mass, engine or zone. `r` starts at the ratio of normal top
 speed to cruise speed (0.27 for player ships), so the hand-over is seamless
 and full speed arrives about 3.7 s after charging ends. The authority
 offers an instant engage that skips the charge; no shipped content uses it.
+
+While cruise is engaged, charging included, a global constant of 3 is
+added to the engine's drag. Against 599 it is negligible (normal top speed
+while charging falls from 80 to 79.6 m/s) and, by the definition above, it
+cannot change cruise speed.
 
 A zone may scale drag (chapter 01). That lowers normal, thruster and
 strafe speeds in proportion but leaves cruise speed alone.
@@ -352,7 +379,8 @@ Within one tick, for one system:
    are damped and the pushes committed; limits are applied; position and
    orientation advance; contacts are detected.
 3. Poses are copied from the bodies.
-4. Beams are traced and the tick's collision list is turned into damage.
+4. Beams (gun shots, 3.1) are advanced and traced, and the tick's
+   collision list is turned into damage.
 
 The physics step length is not fixed. In single player it is the frame
 time, capped at 0.1 s. In multiplayer the authority first cuts a system
@@ -510,9 +538,7 @@ authority, a bandwidth compromise that trusts the player's machine.
    traced.
 3. What decides whether an external item is attached with its own
    collision shape.
-4. Whether the player can strafe vertically, and how the controls step
-   or set the throttle; the bindings were not read (chapter 09).
-5. Whether a force controller's push acts in the same physics step or
+4. Whether a force controller's push acts in the same physics step or
    the next; steady-state behaviour is the same.
 
 ## 8. Basis
@@ -538,10 +564,12 @@ Code under `CppSource/`: `Common/common_cship.cpp`, `common_ceengine.cpp`,
 `common_constants.cpp`, `common_misc.cpp`, `common_archetype_ships.cpp`,
 `common_thrustmanager.cpp`, `common_behaviormanager.cpp`,
 `common_gotobehavior.cpp`, `common_freeflightbehavior.cpp`,
-`common_faceidea.cpp`, `common_aisteer.cpp`, `common_cegun.cpp`;
+`common_faceidea.cpp`, `common_aisteer.cpp`, `common_cegun.cpp`,
+`common_cetractor.cpp`, `common_cprojectile.cpp`;
 `include/common_archetype.h`, `common_cequip.h`, `common_cobject.h`;
 `IVP/ivp_physics/ivp_core.cpp`, `ivp_environment.cpp`;
-`OutpostFrontier/Client/player_behavior.cpp`, `client_gameobj.cpp`,
+`OutpostFrontier/Client/player_behavior.cpp`, `hud_maneuvers.cpp`,
+`nn_trade.cpp`, `client_gameobj.cpp`,
 `client_equip_fx.cpp`, `space_state.cpp`; `Server/server_gameobject.cpp`,
 `server_classes.cpp`, `server_pub.cpp`, `IServerImpl.cpp`;
 `Oracle/scenarios/free_flight.txt`, `turn_to_heading.txt`.
