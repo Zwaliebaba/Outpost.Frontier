@@ -259,8 +259,10 @@ Once a second, unless a directive forbids it:
    selects nothing until its leader has a target.
 2. **Combat drift.** If the fight has moved more than 10,000 m from
    where it began, the pilot disengages and tells content.
-3. **Overwhelmed?** Scene threat ratio = sum of hostile ranks ÷ (own
-   rank + friendly ranks + hostile ranks) over scanner contacts. Above
+3. **Overwhelmed?** Scene threat ratio = sum of hostile levels ÷ (own
+   level + friendly levels + hostile levels) over scanner contacts. An
+   NPC's level comes from its NPC record (chapter 06); a player counts
+   with the player's rank (chapter 07). Above
    the job's threshold (0.15, 0.35, 0.65, 0.85 or 1.0 for the settings
    "easiest" to "hardest") the pilot takes no target and reports itself
    overwhelmed.
@@ -273,8 +275,11 @@ Once a second, unless a directive forbids it:
    At most 16.
 5. **Preference.** Walk the attack preferences in order. The first
    entry whose class has a candidate within its range defines the pool,
-   and its weapon kinds (guns, guided, unguided, torpedo) are the
-   weapons allowed against that target.
+   and its weapon kinds (guns, guided, unguided, torpedo: the heavy
+   guided munition of chapter 03) are the weapons allowed against that
+   target. The target classes are fighter, freighter, transport,
+   gunboat, cruiser, capital ship, lane ring, jump gate, weapon
+   platform, destroyable depot, any solar, and "anything".
 6. **Pick.** A player in the pool with fewer than two attackers is
    taken first; a player with more than two is removed if anyone else
    is in the pool. Otherwise keep the current target if it is in the
@@ -428,7 +433,7 @@ There is no global difficulty setting. Three things scale opposition:
    accuracy cone falls from 5° to 2°, the pause between bursts from 2 s
    to 0.5 s and the error refresh from 0.5 s to 0.25 s; the dodge cone
    widens from 60° to 90°. Manoeuvre choice does not change.
-2. **Ship and loadout level** (chapter 06); level is the rank in the
+2. **Ship and loadout level** (chapter 06), which also weighs in the
    scene threat ratio.
 3. **The attacker limit** of 3.7.
 
@@ -459,7 +464,7 @@ gun block (cone 2°, pause 0.5 s) and dodge block.
 
 - **Needs:** zone property sets (01); control values and the flight
   model (02); weapon ranges, lead point, guided munitions, damage
-  events (03); the travel behaviours (04); reputation and rank (07).
+  events (03); the travel behaviours (04); reputation and player rank (07).
 - **Gives 06:** the pilot and graph an NPC record names; combat state,
   drift and flee requests; the scan answer.
 - **Gives 08:** directives with completion reports, forced targets, the
