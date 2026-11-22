@@ -16,3 +16,4 @@ decision register then carries a one-line entry that points here.
 | [0005](0005-programmable-passes.md) | Programmable passes: render targets, programs, volume textures, scene depth | accepted | P4.9 |
 | [0006](0006-controller-bus.md) | Controller bus and re-entrant dispatch | accepted | P3.0 |
 | [0007](0007-server-world.md) | The server world over the shared arena | accepted | P3.3 |
+| [0008](0008-content.md) | Content in game-logic | proposed | P3.4–P3.7 |
