@@ -187,7 +187,7 @@ pads, 150 m for holes, 225 m for gates.
 | Kind | Result |
 | --- | --- |
 | Berth, ring pad | **Landing.** Every presentation in the system is told the ship landed on that base. An NPC ship is removed. A player's session leaves the system and enters the base (chapters 10, 11); in single player the system is then shut down. |
-| Mooring | A "docked, not landed" event is raised and the ship stays in space. For ships too large for a berth. |
+| Mooring | A "docked, not landed" event is raised and the ship stays in space. |
 | Jump, airlock | **Transfer** (3.7). "Dock complete" is raised; other pilots in the system are told the ship left through that object. |
 
 A player's ship cannot be damaged while it passes through a jump point.
@@ -202,8 +202,7 @@ the rules.
 
 ### 3.5 Launching
 
-The authority decides where a launching ship appears (chapter 11 for the
-messages):
+The authority decides where a launching ship appears:
 
 1. Leaving a base: at the first solar in the system that docks to that
    base. On a docking ring, its pad. On a station, space support is asked
@@ -306,7 +305,7 @@ Chapter 01 defines connections; chapter 11 gives the messages. The rules:
    arrives (per design notes).
 4. The ship arrives 350 m in front of the destination jump point, on a
    circle of radius 500 m around its axis at a random angle, facing along
-   the axis. Simultaneous arrivals do not overlap.
+   the axis.
 5. Content is told "system entered" and the character is saved. When the
    presentation reports the arrival finished, the invulnerability ends
    and "jump-in complete" is raised.
@@ -432,8 +431,6 @@ they are two messages, which is why the approach has a hold state.
 | Initial world state | jump points locked for everyone, and for NPC traffic | 27 and 36 |
 | Mission actions (chapter 08) | lock or unlock a jump point; player may dock; player may use lanes; drain a lane ring; force a landing; relocate a ship; give the player a route | — |
 
-Solar instances, connections and path tables are in chapter 01.
-
 The rule constants of section 3 (lane speeds and ramp, linking distance,
 route cap, timeouts, hostility threshold, approach speed cap, launch
 timings) are in code, not data.
@@ -483,18 +480,14 @@ Gives:
 
 **Feel.**
 
-- The three-pose approach, door animations and docking camera. A fade at
-  a trigger radius would obey the same rules.
+- The three-pose approach, door animations and docking camera.
 - Spoken clearance, and the waiting queue, which matters only where
   traffic is dense enough to fill a base's docking points.
-- The launch curve, the blend onto the lane, the random arrival angle.
 
 **Accidents of the era.**
 
 - The presentation flies the player's approach and lane ride and the
   authority trusts the reported pose (chapter 11).
-- Completion is retried on a timer because request and confirmation are
-  separate messages without acknowledgement.
 - The in-system planner is a greedy heuristic with an odd score. With a
   handful of lanes per system, an exact shortest-time search over rings
   is simpler and better.

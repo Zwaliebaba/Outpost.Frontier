@@ -127,8 +127,8 @@ stop at the first zone that produced ships
 ```
 
 At most one group appears per player per heartbeat; the rate falls as
-the neighbourhood fills and stops at `D` ships. Groups have one to five
-ships, so the count can overshoot.
+the neighbourhood fills and stops at `D` ships, which a group of up to
+five can overshoot.
 
 Worked example. A path segment in open space has density 3 and respawn
 time 90. With nobody around the chance is 3/90 per heartbeat: one group
@@ -210,7 +210,7 @@ Each ship also receives:
   good. A destroyed trader thus drops what its route plausibly carries
   (drop rules: chapter 03).
 
-Only the leader gets the itinerary; the others follow in formation.
+Only the leader gets the itinerary; the others follow.
 
 ### 3.7 Placing the group
 
@@ -309,8 +309,8 @@ faction's fighter ladder, typical of the rest:
 | 7 … 12 | heavy | first, then second | medium, hard, ace, twice |
 | 13 … 19 | very heavy | first, then second | medium to ace, then easy to ace |
 
-A definition can serve a range of levels (a police fighter tagged for 4
-to 12), so a faction confined to one region needs only a few.
+A definition can serve a range of levels, so a faction confined to one
+region needs only a few.
 Capital ships sit at 22 and 25, above every zone level; only missions
 place them (inferred).
 
@@ -390,8 +390,8 @@ have encounters):
 | Encounter line | Definition, level, relative chance | 1 to 10 per zone; four fifths have one |
 | Faction line | Faction, weight; follows its encounter line | 1 to 11; usually one |
 
-Path segments also carry path label, index, use (patrol or trade) and
-mission eligibility (chapters 01, 08). Each system file declares the
+Path segments also carry path label, index and use (chapter 01). Each
+system file declares the
 encounter definitions its zones use, by local name and file (about 22
 per system). Zone records also hold a zone-wide level, a population type
 and raw faction weights that agree with the encounter lines but are not
@@ -489,8 +489,8 @@ controller and belong to chapters 08 and 10.
   NPC ship definitions populate 3,800 zones for 55 factions.
 - Give every group an itinerary with a destination. Traffic that docks,
   launches and rides lanes is what makes stations look like stations.
-- Pace combat with a battle cap and a relief time.
-- Fill on arrival; trickle afterwards.
+- Pace combat with a battle cap and a relief time; fill on arrival,
+  trickle afterwards.
 
 **Feel.** Cargo scans, lane attacks, dock chatter, idle talk, named
 pilots with ranks, weaker escorts, populating the place ahead. Each can
