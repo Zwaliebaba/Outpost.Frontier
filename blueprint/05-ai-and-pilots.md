@@ -17,8 +17,7 @@ make the universe look inhabited and are the opposition in every fight.
 - **Groups behave as groups.** Wingmen hold stations on a leader, take
   its target, scatter when hurt and re-form afterwards.
 - **Skill is visible.** Weak pilots fire short bursts with long pauses
-  and spray; aces fire almost continuously into a tight cone. A player
-  who sits still is hit by everyone.
+  and spray; aces fire almost continuously into a tight cone.
 - **The player's ship uses the same machinery.** "Go to", "dock" and
   "join formation" are NPC manoeuvres run on the player's ship; manual
   flight is one more manoeuvre.
@@ -163,8 +162,8 @@ A placeholder "none" completes the 21.
 | Pass | pass time (1 to 3 s) running | Pass | Fly straight by, break to a side, or cut the engine and keep the nose on the target. |
 | Pass | time elapsed | Extend | Finished: re-evaluate. |
 
-A pilot that finds itself close behind a target flying the same way
-skips the cycle, holds its nose on the target and fires.
+A pilot close behind a target flying the same way skips the cycle and
+holds its nose on the target.
 
 **Evade.** A dodge phase (2 to 8 s), then a break phase (5 s), then
 finished. The dodge repeats a move every 2 to 6 s in one authored style:
@@ -472,8 +471,7 @@ only a gun block.
 - The player's autopilot running through the same layer.
 - The attacker limit and the separate accuracy against players. Without
   them group fights are either lethal or toothless.
-- Burst-based damage reactions: NPCs respond to being hit hard, not to
-  being low.
+- Burst-based damage reactions: NPCs respond to being hit hard.
 
 **Feel.** The rhythm of extend, run in, pass; authored styles;
 staggered clocks; the per-pilot gun range factor; the engine-kill turn.
@@ -487,9 +485,8 @@ parameters the shipped loaders ignore.
 - With a higher-order flight model the closed forms are lost, and the
   builder needs numeric prediction or tuned controllers. Keeping the
   flight model first-order is cheaper.
-- Attack pass, evade, trail, formation and flee, plus travel, give most
-  of the experience. Strafe and the capital manoeuvre matter only once
-  large ships exist.
+- Attack pass, evade, trail, formation, flee and travel give most of
+  the experience. Strafe and the capital manoeuvre need large ships.
 - A behaviour tree or scoring system can replace the graph if the
   weighted randomness between equally valid manoeuvres survives.
 - Four tiers of one pilot per role would be hard to tell from the
@@ -507,8 +504,7 @@ parameters the shipped loaders ignore.
 4. Job fields with no visible effect: target toughness preference, the
    component attack order outside strafing, and the combat drift
    distance, which the loader discards (10,000 m is built in).
-5. How a joining player's formation offset is assigned (presumably the
-   reserved slot).
+5. How a joining player's formation offset is assigned.
 
 ## 8. Basis
 

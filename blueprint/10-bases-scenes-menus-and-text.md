@@ -367,9 +367,9 @@ identifier: catalogue index × 65,536 + number within the catalogue. The
 order of the catalogue list in the configuration fixes the index, so it
 is part of the data contract. A catalogue holds strings, cards, or both
 under separate number spaces. The shipped set has seven catalogues with
-about 12,800 strings and 5,250 cards; names (7,100 strings) and news,
-rumour and conversation cards (3,090) are the largest. Records and
-messages carry identifiers only; the authority never resolves text.
+about 12,800 strings and 5,250 cards; names (7,100 strings) and
+bar-talk cards (3,090) are the largest. Records and messages carry
+identifiers only; the authority never resolves text.
 
 **Format strings.** Text composed at run time (job offers, objectives,
 news) travels as a template identifier plus a list of typed values:
@@ -464,8 +464,8 @@ Accidents of the era:
 - Virtual rooms save sets on the two thirds of bases with two rooms
   (inferred). A builder may give every function a panel on the landing
   place.
-- An interface drawn as 3D meshes before its own camera, 4:3 only. Any
-  modern toolkit that meets 3.12 will do.
+- An interface drawn as 3D meshes before its own camera (per design
+  notes). Any modern toolkit that meets 3.12 will do.
 - Text identifiers that depend on the load order of catalogues, and name
   variants reached by numeric offsets. Use explicit keys.
 
