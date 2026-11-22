@@ -11,9 +11,15 @@
 //! | `FLPACKET_COMMON_UPDATEOBJECT` (ch1 0x01) | 52 `SPObjUpdate(Info, Session)` | [`crate::replication::client_object_update`] |
 //! | `FLPACKET_CLIENT_SYSTEM_SWITCH_OUT_COMPLETE` (ch3 0x0b) | 47 `SystemSwitchOutComplete(Ship, Session)` | [`crate::transfer::system_switch_out_complete`] |
 //! | `FLPACKET_CLIENT_JUMPINCOMPLETE` (ch3 0x43) | `JumpInComplete(Field_0x00, Field_0x04)`, no session | [`crate::transfer::jump_in_complete`] |
+//! | `FLPACKET_CLIENT_SKIP_AUTOSAVE` (ch3 0x42) | `CharacterSkipAutosave(Session)` | [`crate::saves::character_skip_autosave`] |
+//! | `FLPACKET_CLIENT_MISSIONSAVEB` (ch3 0x45) | `MissionSaveB(Session, Value)` | [`crate::saves::mission_save_b`] |
 //!
 //! The other packets reach the server functions that exist as those
 //! functions' callers arrive; until then [`deliver`] answers false for them.
+//! `FLPACKET_CLIENT_SAVEGAME` is one of them: its decoded form carries only
+//! the description, while `IServerImpl::SaveGame` names the save by the
+//! character id that rpclocal's single-player payload holds and the wire
+//! leaves out; [`crate::saves::server_save_game`] takes it from the caller.
 
 use game_sim::protocol::common::UpdateObject;
 use game_sim::protocol::{ClientMessage, CommonMessage, ToServer, expand_orientation};
@@ -38,6 +44,14 @@ pub fn deliver(cx: &mut Cx<'_>, session: u32, message: &ToServer) -> bool {
         }
         ToServer::Client(ClientMessage::JumpInComplete(packet)) => {
             crate::transfer::jump_in_complete(cx, packet.field_00, packet.field_04);
+            true
+        }
+        ToServer::Client(ClientMessage::SkipAutosave(_)) => {
+            crate::saves::character_skip_autosave(cx, session);
+            true
+        }
+        ToServer::Client(ClientMessage::MissionSaveB(packet)) => {
+            crate::saves::mission_save_b(cx, session, packet.value);
             true
         }
         _ => false,

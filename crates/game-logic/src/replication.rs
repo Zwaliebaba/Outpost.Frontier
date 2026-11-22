@@ -2245,8 +2245,9 @@ pub fn ship_switched_in(
 
 /// `SystemPlayerView_OnObjectLanded`: the object's record goes (the first
 /// with its id); the client gets `LAND` (the object, the dock, the base)
-/// when it had the object or the object is the player's ship. The
-/// multiplayer autosave of the player's slot before it is not ported yet.
+/// when it had the object or the object is the player's ship. Outside
+/// single player the player's own ship landing first autosaves the
+/// player's slot ([`crate::saves::auto_save`]).
 pub fn object_landed(cx: &mut Cx<'_>, system: u32, index: usize, id: u32, dock: u32, base: u32) {
     let Some(player) = observer(cx, system, index).map(|v| v.player) else {
         return;
@@ -2260,6 +2261,9 @@ pub fn object_landed(cx: &mut Cx<'_>, system: u32, index: usize, id: u32, dock: 
         .is_some_and(|at| view.tracked.remove(at).created_on_client);
     if !created && id != own_ship {
         return;
+    }
+    if !cx.world.config().single_player && id == own_ship {
+        let _ = crate::saves::auto_save(cx, player);
     }
     send_server(
         cx.logic,
