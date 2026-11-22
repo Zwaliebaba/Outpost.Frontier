@@ -319,7 +319,8 @@ P3.4 (Content's system records) removes.
 With P3.4a (`game-logic::content`) D770 to D773 were proposed; the owner
 accepted them on 2026-11-22.
 
-With P3.4b (`game-logic::content::tables`) D780 to D785 were proposed.
+With P3.4b (`game-logic::content::tables`) D780 to D785 were proposed; the
+owner accepted them on 2026-11-22.
 
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)

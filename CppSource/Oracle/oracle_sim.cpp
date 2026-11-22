@@ -149,7 +149,6 @@ namespace
         // `dump replication`: the packets of the replication comparison are written to
         // replication.jsonl from the players' join on (SimClientStub, P3.3).
         bool bDumpReplication = false;
-
         // `dump content_tables`: right after the server starts, Content.dll's static tables
         // (LoadContentGameTables, run by the GameSupport the start-up creates) are written as
         // content_<table>.txt through its OracleDumpContentTables; no system loads and no
