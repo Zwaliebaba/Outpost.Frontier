@@ -10,3 +10,4 @@ EXPORTS
     SimClientStubSetTick
     SimClientStubSetSink
     SimClientStubSetScript
+    SimClientStubRecordReplication

@@ -299,6 +299,52 @@ pub fn world_config(s: &Scenario) -> WorldConfig {
     }
 }
 
+/// A server around a scenario run (P3.3's replication comparison, record
+/// 0007 point 11): the hooks of each frame, and what the server does at
+/// three points of the run, each a no-op by default.
+pub trait ScenarioServer {
+    /// The server's hooks of a frame.
+    fn hooks(&mut self) -> &mut dyn ServerHooks;
+
+    /// Loads the scenario's system as the server loads it (every solar of
+    /// the system file, as the oracle's `StarSystem::load`); the named
+    /// solars are then found by their nicknames. False (the default) lets
+    /// the driver load the system and spawn the solars it needs, as without
+    /// a server.
+    fn load_system(&mut self, world: &mut World, system: u32) -> bool {
+        let _ = (world, system);
+        false
+    }
+
+    /// After the objects are spawned and the attitudes set, before tick 0
+    /// is recorded: the oracle's players join here (`player`).
+    fn spawned(
+        &mut self,
+        world: &mut World,
+        system: u32,
+        objects: &BTreeMap<String, Option<ObjHandle>>,
+    ) {
+        let _ = (world, system, objects);
+    }
+
+    /// After tick `tick`'s step of `dt` seconds, before the global time
+    /// advances: the server's per-frame work after the system's step (the
+    /// observers' updates of `StarSystem_Update`).
+    fn after_step(&mut self, world: &mut World, system: u32, tick: u32, dt: f32) {
+        let _ = (world, system, tick, dt);
+    }
+}
+
+/// The plain hooks of [`run`], as a [`ScenarioServer`] that does nothing
+/// more.
+struct HooksOnly<'h>(&'h mut dyn ServerHooks);
+
+impl ScenarioServer for HooksOnly<'_> {
+    fn hooks(&mut self) -> &mut dyn ServerHooks {
+        &mut *self.0
+    }
+}
+
 /// Runs a scenario in `world` (made with [`world_config`] over the game
 /// data): loads the system and the solars it needs, spawns the objects
 /// (the AI ships with their state graphs, personalities and attitudes from
@@ -306,12 +352,28 @@ pub fn world_config(s: &Scenario) -> WorldConfig {
 /// through `hooks` (`World::step_with`, then the global time) and records
 /// what [`Run`] holds. With [`NoServerHooks`](crate::object::world::NoServerHooks)
 /// each tick is [`World::step`].
-pub fn run(mut world: World, s: &Scenario, ai: &AiInputs, hooks: &mut dyn ServerHooks) -> Run {
+pub fn run(world: World, s: &Scenario, ai: &AiInputs, hooks: &mut dyn ServerHooks) -> Run {
+    run_with(world, s, ai, &mut HooksOnly(hooks))
+}
+
+/// [`run`] with a [`ScenarioServer`]: its hooks step the system, and it
+/// loads the system, hears of the spawned objects and runs after each
+/// tick's step where it says so.
+pub fn run_with(
+    mut world: World,
+    s: &Scenario,
+    ai: &AiInputs,
+    server: &mut dyn ScenarioServer,
+) -> Run {
     let system = create_id(s.system.as_bytes());
-    world.load_system(system);
-    // `StarSystem::load` outside single player loads the system's asteroid
-    // fields; the scenario ships fill those they fly in, as in the oracle.
-    world.load_asteroid_fields(system);
+    let server_loaded = server.load_system(&mut world, system);
+    if !server_loaded {
+        world.load_system(system);
+        // `StarSystem::load` outside single player loads the system's
+        // asteroid fields; the scenario ships fill those they fly in, as in
+        // the oracle.
+        world.load_asteroid_fields(system);
+    }
     let mut handles: BTreeMap<String, Option<ObjHandle>> = BTreeMap::new();
     let mut managers = Vec::new();
     let mut pathfind_phases = None;
@@ -330,12 +392,14 @@ pub fn run(mut world: World, s: &Scenario, ai: &AiInputs, hooks: &mut dyn Server
         .filter(|o| !o.ship)
         .map(|o| create_id(o.nickname.as_bytes()))
         .collect();
-    for sp in world.system_solar_spawns(system) {
-        if named.contains(&sp.nickname)
-            || sp.angular_velocity != Vector::ZERO
-            || world.solar_has_free_parts(sp.archetype)
-        {
-            let _ = world.spawn_solar(system, &sp);
+    if !server_loaded {
+        for sp in world.system_solar_spawns(system) {
+            if named.contains(&sp.nickname)
+                || sp.angular_velocity != Vector::ZERO
+                || world.solar_has_free_parts(sp.archetype)
+            {
+                let _ = world.spawn_solar(system, &sp);
+            }
         }
     }
     world.set_unit_trace(system, true);
@@ -403,6 +467,7 @@ pub fn run(mut world: World, s: &Scenario, ai: &AiInputs, hooks: &mut dyn Server
             world.set_attitude(*a, *b, *value);
         }
     }
+    server.spawned(&mut world, system, &handles);
     let names: BTreeMap<u32, String> = handles
         .iter()
         .filter_map(|(n, h)| {
@@ -527,7 +592,8 @@ pub fn run(mut world: World, s: &Scenario, ai: &AiInputs, hooks: &mut dyn Server
                 world.command(h, command);
             }
         }
-        world.step_with(system, s.frame as f32, hooks);
+        world.step_with(system, s.frame as f32, server.hooks());
+        server.after_step(&mut world, system, tick, s.frame as f32);
         world.update_global_time(s.frame as f32);
         for h in world.take_beam_starts_inside(system) {
             let name = world

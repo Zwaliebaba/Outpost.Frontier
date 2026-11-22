@@ -52,6 +52,7 @@ Conventions:
 | `server` | `data_path` s, `controller` u (SimClientStub's controller id), `system_id` u, `system_loaded` b, `reseed` u (the seed of the `srand` the harness calls again after the load, before the objects are spawned: the seeding point the Rust world matches, `--seed`'s when given; reference-build.md section 10, start-up step 5), `startup_seed` u (the seed `IServerImpl::Startup`'s `srand` took instead of `timeGetTime()`: the scenario's `seed`; since 2026-11-19), with `comms off` also `comms_clamped` b (Content's comm clamp was set) |
 | `heartbeats` | `tick` u (0), `controllers` [{`flid` u, `priority` u, `module` s (the controller's DLL), `interval` f (s, −1 for none), `phase` f (the accumulator frame 1 starts from), `deferred` b}, …] in the server's list order: the heartbeat of every controller (`OracleSimControllerHeartbeats`; Content's GameSupport heartbeat is its game time), written before tick 0 (since 2026-11-19) |
 | `spawn` | `obj` s, `kind` s (`ship` or `solar`); a ship: `arch` s, `arch_id` u, `loadout` s, `loadout_id` u, `result` i (`pub::SpaceObj::Create`), `id` u, [`state_graph` s, `state_graph_id` i, [`pilot` s, `pilot_found` b (the `pilot` option; its personality was submitted)], `submit_state` i]; with `faction`, before `arch`: `faction` s, `faction_result` i (`GetReputationGroup`), then when the group is known `faction_id` u, `vibe` i (the ship's `VibeGroupId`), `vibe_alloc` i, `vibe_affiliation` i (`pub::Reputation::Alloc`, `SetAffiliation`); a solar: `nickname` s, `id` u (`CreateID(nickname)`), `found` b; then (P2.5, the transport's collision geometry) a created ship's `part_map` [[`part` u, `instance` i], …] (`CObject::PartMap`) and `attached` [{`id` u, `connected` b, `kind` s (`non_physical`, `physical` or `none`), with `non_physical` also `hp_crc` u, `collisions` b}, …] (every `CAttachedEquip` and its attachment) |
+| `player` | (P3.3, a scenario's `player` line; after the `spawn` records) `tick` u (0), `line` i, `session` u, `obj` s (the ship), `id` u (its id, 0 when it was not spawned), `joined` b (`OracleSimAddPlayer` answered true) |
 | `command` | `tick` u, `line` i (in the scenario file), `obj` s, `cmd` s (the command as written), `ok` b, `result` i (what the called function returned; for a directive the `OP_RTYPE`), [`note` s, why it did not run] |
 | `error`, `critical_warning`, `note` | `tick` u, `text` s (`note`: an object marked `psi` whose PSIs are not recorded, and why; once per object) |
 | `fault` | `tick` u, `first_chance` b (from the vectored handler; false: the frame's `__except` filter, which ends the run with code 4), `code` s (hex), `code_name` s, `address` s (hex), `at` {`module` s\|null, `offset` s (hex, from the module base), `functions` s[] (the innermost inlined function first), `line` s (`file:line` under `CppSource/`, `""` when unknown)}, for an access violation `access` s (`read`, `write`, `execute`), `target` s (hex), `target_memory` s (`free`, `reserved`, `committed`, `committed, not readable`); `symbols` b (dbghelp started), `regs` {`eax` .. `ebp`: {`v` s, [`in` s (module+offset and symbol)], `words` s[4] and [`word0_in` s] when it points at readable memory (a vtable names the class), else `memory` s}, `esp` s, `eip` s, `eflags` s}, `esp_words` s[16], `stack` [{`module`, `offset`, `functions`, `line`}] (at most 48 frames; frame 0 is the faulting instruction, the others are resolved at their call) |
@@ -649,6 +650,41 @@ structure or pointer as `"present"` (or `null`). The stub answers
 `SystemUnloaded` and `ControllerDestroyed` (`w0`), message 0x25 (`w0`,
 `w1`, `w2`), `Heartbeat` (`elapsed` f); any other message is
 `{"data":"present"}`.
+
+`replication.jsonl` (P3.3, decision record 0007 point 11; only with
+`dump replication`, from the players' join on): one line per call of the
+slots below, written after its `iclient.jsonl` line (the same `seq`),
+`tick` u, `seq` u, `client` u (the call's client id, the session), `m` s
+(the method), `id` u (the object the packet is about; 0 for
+`SendServerSetReputation`), then by method (`q` f4 is a `Quaternion` in
+its member order w, x, y, z; archetypes are the full ids):
+
+| `m` | Fields after `id` |
+| --- | --- |
+| `SendCommonUpdateObject` | `pos` f3, `q` f4, `time` f (`Field_0x20`, the observer's clock), `throttle` f (`Field_0x24`), `behavior` u (`Field_0x28`) |
+| `SendCommonFireWeapon` | `target` f3, `guns` u[] (the hardpoints) |
+| `SendCommonActivateEquip` | `equip` u, `on` b |
+| `SendCommonActivateCruise` | `on` b, `arg` u (`Field_0x05`) |
+| `SendCommonActivateThrusters` | `on` b |
+| `SendCommonSetTarget` | `sub` u, `target` u, `target_sub` u |
+| `SendCommonGoTradeLane` | `ring1` u, `ring2` u, `flag` b (`Field_0x0c`) |
+| `SendCommonStopTradeLane` | `ring1` u, `ring2` u (`id` is the ship) |
+| `SendCommonJettisonCargo` | `item` u, `count` u |
+| `SendServerCreateSolar` | `arch` u, `pos` f3, `q` f4 |
+| `SendServerCreateShip` | `arch` u, `pos` f3, `q` f4, `vel` f3, `angvel` f3, `hp` i, `throttle` f, `owner` u, `lane` u, `equip` i (the equipment list's length) |
+| `SendServerCreateLoot` | `owner` u, `kind` u, `items` [{`id` u, `contents` u, `units` u, `container` u, `pos` f3}, …] (`id` is the first item's) |
+| `SendServerCreateMine`, `SendServerCreateCounter` | `arch` u, `owner` u, `sub` u, `pos` f3, `q` f4, `vel` f3 |
+| `SendServerCreateGuided` | `arch` u, `owner` u, `sub` u, `target` u, `target_sub` u, `pos` f3, `q` f4 |
+| `SendServerSetGuidedTarget` | `target` u, `target_sub` u |
+| `SendServerDestroyObject` | `kind` u (`Field_0x04`) |
+| `SendServerDamageObject` | `destroyed` b, `cause` i, `inflictor` u, `entries` [[sub u, hit points f, fate i], …] |
+| `SendServerActivateObject` | `on` u, `index` u |
+| `SendServerSetReputation` | `vibe` i, `affiliation` u (`Field_0x08`) |
+| `SendServerBurnFuse` | `source` u, `fuse` u, `sub` u, `at` f, `lifetime` f, `lit` u |
+| `SendServerSystemSwitchOut` | `gate` u |
+| `SendServerSystemSwitchIn` | `bits` u, `pos` f3, `q` f4 |
+| `SendServerLand` | `dock` u, `base` u |
+| `SendServerLaunch` | `dock` u, `index` u, `pos` f3, `q` f4 |
 
 ## Other files of a run
 

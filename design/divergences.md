@@ -309,6 +309,11 @@ With P3.3's saves (`game-logic::saves`, `game-logic::api::misc`) D750 to
 D753 were proposed; the owner accepted them on 2026-11-22, D750 as a temporary
 row that the executables' local clock (P3.9) removes.
 
+With P3.3's replication comparison (`game-logic/tests/replication_oracle.rs`,
+record 0007 point 11) D760 was proposed; the owner accepted it on 2026-11-22
+as a temporary row that the wiring of the AI's target, cruise, thruster and
+equipment changes to the server removes.
+
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)
 on 2026-11-19, as `TriMesh`'s editing mode (D358): no shipped model has
@@ -822,6 +827,7 @@ one, and it is ported when a caller needs it.
 | D751 | `game-logic::saves` (P3.3) | `PlayerData_AutoSave` in single player reads `Universe::get_base(current_base)->bAutosaveForbidden` without testing the result; a base id the universe does not have reads through null | A base the universe does not have does not forbid the autosave | Undefined behaviour in the reference | None for the bases of the universe |
 | D752 | `game-logic::saves`, `game-logic::server` (P3.3) | Every save goes under `Server_GetAccountsRoot` (`GetUserDataPath` and `Accts`, `Accts\MultiPlayer`), which always exists | The accounts folder is the host's (`Logic::saves.accounts`, decision O41 point 2); a server without one writes no save: no cheat check, no failure counted, no random name drawn | Owner decision O41 | None for a host that gives the folder, as the executables do; a test or a harness without one writes nothing |
 | D753 | `game-logic::saves`, `game-logic::api::misc` (P3.3) | `PlayerData_AutoSave` on a multiplayer server reads the selected character's record without testing for the end of the map (character selection stores the id only after its record exists); `pub::Save` indexes `Players[player]` without a check | Without the record the autosave writes nothing; `pub::Save` for a player outside the table does nothing | Undefined behaviour in the reference | None for the ids the server and Content hand it |
+| D760 | `game-logic::replication`, `game-sim::object::world::ai` (P3.3) | The AI's target choice and its guns' targets go through the server's `Ship::set_target` and `EqObj::slot_44`, its cruise and thrusters through `Ship::slot_50` and `slot_54`, its equipment switches through `EqObj::slot_4c` (`IObjAffect` on the server's wrapper, `server_gameobject.cpp:5833`, `:2178`, `:5884`, `:5949`, `:2250`); each then tells the players who can see the ship (`StarSystem::notify_set_target`, `notify_cruise`, `notify_thrusters`, `notify_activate_equip`: `SETTARGET`, `ACTIVATECRUISE`, `ACTIVATETHRUSTERS`, `ACTIVATEEQUIP`) | game-sim's AI makes these changes inside the world, and the requests it hands the server after the behaviour tick (`ServerRequest`: the fire, the dock and formation requests, the lanes; D622, D651, D730) carry none of them, so the players are sent none of these four packets for an NPC's own changes; the notifiers are ported and serve the server's own callers (the starved thruster, the docking lights) and the clients' requests | Record 0007 point 2: game-sim has no server inside the behaviour tick; the four calls are not yet among the AI's requests | A client does not see which target an NPC or its turrets lock, nor an NPC's own cruise, thruster or equipment switches. The replication comparison leaves these four packets out of its exact window. Temporary: removed when the AI's requests carry the four calls |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32

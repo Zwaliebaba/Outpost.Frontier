@@ -15,6 +15,9 @@
 //!   diagnostics the reports read. With
 //!   [`NoServerHooks`](crate::object::world::NoServerHooks) it is the
 //!   world's own [`World::step`](crate::object::World::step).
+//!   [`run_with`] takes a [`ScenarioServer`] instead: its hooks, and the
+//!   server's load of the system, its part once the objects are spawned
+//!   and after each tick's step (P3.3's replication comparison).
 //! * The oracle's records of a run: [`oracle_run`], [`oracle_ticks`],
 //!   [`oracle_hits`], [`oracle_guided`], [`oracle_guided_cores`] and the
 //!   [`AiInputs`] the AI ships take from it ([`oracle_ai_inputs`]); the
@@ -37,8 +40,8 @@ mod judge;
 mod oracle;
 
 pub use driver::{
-    Contact, GuidedState, Hit, Run, ShieldState, State, TurretProbe, UNIT_PSIS, Unit, gun_text,
-    run, world_config,
+    Contact, GuidedState, Hit, Run, ScenarioServer, ShieldState, State, TurretProbe, UNIT_PSIS,
+    Unit, gun_text, run, run_with, world_config,
 };
 pub use file::{
     Cmd, ObjDesc, Scenario, needs_ai, needs_server, parse, scenario_files, scenarios_dir,

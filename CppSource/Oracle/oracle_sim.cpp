@@ -67,6 +67,10 @@ extern "C" __declspec(dllimport) bool __cdecl OracleSimLoadSystem(unsigned int S
 // Server.dll, IServerImpl.cpp (Oracle instrumentation, P3.3): every system loaded and its
 // solars written as JSON lines (decision record 0007 point 11).
 extern "C" __declspec(dllimport) int __cdecl OracleDumpSystemLoads(char const* Path);
+// Server.dll, IServerImpl.cpp (Oracle instrumentation, P3.3): a scenario's `player` joins the
+// system with the ship the harness made (decision record 0007 point 11).
+extern "C" __declspec(dllimport) bool __cdecl OracleSimAddPlayer(unsigned int SessionId, unsigned int SystemId,
+                                                                 unsigned int ShipId);
 // Server.dll's other Oracle export: every controller's heartbeat (session.jsonl `heartbeats`).
 typedef void(__cdecl* FOracleSimHeartbeatFn)(void* Context, unsigned int Flid, unsigned int Priority,
                                               char const* Module, float Interval, float Phase,
@@ -119,6 +123,15 @@ namespace
         size_t Order = 0;
     };
 
+    // P3.3 (decision record 0007 point 11): `player <session> <ship>`, a session that joins the
+    // scenario's system after the objects are spawned, its observer following the ship.
+    struct FPlayerDesc
+    {
+        unsigned int Session = 0;
+        std::string Object;
+        int Line = 0;
+    };
+
     struct FScenario
     {
         std::string Path;
@@ -133,10 +146,14 @@ namespace
         // `dump system_loads`: after the server starts and the scenario's system loads, every
         // system is loaded and its solars written (system_loads.jsonl); no scenario runs (P3.3).
         bool bDumpSystemLoads = false;
+        // `dump replication`: the packets of the replication comparison are written to
+        // replication.jsonl from the players' join on (SimClientStub, P3.3).
+        bool bDumpReplication = false;
         unsigned int Seed = 0x4f524143u;
         double ClockStart = 1000.0;
         std::vector<FObjectDesc> Objects;
         std::vector<FCommand> Commands;
+        std::vector<FPlayerDesc> Players;
     };
 
     std::string Lower(std::string Text)
@@ -395,6 +412,29 @@ namespace
             else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "system_loads")
             {
                 Out.bDumpSystemLoads = true;
+            }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "replication")
+            {
+                Out.bDumpReplication = true;
+            }
+            else if (Key == "player" && T.size() == 3)
+            {
+                // The session (1 to the server's 16 slots) and a ship named before the line.
+                FPlayerDesc Player;
+                Player.Line = LineNumber;
+                Player.Object = T[2];
+                if (!ParseUnsigned(T[1], Value) || Value == 0 || Value > 16)
+                    return Error = Where + "bad session '" + T[1] + "' (1 to 16)", false;
+                Player.Session = (unsigned int)Value;
+                FObjectDesc const* const Ship = FindDesc(Out, Player.Object);
+                if (Ship == nullptr || !Ship->bShip)
+                    return Error = Where + "a player needs a ship named before it: " + Player.Object, false;
+                for (FPlayerDesc const& Other : Out.Players)
+                {
+                    if (Other.Session == Player.Session || Other.Object == Player.Object)
+                        return Error = Where + "duplicate player", false;
+                }
+                Out.Players.push_back(Player);
             }
             else if (Key == "seed" && T.size() == 2 && ParseUnsigned(T[1], Value))
             {
@@ -1978,6 +2018,32 @@ namespace
         return bOk;
     }
 
+    // P3.3 (decision record 0007 point 11): each `player` of the scenario joins its system, in
+    // file order, after the objects are spawned (Server.dll's OracleSimAddPlayer: the slot's
+    // system and ship, then StarSystem::add_player, whose packets are tick 0's). One `player`
+    // record each in session.jsonl. False when a ship is missing or a join is refused.
+    bool AddPlayers(unsigned int SystemId)
+    {
+        bool bOk = true;
+        for (FPlayerDesc const& Player : GScenario.Players)
+        {
+            FSimObject const* const Object = FindObject(Player.Object);
+            unsigned int const ShipId = Object != nullptr ? Object->Id : 0u;
+            bool const bJoined = ShipId != 0u && OracleSimAddPlayer(Player.Session, SystemId, ShipId);
+            FOracleJson J;
+            J.Str("rec", "player");
+            J.Uint("tick", GTick);
+            J.Int("line", Player.Line);
+            J.Uint("session", Player.Session);
+            J.Str("obj", Player.Object.c_str());
+            J.Uint("id", ShipId);
+            J.Bool("joined", bJoined);
+            Write(FileSession, J);
+            bOk = bJoined && bOk;
+        }
+        return bOk;
+    }
+
     int SubmitScenarioDirective(unsigned int Id, pub::AI::BaseOp& Op)
     {
         // A current directive blocks a new one (pub::AI::SubmitDirective returns 2), so each
@@ -2609,6 +2675,16 @@ namespace oracle
             CloseAll();
             return 3;
         }
+        // P3.3: `dump replication`'s record (replication.jsonl), opened when the players join.
+        typedef void(__cdecl * FRecordReplication)(char const*);
+        FRecordReplication const RecordReplication =
+            (FRecordReplication)GetProcAddress(Stub, "SimClientStubRecordReplication");
+        if (GScenario.bDumpReplication && RecordReplication == nullptr)
+        {
+            SessionNote("error", "SimClientStub.dll lacks SimClientStubRecordReplication");
+            CloseAll();
+            return 3;
+        }
         Configure(OutDir.c_str());
 
         if (!WriteServerIni(DataRoot, ExeDir, IniPath))
@@ -2743,6 +2819,18 @@ namespace oracle
         {
             OracleSimLoadRandPhase("spawn " + Desc.Name);
             bSpawned = SpawnObject(Desc, SystemId, ControllerId) && bSpawned;
+        }
+        // P3.3: the replication record from here on, then the players' join (tick 0).
+        if (bSpawned && GScenario.bDumpReplication)
+            RecordReplication(OutDir.c_str());
+        if (bSpawned && !GScenario.Players.empty())
+        {
+            OracleSimLoadRandPhase("players");
+            if (!AddPlayers(SystemId))
+            {
+                SessionNote("error", "a player could not join the system");
+                bSpawned = false;
+            }
         }
         OracleSimLoadRandPhase("hooks");
         if (!bSpawned)

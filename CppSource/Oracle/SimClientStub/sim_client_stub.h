@@ -16,6 +16,9 @@
 //   * P3.1: an instance named "Scripted:<name>" is a scripted controller of Oracle.exe
 //     neuron-server (oracle_bus.cpp). Its constructor, messages and destructor go to the
 //     script callback (SimClientStubSetScript) and nothing is written.
+//   * P3.3: once the harness names a folder (SimClientStubRecordReplication, a scenario's
+//     `dump replication`), the packets of the replication comparison are also written to
+//     replication.jsonl (sim_client_stub_replication.cpp).
 //
 // Record layouts: design/sim-records.md. Until SimClientStubConfigure names the output
 // folder nothing is written.
@@ -36,6 +39,12 @@ void SimStubCallEnd(FOracleJson& J);
 void SimStubPresence(FOracleJson& J, char const* Name, bool bPresent);
 void SimStubUintArray(FOracleJson& J, char const* Name, unsigned int const* Values, int Count);
 
+// P3.3, replication.jsonl: whether it is being written; the head of a line,
+// {"tick","seq","client","m"}; and the line written (sim_client_stub_replication.cpp).
+bool SimStubReplicationOn();
+void SimStubReplicationBegin(FOracleJson& J, unsigned Seq, unsigned int ClientId, char const* Method);
+void SimStubReplicationEnd(FOracleJson& J);
+
 // The one stub object (sim_client_stub_iclient.cpp).
 IClient* SimStubClient();
 IChatClient* SimStubChatClient();
@@ -46,6 +55,8 @@ typedef void(__cdecl* FSimClientStubSink)(int MessageId, void const* Data);
 extern "C" void __cdecl SimClientStubConfigure(char const* OutputFolder);
 extern "C" void __cdecl SimClientStubSetTick(unsigned int Tick);
 extern "C" void __cdecl SimClientStubSetSink(FSimClientStubSink Sink);
+// P3.3: replication.jsonl in OutputFolder from now on; null stops it.
+extern "C" void __cdecl SimClientStubRecordReplication(char const* OutputFolder);
 
 // P3.1, the controller_bus suite: the script callback gets the controller's id, its short
 // name and SIM_CLIENT_STUB_SCRIPT_CTOR (inside CreateInstance; a zero answer makes it return
