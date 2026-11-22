@@ -1,6 +1,8 @@
 # 0008 — Content in game-logic
 
-Status: proposed (P3.4 to P3.7); decision O47, proposed. Builds on records
+Status: accepted by the owner on 2026-11-22 (P3.4 to P3.7); decision O47.
+Questions 1 to 3 and 5 to 10 answered as recommended; question 4 (the NPC
+loot preference) is still open and is put to the owner before P3.6. Builds on records
 0006 (controller bus, decision O40: its "Content" section and Appendix A)
 and 0007 (server world, decision O43), and on P3.3's port of `pub::` in
 `game-logic::api`.
@@ -711,7 +713,8 @@ Paths are relative to `CppSource/`.
 - **Divergence rows.** The rows of points 2, 3, 4, 6 and 8 come with the
   packages that port their sites.
 
-Questions for the owner, each with a recommendation:
+Questions for the owner, each with a recommendation. The owner answered 1 to 3
+and 5 to 10 as recommended on 2026-11-22; 4 stays open until P3.6:
 
 1. **Module layout.** Should Content live in `game-logic::content::{tables,
    game_support, space_support, base_support, population, npc, gcs,
