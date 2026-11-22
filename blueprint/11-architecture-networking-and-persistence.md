@@ -1,6 +1,6 @@
 # 11 — Architecture, authority, networking and persistence
 
-Status: draft
+Status: reviewed
 Depends on: 00 (glossary). Read with 02, 03, 06, 08, 10 and 12.
 
 ## 1. Purpose and player experience
@@ -28,15 +28,15 @@ consequences:
 
 | Concept | Definition |
 | --- | --- |
-| Authority | Owns the universe, its objects, the rules and every saved file ("server" in the original). |
-| Presentation | Shows one player the world, collects input, runs sound and interface ("client"). |
-| Content | The game rules layered on the authority as a set of controllers: population, missions, campaign, base inhabitants. |
-| Controller | One content module on the authority's event bus, with a priority, an optional heartbeat and timers. A running mission is a controller. |
-| Event bus | The synchronous channel by which the authority tells controllers what happened. They answer by calling its service functions. |
+| Authority | Owns the universe, its objects, the rules and every saved character. |
+| Presentation | Shows one player the world, collects input, runs sound and interface. |
+| Content | The game rules layered on the authority as a set of content controllers: population, missions, campaign, base inhabitants. |
+| Content controller | One content module on the authority's event bus, with a priority, an optional heartbeat and timers. A running mission is one. |
+| Event bus | The synchronous channel by which the authority tells content controllers what happened. They answer by calling its service functions. |
 | Transport | What carries messages between presentation and authority: an in-process loopback or a network connection. |
 | Session | One player's connection, numbered from 1 to the host's player limit. |
 | Account | The identity a session logs in with; holds up to five characters. |
-| Character | One persistent pilot, one text file. A single-player saved game is the same thing. |
+| Character | One persistent pilot, kept as one self-contained record. A single-player saved game is the same thing. |
 | Observer | The authority's record of one session in one system: which objects that presentation knows, and what it is assumed to extrapolate for each. |
 | Host | The program that runs an authority for remote sessions, with an administration interface. |
 | Player group | Up to eight players who see each other from further away and share a chat channel. |
@@ -52,7 +52,7 @@ AUTHORITY
    base database: rooms, inhabitants, offers, news
    events down (synchronous, by priority), service calls up
 CONTENT
-   support controllers, population, campaign, one controller per mission
+   content controllers: support, population, campaign, one per mission
 ```
 
 Both sides read the same data and run the same simulation code (objects,
@@ -101,17 +101,17 @@ One tick, in order:
 4. **Late space events:** volume enter and leave events collected by the
    step; ships that left through a jump point (inferred).
 5. **Base database** update.
-6. **Heartbeats.** Destroy controllers queued for destruction, then give
-   each controller its accumulated time in whole multiples of its interval.
+6. **Heartbeats.** Destroy content controllers queued for destruction,
+   then give each its accumulated time in whole multiples of its interval.
 7. **Timers.** Fire at most 128 expired one-shot timers, each to the
-   controller that set it.
+   content controller that set it.
 
 One system step. In multiplayer a step longer than 0.2 s is cut into 0.2 s
 sub-steps; single player takes one.
 
 | # | Sub-step |
 | --- | --- |
-| 1 | Update ships: authority-side state (death sequence, dock requests), then pilot behaviour, equipment, power, shield. |
+| 1 | Update ships: authority-side state (death sequence, dock requests), then equipment (power, shield, weapons), then pilot behaviour. |
 | 2 | Update a second list, probably solars (inferred); then a ship-proximity pass. |
 | 3 | Update loot, unguided projectiles and two further lists, probably guided munitions, mines and countermeasures (inferred). |
 | 4 | Update asteroid fields, then an always-update list. |
@@ -140,9 +140,10 @@ system switch. (Subsection per design notes.)
 
 - **The step is variable.** There is no fixed simulation rate.
 - **Physics has its own clamp.** Single player advances physics once per
-  frame, by at most 0.0999 s. Multiplayer accumulates time on both sides
-  and advances in 0.0999 s slices plus the remainder. The solver inside
-  works at 16 steps per second.
+  frame, by at most 0.0999 s. Multiplayer accumulates time on both sides,
+  does nothing until more than 0.0051 s has gathered, then advances in
+  0.0999 s slices plus the remainder. The solver takes each slice as one
+  step; it has no rate of its own.
 - **Pause** exists only in single player: it zeroes the frame time and
   skips the authority's tick (per design notes).
 - Three clocks coexist: the step, a saved wall-clock world clock, and
@@ -153,10 +154,10 @@ system switch. (Subsection per design notes.)
 The authority knows nothing about missions or population. It announces
 events; content listens.
 
-- **Registration.** Controllers are created from a configuration list at
-  start-up and later by other controllers; starting a mission means
-  creating its controller. Each has a priority.
-- **Order.** A broadcast visits controllers by priority, newest first
+- **Registration.** Content controllers are created from a configuration
+  list at start-up and later by one another; starting a mission means
+  creating its content controller. Each has a priority.
+- **Order.** A broadcast visits them by priority, newest first
   among equals. Shipped order: game support (each player's content record),
   running missions, the campaign, base support, space support (docking,
   lanes, NPC bookkeeping, loot), base population, space population.
@@ -164,8 +165,9 @@ events; content listens.
   support deletes its record (per design notes).
 - **Synchronous and nested.** A handler finishes before the sender
   continues, and may change the world and raise further events.
-- **Stable list.** A controller created during a broadcast joins when the
-  outermost walk ends; a destroyed one leaves at the next heartbeat pass.
+- **Stable list.** A content controller created during a broadcast joins
+  when the outermost walk ends; a destroyed one leaves at the next
+  heartbeat pass.
 - **Some events are questions:** the receiver edits the payload, for
   instance which loot a destroyed ship drops.
 
@@ -178,7 +180,7 @@ About 60 events come from the authority and 18 from content:
 | Combat and objects | object damaged, death fuse lit, object destroyed, equipment dropped, loot spawned and acquired, cargo jettisoned and scanned, volume entered and left |
 | Economy and base | good bought, sold, destroyed; base object selected; job offer answered; worth changed; hull changed |
 | Dialogue and interface | hail, comm complete, cutscene done, interface item used, dialog answered, path and statistics requested, mission aborted |
-| Housekeeping | heartbeat, timer, controller destroyed, player save and load, world save and load |
+| Housekeeping | heartbeat, timer, content controller destroyed, player save and load, world save and load |
 | Content to content | mission start, combat state, NPC turned hostile, flee request, reputation damage, formation leader changed, encounter launched, NPC ship created, NPC enters or leaves a system |
 
 ### 3.6 Messages
@@ -260,7 +262,11 @@ a growing queue.
 
 **Visibility** is a sphere around the observer's ship: 2,500 m for
 objects no player owns, 5,000 m for another player's, 10,000 m for a
-group member's; the observer's own always.
+group member's; the observer's own always. The radii govern replicated
+objects only: each presentation builds a system's static solars from the
+system definition when it loads the system, so they exist at any distance
+(chapter 01's 20,000 m discovery scan relies on that), and only solars
+created at run time are sent.
 
 **Fan-out.** Discrete facts about an object (fire, equipment, cruise,
 target, fuse, comm, cargo, lane use) go at once to every observer that
@@ -367,7 +373,7 @@ A character and a saved game are the same text record:
 | World (single player) | World clock, faction-to-faction feelings, content's world state |
 
 Content writes its own parts: the authority raises "player save" and
-"world save" and each controller appends its sections. The authority
+"world save" and each content controller appends its sections. The authority
 stays ignorant of missions.
 
 | Save | Trigger | Allowed when |
@@ -375,7 +381,7 @@ stays ignorant of missions.
 | Manual (single player) | The player | Only while docked. A named or a new slot. |
 | Autosave (single player) | Leaving a base; arriving after a jump | Unless the base forbids it or the presentation asked to skip one. One slot. |
 | Checkpoint (single player) | A mission action; the presentation acknowledges first | Anywhere, space included. Copied to the autosave slot. |
-| Character (multiplayer) | Leaving a base, landing, arriving after a jump, logout | Passes the worth audit. Written to a temporary file, then renamed. |
+| Character (multiplayer) | Leaving a base, landing, arriving after a jump, logout | Passes the worth audit. Written completely before it replaces the previous save. |
 
 A new single-player game copies a template to a restart slot. The shipped
 one starts in space with 500 credits, a ship with 16 mounted items, the
@@ -393,7 +399,7 @@ first campaign mission and 32 locked jump points.
 | In space | Ship destroyed | Dead, then a loaded game (single player) or the last base (multiplayer) |
 | Any | Disconnect | Gone: room and base exits are raised, the character is saved (multiplayer) |
 
-- An account is a directory on the host named by a hash of its
+- An account is kept on the host under a key derived from its
   identifier. An unknown identifier creates one if the host admits new
   players. Login fails when the account is already logged in, missing and
   not creatable, or banned.
@@ -435,14 +441,14 @@ another version (per design notes).
 
 | Record | Author | Principal fields |
 | --- | --- | --- |
-| Game configuration | Developer | Data root; single-player transport; initial-world file; controller lists per mode (name, priority); text modules in order; the data manifest (chapter 12); log filters |
+| Game configuration | Developer | Data root; single-player transport; initial-world file; content controller lists per mode (name, priority); text modules in order; the data manifest (chapter 12); log filters |
 | Engine configuration, one per program | Developer | Engine modules to load; renderer, sound and particle settings. The host's lists no sound or effects modules. |
 | Initial world | Designer | Per faction its feelings towards every other; jump points locked at the start of a multiplayer universe |
 | New-player template | Designer | A complete single-player character (3.10) |
 | New-character template and options | Designer | A character with placeholders; pilots, packages (ship, loadout, money), factions (home base, package, pilot) |
 | Host settings; character files | Operator; the authority | 3.13; 3.10 |
 
-The constants of 3.2 to 3.8 are compiled in, except the physics rate.
+The constants of 3.2 to 3.8 are compiled in.
 
 Data order matters across the network: archetypes travel as short indices
 valid only if both sides loaded the same files in the same order. Only
@@ -453,8 +459,9 @@ the build version guards this.
 **Needs:** 02 (the object and flight model both sides run); 03 (damage
 rules for a reported hit); 04 (docking, lanes and jumps, whose sequences
 straddle the boundary); 05 and 06 (pilots and population, run in the ship
-update and as controllers); 07 (reputation and markets, stored in the
-character and used by the audit); 08 (missions as controllers,
+update and as content controllers); 07 (reputation and markets, stored in the
+character and used by the audit); 08 (missions as content
+controllers,
 checkpoints); 10 (the front end that drives login, load and save); 12
 (formats of the records in section 4).
 
@@ -540,7 +547,11 @@ desktop program.
   single player?" in over a hundred places.
 - *Numbers tied to one processor family.* Timing, physics and message
   encoders depend on the precision mode of its floating-point unit.
-- *Saved games are text* behind a byte-wise obfuscation.
+- *Saved games are text files* behind a byte-wise obfuscation. An account
+  is a directory named by a hash of its identifier; a multiplayer save
+  goes to a temporary file that is then renamed.
+- *Names.* The original calls the authority "server" and the presentation
+  "client".
 - *Identity from the machine:* derived from the operating system's product
   identifier and the user name.
 - *Hosting needs a full install:* the host loads renderer and material
@@ -582,7 +593,7 @@ desktop program.
 Design: `design/adr/0002-single-player-world.md`, `0006-controller-bus.md`,
 `0007-server-world.md`; assessments `01-foundation.md`,
 `03-network-stack.md`, `04-server-content.md` (1, 2), `06-client-app.md`
-(2), `08-cross-cutting.md` (2, 4, 6); `design/facts.md` (F4, F5, F14);
+(2), `08-cross-cutting.md` (2, 4, 6); `design/facts.md` (F4, F14, F16);
 `design/decisions.md` T17 to T19 as hints.
 
 Data: `outdir/OutpostFrontier.ini`, `NeuronComponents.ini`,
@@ -594,7 +605,8 @@ Code, read in part: `include/rpc_iserver.h`, `rpc_iclient.h`,
 `common_server_controller.h`; `Server/IServerImpl.cpp`,
 `server_observer.cpp`, `server_classes.cpp`, `server_savegame.cpp`,
 `server_pub.cpp`, `server_chat.cpp`; `Common/common_remotephysics.cpp`,
-`common_deadreckonedvector.cpp`, `common_physicalsystem.cpp`; Client
+`common_deadreckonedvector.cpp`, `common_physicalsystem.cpp`,
+`common_ceqobj.cpp`; `IVP/ivp_physics/ivp_environment.cpp`; Client
 `client_frame_tick.cpp`, `client_objdb.cpp`, `client_gameobj.cpp`;
 `Content/Content.cpp`, `ContentPlayerState.h`, `PlayerState.cpp`;
 `OutpostServer/OutpostServer.cpp`.
