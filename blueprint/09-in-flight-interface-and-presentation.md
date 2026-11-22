@@ -225,9 +225,9 @@ and a lead marker.
 | Double-click a list row | Select, and switch the panel to the target view |
 
 Selecting sets the target on the player's ship and reports it to the
-authority, which fans it out (chapter 11). With a target selected, the
-player can step through its parts and external equipment, or click one
-in the target panel; guns then aim at that sub-target.
+authority (chapter 11). The player can then step through the target's
+parts and external equipment, or click one in the target panel; guns
+aim at that sub-target.
 
 **Learning the map by flying.** Once a second the presentation checks
 what the player has come near and updates the knowledge state, by the

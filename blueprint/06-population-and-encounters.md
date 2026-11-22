@@ -28,8 +28,8 @@ Three properties shape play:
 - **Combat is paced.** A fight is capped in size, and after a fight the
   population waits before sending anyone new.
 
-The population is disposable. No ambient NPC is saved; a ship that
-leaves the player's neighbourhood is deleted within seconds.
+No ambient NPC is saved; a ship that leaves the player's neighbourhood
+is deleted within seconds.
 
 ## 2. Concepts
 
@@ -137,8 +137,8 @@ gate zone has density 10 and respawn time 10: the chance is (10 − n)/10,
 certain when empty and one in two with five ships near. A major lane has
 6 and 15.
 
-Density thus means "ships near a player who is here", not "ships in the
-zone"; zones can be any size without changing the load.
+Density thus means "ships near a player who is here"; zones can be any
+size without changing the load.
 
 ### 3.4 Filling the neighbourhood on arrival
 
@@ -174,9 +174,9 @@ A group is refused if any of these holds:
 | Class caps | The zone caps how many ships of a class group may be near (authored: one patrol of each kind near a path; four lawful, four unlawful in an area). See open question 1. |
 | Placement | No arrival method finds a valid position (3.7). |
 
-Battle size and relief pace the game. Without the first a busy zone
-would feed a fight without end; without the second the next patrol would
-arrive while the player still collects loot.
+Without the first rule a busy zone would feed a fight without end;
+without the second the next patrol would arrive while the player still
+collects loot.
 
 A mission can also stop ambient attacks: the attitudes between ambient
 ships on one side and players and mission ships on the other are raised
@@ -269,9 +269,9 @@ boxed in.
 | No player in the system | Subtract 15 |
 | Budget below 0 | Remove the ship, unless (single player) the player has it targeted. A formation goes only as a whole. |
 
-A wingman only refills; the leader's clock decides for the group. Beyond
-3,900 m the drain is fifteenfold, so a group is gone 2 to 3 s after the
-player loses it. Removal is silent (inferred). NPCs never travel between
+A wingman only refills; the leader's clock decides. Beyond 3,900 m the
+drain is fifteenfold: a group is gone 2 to 3 s after the player loses
+it. Removal is silent (inferred). NPCs never travel between
 systems: one that enters a jump point leaves play, one arriving through
 a jump point is created there (inferred).
 
@@ -292,7 +292,7 @@ When a player enters a lane, the content controller may stage an ambush:
    then patrols the zone's path.
 
 The player drops out of the lane among ships of a faction with a reason
-to be there. Missions can switch lane attacks off (chapter 08).
+to be there.
 
 ### 3.10 Difficulty by place
 
@@ -331,9 +331,9 @@ A name has two parts, each a text pattern filled with text identifiers:
   "escort ‹n›" with rank and last name. Large ships are "‹ship type›
   ‹faction's ship prefix› ‹ship name›".
 
-Wingmen reuse the leader's designation. Names, designations and ship
-names are reserved while their owner lives and released 30 s later, so
-living NPCs do not share a name while the pool lasts.
+Wingmen reuse the leader's designation. Names are reserved while their
+owner lives and released 30 s later, so living NPCs do not share a name
+while the pool lasts.
 
 ### 3.12 Radio chatter
 
@@ -430,8 +430,8 @@ example_lane_freighter
 
 The files form a grid: area, path and lane variants of trade
 (freighter, transport, armoured, smuggler, prisoner transport), patrol
-(lawful, unlawful, bounty hunters), assault, scout, defend, scavenger,
-repair and lifting ships.
+(lawful, unlawful, bounty hunters), assault, scout, defend, scavenger
+and service ships.
 
 **NPC ship definition** (404 shared): nickname, ship archetype, loadout,
 pilot, state graph (fighter for three quarters; transport, gunboat,
@@ -485,9 +485,8 @@ controller and belong to chapters 08 and 10.
 - Population follows players, not zones. This makes the cost independent
   of world size and makes saving NPCs unnecessary.
 - Indirection through class and level. Zone → encounter → class group →
-  faction → NPC ship definition lets about 40 encounter files and 400 NPC
-  ship definitions populate 3,800 zones for 55 factions. Encounters written
-  per faction and level would be two orders of magnitude more data.
+  faction → NPC ship definition lets about 40 encounter files and 400
+  NPC ship definitions populate 3,800 zones for 55 factions.
 - Give every group an itinerary with a destination. Traffic that docks,
   launches and rides lanes is what makes stations look like stations.
 - Pace combat with a battle cap and a relief time.
@@ -495,7 +494,7 @@ controller and belong to chapters 08 and 10.
 
 **Feel.** Cargo scans, lane attacks, dock chatter, idle talk, named
 pilots with ranks, weaker escorts, populating the place ahead. Each can
-be dropped singly; together they make the world seem alive.
+be dropped singly.
 
 **Accidents of the era.** Zone roles recognised by nickname; unread
 tool fields in zone records; chances that do not sum to one;
@@ -505,9 +504,9 @@ single player shows the whole system.
 
 **Simplifications.** One density per system loses the contrast between
 hubs and open space. Scaling to the player instead of levels loses the
-geography of danger, on which economy and campaign lean (chapters 07,
-08). Wandering instead of itineraries loses dock and lane traffic.
-"Delete beyond a radius" is an adequate lifetime rule.
+geography of danger, on which economy and campaign lean. Wandering
+instead of itineraries loses dock and lane traffic. "Delete beyond a
+radius" is an adequate lifetime rule.
 
 ## 7. Open questions
 
@@ -521,10 +520,9 @@ geography of danger, on which economy and campaign lean (chapters 07,
 3. **Unread fields.** Zone level, population type, raw faction weights,
    lane identifiers on corridors, "lane down" percentages and a
    difficulty level on solars are in the data and read by no code found.
-4. Not mapped: which numbered chatter category is which exchange; a
-   ship flag that excludes some NPCs from the density count; how
-   factions are fixed for the 60 encounters declared with a faction at
-   system level.
+4. Not mapped: which chatter category is which exchange; a ship flag
+   that excludes some NPCs from the density count; the 60 encounters
+   declared with a faction at system level.
 
 ## 8. Basis
 
