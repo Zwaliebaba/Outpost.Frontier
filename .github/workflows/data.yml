@@ -556,8 +556,8 @@ jobs:
           if-no-files-found: ignore
       - name: Repeat the oracle dump's last output
         # The dump step's and the comparison step's output sit in the middle of a long
-        # log; their ends are repeated here, at the log's tail, so a failure can be read
-        # from them.
+        # log; their ends, and the start of the Content and server summaries, are repeated
+        # here, at the log's tail, so a failure can be read from them.
         if: always()
         shell: pwsh
         run: |
@@ -565,3 +565,16 @@ jobs:
           if (Test-Path $log) { Get-Content $log -Tail 80 } else { "the oracle dump did not run" }
           $compare = "$env:RUNNER_TEMP\compare-port.log"
           if (Test-Path $compare) { "--- Compare the port with the oracle (end) ---"; Get-Content $compare -Tail 150 }
+          # The start of each Content and server comparison's summary: what was compared and
+          # its first differences, readable from the log's tail on a green run as well.
+          $summaries = @(
+            "$env:RUNNER_TEMP\outpost-oracle\rust-content.txt",
+            "$env:RUNNER_TEMP\outpost-oracle\rust-content-loaders.txt",
+            "$env:RUNNER_TEMP\outpost-sim-summaries\rust-system-loads.txt",
+            "$env:RUNNER_TEMP\outpost-sim-summaries\rust-content-systems.txt",
+            "$env:RUNNER_TEMP\outpost-sim-summaries\rust-replication.txt"
+          )
+          foreach ($summary in $summaries) {
+            if (Test-Path $summary) { "--- $(Split-Path $summary -Leaf) (start) ---"; Get-Content $summary -TotalCount 40 }
+            else { "--- $(Split-Path $summary -Leaf): not written ---" }
+          }
