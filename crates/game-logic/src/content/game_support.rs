@@ -20,7 +20,8 @@
 //!   object on `SpaceEnter` (`OnPlayerLaunch`); the lane ships of the
 //!   system records on `TradelaneEnter` and `TradelaneExit`; `LoadGame`
 //!   (the base records, the gate locks, the system records and the system
-//!   paths) and `SaveGame` (the gate locks).
+//!   paths) and `SaveGame` (the gate locks); the best path over the system
+//!   records' lanes ([`super::space_paths`]) and the player's statistics.
 //!
 //! A base's bar characters on `BaseEnter` and `BaseExit`
 //! (`FContentBase::OnPlayerEnter`, `OnPlayerExit`) are BaseSupport's run
@@ -31,9 +32,11 @@ use std::sync::Arc;
 
 use game_sim::ai::state_graph::GraphType;
 use neuron_core::ini::IniReader;
+use neuron_core::math::Vector;
 use neuron_server::controller::ControllerId;
 
 use super::players::{self, PlayerShip, PlayerState};
+use super::space_paths::{self, NnPathLeg};
 use super::{ContentTables, Instance, bases, data_source, router::Router, systems};
 use crate::api;
 use crate::api::ai::{BaseOp, CallbackArg, Op, SetPersonalityParams};
@@ -179,8 +182,300 @@ pub fn handle_message(cx: &mut Cx<'_>, _id: ControllerId, message: &mut Controll
             let player = *player;
             player_launch(cx, player);
         }
+        ControllerMessage::RequestPlayerStats { player } => {
+            let player = *player;
+            player_stats(cx, player);
+        }
+        ControllerMessage::RequestBestPath { player, words } => {
+            let (player, words) = (*player, *words);
+            best_path(cx, player, &words);
+        }
         _ => {}
     }
+}
+
+/// One point of the best path's reply (`FBestPathPoint`, 0x14 bytes).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct BestPathPoint {
+    position: Vector,
+    object: u32,
+    system: u32,
+}
+
+/// `AppendLegPoints(Points, &Index, &Last, Leg, SystemId)` (`:155-177`):
+/// the leg's start point unless it equals the previous end point (any
+/// unequal or unordered component adds it), dropped again when it is the
+/// first point and has no object; then its end point. The index of the last
+/// point written.
+fn append_leg_points(
+    points: &mut Vec<BestPathPoint>,
+    last: &mut Vector,
+    leg: &NnPathLeg,
+    system: u32,
+) -> usize {
+    let a = leg.point_a;
+    if !(last.x == a.x && last.y == a.y && last.z == a.z)
+        && (!points.is_empty() || leg.object_a != 0)
+    {
+        points.push(BestPathPoint {
+            position: a,
+            object: leg.object_a,
+            system,
+        });
+    }
+    points.push(BestPathPoint {
+        position: leg.point_b,
+        object: leg.object_b,
+        system,
+    });
+    *last = leg.point_b;
+    points.len() - 1
+}
+
+/// The reply block of `pub::Player::ReturnBestPath`: the 0xc-byte header
+/// (the client's cookie, the point count, the flag byte and three zero
+/// bytes), then the points, little-endian.
+fn best_path_block(cookie: u32, flag: bool, points: &[BestPathPoint]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(12 + points.len() * 20);
+    out.extend_from_slice(&cookie.to_le_bytes());
+    out.extend_from_slice(&(points.len() as i32).to_le_bytes());
+    out.extend_from_slice(&[u8::from(flag), 0, 0, 0]);
+    for p in points {
+        for v in [p.position.x, p.position.y, p.position.z] {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        out.extend_from_slice(&p.object.to_le_bytes());
+        out.extend_from_slice(&p.system.to_le_bytes());
+    }
+    out
+}
+
+/// The cap of the best path across systems: the reply's 99 points.
+const BEST_PATH_MAX_POINTS: usize = 0x63;
+
+/// `OnBestPathRequest` (`:179-413`), the `RequestBestPath` case. The
+/// request's words are the client's cookie, the start system and point,
+/// the end point and the end system.
+///
+/// - **One system**: the system record (none: no reply) is loaded for the
+///   request (`Load(false)`), the trip planned over its lanes with a range
+///   of 500 ([`space_paths::build_best_path_legs`], the straight flight
+///   when there is no path), each leg's points appended, the flag set when
+///   there was no path, and the record released.
+/// - **Across systems**: the gate path (type 1) and the gates locked for
+///   the player; a route of fewer than two systems answers no points with
+///   the flag. Otherwise each system of the route is loaded in turn, entered
+///   at the request's start or the jump in from the previous system (a
+///   locked entry gate fails), left at the request's end or the jump out to
+///   the next, planned with a range of 1 ([`space_paths::build_nn_path`],
+///   no path fails and the walk goes on), its points appended while fewer
+///   than 99, the last one written taking the exit connection as its
+///   object, and released. A failure sends no points. A failure at a
+///   locked gate, or after one, breaks the walk before the record is
+///   released, as the C++ does.
+fn best_path(cx: &mut Cx<'_>, player: u32, words: &[u32; 9]) {
+    let cookie = words[0];
+    let from_system = words[1];
+    let vector = |i: usize| {
+        Vector::new(
+            f32::from_bits(words[i]),
+            f32::from_bits(words[i + 1]),
+            f32::from_bits(words[i + 2]),
+        )
+    };
+    let (from, to) = (vector(2), vector(5));
+    let to_system = words[8];
+    if from_system == to_system {
+        if !cx.logic.content.state.systems.contains_key(&from_system) {
+            return;
+        }
+        systems::load(cx, from_system, false);
+        let Some(record) = cx.logic.content.state.systems.get(&from_system) else {
+            return;
+        };
+        let (path, legs) = space_paths::build_best_path_legs(record, from, to, 500.0);
+        let mut points = Vec::new();
+        let mut last = Vector::ZERO;
+        for leg in &legs {
+            append_leg_points(&mut points, &mut last, leg, from_system);
+        }
+        let block = best_path_block(cookie, !path, &points);
+        api::player::return_best_path(cx, player, &block);
+        if let Some(record) = cx.logic.content.state.systems.get_mut(&from_system) {
+            systems::unload(record);
+        }
+        return;
+    }
+    let paths = std::mem::take(&mut cx.logic.content.state.system_paths);
+    let take = super::NoDispatch::begin(&cx.logic.content);
+    let route = paths.path(from_system, to_system, 1);
+    let locked = cx.logic.content.state.gate_locks.collect(player);
+    if route.len() < 2 {
+        take.end(&cx.logic.content);
+        cx.logic.content.state.system_paths = paths;
+        let block = best_path_block(cookie, true, &[]);
+        api::player::return_best_path(cx, player, &block);
+        return;
+    }
+    let mut current = from_system;
+    let mut previous = current;
+    let mut next_index = 1;
+    let mut points: Vec<BestPathPoint> = Vec::new();
+    let mut failed = false;
+    loop {
+        let next = if next_index < route.len() {
+            next_index += 1;
+            route[next_index - 1]
+        } else {
+            to_system
+        };
+        if !cx.logic.content.state.systems.contains_key(&current) {
+            failed = true;
+            break;
+        }
+        systems::load(cx, current, false);
+        let start = if current == from_system {
+            from
+        } else {
+            let entry =
+                super::system_paths::next_hop_connection_object(cx, &paths, current, previous, 1);
+            let position = super::system_paths::connection_position(cx, current, entry)
+                .unwrap_or(Vector::ZERO);
+            if !locked.is_empty() {
+                if locked.contains(&entry) {
+                    failed = true;
+                    break;
+                }
+                if failed {
+                    break;
+                }
+            }
+            position
+        };
+        let mut exit = 0;
+        let mut exit_is_connection = false;
+        let end = if current == to_system {
+            to
+        } else {
+            exit = super::system_paths::next_hop_connection_object(cx, &paths, current, next, 1);
+            exit_is_connection = true;
+            super::system_paths::connection_position(cx, current, exit).unwrap_or(Vector::ZERO)
+        };
+        if let Some(record) = cx.logic.content.state.systems.get(&current) {
+            let (path, legs) = space_paths::build_nn_path(record, start, end, 1.0);
+            if path {
+                let mut last_point = None;
+                let mut last = Vector::ZERO;
+                for leg in &legs {
+                    if points.len() >= BEST_PATH_MAX_POINTS {
+                        break;
+                    }
+                    last_point = Some(append_leg_points(&mut points, &mut last, leg, current));
+                }
+                if let Some(i) = last_point
+                    && exit_is_connection
+                {
+                    points[i].object = exit;
+                }
+            } else {
+                failed = true;
+            }
+        }
+        if let Some(record) = cx.logic.content.state.systems.get_mut(&current) {
+            systems::unload(record);
+        }
+        if current == next {
+            break;
+        }
+        previous = current;
+        current = next;
+        if points.len() >= BEST_PATH_MAX_POINTS {
+            break;
+        }
+    }
+    take.end(&cx.logic.content);
+    cx.logic.content.state.system_paths = paths;
+    if failed {
+        points.clear();
+    }
+    let block = best_path_block(cookie, failed, &points);
+    api::player::return_best_path(cx, player, &block);
+}
+
+/// `OnPlayerStatsRequest` (`:478-541`), the `RequestPlayerStats` case: for
+/// a player with a state, `pub::Player::ReturnPlayerStats` with the 0x34-byte
+/// header (the random missions completed, of type 7 and 0 to 5, aborted
+/// and failed of types 0 to 5; the cash earned and time played as `float`s
+/// of their `ftol`; the systems, bases and holes visited; the count of ship
+/// types killed; the rank, in single player the player's, else `ftol` of
+/// the vibe's; the worth, cash plus `ftol` of the asset value; the money to
+/// the next rank; the group count), the `{ship type, count}` pairs in key
+/// order, then every faction's `{group, feeling}` of the player's vibe (0
+/// when the call fails), little-endian.
+fn player_stats(cx: &mut Cx<'_>, player: u32) {
+    let Some(state) = cx.logic.content.state.players.get(&player).cloned() else {
+        return;
+    };
+    let vibe = api::player::rep(cx, player).unwrap_or(-1);
+    let mut groups = Vec::new();
+    api::reputation::enumerate_groups(cx, |group| {
+        groups.push(group);
+        true
+    });
+    let feelings: Vec<(u32, f32)> = groups
+        .into_iter()
+        .map(|g| {
+            (
+                g,
+                api::reputation::group_feelings_towards(cx, vibe, g).unwrap_or(0.0),
+            )
+        })
+        .collect();
+    let stats = &state.stats;
+    let count =
+        |map: &std::collections::BTreeMap<u8, i32>, kind: u8| map.get(&kind).copied().unwrap_or(0);
+    let mut completed = count(&stats.random_missions_completed, 7);
+    let (mut aborted, mut failed) = (0i32, 0i32);
+    for kind in 0..6 {
+        completed = completed.wrapping_add(count(&stats.random_missions_completed, kind));
+        aborted = aborted.wrapping_add(count(&stats.random_missions_aborted, kind));
+        failed = failed.wrapping_add(count(&stats.random_missions_failed, kind));
+    }
+    let rank = if api::misc::single_player(cx) {
+        api::player::rank(cx, player).unwrap_or(0)
+    } else {
+        let rank = api::reputation::rank(cx, vibe).unwrap_or(0.0);
+        neuron_core::num::trunc_to_i32(f64::from(rank))
+    };
+    let cash = api::player::inspect_cash(cx, player).unwrap_or(0);
+    let asset = api::player::asset_value(cx, player).unwrap_or(0.0);
+    let worth = cash.wrapping_add(neuron_core::num::trunc_to_i32(f64::from(asset)));
+    let money = api::player::money_needed_to_next_rank(cx, player).unwrap_or(0);
+    let total = |v: f32| neuron_core::num::trunc_to_i32(f64::from(v)) as f32;
+    let mut block = Vec::new();
+    let mut int = |v: i32| block.extend_from_slice(&v.to_le_bytes());
+    int(completed);
+    int(aborted);
+    int(failed);
+    int(total(stats.total_cash_earned).to_bits().cast_signed());
+    int(total(stats.total_time_played).to_bits().cast_signed());
+    int(stats.systems_visited.len() as i32);
+    int(stats.bases_visited.len() as i32);
+    int(stats.holes_visited.len() as i32);
+    int(stats.ship_types_killed.len() as i32);
+    int(rank);
+    int(worth);
+    int(money);
+    int(feelings.len() as i32);
+    for (&ship, &kills) in &stats.ship_types_killed {
+        int(ship.cast_signed());
+        int(kills);
+    }
+    for &(group, feeling) in &feelings {
+        int(group.cast_signed());
+        int(feeling.to_bits().cast_signed());
+    }
+    api::player::return_player_stats(cx, player, &block);
 }
 
 /// `FContentBase::Load(nullptr)` of the base's record: on the first load,

@@ -41,7 +41,8 @@
 //! [`encounter_params`], [`zones`], [`patrol_paths`] and [`cargo`]),
 //! GameSupport's run time (P3.4d: the player states of [`players`], the
 //! system records of [`systems`] with their solar NPCs ([`solar_npcs`]),
-//! the gate locks of [`gate_locks`], `LoadGame` and `SaveGame`), the mission and story constructors (P3.5), SpaceSupport's
+//! the gate locks of [`gate_locks`], `LoadGame` and `SaveGame`, the space
+//! paths of [`space_paths`]), the mission and story constructors (P3.5), SpaceSupport's
 //! other steps, the populators and BaseSupport (P3.6) and the random
 //! missions (P3.7) come with their packages.
 
@@ -68,6 +69,8 @@ pub mod random_mission;
 pub mod router;
 /// The solar NPCs (TU24; P3.4d).
 pub mod solar_npcs;
+/// The space paths (TU53 `SpacePaths.cpp`; P3.4d).
+pub mod space_paths;
 pub mod space_support;
 pub mod story;
 /// The system paths and their `[SystemConnections]` writer (TU41; P3.4c).

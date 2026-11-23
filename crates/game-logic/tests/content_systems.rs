@@ -519,3 +519,193 @@ fn game_support_keeps_the_player_states() {
     assert!(text.starts_with("[locked_gates]\nnpc_locked_gate = "));
     assert!(text.contains("\nlocked_gate = "));
 }
+
+/// A sink the test can read while the server holds it.
+#[derive(Clone, Default)]
+struct Shared(std::rc::Rc<std::cell::RefCell<Vec<(u32, game_sim::protocol::ToClient)>>>);
+
+impl game_logic::server::ClientSink for Shared {
+    fn send(&mut self, client: u32, message: game_sim::protocol::ToClient) {
+        self.0.borrow_mut().push((client, message));
+    }
+}
+
+impl Shared {
+    /// The data of every `REQUEST_BEST_PATH` (`stats` false) or
+    /// `REQUEST_PLAYER_STATS` sent so far.
+    fn blocks(&self, stats: bool) -> Vec<Vec<u8>> {
+        use game_sim::protocol::ToClient;
+        use game_sim::protocol::common::CommonMessage;
+        self.0
+            .borrow()
+            .iter()
+            .filter_map(|(_, m)| match m {
+                ToClient::Common(CommonMessage::RequestBestPath(p)) if !stats => {
+                    Some(p.data.clone())
+                }
+                ToClient::Common(CommonMessage::RequestPlayerStats(p)) if stats => {
+                    Some(p.data.clone())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+fn word(data: &[u8], index: usize) -> u32 {
+    u32::from_le_bytes([
+        data[index * 4],
+        data[index * 4 + 1],
+        data[index * 4 + 2],
+        data[index * 4 + 3],
+    ])
+}
+
+fn position(cx: &Cx<'_>, nickname: &str) -> Vector {
+    let h = cx
+        .world
+        .find(create_id(nickname.as_bytes()))
+        .expect("the object");
+    cx.world.get(h).expect("the object").engine.position
+}
+
+fn request_words(
+    cookie: u32,
+    from_system: u32,
+    from: Vector,
+    to: Vector,
+    to_system: u32,
+) -> [u32; 9] {
+    [
+        cookie,
+        from_system,
+        from.x.to_bits(),
+        from.y.to_bits(),
+        from.z.to_bits(),
+        to.x.to_bits(),
+        to.y.to_bits(),
+        to.z.to_bits(),
+        to_system,
+    ]
+}
+
+/// GameSupport's best path in he01 (P3.4d, `OnBestPathRequest` over the
+/// space paths): from beside ring 16 to beyond ring 20 the reply joins the
+/// lane at a ring and ends at the destination; the record's load for the
+/// request is released. A trip of 100 m answers no path.
+#[test]
+fn the_best_path_in_he01_takes_the_lane() {
+    let Some(mut world) = world() else {
+        println!("outdir/ is missing: no best path");
+        return;
+    };
+    let sink = Shared::default();
+    let mut logic = Logic::new(Box::new(sink.clone()), 16, true);
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    start(&mut cx);
+    world::initialize(&mut cx);
+    let he01 = create_id(b"he01");
+    world::load(&mut cx, he01);
+    let r16 = position(&cx, "he01_Trade_Lane_Ring_16");
+    let r20 = position(&cx, "he01_Trade_Lane_Ring_20");
+    let from = Vector::new(r16.x + 300.0, r16.y, r16.z + 300.0);
+    let along = Vector::new(r20.x - r16.x, r20.y - r16.y, r20.z - r16.z);
+    let to = Vector::new(r20.x + along.x * 0.2, r20.y, r20.z + along.z * 0.2);
+    let mut request = ControllerMessage::RequestBestPath {
+        player: 1,
+        words: request_words(0x1234, he01, from, to, he01),
+    };
+    let _ = cx.dispatch(controller::ControllerId::BROADCAST, &mut request);
+    let blocks = sink.blocks(false);
+    assert_eq!(blocks.len(), 1);
+    let data = &blocks[0];
+    let count = word(data, 1) as usize;
+    assert_eq!(word(data, 0), 0x1234);
+    assert_eq!(data[8], 0, "a path was found");
+    assert_eq!(data.len(), 12 + count * 20);
+    assert!(count >= 2);
+    // The last point is the destination, in he01, without an object.
+    let last = 12 + (count - 1) * 20;
+    let point = |at: usize| {
+        Vector::new(
+            f32::from_bits(word(data, at / 4)),
+            f32::from_bits(word(data, at / 4 + 1)),
+            f32::from_bits(word(data, at / 4 + 2)),
+        )
+    };
+    assert_eq!(point(last), to);
+    assert_eq!(word(data, last / 4 + 4), he01);
+    // The first point is a ring of the lane.
+    let first_object = word(data, 12 / 4 + 3);
+    let record = &cx.logic.content.state.systems[&he01];
+    assert!(record.lane_of_ring(first_object).is_some());
+    assert_eq!(record.load_count, 1);
+    // 100 m: no path, the straight leg with the flag.
+    let near = Vector::new(from.x, from.y, from.z + 100.0);
+    let mut request = ControllerMessage::RequestBestPath {
+        player: 1,
+        words: request_words(7, he01, from, near, he01),
+    };
+    let _ = cx.dispatch(controller::ControllerId::BROADCAST, &mut request);
+    let blocks = sink.blocks(false);
+    let data = &blocks[1];
+    assert_eq!((word(data, 0), data[8]), (7, 1));
+    // Across systems: he01 to he02 loads and releases he02's record.
+    let he02 = create_id(b"he02");
+    let mut request = ControllerMessage::RequestBestPath {
+        player: 1,
+        words: request_words(9, he01, from, Vector::ZERO, he02),
+    };
+    let _ = cx.dispatch(controller::ControllerId::BROADCAST, &mut request);
+    let blocks = sink.blocks(false);
+    assert_eq!(word(&blocks[2], 0), 9);
+    assert_eq!(cx.logic.content.state.systems[&he02].load_count, 0);
+    assert_eq!(cx.logic.content.state.systems[&he01].load_count, 1);
+}
+
+/// GameSupport's statistics (`OnPlayerStatsRequest`): the header, the
+/// ship types killed and one feeling per faction.
+#[test]
+fn player_stats_list_every_faction() {
+    let Some(mut world) = world() else {
+        println!("outdir/ is missing: no player stats");
+        return;
+    };
+    let sink = Shared::default();
+    let mut logic = Logic::new(Box::new(sink.clone()), 16, true);
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    start(&mut cx);
+    let mut reader = IniReader::new();
+    reader.open_memory(
+        b"[mPlayer]\nship_type_killed = 9, 2\nrm_completed = 7, 1\nrm_completed = 2, 3\n\
+          rm_failed = 1, 4\ntotal_cash_earned = 99.75\nsys_visited = 5\n",
+    );
+    let mut load = ControllerMessage::PlayerLoad {
+        player: 2,
+        reader: &mut reader,
+    };
+    let _ = cx.dispatch(controller::ControllerId::BROADCAST, &mut load);
+    let mut request = ControllerMessage::RequestPlayerStats { player: 2 };
+    let _ = cx.dispatch(controller::ControllerId::BROADCAST, &mut request);
+    let groups = cx.world.reputation().groups().count();
+    let blocks = sink.blocks(true);
+    assert_eq!(blocks.len(), 1);
+    let data = &blocks[0];
+    assert_eq!(data.len(), 0x34 + 8 + groups * 8);
+    assert_eq!((word(data, 0), word(data, 1), word(data, 2)), (4, 0, 4));
+    assert_eq!(f32::from_bits(word(data, 3)), 99.0);
+    assert_eq!(word(data, 5), 1);
+    assert_eq!(word(data, 8), 1);
+    assert_eq!(word(data, 12) as usize, groups);
+    assert_eq!((word(data, 13), word(data, 14)), (9, 2));
+    // No state, no reply.
+    let mut request = ControllerMessage::RequestPlayerStats { player: 5 };
+    let _ = cx.dispatch(controller::ControllerId::BROADCAST, &mut request);
+    assert_eq!(sink.blocks(true).len(), 1);
+}
