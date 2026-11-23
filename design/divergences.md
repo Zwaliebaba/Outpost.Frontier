@@ -327,7 +327,10 @@ With P3.4c (`game-logic::content::bases`, `system_paths`, `npc_desc`,
 proposed; the owner accepted them on 2026-11-23.
 
 With P3.4d (`game-logic::content::players`, `gate_locks`, `systems`,
-`solar_npcs`, `game_support` and `space_support`) D800 to D804 were proposed.
+`solar_npcs`, `game_support` and `space_support`) D800 to D804 were proposed;
+the owner accepted them on 2026-11-23, D802 as a temporary row that P3.6d's
+zone validation removes and D803 as a temporary row that P3.6c's solar
+personalities remove.
 P3.4d's system records give the named solars their factions on
 `SystemLoaded`, so the replication comparison judges the affiliation again
 and D761 was removed (the ID is not reused); its player states narrowed
