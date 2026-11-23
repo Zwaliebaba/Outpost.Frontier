@@ -769,7 +769,7 @@ hex digits of their bits.
 | `content_encounter_formations.txt` | `system params formation` (the index) `feeling reroll mask f0c value faction formation_id by_class behavior arrival` (nine digits) `distance times simultaneous f78 longevity ships` (`classes+…/npc_arch/pilot_job/min/max/make+…/offset`, `;`-separated) |
 | `content_ship_line_factions.txt` | `system params formation ship factions` (`GetShipLineFactions`) `archs` (`group:arch+…` from `GetFactionShipLineArchs`, `;`-separated) |
 | `content_zones.txt` | `system zone nickname path` (an index of the system's paths, −1 for none) `unpopulated tradelane lawful unlawful vignette density repop keys attack restrictions` (`count:type`) `f1c f30 additive battle relief encounters` (`nickname/zone/difficulty/chance/group:weight+…/class+…`, every ship line's classes, `;`-separated) |
-| `content_patrol_paths.txt` | `system path` (the index) `label usage eligible loop points` (`x:y:z`) `zones` (`zone:step+…`) `objects` (`id:point+…`) |
+| `content_patrol_paths.txt` | `system path` (the index) `label usage eligible loop points` (`x:y:z`) `zones` (`zone:step+…`) `objects` (`id:point+…`). The points are Tier B (decision T11): they are the zones' ends moved along the zone's orientation, which goes through `FSIN` and `FCOS`, so they are compared within game-sim's bound for the orientation (4 ulps or 1e-7); every other field is compared as text |
 
 ## `spread.jsonl` (`--runs N`)
 

@@ -542,8 +542,71 @@ fn outdir_loaded() -> Option<Loaded> {
     load(&outdir, &outdir.join("data")).map(|(l, _)| l)
 }
 
-/// The differences of one table from the oracle's file.
-fn compare(table: &str, oracle: &str, rendered: &[String]) -> Vec<String> {
+/// The bound of the Tier B fields (decision T11): a zone's orientation
+/// goes through `FSIN` and `FCOS` in the reference and through Rust's
+/// `sin` and `cos` in the port, so game-sim's data dump compares it within
+/// this bound (`crates/game-sim/tests/data_dump.rs`). A patrol path's
+/// points are its zones' ends, moved along that orientation, and are
+/// compared within the same bound.
+const POINT_ULPS: u32 = 4;
+const POINT_ABSOLUTE: f32 = 1.0e-7;
+
+/// Two float bit patterns within [`POINT_ULPS`] or [`POINT_ABSOLUTE`].
+fn within_bound(a: u32, b: u32) -> bool {
+    let (x, y) = (f32::from_bits(a), f32::from_bits(b));
+    if !x.is_finite() || !y.is_finite() {
+        return a == b;
+    }
+    if (f64::from(x) - f64::from(y)).abs() <= f64::from(POINT_ABSOLUTE) {
+        return true;
+    }
+    // Ordered integers of the two floats; equal signs only.
+    let order = |v: u32| {
+        if v & 0x8000_0000 != 0 {
+            -i64::from(v & 0x7fff_ffff)
+        } else {
+            i64::from(v)
+        }
+    };
+    (order(a) - order(b)).unsigned_abs() <= u64::from(POINT_ULPS)
+}
+
+/// Whether two `patrol_paths` lines are equal but for their points, and
+/// those within the Tier B bound.
+fn paths_within_bound(oracle: &str, rust: &str) -> bool {
+    let (w, g): (Vec<&str>, Vec<&str>) = (oracle.split(' ').collect(), rust.split(' ').collect());
+    if w.len() != g.len() {
+        return false;
+    }
+    let floats = |field: &str| -> Option<Vec<u32>> {
+        field
+            .strip_prefix("points=")?
+            .split([',', ':'])
+            .filter(|t| !t.is_empty())
+            .map(|t| u32::from_str_radix(t, 16).ok())
+            .collect()
+    };
+    w.iter().zip(&g).all(|(a, b)| {
+        if a == b {
+            return true;
+        }
+        match (floats(a), floats(b)) {
+            (Some(x), Some(y)) => {
+                x.len() == y.len() && x.iter().zip(&y).all(|(p, q)| within_bound(*p, *q))
+            }
+            _ => false,
+        }
+    })
+}
+
+/// The differences of one table from the oracle's file; a line that
+/// differs only within the Tier B bound is listed in `bounded`.
+fn compare(
+    table: &str,
+    oracle: &str,
+    rendered: &[String],
+    bounded: &mut Vec<String>,
+) -> Vec<String> {
     let mut problems = Vec::new();
     let want: Vec<&str> = oracle.lines().collect();
     if want.len() != rendered.len() {
@@ -556,6 +619,15 @@ fn compare(table: &str, oracle: &str, rendered: &[String]) -> Vec<String> {
     let cut = |s: &str| s.chars().take(300).collect::<String>();
     for (i, (w, g)) in want.iter().zip(rendered).enumerate() {
         if *w != g {
+            if table == "patrol_paths" && paths_within_bound(w, g) {
+                bounded.push(format!(
+                    "{table} line {} (within the Tier B bound):\n  oracle: {}\n  rust:   {}",
+                    i + 1,
+                    cut(w),
+                    cut(g)
+                ));
+                continue;
+            }
             problems.push(format!(
                 "{table} line {}:\n  oracle: {}\n  rust:   {}",
                 i + 1,
@@ -594,11 +666,17 @@ fn data_dump_content_loaders() {
     };
     let dir = oracle.join("content");
     let mut problems = Vec::new();
+    let mut bounded = Vec::new();
     for (table, lines) in TABLES.iter().zip(&rendered) {
         let _ = writeln!(summary, "  {table}: {} lines", lines.len());
         let path = dir.join(format!("content_{table}.txt"));
         match std::fs::read(&path) {
-            Ok(bytes) => problems.extend(compare(table, &String::from_utf8_lossy(&bytes), lines)),
+            Ok(bytes) => problems.extend(compare(
+                table,
+                &String::from_utf8_lossy(&bytes),
+                lines,
+                &mut bounded,
+            )),
             Err(e) => problems.push(format!("{}: {e}", path.display())),
         }
     }
@@ -608,6 +686,14 @@ fn data_dump_content_loaders() {
         rendered.len(),
         problems.len()
     );
+    let _ = writeln!(
+        summary,
+        "{} lines equal within the Tier B bound ({POINT_ULPS} ulps or {POINT_ABSOLUTE:e})",
+        bounded.len()
+    );
+    for b in bounded.iter().take(5) {
+        let _ = writeln!(summary, "{b}");
+    }
     for p in problems.iter().take(25) {
         let _ = writeln!(summary, "{p}");
     }
@@ -1102,4 +1188,21 @@ fn group(cx: &Cx<'_>, name: &str) -> u32 {
 
 fn id_of(name: &str) -> u32 {
     create_id(name.as_bytes())
+}
+
+#[test]
+fn the_point_bound_takes_the_zone_orientation_case() {
+    // patrol_paths line 286 of the first CI run: y of a loop's ends, 8 ulps
+    // apart but 4.5e-18 in value, because the zone's orientation element
+    // [1][1] (about -2.8e-15) is the residue of a cancellation of sines.
+    let oracle = "system=1 path=18 label=2 usage=1 eligible=1 loop=1 points=c729fb00:2d28de0b:462b8545 zones=21";
+    let rust = "system=1 path=18 label=2 usage=1 eligible=1 loop=1 points=c729fb00:2d28de03:462b8545 zones=21";
+    assert!(paths_within_bound(oracle, rust));
+    // A difference outside the bound, or in any other field, is not.
+    let far = "system=1 path=18 label=2 usage=1 eligible=1 loop=1 points=c729fb10:2d28de0b:462b8545 zones=21";
+    assert!(!paths_within_bound(oracle, far));
+    let other = "system=1 path=18 label=2 usage=1 eligible=1 loop=0 points=c729fb00:2d28de03:462b8545 zones=21";
+    assert!(!paths_within_bound(oracle, other));
+    assert!(within_bound(0x3f80_0000, 0x3f80_0004));
+    assert!(!within_bound(0x3f80_0000, 0x3f80_0005));
 }
