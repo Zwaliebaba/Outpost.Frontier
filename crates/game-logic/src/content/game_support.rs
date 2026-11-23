@@ -48,6 +48,9 @@ pub fn construct(cx: &mut Cx<'_>, id: ControllerId) -> Instance {
 /// (`GMessageRouter` cleared by the router's base destructor).
 pub fn destruct(cx: &mut Cx<'_>, _id: ControllerId) {
     cx.logic.content.tables = Arc::new(ContentTables::default());
+    // `UnloadContentGameTables` also empties the base records
+    // (`UnloadContentBases`, P3.4c) and the system records (P3.4d).
+    cx.logic.content.state.bases.clear();
     cx.logic.content.state.router = None;
 }
 

@@ -107,7 +107,8 @@ jobs:
           # P3.4b (decision record 0008 point 5): Content's static tables as a multiplayer
           # start-up leaves them (CppSource/Oracle/content_tables.txt, Content.dll's
           # OracleDumpContentTables), one content_<table>.txt each, into outpost-oracle\content,
-          # which game-logic's data_dump_content_tables reads.
+          # which game-logic's data_dump_content_tables reads. P3.4c (record 0008 point 10)
+          # adds the other loaders' twelve tables to the same run (data_dump_content_loaders).
           $content = "$env:RUNNER_TEMP\outpost-oracle\content"
           & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\content_tables.txt" $content
           $code = $LASTEXITCODE
@@ -407,18 +408,22 @@ jobs:
         run: |
           $env:OUTPOST_DATA_DIR = "$env:RUNNER_TEMP\outpost-data"
           $env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-oracle"
-          cargo test --locked --release -p neuron-core --tests -- data_dump_ --nocapture
+          # The output is kept for the last step, which repeats its end where the job
+          # log's tail shows it (the log tool reads only the tail of a long log).
+          $log = "$env:RUNNER_TEMP\compare-port.log"
+          cmd /c "cargo test --locked --release -p neuron-core --tests -- data_dump_ --nocapture 2>&1" | Tee-Object -FilePath $log -Append
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The game databases of work package P2.1 (crates/game-sim/tests/data_dump.rs).
-          cargo test --locked --release -p game-sim --tests -- data_dump_ --nocapture
+          cmd /c "cargo test --locked --release -p game-sim --tests -- data_dump_ --nocapture 2>&1" | Tee-Object -FilePath $log -Append
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The scene scripts of work package P4.14 (crates/neuron-client/tests/data_dump.rs).
-          cargo test --locked --release -p neuron-client --tests -- data_dump_ --nocapture
+          cmd /c "cargo test --locked --release -p neuron-client --tests -- data_dump_ --nocapture 2>&1" | Tee-Object -FilePath $log -Append
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The character save reader of work package P3.2 (crates/game-logic/tests/save_dump.rs)
           # and Content's static tables of P3.4b (crates/game-logic/tests/content_tables.rs,
-          # against outpost-oracle\content; summary rust-content.txt).
-          cargo test --locked --release -p game-logic --tests -- data_dump_ --nocapture
+          # against outpost-oracle\content; summary rust-content.txt) and the other loaders of
+          # P3.4c (crates/game-logic/tests/content_loaders.rs; summary rust-content-loaders.txt).
+          cmd /c "cargo test --locked --release -p game-logic --tests -- data_dump_ --nocapture 2>&1" | Tee-Object -FilePath $log -Append
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Keep the summaries
         if: always()
@@ -541,10 +546,13 @@ jobs:
           path: ${{ runner.temp }}/outpost-sim-summaries
           if-no-files-found: ignore
       - name: Repeat the oracle dump's last output
-        # The dump step's output sits in the middle of a long log; its end is repeated
-        # here, at the log's tail, so a failure can be read from it.
+        # The dump step's and the comparison step's output sit in the middle of a long
+        # log; their ends are repeated here, at the log's tail, so a failure can be read
+        # from them.
         if: always()
         shell: pwsh
         run: |
           $log = "$env:RUNNER_TEMP\oracle-dump.log"
           if (Test-Path $log) { Get-Content $log -Tail 80 } else { "the oracle dump did not run" }
+          $compare = "$env:RUNNER_TEMP\compare-port.log"
+          if (Test-Path $compare) { "--- Compare the port with the oracle (end) ---"; Get-Content $compare -Tail 150 }

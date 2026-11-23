@@ -321,13 +321,13 @@ impl DataSource for Preread {
 
 /// `OpenContentDataIni`: the reader on the file, or a closed one, which
 /// reads nothing.
-fn open(source: &dyn DataSource, path: &[u8]) -> IniReader {
+pub(crate) fn open(source: &dyn DataSource, path: &[u8]) -> IniReader {
     open_ini(source, path).unwrap_or_default()
 }
 
 /// `pub::GetVoiceID` into a slot: `CreateID` of a non-empty name; an empty
 /// one leaves the slot.
-fn voice_id(slot: &mut u32, name: &[u8]) {
+pub(crate) fn voice_id(slot: &mut u32, name: &[u8]) {
     if let Ok(id) = api::misc::voice_id(name) {
         *slot = id;
     }
@@ -377,7 +377,7 @@ fn costume_id(cx: &Cx<'_>, slot: &mut i32, name: &[u8]) {
 
 /// `pub::Reputation::GetReputationGroup`: `0xffffffff` for an unknown or
 /// empty nickname, as the C++ writes it.
-fn reputation_group(cx: &Cx<'_>, name: &[u8]) -> u32 {
+pub(crate) fn reputation_group(cx: &Cx<'_>, name: &[u8]) -> u32 {
     api::reputation::reputation_group(cx, c_str(name)).unwrap_or(u32::MAX)
 }
 
@@ -459,7 +459,7 @@ pub const STAGE_NAMES: [(&[u8], i32); 42] = [
 
 /// The stage table walk: the first name equal without regard to case sets
 /// `value`; a miss leaves it.
-fn stage_value(name: &[u8], value: &mut i32) {
+pub(crate) fn stage_value(name: &[u8], value: &mut i32) {
     if let Some((_, v)) = STAGE_NAMES.iter().find(|(n, _)| eq_ignore_case(name, n)) {
         *value = *v;
     }
