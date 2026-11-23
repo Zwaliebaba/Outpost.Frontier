@@ -58,6 +58,7 @@ Conventions:
 | `fault` | `tick` u, `first_chance` b (from the vectored handler; false: the frame's `__except` filter, which ends the run with code 4), `code` s (hex), `code_name` s, `address` s (hex), `at` {`module` s\|null, `offset` s (hex, from the module base), `functions` s[] (the innermost inlined function first), `line` s (`file:line` under `CppSource/`, `""` when unknown)}, for an access violation `access` s (`read`, `write`, `execute`), `target` s (hex), `target_memory` s (`free`, `reserved`, `committed`, `committed, not readable`); `symbols` b (dbghelp started), `regs` {`eax` .. `ebp`: {`v` s, [`in` s (module+offset and symbol)], `words` s[4] and [`word0_in` s] when it points at readable memory (a vtable names the class), else `memory` s}, `esp` s, `eip` s, `eflags` s}, `esp_words` s[16], `stack` [{`module`, `offset`, `functions`, `line`}] (at most 48 frames; frame 0 is the faulting instruction, the others are resolved at their call) |
 | `env` | (cross-runner reproducibility, owner 2026-11-19; just before `end`, after everything the run computes) `msc_full_ver` u, `msc_build` u (`_MSC_FULL_VER`, `_MSC_BUILD` of the compiler that built Oracle.exe; the solution builds every DLL with it), `cpu` {`vendor` s, `brand` s, `signature` s (CPUID leaf 1 EAX), `leaf1_ecx` s, `leaf1_edx` s, `leaf7_ebx` s (hex feature words), `logical` u}, `os` {`build` s, `ubr` u, `display_version` s}, `process_heap` s (hex), `stack_local` s (the address of a local of the writer, hex), `modules` [{`name` s, `loaded` b, [`path` s, `base` s (hex), `version` s (the file version)]}, …] (Oracle.exe, Server.dll, Common.dll, Content.dll, SimClientStub.dll and the CRT and system DLLs) |
 | `content_tables` | (`dump content_tables`, P3.4b; P3.4c adds twelve tables) `lines` i: the lines `OracleDumpContentTables` wrote, −1 when a file could not be opened or Content.dll lacks the export |
+| `content_systems` | (`dump content_systems`, P3.4d; after `system_loads`) `lines` i: the lines `OracleDumpContentSystems` wrote, −1 when a file could not be opened or Content.dll lacks the export |
 | `end` | `tick` u, `psi_total` u, `code` i (the exit code) |
 
 ## `tick.jsonl`
@@ -770,6 +771,25 @@ hex digits of their bits.
 | `content_ship_line_factions.txt` | `system params formation ship factions` (`GetShipLineFactions`) `archs` (`group:arch+…` from `GetFactionShipLineArchs`, `;`-separated) |
 | `content_zones.txt` | `system zone nickname path` (an index of the system's paths, −1 for none) `unpopulated tradelane lawful unlawful vignette density repop keys attack restrictions` (`count:type`) `f1c f30 additive battle relief encounters` (`nickname/zone/difficulty/chance/group:weight+…/class+…`, every ship line's classes, `;`-separated) |
 | `content_patrol_paths.txt` | `system path` (the index) `label usage eligible loop points` (`x:y:z`) `zones` (`zone:step+…`) `objects` (`id:point+…`). The points are Tier B (decision T11): they are the zones' ends moved along the zone's orientation, which goes through `FSIN` and `FCOS`, so they are compared within game-sim's bound for the orientation (4 ulps or 1e-7); every other field is compared as text |
+
+## `content_<table>.txt` (`dump content_systems`)
+
+Content's system records, gate locks and `[mPlayer]` writer after a
+multiplayer start-up whose `LoadGame` built the records and whose
+`system_loads` loaded every system (P3.4d, decision record 0008 point 10;
+`Content/oracle_content_systems.cpp`), read by
+`crates/game-logic/tests/content_systems.rs`. The same plain text as
+`dump content_tables`; records in `GSystemInfos`' key order, a record's
+vectors in their order.
+
+| File | Line |
+| --- | --- |
+| `content_systems.txt` | `system loads local_faction rpop zones paths jumps lanes lane_rings solar_npcs players mission_objects` (counts) |
+| `content_system_jumps.txt` | `system object type pos` (`x,y,z`) `goto_system goto_object` |
+| `content_system_lanes.txt` | `system lane` (the index) `start end` (`x,y,z`) `rotation` (9 floats, `,`-separated) `max_weight rings` (`id:x:y:z:reputation:` and the 9 rotation floats `:`-separated, `+`-separated) `candidates` (`ring index:max weight:zone@weight/…`, `+`-separated) |
+| `content_solar_npcs.txt` | `system index object nickname base msg_id_prefix state_graph pilot` (0 or 1) `vibe affiliation` (the reputation handle's vibe and `pub::Reputation::GetAffiliation` of it now; `none` without a handle) |
+| `content_gate_locks.txt` | `SaveContentGateLocks`' own text: `[locked_gates]`, `npc_locked_gate = id` lines, then `locked_gate = id` lines |
+| `content_mplayer.txt` | `FContentPlayerState::Save`'s own text for a synthetic state of player 7 (every record kind and statistic), then the save of that text read back by `LoadContentPlayerState`; the first save also stays in `content_mplayer_first.txt` |
 
 ## `spread.jsonl` (`--runs N`)
 

@@ -154,6 +154,11 @@ namespace
         // content_<table>.txt through its OracleDumpContentTables; no system loads and no
         // scenario runs (P3.4b, decision record 0008 point 5).
         bool bDumpContentTables = false;
+        // `dump content_systems`: with `dump system_loads`, after every system has loaded,
+        // Content.dll's system records, gate locks and a synthetic [mPlayer] are written as
+        // content_<table>.txt through its OracleDumpContentSystems (P3.4d, decision record
+        // 0008 point 10).
+        bool bDumpContentSystems = false;
         unsigned int Seed = 0x4f524143u;
         double ClockStart = 1000.0;
         std::vector<FObjectDesc> Objects;
@@ -444,6 +449,10 @@ namespace
             else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "content_tables")
             {
                 Out.bDumpContentTables = true;
+            }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "content_systems")
+            {
+                Out.bDumpContentSystems = true;
             }
             else if (Key == "seed" && T.size() == 2 && ParseUnsigned(T[1], Value))
             {
@@ -2867,8 +2876,28 @@ namespace oracle
             J.Str("rec", "system_loads");
             J.Int("lines", Lines);
             Write(FileSession, J);
-            EndProcess(Lines < 0 ? 3 : 0);
-            return Lines < 0 ? 3 : 0;
+            // `dump content_systems` (P3.4d): every system has loaded, so SpaceSupport's
+            // SystemLoaded has run each record's full load.
+            int ContentLines = 0;
+            if (GScenario.bDumpContentSystems)
+            {
+                typedef int(__cdecl * FDumpContentSystems)(char const*);
+                HMODULE const Content = GetModuleHandleA("Content.dll");
+                FDumpContentSystems const DumpContentSystems =
+                    Content != nullptr
+                        ? (FDumpContentSystems)GetProcAddress(Content, "OracleDumpContentSystems")
+                        : nullptr;
+                ContentLines = DumpContentSystems != nullptr ? DumpContentSystems(OutDir.c_str()) : -1;
+                if (DumpContentSystems == nullptr)
+                    SessionNote("error", "dump content_systems: Content.dll is not loaded or lacks OracleDumpContentSystems");
+                FOracleJson C;
+                C.Str("rec", "content_systems");
+                C.Int("lines", ContentLines);
+                Write(FileSession, C);
+            }
+            int const Code = Lines < 0 || ContentLines < 0 ? 3 : 0;
+            EndProcess(Code);
+            return Code;
         }
 
         // The seeding point of the comparison (owner, 2026-11-18): the system and Content's

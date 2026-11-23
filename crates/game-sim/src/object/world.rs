@@ -534,6 +534,13 @@ impl World {
             .map(|a| &a.host as &dyn crate::data::DataSource)
     }
 
+    /// The data root's host, cloned: for a loader that reads files while it
+    /// changes the world (Content's system records); `None` without assets.
+    #[must_use]
+    pub fn data_host(&self) -> Option<Host> {
+        self.assets.as_ref().map(|a| a.host.clone())
+    }
+
     /// The game data.
     #[must_use]
     pub fn data(&self) -> &GameData {
