@@ -340,7 +340,8 @@ With P3.5a (`game-logic::content::mission::{object, objective, dialog,
 rand_enc, action}`) D810 to D815 were proposed; the owner accepted them on
 2026-11-24.
 
-With P3.5a2 (`game-logic::content::mission::obj_list`) D820 was proposed.
+With P3.5a2 (`game-logic::content::mission::obj_list`) D820 was proposed;
+the owner accepted it on 2026-11-24.
 
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)
