@@ -8,8 +8,12 @@
 //! The scenario runs with game-sim's driver (`game_sim::scenario::run_with`)
 //! through a multiplayer [`Logic`]: the server loads the system as
 //! `StarSystem::load` does ([`world::load`], every solar of the system
-//! file), Content's SpaceSupport answers the trade lane, the AI's requests
-//! go to the server, and once the objects are spawned each `player
+//! file), Content's SpaceSupport answers the trade lane and gives each
+//! named solar with a `reputation` its faction on `SystemLoaded` (the
+//! system records of P3.4d, after the oracle's start-up: GameSupport,
+//! SpaceSupport and BaseSupport, then `Server_LoadWorldState` over
+//! `InitialWorld.ini`), the AI's requests go to the server, and once the
+//! objects are spawned each `player
 //! <session> <ship>` of the file joins the system as the oracle's
 //! `OracleSimAddPlayer` makes it join: the slot takes the system and the
 //! ship, the client id stays 0, then [`world::add_player`]. After each
@@ -35,8 +39,9 @@
 //!   AI's fire, requests and lanes reach the server after the behaviour
 //!   tick (D622, D651, D730). A difference here is a gross divergence and
 //!   fails the test. The fan-outs of the AI's target, cruise, thruster and
-//!   equipment switches are left out of the judgement (D760), and so is a
-//!   solar's affiliation in `SETREPUTATION`, which Content gives (D761).
+//!   equipment switches are left out of the judgement (D760). A solar's
+//!   affiliation in `SETREPUTATION` is judged (fact F17: Content gives it
+//!   on `SystemLoaded`).
 //! - **An object the port does not have** (a packet about an id that is
 //!   neither a scenario object, a solar of the system nor made by one of
 //!   them) fails the test: the harness's server runs no populator
@@ -147,9 +152,6 @@ struct Pkt {
     ints: Vec<i64>,
     /// The floats and their tolerances.
     floats: Vec<(f32, f32)>,
-    /// Fields reported but not judged: a solar's affiliation in
-    /// `SETREPUTATION`, which Content gives (D761, until P3.4).
-    unjudged: Vec<i64>,
 }
 
 impl Pkt {
@@ -162,7 +164,6 @@ impl Pkt {
             refs: Vec::new(),
             ints: Vec::new(),
             floats: Vec::new(),
-            unjudged: Vec::new(),
         }
     }
 
@@ -362,7 +363,7 @@ fn rust_pkt(tick: u32, client: u32, message: &ToClient) -> Option<Pkt> {
             ServerMessage::SetReputation(r) => {
                 let mut k = p("SendServerSetReputation", 0);
                 k.ints.push(i64::from(r.target));
-                k.unjudged.push(i64::from(r.affiliation));
+                k.ints.push(i64::from(r.affiliation));
                 Some(k)
             }
             ServerMessage::BurnFuse(f) => {
@@ -636,7 +637,7 @@ fn oracle_pkt(j: &Json, data: &GameData) -> Option<Pkt> {
         "SendServerActivateObject" => k.ints.extend([i64::from(u("on")?), i64::from(u("index")?)]),
         "SendServerSetReputation" => {
             k.ints.push(i64::from(i("vibe")?.cast_unsigned()));
-            k.unjudged.push(i64::from(u("affiliation")?));
+            k.ints.push(i64::from(u("affiliation")?));
         }
         "SendServerBurnFuse" => {
             k.refs.push(u("source")?);
@@ -833,20 +834,35 @@ fn run_port(
     let mut world = World::new(data, world_config(s)).with_assets(Assets::new(root.join("DATA")));
     let sink = Shared::default();
     let mut logic = Logic::new(Box::new(sink.clone()), 16, true);
-    // Content's [Initial MP DLLs] controller that answers the lane
-    // request, as `scenario_hooks` gives the lane scenarios.
+    // The oracle's start-up: its reduced [Initial MP DLLs] (Content's
+    // GameSupport, SpaceSupport and BaseSupport), then
+    // `Server_LoadWorldState` over `InitialWorld.ini`, whose `LoadGame`
+    // builds the system records that SpaceSupport fully loads on
+    // `SystemLoaded`.
     let mut cx = Cx {
         world: &mut world,
         logic: &mut logic,
     };
-    let id = neuron_server::controller::create(
-        &mut cx,
-        b"Content.dll",
-        b"SpaceSupport",
-        &CreateParams::None,
-        Priority::Normal,
-    );
-    assert_ne!(id.0, 0, "SpaceSupport");
+    for (name, priority) in [
+        (&b"GameSupport"[..], Priority::Highest),
+        (&b"SpaceSupport"[..], Priority::Normal),
+        (&b"BaseSupport"[..], Priority::Normal),
+    ] {
+        let id = neuron_server::controller::create(
+            &mut cx,
+            b"Content.dll",
+            name,
+            &CreateParams::None,
+            priority,
+        );
+        assert_ne!(id.0, 0, "{}", String::from_utf8_lossy(name));
+    }
+    let initial_world =
+        game_sim::data::DataSource::read(&Host::new(root.join("DATA")), b"InitialWorld.ini")
+            .unwrap_or_default();
+    let mut reader = neuron_core::ini::IniReader::new();
+    reader.open_memory(&initial_world);
+    game_logic::selection::load_world_state(&mut cx, &mut reader);
     let mut server = ReplicationServer {
         hooks: Hooks { logic: &mut logic },
         sink,
@@ -1117,7 +1133,6 @@ fn replication_against_the_oracle() {
     let mut ours_g: Group = BTreeMap::new();
     let mut theirs_g: Group = BTreeMap::new();
     let mut tolerated = (0usize, 0usize);
-    let mut unjudged_differ = 0usize;
     for p in &ours.pkts {
         if p.tick < exact_until(p, &our_labels) {
             if JUDGED.contains(&p.m.as_str()) {
@@ -1186,9 +1201,6 @@ fn replication_against_the_oracle() {
                         .collect();
                     if bad.is_empty() && pa.floats.len() == pb.floats.len() {
                         matched += 1;
-                        if pa.unjudged != pb.unjudged {
-                            unjudged_differ += 1;
-                        }
                     } else {
                         mismatched.push(format!(
                             "client {} tick {}: {} differs: {}",
@@ -1252,10 +1264,6 @@ fn replication_against_the_oracle() {
             mismatched[0]
         ));
     }
-    let _ = writeln!(
-        summary,
-        "exact window, not judged (D761): {unjudged_differ} SETREPUTATION packets whose solar affiliation differs (Content gives named solars their faction, P3.4)"
-    );
     let _ = writeln!(
         summary,
         "exact window, not judged (D760): {} target, cruise, thruster and equipment packets from the port, {} from the oracle",

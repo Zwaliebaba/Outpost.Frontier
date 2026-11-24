@@ -1,7 +1,7 @@
-//! The Universal C Runtime's `%g` conversion.
+//! The Universal C Runtime's `%g` and `%f` conversions.
 //!
-//! The C++ formats floating-point numbers with `sprintf("%g")` from the
-//! Universal C Runtime. It prints the exact binary value rounded to the
+//! The C++ formats floating-point numbers with `sprintf("%g")` and
+//! `fprintf("%f")` from the Universal C Runtime. It prints the exact binary value rounded to the
 //! precision, an exact halfway case to even, with an exponent of at least
 //! two digits. Rust's own formatting differs in layout, so the digits are
 //! produced here from the exact decimal expansion.
@@ -212,6 +212,66 @@ pub fn format_g(value: f64, precision: usize) -> String {
     out
 }
 
+/// `sprintf("%.*f", precision, value)` as the Universal C Runtime prints
+/// it in the "C" locale: the exact binary value rounded to `precision`
+/// digits after the point, an exact halfway case to even, with at least
+/// one digit before the point and no point when `precision` is 0.
+#[must_use]
+pub fn format_f(value: f64, precision: usize) -> String {
+    if value.is_nan() {
+        return nan_text(value.to_bits()).to_owned();
+    }
+    let mut out = String::new();
+    if value.is_sign_negative() {
+        out.push('-');
+    }
+    if value.is_infinite() {
+        out.push_str("inf");
+        return out;
+    }
+    // The digits before the point and the `precision` after it.
+    let (whole, fraction) = if value == 0.0 {
+        (vec![0], vec![0; precision])
+    } else {
+        let (mut digits, mut point) = exact_decimal(value.abs());
+        let precision_i32 = i32::try_from(precision).unwrap_or(i32::MAX);
+        let keep = point.saturating_add(precision_i32);
+        if keep < 0 {
+            // Below half a unit of the last place: zero.
+            (vec![0], vec![0; precision])
+        } else {
+            if keep == 0 {
+                // Only the rounding of a value below one unit of the last
+                // place: it rounds up when it exceeds half of it (an exact
+                // half rounds to the even 0).
+                let up = digits[0] > 5 || (digits[0] == 5 && digits[1..].iter().any(|&d| d != 0));
+                digits = if up { vec![1] } else { vec![0] };
+                point += 1;
+            } else {
+                round_half_even(&mut digits, &mut point, keep.unsigned_abs() as usize);
+            }
+            // `digits` is `0.d1 d2 ... * 10^point` with exactly the kept
+            // digits (one more when the rounding carried).
+            let mut all = Vec::new();
+            if point <= 0 {
+                all.resize(point.unsigned_abs() as usize, 0);
+            }
+            all.extend_from_slice(&digits);
+            let whole_len = point.max(0).unsigned_abs() as usize;
+            all.resize(whole_len + precision, 0);
+            let (w, f) = all.split_at(whole_len);
+            let w = if w.is_empty() { vec![0] } else { w.to_vec() };
+            (w, f.to_vec())
+        }
+    };
+    push_digits(&mut out, &whole);
+    if precision > 0 {
+        out.push('.');
+        push_digits(&mut out, &fraction);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,5 +313,27 @@ mod tests {
         assert_eq!(format_g(1_234_575.0, 6), "1.23458e+06");
         assert_eq!(format_g(0.5, 0), "0.5");
         assert_eq!(format_g(2.5, 1), "2");
+    }
+    #[test]
+    fn fixed_layout_of_f() {
+        assert_eq!(format_f(0.0, 6), "0.000000");
+        assert_eq!(format_f(-0.0, 6), "-0.000000");
+        assert_eq!(format_f(1.0, 6), "1.000000");
+        assert_eq!(format_f(1.5, 0), "2");
+        assert_eq!(format_f(2.5, 0), "2");
+        assert_eq!(format_f(0.5, 0), "0");
+        assert_eq!(format_f(0.75, 0), "1");
+        assert_eq!(format_f(0.1f32.into(), 6), "0.100000");
+        assert_eq!(format_f(123.456f32.into(), 6), "123.456001");
+        assert_eq!(format_f(1e-7, 6), "0.000000");
+        assert_eq!(format_f(5e-7, 6), "0.000000");
+        assert_eq!(format_f(6e-7, 6), "0.000001");
+        assert_eq!(format_f(0.000_000_5, 6), "0.000000");
+        assert_eq!(format_f(999_999.999_999_9, 6), "1000000.000000");
+        assert_eq!(format_f(16_777_216.0, 6), "16777216.000000");
+        assert_eq!(format_f(1e20, 2), "100000000000000000000.00");
+        assert_eq!(format_f(-12.25, 1), "-12.2");
+        assert_eq!(format_f(f64::INFINITY, 6), "inf");
+        assert_eq!(format_f(f64::NEG_INFINITY, 6), "-inf");
     }
 }

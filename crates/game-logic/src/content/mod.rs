@@ -39,8 +39,10 @@
 //! (P3.4b, [`tables`]), the other loaders (P3.4c: [`bases`],
 //! [`system_paths`], [`npc_desc`] with StoryLauncher's specific NPCs,
 //! [`encounter_params`], [`zones`], [`patrol_paths`] and [`cargo`]),
-//! GameSupport's run time
-//! (P3.4d), the mission and story constructors (P3.5), SpaceSupport's
+//! GameSupport's run time (P3.4d: the player states of [`players`], the
+//! system records of [`systems`] with their solar NPCs ([`solar_npcs`]),
+//! the gate locks of [`gate_locks`], `LoadGame` and `SaveGame`, the space
+//! paths of [`space_paths`]), the mission and story constructors (P3.5), SpaceSupport's
 //! other steps, the populators and BaseSupport (P3.6) and the random
 //! missions (P3.7) come with their packages.
 
@@ -53,18 +55,28 @@ pub mod counter;
 /// The encounter parameters (TU29; P3.4c).
 pub mod encounter_params;
 pub mod game_support;
+/// The gate locks (TU53; P3.4d).
+pub mod gate_locks;
 pub mod mission;
 /// The NPC character descriptions and the specific NPCs (TU42; P3.4c).
 pub mod npc_desc;
 /// The patrol paths (TU45; P3.4c).
 pub mod patrol_paths;
+/// The player states (TU46; P3.4d).
+pub mod players;
 pub mod population;
 pub mod random_mission;
 pub mod router;
+/// The solar NPCs (TU24; P3.4d).
+pub mod solar_npcs;
+/// The space paths (TU53 `SpacePaths.cpp`; P3.4d).
+pub mod space_paths;
 pub mod space_support;
 pub mod story;
 /// The system paths and their `[SystemConnections]` writer (TU41; P3.4c).
 pub mod system_paths;
+/// The system records (TU58; P3.4d).
+pub mod systems;
 /// The static tables of `LoadContentGameTables` (`Content/Encounters.cpp:497-591`;
 /// P3.4b).
 pub mod tables;
@@ -74,6 +86,7 @@ pub mod zones;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use game_sim::data::DataSource;
 use neuron_server::controller::ControllerId;
 
 use crate::events::ControllerMessage;
@@ -121,6 +134,23 @@ pub struct ContentState {
     /// (`Content/SystemConnections.cpp:20-22`): rebuilt on `LoadGame`
     /// (P3.4d) ([`system_paths`]).
     pub system_paths: system_paths::SystemPaths,
+    /// `GContentPlayerStates` (`Content/PlayerState.cpp:37`): made on
+    /// `PlayerLoad`, dropped on `PlayerLogout` ([`players`]).
+    pub players: players::PlayerStates,
+    /// `GSystemInfos` (`Content/SystemInfo.cpp:32`): rebuilt on `LoadGame`,
+    /// loaded on `SystemLoaded`, emptied by GameSupport's destructor
+    /// ([`systems`]).
+    pub systems: systems::SystemInfos,
+    /// `GContentGateLocks` and `GContentNpcGateLocks`
+    /// (`Content/SpaceSupport.cpp:70`, `:1184`; [`gate_locks`]).
+    pub gate_locks: gate_locks::GateLocks,
+    /// `GFp7SystemId` (`Content/PlayerState.cpp:40`): the system
+    /// `OnSystemChange` does not count as visited, looked up on every call
+    /// (a miss keeps the last value).
+    pub relay_seven_system: u32,
+    /// `GSpacePopSolarDetection` (`Content/Populators.cpp:47`, true),
+    /// stored in single player only ([`population::set_solar_detection`]).
+    pub solar_detection: bool,
 }
 
 impl ContentState {
@@ -143,6 +173,11 @@ impl ContentState {
             specific_npcs: Arc::default(),
             bases: bases::ContentBases::new(),
             system_paths: system_paths::SystemPaths::default(),
+            players: players::PlayerStates::new(),
+            systems: systems::SystemInfos::new(),
+            gate_locks: gate_locks::GateLocks::default(),
+            relay_seven_system: 0,
+            solar_detection: true,
         }
     }
 }
@@ -382,6 +417,25 @@ pub fn deliver(
         | ControllerKind::Mission(_)
         | ControllerKind::GenericMission
         | ControllerKind::DestroyMission => {}
+    }
+}
+
+/// A data source that has no files: a world without a data root.
+struct NoFiles;
+
+impl DataSource for NoFiles {
+    fn read(&self, _path: &[u8]) -> Option<Vec<u8>> {
+        None
+    }
+}
+
+/// The world's data root for a loader that changes the context while it
+/// reads (`OpenContentDataIni`, `pub::BuildSystemReader`); a source without
+/// files when the world has none.
+pub(crate) fn data_source(cx: &Cx<'_>) -> Box<dyn DataSource> {
+    match cx.world.data_host() {
+        Some(host) => Box::new(host),
+        None => Box::new(NoFiles),
     }
 }
 

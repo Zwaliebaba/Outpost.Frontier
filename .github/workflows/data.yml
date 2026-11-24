@@ -350,7 +350,10 @@ jobs:
       - name: Load every system with the oracle
         # Work package P3.3 (decision record 0007 point 11): Oracle.exe sim starts a multiplayer
         # server, loads every system (StarSystem::load) and writes its solars
-        # (CppSource/Oracle/system_loads.txt, Server.dll's OracleDumpSystemLoads).
+        # (CppSource/Oracle/system_loads.txt, Server.dll's OracleDumpSystemLoads). P3.4d (record
+        # 0008 point 10): the same run then writes Content's system records, gate locks and a
+        # synthetic [mPlayer] as content_<table>.txt (`dump content_systems`, Content.dll's
+        # OracleDumpContentSystems).
         if: ${{ !cancelled() && steps.oracle-cache.outputs.cache-hit != 'true' }}
         shell: pwsh
         run: |
@@ -496,7 +499,10 @@ jobs:
       - name: Compare the system loads
         # Work package P3.3 (decision record 0007 point 11): the port loads every system through
         # game-logic::world and renders the lines the oracle wrote
-        # (crates/game-logic/tests/system_loads.rs). Summary rust-system-loads.txt.
+        # (crates/game-logic/tests/system_loads.rs). Summary rust-system-loads.txt. P3.4d (record
+        # 0008 point 10, Tier A): the same start-up and loads with Content's controllers, and the
+        # system records, gate locks and [mPlayer] rendered as the oracle wrote them
+        # (crates/game-logic/tests/content_systems.rs). Summary rust-content-systems.txt.
         if: ${{ !cancelled() }}
         shell: pwsh
         run: |
@@ -504,8 +510,11 @@ jobs:
           $env:OUTPOST_ORACLE_DIR = $out
           cargo test --locked --release -p game-logic --test system_loads -- --nocapture
           $code = $LASTEXITCODE
+          cargo test --locked --release -p game-logic --test content_systems -- --nocapture
+          if ($code -eq 0) { $code = $LASTEXITCODE }
           New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\outpost-sim-summaries" | Out-Null
           Copy-Item "$out\rust-system-loads.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
+          Copy-Item "$out\rust-content-systems.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
           exit $code
       - name: Compare the replication with the oracle
         # Work package P3.3 (decision record 0007 point 11, Tier B): the replication scenario runs
@@ -547,8 +556,8 @@ jobs:
           if-no-files-found: ignore
       - name: Repeat the oracle dump's last output
         # The dump step's and the comparison step's output sit in the middle of a long
-        # log; their ends are repeated here, at the log's tail, so a failure can be read
-        # from them.
+        # log; their ends, and the start of the Content and server summaries, are repeated
+        # here, at the log's tail, so a failure can be read from them.
         if: always()
         shell: pwsh
         run: |
@@ -556,3 +565,16 @@ jobs:
           if (Test-Path $log) { Get-Content $log -Tail 80 } else { "the oracle dump did not run" }
           $compare = "$env:RUNNER_TEMP\compare-port.log"
           if (Test-Path $compare) { "--- Compare the port with the oracle (end) ---"; Get-Content $compare -Tail 150 }
+          # The start of each Content and server comparison's summary: what was compared and
+          # its first differences, readable from the log's tail on a green run as well.
+          $summaries = @(
+            "$env:RUNNER_TEMP\outpost-oracle\rust-content.txt",
+            "$env:RUNNER_TEMP\outpost-oracle\rust-content-loaders.txt",
+            "$env:RUNNER_TEMP\outpost-sim-summaries\rust-system-loads.txt",
+            "$env:RUNNER_TEMP\outpost-sim-summaries\rust-content-systems.txt",
+            "$env:RUNNER_TEMP\outpost-sim-summaries\rust-replication.txt"
+          )
+          foreach ($summary in $summaries) {
+            if (Test-Path $summary) { "--- $(Split-Path $summary -Leaf) (start) ---"; Get-Content $summary -TotalCount 40 }
+            else { "--- $(Split-Path $summary -Leaf): not written ---" }
+          }

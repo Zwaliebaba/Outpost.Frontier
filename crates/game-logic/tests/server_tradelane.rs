@@ -960,3 +960,63 @@ fn the_bare_world_leaves_a_lane_on_request() {
     world.step(he01(), FRAME);
     assert!(world.lane_state(ship).is_none());
 }
+
+/// The route check (P3.4d, `FContentPlayerState::CheckTradelaneRoute`): a
+/// ship that is a player's ship object asks the player's state. Without
+/// `can_tl` the ring answers 1 and is not activated; with it, 4.
+#[test]
+fn a_players_closed_route_is_refused() {
+    let sink = Shared::default();
+    let Some((mut world, mut logic)) = setup("a closed route", &sink) else {
+        return;
+    };
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    let controller = he01_with_players(&mut cx);
+    let r16_id = id(&cx, ring(&cx, 16));
+    let npc = fighter(&mut cx, controller, Vector::new(4378.0, 0.0, -51069.0));
+    let npc_id = id(&cx, npc);
+    let mut state = game_logic::content::players::PlayerState::new(&cx, 1);
+    state.can_tradelane = false;
+    state.ship = Some(game_logic::content::players::PlayerShip {
+        ship: npc_id,
+        archetype: 0,
+        class_ids: Vec::new(),
+        system: None,
+        formation_id: u32::MAX,
+        lane_entry: 0,
+        lane_end: 0,
+        in_combat: false,
+        scan_target: false,
+        target: 0,
+        calm_since: -1.0,
+        hostile_contact_count: 0,
+    });
+    cx.logic.content.state.players.insert(1, state);
+    let _ = (heard(), sink.take());
+    let returned = |sent: Vec<(u32, ToClient)>| -> Vec<(u32, u8)> {
+        sent.into_iter()
+            .filter_map(|(_, m)| match m {
+                ToClient::Server(ServerMessage::RequestReturned(x)) => {
+                    Some((x.object_id, x.response))
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(dock::request(&mut cx, npc, 2, r16_id, 0, 0, false), 0);
+    let _ = heard();
+    assert_eq!(returned(sink.take()), [(npc_id, 1)]);
+    cx.logic
+        .content
+        .state
+        .players
+        .get_mut(&1)
+        .unwrap()
+        .can_tradelane = true;
+    assert_eq!(dock::request(&mut cx, npc, 2, r16_id, 0, 0, false), 0);
+    let _ = heard();
+    assert_eq!(returned(sink.take()), [(npc_id, 4)]);
+}

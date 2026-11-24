@@ -648,12 +648,12 @@ Paths are relative to `CppSource/`.
     | P3.4a | `content` skeleton: `Content`, `Instance`, `CreateParams`, `instantiate` and `destroy_instance`, the counter with its five load-time ids, GameSupport's constructor and heartbeat, the game time | Controller order and ids, heartbeat phases against `load_rand.jsonl`'s `controller` phase, the counter's values against the timers in the dispatch trace |
     | P3.4b | `LoadContentGameTables`: voices, empathy, formations, pilots, NPC ship archetypes, factions and their goods, ship classes, mission ship properties, loot and phantom loot, GCS exclusions, toughness, rank difficulty, news | Tier A `content_*` dumps; the pilots against `OracleSimPilotPersonality` |
     | P3.4c | `mBases.ini`, the system paths and their `[SystemConnections]` writer, `specific_npc.ini`, encounter parameters, zones and patrol paths (as building blocks of the system record), the cargo helpers but `GenerateCargo` | Tier A dumps |
-    | P3.4d | GameSupport's run time: player states with `[mPlayer]`, system records with `LoadFull` (assembling P3.4c's encounter parameters, zones and patrol paths) and the solar NPCs' reputations, base records, gate locks, `LoadGame` and `SaveGame` (calling P3.4c's base and system-path loaders); the space paths (`SpacePaths.cpp`) where the system records' trade lanes suffice, the rest with P3.6 | Tier A: system records after every system's load (F17); `[mPlayer]` and gate-lock round trips; D734 narrowed |
+    | P3.4d | GameSupport's run time: player states with `[mPlayer]`, system records with `LoadFull` (assembling P3.4c's encounter parameters, zones and patrol paths) and the solar NPCs' reputations, base records, gate locks, `LoadGame` and `SaveGame` (calling P3.4c's base and system-path loaders); the space paths (`SpacePaths.cpp`) where the system records' trade lanes suffice, the rest with P3.6; SpaceSupport's `SystemLoaded`, `SystemUnloaded` and the system-record half of `SystemEnter` and `SystemExit`; SpacePop's solar-detection flag, `CollectSpacePopZones` and `IsSegmentClear`; `format_f` with unit tests (moved from P3.5b) | Tier A: system records after every system's load (F17); `[mPlayer]` and gate-lock round trips; D734 narrowed |
     | P3.5a | The parser: `Condition`, `Action`, triggers, the mission object's sections (`[MsnShip]`, `[MsnSolar]`, `[MsnFormation]`, `[MsnLoot]`, `[MsnRandEnc]`, `[ObjList]`, `[MetaBehavior]`, `[Dialog]`, `[NPC]`, `[NNObjective]`, `[Mission]`), mission dialogs | Tier A mission script dumps of the 14 story missions (Gate G3) |
-    | P3.5b | `format_f`; the mission, trigger, snapshot and `[StoryInfo]` sections | `format_f` vectors; save round trips; Rust saves loaded by the C++ build (Gate G3) |
+    | P3.5b | The mission, trigger, snapshot and `[StoryInfo]` sections (`format_f` itself came with P3.4d) | `format_f` vectors; save round trips; Rust saves loaded by the C++ build (Gate G3) |
     | P3.5c | The run time: the trigger engine, conditions, the 85 actions in groups (one pull request per group if large), object lists, nags, the NN path | Tier B mission trace (Verification) |
     | P3.5d | The story shell and `StoryMissions.cpp`'s overrides | Tier B story trace |
-    | P3.6a | SpaceSupport's core: handler order, loot preparation, formations, dock queues; the trade lanes moved in | `dock_at_station` through the server; scenarios with SpaceSupport on both sides |
+    | P3.6a | SpaceSupport's core: handler order, loot preparation, formations, dock queues (with the dock-list half of `SystemEnter` and `SystemExit`); the trade lanes moved in | `dock_at_station` through the server; scenarios with SpaceSupport on both sides |
     | P3.6b | GCS and voices | D734 removed; a scenario without `comms off` |
     | P3.6c | NPC ships, callback handles, guides, the NPC name builder (moved from P3.4c), `GenerateCargo` (moved from P3.4c) | D168, D184 removed; D194 rewritten; flee, follow and guide scenarios driven by Content |
     | P3.6d | SpacePop, BasePop, encounters, spawn placement, random encounters | Population draws in `load_rand.jsonl`; a populated scenario |
@@ -667,6 +667,13 @@ Paths are relative to `CppSource/`.
     and each needs state a later package brings (the faction-name pool and
     reputation allocation, the system records' trade lanes and SpacePop's
     flags, the guide description and ship parameters).
+
+    The owner moved `format_f` from P3.5b, SpaceSupport's system-load cases
+    and the system-record half of `SystemEnter` and `SystemExit` from P3.6a,
+    and SpacePop's solar-detection flag, `CollectSpacePopZones` and
+    `IsSegmentClear` from P3.6d into P3.4d on 2026-11-23, because the
+    `[mPlayer]` files and the system records need them; P3.5b keeps the
+    `format_f` oracle vectors.
 
     P3.4 comes first. P3.5a and P3.5b, then P3.6a to P3.6c, can run in
     parallel with each other, because they share only P3.4. P3.5c needs

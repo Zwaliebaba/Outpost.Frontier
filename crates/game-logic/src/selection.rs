@@ -203,3 +203,13 @@ pub fn load_single_player_state(cx: &mut Cx<'_>, reader: &mut IniReader) {
     reputation.load_feelings(reader, &mut cx.logic.reports);
     broadcast(cx, &mut ControllerMessage::LoadGame { reader });
 }
+
+/// `Server_LoadWorldState` (`Server/IServerImpl.cpp:2969-2999`), a
+/// multiplayer server's start-up after its initial controllers exist: the
+/// same `[Time]`, faction feelings and `LoadGame` as
+/// [`load_single_player_state`], over the reader of `[OutpostFrontier]
+/// initial_world` (`InitialWorld.ini`; a file that does not open reads as
+/// empty). So Content's system records exist before any system loads.
+pub fn load_world_state(cx: &mut Cx<'_>, reader: &mut IniReader) {
+    load_single_player_state(cx, reader);
+}
