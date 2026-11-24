@@ -42,7 +42,8 @@
 //! GameSupport's run time (P3.4d: the player states of [`players`], the
 //! system records of [`systems`] with their solar NPCs ([`solar_npcs`]),
 //! the gate locks of [`gate_locks`], `LoadGame` and `SaveGame`, the space
-//! paths of [`space_paths`]), the mission and story constructors (P3.5), SpaceSupport's
+//! paths of [`space_paths`]), the missions' constructors and parser (P3.5a,
+//! [`mission`]), the rest of the missions and the story (P3.5), SpaceSupport's
 //! other steps, the populators and BaseSupport (P3.6) and the random
 //! missions (P3.7) come with their packages.
 
@@ -151,6 +152,11 @@ pub struct ContentState {
     /// `GSpacePopSolarDetection` (`Content/Populators.cpp:47`, true),
     /// stored in single player only ([`population::set_solar_detection`]).
     pub solar_detection: bool,
+    /// `GMissionDialogs` (`Content/MissionDialogs.cpp:17`): the `[Dialog]`
+    /// sections of the missions loaded, by `CreateID` of their nickname
+    /// (first id wins); a script mission's end empties it (P3.5c), its
+    /// destructor does not ([`mission::dialog`]).
+    pub mission_dialogs: BTreeMap<u32, mission::dialog::MissionDialog>,
 }
 
 impl ContentState {
@@ -178,6 +184,7 @@ impl ContentState {
             gate_locks: gate_locks::GateLocks::default(),
             relay_seven_system: 0,
             solar_detection: true,
+            mission_dialogs: BTreeMap::new(),
         }
     }
 }
@@ -208,7 +215,7 @@ pub enum Instance {
     Story(story::Story),
     /// The script missions: `Mission_01a` to `Mission_13` and
     /// `GenericMission` ([`mission::MissionScript`]).
-    Mission(mission::MissionScript),
+    Mission(Box<mission::MissionScript>),
     /// `DestroyMission` ([`random_mission::RandomMission`]).
     RandomMission(random_mission::RandomMission),
 }

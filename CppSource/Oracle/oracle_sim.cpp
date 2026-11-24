@@ -159,6 +159,11 @@ namespace
         // content_<table>.txt through its OracleDumpContentSystems (P3.4d, decision record
         // 0008 point 10).
         bool bDumpContentSystems = false;
+        // `dump mission_scripts`: right after the server starts, Content.dll makes each of the
+        // fourteen story missions for a synthetic player and writes what its parser left as
+        // mission_<table>.txt through its OracleDumpMissionScripts; no system loads and no
+        // scenario runs (P3.5a, decision record 0008 point 10).
+        bool bDumpMissionScripts = false;
         unsigned int Seed = 0x4f524143u;
         double ClockStart = 1000.0;
         std::vector<FObjectDesc> Objects;
@@ -453,6 +458,10 @@ namespace
             else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "content_systems")
             {
                 Out.bDumpContentSystems = true;
+            }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "mission_scripts")
+            {
+                Out.bDumpMissionScripts = true;
             }
             else if (Key == "seed" && T.size() == 2 && ParseUnsigned(T[1], Value))
             {
@@ -2811,6 +2820,26 @@ namespace oracle
                 SessionNote("error", "dump content_tables: Content.dll is not loaded or lacks OracleDumpContentTables");
             FOracleJson J;
             J.Str("rec", "content_tables");
+            J.Int("lines", Lines);
+            Write(FileSession, J);
+            EndProcess(Lines < 0 ? 3 : 0);
+            return Lines < 0 ? 3 : 0;
+        }
+
+        // `dump mission_scripts` (P3.5a): the story missions' parse after the start-up, through
+        // Content.dll's Oracle export, then the end of the run.
+        if (GScenario.bDumpMissionScripts)
+        {
+            typedef int(__cdecl * FDumpMissionScripts)(char const*);
+            HMODULE const Content = GetModuleHandleA("Content.dll");
+            FDumpMissionScripts const DumpMissionScripts =
+                Content != nullptr ? (FDumpMissionScripts)GetProcAddress(Content, "OracleDumpMissionScripts")
+                                   : nullptr;
+            int const Lines = DumpMissionScripts != nullptr ? DumpMissionScripts(OutDir.c_str()) : -1;
+            if (DumpMissionScripts == nullptr)
+                SessionNote("error", "dump mission_scripts: Content.dll is not loaded or lacks OracleDumpMissionScripts");
+            FOracleJson J;
+            J.Str("rec", "mission_scripts");
             J.Int("lines", Lines);
             Write(FileSession, J);
             EndProcess(Lines < 0 ? 3 : 0);

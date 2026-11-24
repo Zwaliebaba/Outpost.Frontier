@@ -59,6 +59,7 @@ Conventions:
 | `env` | (cross-runner reproducibility, owner 2026-11-19; just before `end`, after everything the run computes) `msc_full_ver` u, `msc_build` u (`_MSC_FULL_VER`, `_MSC_BUILD` of the compiler that built Oracle.exe; the solution builds every DLL with it), `cpu` {`vendor` s, `brand` s, `signature` s (CPUID leaf 1 EAX), `leaf1_ecx` s, `leaf1_edx` s, `leaf7_ebx` s (hex feature words), `logical` u}, `os` {`build` s, `ubr` u, `display_version` s}, `process_heap` s (hex), `stack_local` s (the address of a local of the writer, hex), `modules` [{`name` s, `loaded` b, [`path` s, `base` s (hex), `version` s (the file version)]}, …] (Oracle.exe, Server.dll, Common.dll, Content.dll, SimClientStub.dll and the CRT and system DLLs) |
 | `content_tables` | (`dump content_tables`, P3.4b; P3.4c adds twelve tables) `lines` i: the lines `OracleDumpContentTables` wrote, −1 when a file could not be opened or Content.dll lacks the export |
 | `content_systems` | (`dump content_systems`, P3.4d; after `system_loads`) `lines` i: the lines `OracleDumpContentSystems` wrote, −1 when a file could not be opened or Content.dll lacks the export |
+| `mission_scripts` | (`dump mission_scripts`, P3.5a) `lines` i: the lines `OracleDumpMissionScripts` wrote, −1 when a file could not be opened, a mission was not made or Content.dll lacks the export |
 | `end` | `tick` u, `psi_total` u, `code` i (the exit code) |
 
 ## `tick.jsonl`
@@ -790,6 +791,47 @@ vectors in their order.
 | `content_solar_npcs.txt` | `system index object nickname base msg_id_prefix state_graph pilot` (0 or 1) `vibe affiliation` (the reputation handle's vibe and `pub::Reputation::GetAffiliation` of it now; `none` without a handle) |
 | `content_gate_locks.txt` | `SaveContentGateLocks`' own text: `[locked_gates]`, `npc_locked_gate = id` lines, then `locked_gate = id` lines |
 | `content_mplayer.txt` | `FContentPlayerState::Save`'s own text for a synthetic state of player 7 (every record kind and statistic), then the save of that text read back by `LoadContentPlayerState`; the first save also stays in `content_mplayer_first.txt` |
+
+## `mission_<table>.txt` (`dump mission_scripts`)
+
+The fourteen story missions as their parser leaves them (P3.5a, decision
+record 0008 points 6 and 10; `Content/oracle_content_dump.cpp`), read
+by `crates/game-logic/tests/mission_scripts.rs`. After the multiplayer
+start-up (GameSupport's tables, `LoadGame`'s system records), player 7 is
+registered in he01; for each mission in the order `Mission_01a`,
+`Mission_01b`, `Mission_02` to `Mission_13` the mission dialogs are
+emptied, `srand(0x4f524143)`, the mission is made by `CreateInstance` on
+controller id `0x00ff0001` plus its index (no controller has it, so the
+constructors' heartbeats draw nothing), its draws are counted (the next
+four `rand()` values matched against the sequence from the seed), its
+tables written and it is destroyed. Every line starts `mission=<name>`;
+fields are `key=value` separated by one space, in the order of the C++
+dumpers, which is the order of the Rust records' `fields()`
+(`game-logic::content::mission::field`): unsigned and signed values in
+decimal, flags as the byte's value, floats as the eight hex digits of
+their bits, strings as the hex of their bytes; vectors, matrices (row by
+row), transforms (rotation, then translation) and quaternions (W, X, Y, Z)
+as their floats joined by `,`; a costume `head,body,left,right/count/
+accessories`; lists joined by `,`, a pair `a:b`, a loadout line
+`id:archetype:count:health:equipped:mission:hardpoint`, a
+`Cnd_NPCSystem*` entry `label:system`. Maps are in key order, lists in
+insertion order.
+
+| File | Line |
+| --- | --- |
+| `mission_scripts.txt` | `draws` (−1 beyond 0x10000) `controller player player_state players heartbeat_interval reward title offer` (the mad libs) `previous_state mission_state field_0x2b0 campaign_slot_current campaign_slot_succeed story_cue field_0x2c0 field_0x2c4 field_0x2e8 elapsed_time triggers actions initially_active` (`id:id`) and the counts `ship_groups solars loot rand_encs npcs npc_ship_archs objectives dialogs dialog_costumes` |
+| `mission_triggers.txt` | `trigger` (the map key) `state repeatable id events actions` (the count), then `cnd_trigger` and `cnd=` the factory name and every field of the condition, or `cnd=none` |
+| `mission_actions.txt` | `trigger index act_trigger`, then `act=` the factory name and every field of the action |
+| `mission_ship_groups.txt` | `group` (the index) and every field of the `[MsnShip]` / `[MsnFormation]` record (`system` the record's system id, 0 for none), then `ships` (the slot count) |
+| `mission_ships.txt` | `group index` and every field of the slot (`cargo` as `good:count`) |
+| `mission_solars.txt`, `mission_loot.txt` | `index` and every field of the record (the loot's `LootInfo` flattened; the solar's `name` its mad lib; the solar's personality is not written, `pilot` says whether `GetPilotPersonality` found it) |
+| `mission_rand_encs.txt` | `index nickname enabled nickname_id formation_index npc_count params` (0 without parameters, else `GetType`: 2 SP, 3 TL) `system controller player attacker_rep pilot_id labels positions` (`x,y,z,weight`, `;`-separated) `ships_spawned formations_to_spawn num_forms_min num_forms_max formations` (`found:nickname:field_0x08:min:max:count:weight:` and the ship choices `classes/weight`, `;`-separated; formations `+`-separated) `target_ship_name goto_target_id target_object_id dock_target spawn_angle spawn_distance empty_pos_radius ship_name_counter`, then SP `activation_type activation_location activation_range activation_time_0 activation_time_1 cumulative_time` or TL `tl_attack_chance tl_attack_chance_read_in direction entry_ring exit_ring target_tradelane` |
+| `mission_npcs.txt` | `key` and every field of the `[NPC]` record |
+| `mission_npc_ship_archs.txt` | `key nickname ship_archetype loadout pilot state_graph npc_classes level` (the `[Mission] npc_ship_file`'s archetypes) |
+| `mission_objectives.txt` | `player n type hidden nickname ids index state`, then by type: 1 `base_id`; 2 `marker` (five words); 4 `marker label`; 5 and 6 `rep_instance system_id marker` |
+| `mission_dialogs.txt` | `dialog controller system speakers lines` (the dialogs of `GMissionDialogs` after the mission) |
+| `mission_dialog_lines.txt` | `dialog speaker_key index` and every field of the line |
+| `mission_costumes.txt` | `index costume` (the script's dialog costumes) |
 
 ## `spread.jsonl` (`--runs N`)
 
