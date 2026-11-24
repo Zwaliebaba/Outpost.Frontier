@@ -773,20 +773,7 @@ fn player_launch(cx: &mut Cx<'_>, player: u32) {
         &BaseOp::new(Op::SetPersonalityParams(Box::new(op))),
     );
     if let Some(state) = cx.logic.content.state.players.get_mut(&player) {
-        state.ship = Some(PlayerShip {
-            ship,
-            archetype,
-            class_ids,
-            system,
-            formation_id: u32::MAX,
-            lane_entry: 0,
-            lane_end: 0,
-            in_combat: false,
-            scan_target: false,
-            target: 0,
-            calm_since: -1.0,
-            hostile_contact_count: 0,
-        });
+        state.ship = Some(PlayerShip::new(ship, archetype, class_ids, system));
     }
 }
 

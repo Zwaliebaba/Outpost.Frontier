@@ -242,8 +242,9 @@ impl SystemInfo {
 
     /// The list part of `RemovePlayer(Player)` (`:412-425`): the first
     /// entry goes. In single player the C++ then destroys the system's NPC
-    /// ships and mission objects when no player there has a ship
-    /// (`DestroyObjectsIfUnoccupied`), which P3.5 and P3.6 bring.
+    /// ships and mission objects when no player there has a ship, which
+    /// SpaceSupport's `SystemExit` calls after it
+    /// ([`destroy_objects_if_unoccupied`]).
     pub fn remove_player(&mut self, player: u32) {
         if let Some(index) = self.players.iter().position(|&p| p == player) {
             self.players.remove(index);
@@ -805,6 +806,134 @@ pub fn find_player_ship(cx: &Cx<'_>, record: &SystemInfo, ship: u32) -> Option<u
             .and_then(|s| s.ship.as_ref())
             .is_some_and(|s| s.ship == ship)
     })
+}
+
+/// `DistanceSquaredBetween(&Point, &Position)` (`:636-642`): the
+/// differences and their squares in extended precision (`f64`), summed
+/// z, x, y.
+fn distance_squared_between(point: Vector, position: Vector) -> f64 {
+    let dx = f64::from(point.x) - f64::from(position.x);
+    let dy = f64::from(point.y) - f64::from(position.y);
+    let dz = f64::from(point.z) - f64::from(position.z);
+    dz * dz + dx * dx + dy * dy
+}
+
+/// The positions of the record's players' ships, in the record's order
+/// (`FContentSpaceObj::GetPosition`: zero when `GetLocation` fails, D841).
+fn player_ship_positions(cx: &Cx<'_>, system: u32) -> Vec<(u32, Vector)> {
+    let state = &cx.logic.content.state;
+    let Some(record) = state.systems.get(&system) else {
+        return Vec::new();
+    };
+    record
+        .players
+        .iter()
+        .filter_map(|p| {
+            let ship = state.players.get(p)?.ship.as_ref()?.ship;
+            let at = api::space_obj::location(cx, ship).map_or(Vector::ZERO, |(v, _)| v);
+            Some((*p, at))
+        })
+        .collect()
+}
+
+/// `FSystemInfo::FindPlayersNear(&Point, &Radius, &Out)` (`:675-691`): the
+/// record's players whose ship is within the radius (the square stored as
+/// a float, at or below it).
+#[must_use]
+pub fn find_players_near(cx: &Cx<'_>, system: u32, point: Vector, radius: f32) -> Vec<u32> {
+    let radius_square = (f64::from(radius) * f64::from(radius)) as f32;
+    player_ship_positions(cx, system)
+        .into_iter()
+        .filter(|&(_, at)| distance_squared_between(point, at) <= f64::from(radius_square))
+        .map(|(p, _)| p)
+        .collect()
+}
+
+/// `FSystemInfo::IsPlayerShipNear(&Point, &Radius, &OutDistanceSq)`
+/// (`:645-670`): a player's ship within the radius.
+#[must_use]
+pub fn is_player_ship_near(cx: &Cx<'_>, system: u32, point: Vector, radius: f32) -> bool {
+    let radius_square = (f64::from(radius) * f64::from(radius)) as f32;
+    player_ship_positions(cx, system)
+        .into_iter()
+        .any(|(_, at)| distance_squared_between(point, at) <= f64::from(radius_square))
+}
+
+/// `FSystemInfo::RemoveMissionObject(Id)` (`:473-497`): the first entry of
+/// the mission objects goes, and its reputation is freed when the object
+/// has one; then the first entry of the flagged objects.
+pub fn remove_mission_object(cx: &mut Cx<'_>, system: u32, object: u32) {
+    let Some(record) = cx.logic.content.state.systems.get_mut(&system) else {
+        return;
+    };
+    let listed = record.mission_objects.iter().position(|&o| o == object);
+    if let Some(at) = listed {
+        record.mission_objects.remove(at);
+    }
+    if listed.is_some()
+        && let Ok(rep) = api::space_obj::rep(cx, object)
+    {
+        let _ = api::reputation::free(cx, rep);
+    }
+    if let Some(record) = cx.logic.content.state.systems.get_mut(&system)
+        && let Some(at) = record.flagged_objects.iter().position(|&o| o == object)
+    {
+        record.flagged_objects.remove(at);
+    }
+}
+
+/// `FSystemInfo::DestroyFlaggedObjectsAwayFromPlayers` (`:897-923`),
+/// SpaceSupport's heartbeat: each flagged object with no player's ship
+/// within 10000 is destroyed (`DESTROY_NORMAL`) and leaves the mission
+/// objects; the location of an object that is gone reads zero (D841).
+pub fn destroy_flagged_objects_away_from_players(cx: &mut Cx<'_>, system: u32) {
+    let Some(flagged) = cx
+        .logic
+        .content
+        .state
+        .systems
+        .get(&system)
+        .map(|r| r.flagged_objects.clone())
+    else {
+        return;
+    };
+    if flagged.is_empty() {
+        return;
+    }
+    let away: Vec<u32> = flagged
+        .into_iter()
+        .filter(|&o| {
+            let at = api::space_obj::location(cx, o).map_or(Vector::ZERO, |(v, _)| v);
+            !is_player_ship_near(cx, system, at, 10000.0)
+        })
+        .collect();
+    for object in away {
+        let _ = api::space_obj::destroy(cx, object, 0);
+        remove_mission_object(cx, system, object);
+    }
+}
+
+/// `FSystemInfo::DestroyObjectsIfUnoccupied` (`:436-462`), single player's
+/// `RemovePlayer` and `OnPlayerChanged`: with no player of the record in a
+/// ship, the record's NPC ships (P3.6c: none yet) and then its mission
+/// objects (`DESTROY_NORMAL`, then `RemoveMissionObject`) are destroyed.
+pub fn destroy_objects_if_unoccupied(cx: &mut Cx<'_>, system: u32) {
+    let state = &cx.logic.content.state;
+    let Some(record) = state.systems.get(&system) else {
+        return;
+    };
+    if record
+        .players
+        .iter()
+        .any(|p| state.players.get(p).is_some_and(|s| s.ship.is_some()))
+    {
+        return;
+    }
+    let objects = record.mission_objects.clone();
+    for object in objects {
+        let _ = api::space_obj::destroy(cx, object, 0);
+        remove_mission_object(cx, system, object);
+    }
 }
 
 #[cfg(test)]

@@ -576,6 +576,15 @@ player, or in the server's `ListD4` while a dock request is queued.
 `field_replay` makes the recorded activations and updates on the Rust
 world and compares each point after its tick.
 
+Content's dock queues (P3.6a) answer a dock request through
+`pub::SpaceObj::Dock`, which `ai.jsonl` records as the ship's `ai_answer`
+of kind `request`; their terminal states reach the docking points through
+`pub::SpaceObj::Activate` in SpaceSupport's handler tail, which
+`dock_activate` records. `dock_at_station` records the refusal (5, port
+-1) of a ship Content does not know, which marks no terminal.
+`game-logic/tests/scenario_hooks.rs` runs it through the server's hooks and
+judges its `tick.jsonl` as the other scenarios.
+
 ## `run_rand.jsonl`
 
 Only with the environment variable `OUTPOST_ORACLE_RUN_RAND` set (the cross-runner

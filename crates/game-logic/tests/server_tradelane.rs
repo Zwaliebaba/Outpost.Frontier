@@ -980,20 +980,12 @@ fn a_players_closed_route_is_refused() {
     let npc_id = id(&cx, npc);
     let mut state = game_logic::content::players::PlayerState::new(&cx, 1);
     state.can_tradelane = false;
-    state.ship = Some(game_logic::content::players::PlayerShip {
-        ship: npc_id,
-        archetype: 0,
-        class_ids: Vec::new(),
-        system: None,
-        formation_id: u32::MAX,
-        lane_entry: 0,
-        lane_end: 0,
-        in_combat: false,
-        scan_target: false,
-        target: 0,
-        calm_since: -1.0,
-        hostile_contact_count: 0,
-    });
+    state.ship = Some(game_logic::content::players::PlayerShip::new(
+        npc_id,
+        0,
+        Vec::new(),
+        None,
+    ));
     cx.logic.content.state.players.insert(1, state);
     let _ = (heard(), sink.take());
     let returned = |sent: Vec<(u32, ToClient)>| -> Vec<(u32, u8)> {

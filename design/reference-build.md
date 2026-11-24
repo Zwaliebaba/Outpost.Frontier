@@ -733,6 +733,7 @@ is zero, which only `Oracle.exe sim` changes:
 | `Content\oracle_content_dump.cpp` (new), `Content.vcxproj`, `Oracle\oracle_sim.cpp`, `Oracle\mission_scripts.txt` (new) (P3.5a) | `OracleDumpMissionScripts`, a new export that only `dump mission_scripts` calls right after the start-up: it registers a synthetic player 7 in he01 (`ReplaceContentPlayerState`), makes each of the fourteen story missions through `CreateInstance` on a fixed seed and on a controller id no controller has, counts the parse's `rand()` draws, writes every field of its triggers, conditions, actions, sections, objectives and dialogs (the classes told apart by `dynamic_cast`) and destroys it (`DestroyInstance`), emptying `GMissionDialogs` before each mission and at the end and removing the player; nothing reaches a player and no message is sent; with P3.5a2 it also writes the mission object's `[ObjList]` directives (each class and its `pub::AI` op) and `[MetaBehavior]` objects into four more files, also told apart by `dynamic_cast`, through `MissionObjList.h` and `Guides.h` |
 | `Content\oracle_save_dump.cpp` (new), `Content.vcxproj`, `Oracle\oracle_sim.cpp`, `Oracle\mission_saves.txt` (new), `Oracle\mission_save_loads.txt` (new) (P3.5b) | `OracleDumpMissionSaves` and `OracleLoadMissionSaves`, two new exports that only `dump mission_saves` and `dump mission_save_loads` call right after the start-up. Both register player 7 in he01 and make each story mission as `OracleDumpMissionScripts` does. The first writes each mission's `PlayerSave` body without the message's gates (`SaveMissionState`, `SaveMission`, `SaveRandEncs` between the `[MissionState]` and `[BStoryMissionDone]` headers) in three states, setting the members of the advanced and pending states directly (`design/sim-records.md`, mission saves), and a new Story's `PlayerSave`; the second restores the port's saves from the out folder's `rust` folder (`LoadMissionState`, then `LoadMissionSave`, the generator seeded before) into new missions, and six Story saves into one Story through its `PlayerLoad`, and writes what each restored and its save of it. The six clamps a save writes are put back after each mission; the missions are destroyed and the player removed at the end. Nothing reaches a player except a restore's `SetMissionObjectives` to player 7, who has no slot |
 | `Content\oracle_content_tables.cpp`, `BaseDB.cpp` (P3.4c) | `OracleDumpContentTables` also writes the other loaders' tables: the `mBases.ini` records (`OracleContentDumpBases` in `BaseDB.cpp`, whose table is file-static, from fresh records loaded with `FContentBase::Load(nullptr)`, so the live records keep their load counts), the specific NPCs (StoryLauncher's loop into a local table), the three system path tables, and each system's encounter parameters, zones and patrol paths read into a local `FSystemInfo` as `LoadFromReader` reads them, with every ship line's factions and archetypes; nothing it writes reaches the live state |
+| `Oracle\oracle_sim.cpp`, `Oracle\scenarios\dock_at_station.txt` (P3.6a) | The "at least one object" check of `LoadScenario` exempts every object-less dump session (`system_loads`, `content_tables`, `content_systems`, `mission_scripts`, `mission_saves`, `mission_save_loads`; `content_systems` was not listed); `dock_at_station` gains the comment `# rust: server SpaceSupport answers the dock request`, which the parser skips |
 
 `srand`, the frame time and the control words need no hook: the harness
 runs the frame loop itself.
@@ -791,8 +792,9 @@ place of `ram_asteroid` (owner, 2026-11-18); the escort scenarios of P2.5,
 `# rust: skip <reason>` tells `scenario_replay` that the Rust world cannot
 run the scenario yet; a line `# rust: server <reason>` that the scenario
 needs the server's answers, so only `game-logic`'s `scenario_hooks` runs
-it, with Content's SpaceSupport and the AI's requests to the server (P3.3,
-the trade lanes).
+it, with the AI's requests to the server (P3.3, the trade lanes; P3.6a,
+`dock_at_station`). Since P3.6a every scenario there runs on the oracle's
+start-up, with Content's GameSupport, SpaceSupport and BaseSupport.
 
 | Line | Meaning |
 | --- | --- |
@@ -877,9 +879,10 @@ trial run).
 The dock scenarios (P2.5). In `dock_at_station` the fighter's dock
 behaviour (7) flies the approach through the goto behaviour to within
 1000 m of `he01_11` (ticks 1 to 349), asks for a port at tick 354
-(`slot_5c` type 0) and is refused (response 5, port -1: the ship has no
-reputation), so the directive ends with result 2 and the ship idles; no
-docking point is reached. `dock_trade_lane` has the fighter dock with
+(`slot_5c` type 0) and is refused (response 5, port -1: SpaceSupport's
+`TryStartDocking` answers 5 for a ship its system record does not know,
+and the harness's ships are none of Content's), so the directive ends with
+result 2 and the ship idles; no docking point is reached. `dock_trade_lane` has the fighter dock with
 trade lane ring 16 as NPC traffic enters a lane: the lane start
 (`get_lane_start`), the approach, the lane request at tick 222 (type 2,
 granted at once), the ring's spline, the lane at tick 588 and the lane's
@@ -890,7 +893,11 @@ fighter into the lane from ring 16 to ring 18 with the instant trade lane
 PSIs: in the lane the ship moves by `CShip`'s `LaneAction`. Since P3.3's
 trade lanes both run through the server's hooks (`# rust: server`): the
 lane request is SpaceSupport's to answer, and the server's
-`notify_stop_tradelane` ends the instant trade lane's directive.
+`notify_stop_tradelane` ends the instant trade lane's directive. Since P3.6a `dock_at_station` runs through the server's hooks too: its
+dock request is answered by SpaceSupport's dock queues
+(`game-logic::content::dock_queues`), and every scenario of
+`scenario_hooks` runs on the oracle's start-up (GameSupport, SpaceSupport
+and BaseSupport, then `LoadGame`).
 
 The escort scenarios (P2.5) reach the behaviours no fight does.
 `formation` is a leader and two wingmen of `formations.ini`'s
