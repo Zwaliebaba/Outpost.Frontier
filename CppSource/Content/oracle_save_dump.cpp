@@ -9,9 +9,8 @@
 //
 // Every mission is made as OracleDumpMissionScripts makes it (the mission dialogs emptied, the
 // CRT generator seeded with OracleSaveSeed, CreateInstance for a synthetic player 7 registered
-// with ReplaceContentPlayerState in he01, on a controller id no controller has), the two counts
-// its constructor leaves unset (Cnd_Destroyed, Cnd_LootAcquired) set to 0 as the port's
-// defaults are, and destroyed (DestroyInstance) when done. Player 7 is removed at the end.
+// with ReplaceContentPlayerState in he01, on a controller id no controller has), and destroyed
+// (DestroyInstance) when done. Player 7 is removed at the end.
 //
 // The save is the body of FMissionScript's PlayerSave case without the message's gates (the
 // session's server is a multiplayer one, and the gates are the run time's): "\n[MissionState]\n",
@@ -172,8 +171,7 @@ namespace
         return -1;
     }
 
-    // The mission of index Index, made as OracleDumpMissionScripts makes it; the two counts the
-    // constructor leaves unset are set to 0.
+    // The mission of index Index, made as OracleDumpMissionScripts makes it.
     FMissionScript* MakeOracleMission(int Index, IDLL** OutInstance)
     {
         GMissionDialogs.clear();
@@ -187,13 +185,6 @@ namespace
         FMissionScript* const Script = dynamic_cast<FMissionScript*>(Instance);
         if (Script == nullptr)
             return nullptr;
-        for (FTriggerMap::iterator It = Script->TriggerMap.begin(); It != Script->TriggerMap.end(); ++It)
-        {
-            if (CndDestroyed* const C = dynamic_cast<CndDestroyed*>(It->second.Condition))
-                C->Count = 0;
-            if (CndLootAcquired* const C = dynamic_cast<CndLootAcquired*>(It->second.Condition))
-                C->Count = 0;
-        }
         return Script;
     }
 

@@ -9,8 +9,7 @@
 //! The port starts a multiplayer server as the oracle does, registers
 //! player 7 in he01 and makes each mission as `mission_scripts.rs` does
 //! (dialogs emptied, the generator seeded, a controller id no controller
-//! has); the two counts the C++ constructor leaves unset are 0 on both
-//! sides. Each mission is saved in three states (`constructed`, `advanced`,
+//! has). Each mission is saved in three states (`constructed`, `advanced`,
 //! `pending`; the recipes are `advance` and `pending` below and
 //! `Advance` in the export, described in `design/sim-records.md`).
 //!

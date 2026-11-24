@@ -847,9 +847,7 @@ The player-save sections of the fourteen story missions and of Story
 `crates/game-logic/tests/mission_saves.rs`. After the multiplayer start-up
 player 7 is registered in he01, and every mission is made as for
 `dump mission_scripts` (dialogs emptied, `srand(0x4f524143)`,
-`CreateInstance` on `0x00ff0001` plus its index), with the counts of
-`Cnd_Destroyed` and `Cnd_LootAcquired`, which the C++ constructor leaves
-unset, set to 0. A save is the `PlayerSave` body of a script mission
+`CreateInstance` on `0x00ff0001` plus its index). A save is the `PlayerSave` body of a script mission
 without the message's gates (single player, the player's id; the session's
 server is a multiplayer one): `\n[MissionState]\n`, `SaveMissionState`,
 unless a trigger save is pending `SaveMission` and `SaveRandEncs` (no ship,

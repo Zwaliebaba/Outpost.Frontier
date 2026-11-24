@@ -344,7 +344,8 @@ With P3.5a2 (`game-logic::content::mission::obj_list`) D820 was proposed;
 the owner accepted it on 2026-11-24.
 
 With P3.5b (`game-logic::content::mission::{save, object_save}` and
-`game-logic::content::story`) D830 to D834 were proposed.
+`game-logic::content::story`) D830 to D834 were proposed; the owner accepted
+them on 2026-11-24.
 
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)
