@@ -89,8 +89,8 @@ Paths are relative to `CppSource/`.
   - SpacePop: 3 s (`Populators.cpp:240`);
   - BasePop and StoryLauncher: none (`Populators.cpp:973`, `StoryLauncher.cpp:41`);
   - Story: 5 s (`Story.cpp:115`);
-  - a mission object: 1/30 s, set twice by the story missions
-    (`MissionObject.cpp:101`, `StoryMissions.cpp:100`);
+  - a mission object: 1/30 s (`MissionObject.cpp:101`), set a second time
+    by Mission_01a only (`StoryMissions.cpp:100`; corrected with P3.5a1);
   - the random mission object: 1 s (`RandomMissionDB.cpp:1041`).
 - **Game time.** `GetContentGameTime` is a `double` that GameSupport's
   heartbeat adds to (`GameSupport.cpp:35`, `:594-599`, `:782`). The
@@ -207,8 +207,11 @@ Paths are relative to `CppSource/`.
     (`MissionAct.cpp:3742-3774`).
 
   `Cnd_Timer` with a range draws `rand()` while it parses
-  (`MissionCnd.cpp:2635-2656`). The constructors before the parse draw two
-  heartbeat phases (`MissionObject.cpp:101`, `StoryMissions.cpp:100`).
+  (`MissionCnd.cpp:2635-2656`), and so do the `[MsnRandEnc]` populators
+  (their `time` activations and `num_forms`), which parse before the
+  triggers (found with P3.5a1). The constructors before the parse draw
+  the heartbeat phase (`MissionObject.cpp:101`), and Mission_01a a second
+  one (`StoryMissions.cpp:100`).
   The parse path does not test `pub::SinglePlayer()`.
 - **Running a trigger.** `DispatchMissionTriggerEvent` (`MissionScript.cpp:433-487`)
   runs the active pass of record 0006. `ActivateMissionTrigger` (`:358-402`)
@@ -557,10 +560,10 @@ Paths are relative to `CppSource/`.
      `BTreeMap`. The active list is record 0006 point 7's cursor walk over
      trigger ids, and the pending activations and the initially active
      triggers are `BTreeMap`s.
-   - **Parsing.** It takes `&mut Cx`, because `Cnd_Timer` draws from the
-     world's generator, and it calls the getters of Context. It runs in
-     the mission's constructor after its two heartbeat draws, so the draws
-     come in the C++ order.
+   - **Parsing.** It takes `&mut Cx`, because `Cnd_Timer` and the
+     `[MsnRandEnc]` populators draw from the world's generator, and it
+     calls the getters of Context. It runs in the mission's constructor
+     after its heartbeat draws, so the draws come in the C++ order.
    - **The trigger pass.**
      - The condition is taken out for `matches` (point 1).
      - Each action is cloned from `(trigger id, index)` before it runs, and
@@ -649,7 +652,8 @@ Paths are relative to `CppSource/`.
     | P3.4b | `LoadContentGameTables`: voices, empathy, formations, pilots, NPC ship archetypes, factions and their goods, ship classes, mission ship properties, loot and phantom loot, GCS exclusions, toughness, rank difficulty, news | Tier A `content_*` dumps; the pilots against `OracleSimPilotPersonality` |
     | P3.4c | `mBases.ini`, the system paths and their `[SystemConnections]` writer, `specific_npc.ini`, encounter parameters, zones and patrol paths (as building blocks of the system record), the cargo helpers but `GenerateCargo` | Tier A dumps |
     | P3.4d | GameSupport's run time: player states with `[mPlayer]`, system records with `LoadFull` (assembling P3.4c's encounter parameters, zones and patrol paths) and the solar NPCs' reputations, base records, gate locks, `LoadGame` and `SaveGame` (calling P3.4c's base and system-path loaders); the space paths (`SpacePaths.cpp`) where the system records' trade lanes suffice, the rest with P3.6; SpaceSupport's `SystemLoaded`, `SystemUnloaded` and the system-record half of `SystemEnter` and `SystemExit`; SpacePop's solar-detection flag, `CollectSpacePopZones` and `IsSegmentClear`; `format_f` with unit tests (moved from P3.5b) | Tier A: system records after every system's load (F17); `[mPlayer]` and gate-lock round trips; D734 narrowed |
-    | P3.5a | The parser: `Condition`, `Action`, triggers, the mission object's sections (`[MsnShip]`, `[MsnSolar]`, `[MsnFormation]`, `[MsnLoot]`, `[MsnRandEnc]`, `[ObjList]`, `[MetaBehavior]`, `[Dialog]`, `[NPC]`, `[NNObjective]`, `[Mission]`), mission dialogs | Tier A mission script dumps of the 14 story missions (Gate G3) |
+    | P3.5a1 | The parser: `Condition`, `Action`, triggers, the mission object's sections (`[MsnShip]`, `[MsnSolar]`, `[MsnFormation]`, `[MsnLoot]`, `[MsnRandEnc]`, `[Dialog]`, `[NPC]`, `[NNObjective]`, `[Mission]`), mission dialogs | Tier A mission script dumps of the 14 story missions (Gate G3) |
+    | P3.5a2 | `[ObjList]` (23 directives and their AI ops) and `[MetaBehavior]` | The same dumps extended to both sections |
     | P3.5b | The mission, trigger, snapshot and `[StoryInfo]` sections (`format_f` itself came with P3.4d) | `format_f` vectors; save round trips; Rust saves loaded by the C++ build (Gate G3) |
     | P3.5c | The run time: the trigger engine, conditions, the 85 actions in groups (one pull request per group if large), object lists, nags, the NN path | Tier B mission trace (Verification) |
     | P3.5d | The story shell and `StoryMissions.cpp`'s overrides | Tier B story trace |
@@ -667,6 +671,10 @@ Paths are relative to `CppSource/`.
     and each needs state a later package brings (the faction-name pool and
     reputation allocation, the system records' trade lanes and SpacePop's
     flags, the guide description and ship parameters).
+
+    The owner split P3.5a on 2026-11-24: `[ObjList]` and `[MetaBehavior]`
+    draw no `rand()` and no other section reads them, so P3.5a2 adds them
+    without changing P3.5a1's output.
 
     The owner moved `format_f` from P3.5b, SpaceSupport's system-load cases
     and the system-record half of `SystemEnter` and `SystemExit` from P3.6a,
