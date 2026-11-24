@@ -110,10 +110,11 @@ jobs:
           # which game-logic's data_dump_content_tables reads. P3.4c (record 0008 point 10)
           # adds the other loaders' twelve tables to the same run (data_dump_content_loaders).
           $content = "$env:RUNNER_TEMP\outpost-oracle\content"
-          & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\content_tables.txt" $content
+          & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\content_tables.txt" $content | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
           $code = $LASTEXITCODE
+          "Oracle.exe sim content_tables.txt exited with $code" | Add-Content "$env:RUNNER_TEMP\oracle-dump.log"
           if ($code -ne 0) {
-            Get-Content "$content\session.jsonl" -Tail 20 -ErrorAction SilentlyContinue
+            Get-Content "$content\session.jsonl" -Tail 20 -ErrorAction SilentlyContinue | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
             exit $code
           }
           Get-ChildItem $content -Filter content_*.txt | ForEach-Object { "$($_.Name): $(@(Get-Content $_.FullName).Count) lines" }
@@ -122,10 +123,11 @@ jobs:
           # OracleDumpMissionScripts), one mission_<table>.txt each, into outpost-oracle\missions,
           # which game-logic's data_dump_mission_scripts reads.
           $missions = "$env:RUNNER_TEMP\outpost-oracle\missions"
-          & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\mission_scripts.txt" $missions
+          & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\mission_scripts.txt" $missions | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
           $code = $LASTEXITCODE
+          "Oracle.exe sim mission_scripts.txt exited with $code" | Add-Content "$env:RUNNER_TEMP\oracle-dump.log"
           if ($code -ne 0) {
-            Get-Content "$missions\session.jsonl" -Tail 20 -ErrorAction SilentlyContinue
+            Get-Content "$missions\session.jsonl" -Tail 20 -ErrorAction SilentlyContinue | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
             exit $code
           }
           Get-ChildItem $missions -Filter mission_*.txt | ForEach-Object { "$($_.Name): $(@(Get-Content $_.FullName).Count) lines" }
@@ -576,7 +578,7 @@ jobs:
         shell: pwsh
         run: |
           $log = "$env:RUNNER_TEMP\oracle-dump.log"
-          if (Test-Path $log) { Get-Content $log -Tail 80 } else { "the oracle dump did not run" }
+          if (Test-Path $log) { Get-Content $log -Tail 120 } else { "the oracle dump did not run" }
           $compare = "$env:RUNNER_TEMP\compare-port.log"
           if (Test-Path $compare) { "--- Compare the port with the oracle (end) ---"; Get-Content $compare -Tail 150 }
           # The start of each Content and server comparison's summary: what was compared and
