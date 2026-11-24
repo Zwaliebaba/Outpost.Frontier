@@ -531,7 +531,8 @@ namespace
         }
         if (Out.System.empty() || !bTicks)
             return Error = "a scenario needs `system` and `ticks`", false;
-        if (Out.Objects.empty() && !Out.bDumpSystemLoads && !Out.bDumpContentTables)
+        if (Out.Objects.empty() && !Out.bDumpSystemLoads && !Out.bDumpContentTables &&
+            !Out.bDumpMissionScripts)
             return Error = "a scenario needs at least one object", false;
         std::stable_sort(Out.Commands.begin(), Out.Commands.end(),
                          [](FCommand const& A, FCommand const& B) { return A.Tick < B.Tick; });
