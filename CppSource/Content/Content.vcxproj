@@ -178,6 +178,7 @@
     <ClCompile Include="PatrolGuides.cpp" />
     <ClCompile Include="oracle_content_tables.cpp" />
     <ClCompile Include="oracle_content_systems.cpp" />
+    <ClCompile Include="oracle_content_dump.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Content.def" />

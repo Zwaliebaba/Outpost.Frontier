@@ -1,0 +1,9 @@
+# Oracle.exe sim session (P3.5a, decision record 0008 point 10): not a scenario. The server
+# starts as a multiplayer server (GameSupport's tables, then LoadGame's system records), then
+# Content.dll makes each of the fourteen story missions for a synthetic player on a fixed seed
+# and writes what the parser left as mission_<table>.txt (OracleDumpMissionScripts). No system
+# loads and nothing is stepped; the parser still wants `system` and `ticks`.
+
+system he01
+ticks 1
+dump mission_scripts
