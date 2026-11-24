@@ -20,7 +20,9 @@
 //! The parse draws `rand()` from the world's generator in the C++ order
 //! (the random encounters' activation times and formation counts, then
 //! `Cnd_Timer`'s ranges) and calls the `pub::` getters of record 0008. The
-//! saves are P3.5b's, the run time P3.5c's, the story shell P3.5d's. The
+//! saves came with P3.5b ([`save`] for the script's sections,
+//! [`object_save`] for the mission object's); the run time is P3.5c's, the
+//! story shell P3.5d's. The
 //! mission object's `[ObjList]` directives ([`obj_list`]) and
 //! `[MetaBehavior]` objects ([`meta_behavior`]) came with P3.5a2; they draw
 //! nothing.
@@ -32,8 +34,10 @@ pub mod field;
 pub mod meta_behavior;
 pub mod obj_list;
 pub mod object;
+pub mod object_save;
 pub mod objective;
 pub mod rand_enc;
+pub mod save;
 pub mod trigger;
 
 use std::collections::BTreeMap;
@@ -268,6 +272,23 @@ pub struct MissionScript {
     pub elapsed_time: f32,
     /// The story missions' own fields.
     pub story_fields: StoryMissionFields,
+    /// `ActiveTriggers`: the active triggers by id, in activation order
+    /// (record 0006 point 7's cursor walk; filled by the run time, P3.5c).
+    pub active_triggers: Vec<u32>,
+    /// `PendingActivations`: target id to source id (P3.5c).
+    pub pending_activations: BTreeMap<u32, u32>,
+    /// `NnPath` (+0x21c): `Act_NNPath`'s path, or a restored `nnpath`.
+    pub nn_path: save::NnPath,
+    /// `SaveTriggerId`: the trigger `Act_Save` saves (P3.5c).
+    pub save_trigger_id: u32,
+    /// `Field_0x2ec`: a restore read `[MissionState]`.
+    pub field_0x2ec: bool,
+    /// `List_0x2f4`: the cut scenes.
+    pub rtc_scripts: Vec<save::RtcScript>,
+    /// `FriendlyFireOffLabels` (+0x2fc).
+    pub friendly_fire_excused: Vec<Vec<u8>>,
+    /// `AmbientScenes` (+0x310).
+    pub ambient_scenes: Vec<save::AmbientScene>,
 }
 
 impl MissionScript {
@@ -474,6 +495,14 @@ pub fn construct_script(
         dialog_costumes: Vec::new(),
         elapsed_time: 0.0,
         story_fields: StoryMissionFields::default(),
+        active_triggers: Vec::new(),
+        pending_activations: BTreeMap::new(),
+        nn_path: save::NnPath::default(),
+        save_trigger_id: 0,
+        field_0x2ec: false,
+        rtc_scripts: Vec::new(),
+        friendly_fire_excused: Vec::new(),
+        ambient_scenes: Vec::new(),
     };
     let Some(chapter) = chapter(kind) else {
         // GenericMission: the file its parameters name.

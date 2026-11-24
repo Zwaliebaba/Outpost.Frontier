@@ -335,6 +335,13 @@ lane request, `LaneAction` and `get_lane_start`, owner 2026-11-19) run
 through the Rust world and fall inside their approved envelopes. Saves written by
 Rust load in the C++ build and the reverse. Mission script dumps equal the
 oracle. A random mission offer rebuilt from a saved seed equals the oracle.
+P3.5b checks the save item for the story missions' and Story's sections
+(`[MissionState]`, `[TriggerSave]`, the mission object's sections,
+`[NNObjective]`, `[RandomEncounter]`, `[StoryInfo]`): the C++ writer's text
+equals the port's for every mission in three states, the C++ build restores
+the port's saves as the port does (the data job's "Load the port's saves
+with the oracle"), and the port's saves round-trip; the `[RandomMission]`
+sections follow with P3.7c.
 
 ### Phase 4 — client engine (`neuron-client`)
 

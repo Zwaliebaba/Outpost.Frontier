@@ -60,6 +60,7 @@ Conventions:
 | `content_tables` | (`dump content_tables`, P3.4b; P3.4c adds twelve tables) `lines` i: the lines `OracleDumpContentTables` wrote, −1 when a file could not be opened or Content.dll lacks the export |
 | `content_systems` | (`dump content_systems`, P3.4d; after `system_loads`) `lines` i: the lines `OracleDumpContentSystems` wrote, −1 when a file could not be opened or Content.dll lacks the export |
 | `mission_scripts` | (`dump mission_scripts`, P3.5a) `lines` i: the lines `OracleDumpMissionScripts` wrote, −1 when a file could not be opened, a mission was not made or Content.dll lacks the export |
+| `mission_saves`, `mission_save_loads` | (`dump mission_saves` and `dump mission_save_loads`, P3.5b) `files` i: the files `OracleDumpMissionSaves` or `OracleLoadMissionSaves` wrote, −1 when a file could not be opened (for the loads, a port save in the out folder's `rust` folder is missing), a mission or the Story was not made or Content.dll lacks the export |
 | `end` | `tick` u, `psi_total` u, `code` i (the exit code) |
 
 ## `tick.jsonl`
@@ -837,6 +838,69 @@ insertion order. P3.5a2 added the four tables of `[ObjList]` and
 | `mission_obj_list_directives.txt` | `list index factory type directive name` (the factory case 0 to 0x16 or 0x19, `GetType`, the `[ObjList]` key of the class, `TractorBeam` for case 0x19, and the line the loader kept), then the class's members and its op's fields (`game-logic::content::mission::obj_list`'s `fields()`): every op starts with `priority`; a goto op `kind destination field_1c words_20` (the twelve words from +0x20) `range field_54 field_58 field_59 cruise no_cruise field_5c field_60 field_64 field_68 field_6c`, the guide's goto and follow parts with `goto_` and `follow_` before each name, the embedded ops' own priorities not written; a name a class does not have is written empty (`GotoSpline`'s and `GotoVec`'s `target_name`, `Guide`'s `object_name`); `formation` says whether `FindFormation` found it; `InstantTradelane`'s `speed` is the bits of its third word |
 | `mission_meta_behaviors.txt` | `list objects`: the `[MetaBehavior]` map (+0x114) in key order |
 | `mission_meta_behavior_objects.txt` | `list index type class` (5 `MB_GOTOGUIDE`, 6 `MB_DOCKGUIDE`) `line priority first_position destination range target_name field_0x174 field_0x175 field_0x176`, and for the dock guide `dock_target_id`; the leg list (empty after the parse) and the ship (null) are not written |
+
+## Mission saves (`dump mission_saves`, `dump mission_save_loads`)
+
+The player-save sections of the fourteen story missions and of Story
+(P3.5b, decision record 0008 points 6 and 10, Gate G3;
+`Content/oracle_save_dump.cpp`), read by
+`crates/game-logic/tests/mission_saves.rs`. After the multiplayer start-up
+player 7 is registered in he01, and every mission is made as for
+`dump mission_scripts` (dialogs emptied, `srand(0x4f524143)`,
+`CreateInstance` on `0x00ff0001` plus its index), with the counts of
+`Cnd_Destroyed` and `Cnd_LootAcquired`, which the C++ constructor leaves
+unset, set to 0. A save is the `PlayerSave` body of a script mission
+without the message's gates (single player, the player's id; the session's
+server is a multiplayer one): `\n[MissionState]\n`, `SaveMissionState`,
+unless a trigger save is pending `SaveMission` and `SaveRandEncs` (no ship,
+so no snapshot), then `\n[BStoryMissionDone]\n`. Files are written in
+binary, with the `\n`s of the format strings. The six clamps are put back
+after each mission.
+
+The three states of each mission:
+
+- `constructed`: right after the constructor.
+- `advanced`: every trigger with a condition made active, in id order; the
+  condition of the k-th (from 0) gets: `Cnd_Destroyed`, `Cnd_LootAcquired`,
+  `Cnd_ProjHit`, `Cnd_ProjHitShipToLbl` count k + 1; `Cnd_DistShip`,
+  `Cnd_DistVec` tick timer F[k], last distance F[k + 1]; `Cnd_DistVecLbl`
+  tick timer F[k + 2]; `Cnd_TetherBroke` +0x90 F[k + 3], +0x88 F[k + 4];
+  `Cnd_Timer` elapsed F[k + 5]; `Cnd_NPCSystemEnter` and `Exit` their ships
+  as pending, the i-th with system S[(k + i) mod 3]; where F is the twelve
+  floats `0.0078125, 0.0234375, 0.1, 123.456, -0.6, 31476.25, FLT_MAX,
+  1e-7, 2500, 0.33333334, 16777216, -0` (indices mod 12) and S `7,
+  16777217, 4000000007`. The script: story cue 7; the NN path active with
+  ids 1234 and -5, position (1.5, -2.25, 100000.125), label
+  `oracle_nn_target`, system 4000000007; three cut scenes
+  `missions\oracle\rtc_{a,b,c}.thn` (b finished, a with `Field_0x95`); an
+  ambient scene `scripts\oracle\ambi.thn` in room 0x1234 of base
+  4000000007; the friendly-fire labels `oracle_ff_a`, `oracle_ff_b`. The
+  mission object: two respawn ship records, a copy of the first `[MsnShip]`
+  record with only its first ship (position (-31476.25, 150, 0.1),
+  arrival 0, priority 3, 450 hit points, the first `[ObjList]`'s
+  directives) and a copy of the last with only its first ship (arrival
+  object 0x40000123, priority -2, the first `[MetaBehavior]`'s first object
+  as its guide); one random-encounter respawn record (the first encounter's
+  id or `CreateID("oracle_enc")`, 2 ships, priority 3, 450 hit points,
+  translation (100.5, -0, 3000000), classes `17, 34` and none, names
+  `oracle_rand_a`, `oracle_rand_b`, the first list's directives); the solar
+  `oracle_solar`, the marks `oracle_mark_a`, `oracle_mark_b`, the
+  invulnerables `oracle_inv_a` (12.5, 1) and `oracle_inv_b` (0.0234375, 0),
+  the decloaked `oracle_cloak`, three attitudes (`oracle_vibe_a` to
+  `Player` -0.6; reputation 17 to `oracle_vibe_b` 0.1; `oracle_vibe_c` to
+  reputation 4000000007 -0); the first random encounter enabled with 3
+  ships, the second disabled with 5; and the clamps attack 1, encounters 0,
+  scan 1, GCS on, hostile 0, population 0.
+- `pending`: a trigger save pending for the first trigger in id order.
+
+| File | Content |
+| --- | --- |
+| `mission_saves/save_<mission>_<state>.ini` | (`dump mission_saves`) the save of the mission in that state |
+| `mission_saves/story_constructed.ini` | (`dump mission_saves`) Story's `PlayerSave` right after its constructor for player 7 |
+| `rust/save_<mission>_<state>.ini` | (written by the port before `dump mission_save_loads`, through the text-mode translation) the port's save in the three states, `restored` (the port's save after restoring the hand-made `crates/game-logic/tests/fixtures/mission_saves/raw.ini`) and `raw` (that fixture) |
+| `rust/story_<n>.ini` | (written by the port) the port's Story save after restoring `story_<n>.ini` of the same fixtures, n = 0 to 5, in turn |
+| `loaded_<mission>_<state>.txt` | (`dump mission_save_loads`) a new mission's restore of the port's save, the generator seeded before it: `script field_0x2ec initially_active` (`id:id`) `active pending_activations save_pending save_trigger nn_state draws`; per initially active trigger with a condition `cnd trigger=<id> text=` and its condition's `Save` output, then `|`; per ship of each respawn record `ship group index init_objectives init_meta guide directives`; `solar_reps=` (`,`-separated); per random encounter `rand_enc nickname` (hex) `enabled npc_count params`; then `=== save` and the save of the restored mission |
+| `story_loaded_<n>.txt` | (`dump mission_save_loads`) one Story's `PlayerLoad` of `rust/story_<n>.ini`, n = 0 to 5 in turn, then its `PlayerSave` and `mission_number=` the player's |
 
 ## `spread.jsonl` (`--runs N`)
 

@@ -157,6 +157,16 @@ pub struct ContentState {
     /// (first id wins); a script mission's end empties it (P3.5c), its
     /// destructor does not ([`mission::dialog`]).
     pub mission_dialogs: BTreeMap<u32, mission::dialog::MissionDialog>,
+    /// The six clamps the missions save and restore (P3.5b;
+    /// [`mission::save::Clamps`]): `GSpacePopAttackClamp`,
+    /// `GSpacePopEncounterEnabled` (`Populators.cpp:44-56`),
+    /// `GMissionScanClamp` (`MissionScript.cpp:43`),
+    /// `G_bContentGcsClampDisabled` (`Content.cpp:19`),
+    /// `GSpacePopHostileClamp` and `GSpacePopPopulationEnabled`.
+    pub clamps: mission::save::Clamps,
+    /// `GStoryDebugFlag` (`Story.cpp:28`): `[StoryInfo]`'s `debug`, shared by
+    /// every Story (P3.5b).
+    pub story_debug: u8,
 }
 
 impl ContentState {
@@ -185,6 +195,8 @@ impl ContentState {
             relay_seven_system: 0,
             solar_detection: true,
             mission_dialogs: BTreeMap::new(),
+            clamps: mission::save::Clamps::default(),
+            story_debug: 0,
         }
     }
 }

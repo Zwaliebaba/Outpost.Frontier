@@ -303,7 +303,7 @@ fn common_value(cx: &mut Cx<'_>, reader: &mut IniReader, params: &mut RandEncPar
 
 /// `FRandEncSPPopulator::Parse` / `FRandEncTLPopulator::Parse`: the values
 /// after the current one, the reader's state saved first and put back.
-fn populator_parse(cx: &mut Cx<'_>, reader: &mut IniReader, params: &mut RandEncParams) {
+pub(crate) fn populator_parse(cx: &mut Cx<'_>, reader: &mut IniReader, params: &mut RandEncParams) {
     let saved = reader.state();
     if (reader.is_header(b"RandomEncounter") || reader.is_header(b"MsnRandEnc"))
         && reader.read_value()

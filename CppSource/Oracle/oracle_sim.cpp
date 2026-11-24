@@ -164,6 +164,14 @@ namespace
         // mission_<table>.txt through its OracleDumpMissionScripts; no system loads and no
         // scenario runs (P3.5a, decision record 0008 point 10).
         bool bDumpMissionScripts = false;
+        // `dump mission_saves`: right after the server starts, Content.dll writes the player-save
+        // sections of the fourteen story missions in three states, and Story's, through its
+        // OracleDumpMissionSaves; `dump mission_save_loads`: it loads the port's saves from the
+        // out folder's `rust` folder and writes what it restored, through its
+        // OracleLoadMissionSaves. No system loads and no scenario runs (P3.5b, decision record
+        // 0008 point 10, Gate G3).
+        bool bDumpMissionSaves = false;
+        bool bDumpMissionSaveLoads = false;
         unsigned int Seed = 0x4f524143u;
         double ClockStart = 1000.0;
         std::vector<FObjectDesc> Objects;
@@ -463,6 +471,14 @@ namespace
             {
                 Out.bDumpMissionScripts = true;
             }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "mission_saves")
+            {
+                Out.bDumpMissionSaves = true;
+            }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "mission_save_loads")
+            {
+                Out.bDumpMissionSaveLoads = true;
+            }
             else if (Key == "seed" && T.size() == 2 && ParseUnsigned(T[1], Value))
             {
                 Out.Seed = (unsigned int)Value;
@@ -532,7 +548,7 @@ namespace
         if (Out.System.empty() || !bTicks)
             return Error = "a scenario needs `system` and `ticks`", false;
         if (Out.Objects.empty() && !Out.bDumpSystemLoads && !Out.bDumpContentTables &&
-            !Out.bDumpMissionScripts)
+            !Out.bDumpMissionScripts && !Out.bDumpMissionSaves && !Out.bDumpMissionSaveLoads)
             return Error = "a scenario needs at least one object", false;
         std::stable_sort(Out.Commands.begin(), Out.Commands.end(),
                          [](FCommand const& A, FCommand const& B) { return A.Tick < B.Tick; });
@@ -2845,6 +2861,32 @@ namespace oracle
             Write(FileSession, J);
             EndProcess(Lines < 0 ? 3 : 0);
             return Lines < 0 ? 3 : 0;
+        }
+
+        // `dump mission_saves` and `dump mission_save_loads` (P3.5b): the story missions' and
+        // Story's save sections, and their restores of the port's saves, after the start-up,
+        // through Content.dll's Oracle exports, then the end of the run.
+        if (GScenario.bDumpMissionSaves || GScenario.bDumpMissionSaveLoads)
+        {
+            typedef int(__cdecl * FMissionSaves)(char const*);
+            char const* const Export =
+                GScenario.bDumpMissionSaves ? "OracleDumpMissionSaves" : "OracleLoadMissionSaves";
+            HMODULE const Content = GetModuleHandleA("Content.dll");
+            FMissionSaves const Saves =
+                Content != nullptr ? (FMissionSaves)GetProcAddress(Content, Export) : nullptr;
+            int const Files = Saves != nullptr ? Saves(OutDir.c_str()) : -1;
+            if (Saves == nullptr)
+                SessionNote("error", (std::string("dump mission saves: Content.dll is not loaded or lacks ") +
+                                      Export).c_str());
+            else if (Files < 0)
+                SessionNote("error", (std::string(Export) + " failed: a file could not be opened or a "
+                                                            "mission or Story could not be made").c_str());
+            FOracleJson J;
+            J.Str("rec", GScenario.bDumpMissionSaves ? "mission_saves" : "mission_save_loads");
+            J.Int("files", Files);
+            Write(FileSession, J);
+            EndProcess(Files < 0 ? 3 : 0);
+            return Files < 0 ? 3 : 0;
         }
 
         // `comms off`: the GCS clamp through Content.dll's Oracle export, before the load.
