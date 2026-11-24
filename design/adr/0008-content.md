@@ -1,8 +1,8 @@
 # 0008 — Content in game-logic
 
 Status: accepted by the owner on 2026-11-22 (P3.4 to P3.7); decision O47.
-Questions 1 to 3 and 5 to 10 answered as recommended; question 4 (the NPC
-loot preference) is still open and is put to the owner before P3.6. Builds on records
+Questions 1 to 10 answered as recommended; question 4 (the NPC loot
+preference) on 2026-11-24. Builds on records
 0006 (controller bus, decision O40: its "Content" section and Appendix A)
 and 0007 (server world, decision O43), and on P3.3's port of `pub::` in
 `game-logic::api`.
@@ -606,8 +606,10 @@ Paths are relative to `CppSource/`.
        row defers to P3.6 for Gate G3.
      - Gate G3's `dock_at_station` through the server needs SpaceSupport's
        dock queues, which come with this package.
-   - **Loot preference.** The loot question stays open (open question 4).
-     Until the owner answers, the port parses as the reconstruction does.
+   - **Loot preference.** The port compares as the reconstruction does,
+     case-sensitively, so no NPC loots on the shipped data (owner,
+     2026-11-24, question 4). If a check of the original binary shows
+     otherwise, the reference gets an approved fix and the port follows.
 
 8. **Random missions are state enums; an offer is rebuilt from its seed
    (P3.7: Tier A for offers, Tier B for the run time).**
@@ -771,7 +773,8 @@ and 5 to 10 as recommended on 2026-11-22; 4 stays open until P3.6:
    original compares case-sensitively, nothing changes. If it upper-cases
    the value or compares without case, the reference gets an approved fix
    like O30 and the port follows. The repository holds no original
-   binary to settle this.
+   binary to settle this. *Answered 2026-11-24: as recommended; the port
+   keeps the reconstruction's case-sensitive test.*
 5. **F17.** Should F17 be closed as known from the code, "Content gives
    named solars their faction on `SystemLoaded`", once P3.4's
    system-record dump shows it? *Recommended: yes, with no change to the
