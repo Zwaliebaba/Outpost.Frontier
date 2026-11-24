@@ -142,16 +142,20 @@ fn push_digits(out: &mut String, digits: &[u8]) {
     out.extend(digits.iter().map(|&d| char::from(b'0' + d)));
 }
 
+/// The text of a NaN as the reference prints it. A double reaches the
+/// C runtime through the x87 stack in the reference's 32-bit build, and
+/// loading a signalling NaN onto it sets the quiet bit, so the runtime
+/// never sees one: `7ff0000000000001` prints as the quiet `7ff8000000000001`
+/// does (the oracle's `format_f` suite; its `net_doubles` suite shows the
+/// same quieting on a write).
 fn nan_text(bits: u64) -> &'static str {
+    let bits = bits | 0x0008_0000_0000_0000;
     let negative = bits >> 63 != 0;
-    let quiet = bits & 0x0008_0000_0000_0000 != 0;
     let payload = bits & 0x0007_FFFF_FFFF_FFFF;
-    match (negative, quiet) {
-        (false, true) => "nan",
-        (true, true) if payload == 0 => "-nan(ind)",
-        (true, true) => "-nan",
-        (false, false) => "nan(snan)",
-        (true, false) => "-nan(snan)",
+    match (negative, payload) {
+        (false, _) => "nan",
+        (true, 0) => "-nan(ind)",
+        (true, _) => "-nan",
     }
 }
 
