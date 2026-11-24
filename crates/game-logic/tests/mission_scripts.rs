@@ -2,7 +2,8 @@
 //! and 10, Gate G3): the fourteen story missions made as `Oracle.exe sim`
 //! makes them for `CppSource/Oracle/mission_scripts.txt` and rendered as
 //! `Content.dll`'s `OracleDumpMissionScripts` writes them
-//! (`CppSource/Content/oracle_content_dump.cpp`).
+//! (`CppSource/Content/oracle_content_dump.cpp`), with P3.5a2's
+//! `[ObjList]` and `[MetaBehavior]` tables.
 //!
 //! The port starts a multiplayer server as the oracle does (Content's
 //! GameSupport, SpaceSupport and BaseSupport, then `Server_LoadWorldState`
@@ -45,7 +46,7 @@ use neuron_core::vfs::Host;
 use neuron_server::controller::{self, ControllerId, Priority};
 
 /// The tables in the oracle's order, each `mission_<name>.txt`.
-const TABLES: [&str; 14] = [
+const TABLES: [&str; 18] = [
     "scripts",
     "triggers",
     "actions",
@@ -60,6 +61,10 @@ const TABLES: [&str; 14] = [
     "dialogs",
     "dialog_lines",
     "costumes",
+    "obj_lists",
+    "obj_list_directives",
+    "meta_behaviors",
+    "meta_behavior_objects",
 ];
 
 /// `OracleMissionSeed`.
@@ -243,7 +248,7 @@ fn render_objective(o: &Objective) -> String {
     s
 }
 
-/// The fourteen tables of one mission run.
+/// The eighteen tables of one mission run.
 fn render(missions: &[Made], strings: &StringCache) -> Vec<Vec<String>> {
     let mut out: Vec<Vec<String>> = vec![Vec::new(); TABLES.len()];
     for ((name, _), (s, draws, dialogs)) in CHAPTERS.iter().zip(missions) {
@@ -502,8 +507,46 @@ fn render(missions: &[Made], strings: &StringCache) -> Vec<Vec<String>> {
             let (table, text) = line.split_at(2);
             out[if table.starts_with('D') { 11 } else { 12 }].push(text.to_owned());
         }
+        render_obj_lists(name, o, strings, &mut out);
     }
     out
+}
+
+/// The four tables of P3.5a2: each `[ObjList]` and its directives, each
+/// `[MetaBehavior]` and its objects, in key order.
+fn render_obj_lists(
+    name: &str,
+    o: &game_logic::content::mission::object::MissionObject,
+    strings: &StringCache,
+    out: &mut [Vec<String>],
+) {
+    for (key, list) in &o.obj_lists {
+        out[14].push(format!(
+            "mission={name} list={key} directives={}",
+            list.len()
+        ));
+        for (index, d) in list.iter().enumerate() {
+            out[15].push(format!(
+                "mission={name} list={key} index={index} factory={} type={} directive={} name={}{}",
+                d.kind.factory(),
+                d.kind.type_code(),
+                d.kind.key(),
+                hex(&d.name),
+                render_fields(&d.kind.fields(), strings)
+            ));
+        }
+    }
+    for (key, list) in &o.meta_behaviors {
+        out[16].push(format!("mission={name} list={key} objects={}", list.len()));
+        for (index, m) in list.iter().enumerate() {
+            out[17].push(format!(
+                "mission={name} list={key} index={index} type={} class={}{}",
+                m.type_code(),
+                m.key(),
+                render_fields(&m.fields(), strings)
+            ));
+        }
+    }
 }
 
 /// The differences of one table from the oracle's file.
@@ -1057,4 +1100,180 @@ fn proposed_divergences_are_not_reached_on_outdir() {
             .count();
         assert!(without_system <= sections_without, "{name}: dialog systems");
     }
+}
+
+/// Each `[ObjList]` or `[MetaBehavior]` of a file, read independently: its
+/// last nickname (lower case) and its element keys (lower case), the first
+/// section of a nickname kept.
+fn list_sections(text: &str, header: &str, keys: &[&str]) -> BTreeMap<String, Vec<String>> {
+    let mut out = BTreeMap::new();
+    let mut current: Option<(String, Vec<String>)> = None;
+    let mut finish = |current: &mut Option<(String, Vec<String>)>| {
+        if let Some((nickname, list)) = current.take() {
+            out.entry(nickname).or_insert(list);
+        }
+    };
+    for raw in text.lines() {
+        let line = raw.split(';').next().unwrap_or("").trim();
+        if line.starts_with('[') {
+            finish(&mut current);
+            let name = line.trim_matches(|c| c == '[' || c == ']');
+            if name.eq_ignore_ascii_case(header) {
+                current = Some((String::new(), Vec::new()));
+            }
+            continue;
+        }
+        let Some((nickname, list)) = current.as_mut() else {
+            continue;
+        };
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim().to_ascii_lowercase();
+        if key == "nickname" {
+            *nickname = value.trim().to_ascii_lowercase();
+        } else if keys.iter().any(|k| k.eq_ignore_ascii_case(&key)) {
+            list.push(key);
+        }
+    }
+    finish(&mut current);
+    out
+}
+
+/// P3.5a2: every mission's `[ObjList]` and `[MetaBehavior]` maps against an
+/// independent scan of its file (the lists, the first list of a nickname
+/// kept, each element's key in order), then one list and one meta
+/// behaviour field by field. D820 is not reached.
+#[test]
+fn obj_lists_on_outdir() {
+    use game_logic::content::mission::meta_behavior::MetaBehavior;
+    use game_logic::content::mission::obj_list::{DirectiveKind, KEYS};
+
+    let Some((missions, _)) = outdir_missions() else {
+        println!("outdir/ is missing: no mission scripts");
+        return;
+    };
+    let keys: Vec<&str> = KEYS
+        .iter()
+        .map(|(k, _)| std::str::from_utf8(k).unwrap())
+        .collect();
+    let mut by_key: BTreeMap<&str, usize> = BTreeMap::new();
+    let (mut lists, mut directives, mut metas, mut objects) = (0, 0, 0, 0);
+    for ((name, chapter), (s, _, _)) in CHAPTERS.iter().zip(&missions) {
+        let text = mission_text(chapter.file);
+        let o = &s.object;
+        let want = list_sections(&text, "objlist", &keys);
+        assert_eq!(o.obj_lists.len(), want.len(), "{name} object lists");
+        for (nickname, list) in &want {
+            let got = &o.obj_lists[&create_id(nickname.as_bytes())];
+            let got: Vec<String> = got
+                .iter()
+                .map(|d| d.kind.key().to_ascii_lowercase())
+                .collect();
+            assert_eq!(&got, list, "{name} {nickname}");
+        }
+        let want = list_sections(&text, "metabehavior", &["mb_gotoguide", "mb_dockguide"]);
+        assert_eq!(o.meta_behaviors.len(), want.len(), "{name} meta behaviours");
+        for (nickname, list) in &want {
+            let got = &o.meta_behaviors[&create_id(nickname.as_bytes())];
+            let got: Vec<String> = got.iter().map(|m| m.key().to_ascii_lowercase()).collect();
+            assert_eq!(&got, list, "{name} {nickname}");
+        }
+        let count: usize = o.obj_lists.values().map(Vec::len).sum();
+        let meta_count: usize = o.meta_behaviors.values().map(Vec::len).sum();
+        println!(
+            "{name}: {} object lists ({count} directives), {} meta behaviours ({meta_count} objects)",
+            o.obj_lists.len(),
+            o.meta_behaviors.len()
+        );
+        lists += o.obj_lists.len();
+        directives += count;
+        metas += o.meta_behaviors.len();
+        objects += meta_count;
+        for d in o.obj_lists.values().flatten() {
+            *by_key.entry(d.kind.key()).or_default() += 1;
+            // D820: no behaviour name longer than its 0x20-byte buffer holds.
+            if let DirectiveKind::WaitForPlayerManeuver(w) = &d.kind {
+                assert!(w.behavior_name.len() < 0x20, "{name}: {w:?}");
+            }
+        }
+    }
+    println!(
+        "{lists} object lists, {directives} directives, {metas} meta behaviours, {objects} objects"
+    );
+    println!("directives by key: {by_key:?}");
+
+    // Mission_01a's `ol_patrol_path`: Delay = 1, MakeNewFormation =
+    // transport2_helion, csvX, then a GotoVec and a GotoSpline.
+    let o = &missions[0].0.object;
+    let list = &o.obj_lists[&create_id(b"ol_patrol_path")];
+    assert_eq!(list.len(), 11);
+    assert_eq!(list[0].name, b"Delay = 1");
+    let DirectiveKind::Delay(d) = &list[0].kind else {
+        panic!("{:?}", list[0]);
+    };
+    assert_eq!((d.priority, d.delay_seconds), (0, 1.0));
+    let DirectiveKind::MakeNewFormation(f) = &list[1].kind else {
+        panic!("{:?}", list[1]);
+    };
+    assert_eq!(f.formation, Some(create_id(b"transport2_helion")));
+    assert_eq!(f.member_names, [b"csvX".to_vec()]);
+    assert!(!f.add_followers);
+    assert_eq!(
+        (list[1].kind.factory(), list[1].kind.type_code()),
+        (0xf, 0xf)
+    );
+    let DirectiveKind::GotoVec(g) = &list[2].kind else {
+        panic!("{:?}", list[2]);
+    };
+    assert_eq!(
+        list[2].name,
+        b"GotoVec = goto_no_cruise, -31476, 150, -28660, 500, true, 30"
+    );
+    assert_eq!(g.op.kind, 1);
+    assert_eq!(
+        [g.op.destination.x, g.op.destination.y, g.op.destination.z],
+        [-31476.0, 150.0, -28660.0]
+    );
+    assert_eq!((g.op.range, g.op.field_54), (500.0, 30.0));
+    assert_eq!(
+        (g.op.field_58, g.op.field_59, g.op.cruise, g.op.no_cruise),
+        (1, 1, 0, 1)
+    );
+    assert_eq!(
+        (g.op.field_5c, g.op.field_60, g.op.field_64, g.op.field_68),
+        (0, 200.0, 500.0, 0)
+    );
+    assert_eq!((g.field_0x17c, g.priority), (1, 0));
+    assert!(g.target_name.is_empty() && g.object_name.is_empty());
+    let DirectiveKind::GotoSpline(g) = &list[3].kind else {
+        panic!("{:?}", list[3]);
+    };
+    let words: Vec<f32> = g.op.words_20.iter().map(|&w| f32::from_bits(w)).collect();
+    assert_eq!(
+        words,
+        [
+            -31476.0, 150.0, -28660.0, -33374.0, 150.0, -27019.0, -30768.0, 150.0, -29367.0,
+            -35769.0, 150.0, -26476.0
+        ]
+    );
+    assert_eq!((g.op.kind, g.op.range, g.op.field_54), (2, 500.0, 30.0));
+    assert_eq!((g.op.field_58, g.op.no_cruise, g.field_0x17c), (1, 1, 1));
+
+    // Mission_02's `mb_he01`: MB_GotoGuide = Player, 25, 20, -100, -11994,
+    // 0, -80438, 500.
+    let list = &missions[2].0.object.meta_behaviors[&create_id(b"mb_he01")];
+    let [MetaBehavior::GotoGuide(g)] = list.as_slice() else {
+        panic!("{list:?}");
+    };
+    assert_eq!(g.target_name, b"Player");
+    assert_eq!(
+        [g.first_position.x, g.first_position.y, g.first_position.z],
+        [25.0, 20.0, -100.0]
+    );
+    assert_eq!(
+        [g.destination.x, g.destination.y, g.destination.z],
+        [-11994.0, 0.0, -80438.0]
+    );
+    assert_eq!((g.range, g.priority, g.field_0x176), (500.0, 0, 1));
 }

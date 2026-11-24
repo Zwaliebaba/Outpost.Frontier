@@ -120,8 +120,9 @@ jobs:
           Get-ChildItem $content -Filter content_*.txt | ForEach-Object { "$($_.Name): $(@(Get-Content $_.FullName).Count) lines" }
           # P3.5a (record 0008 point 10, Gate G3): the fourteen story missions' parse after the
           # same start-up (CppSource/Oracle/mission_scripts.txt, Content.dll's
-          # OracleDumpMissionScripts), one mission_<table>.txt each, into outpost-oracle\missions,
-          # which game-logic's data_dump_mission_scripts reads.
+          # OracleDumpMissionScripts), one mission_<table>.txt each (P3.5a2 added the [ObjList]
+          # and [MetaBehavior] tables), into outpost-oracle\missions, which game-logic's
+          # data_dump_mission_scripts reads.
           $missions = "$env:RUNNER_TEMP\outpost-oracle\missions"
           & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\mission_scripts.txt" $missions | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
           $code = $LASTEXITCODE

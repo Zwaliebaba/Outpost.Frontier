@@ -6,9 +6,10 @@
 //! ([`super::objective`]), and the script's `[NPC]` records
 //! (`LoadMsnNpc`, `Content/NpcShips.cpp:358-410`).
 //!
-//! `[ObjList]` and `[MetaBehavior]` are skipped here: their parse draws no
-//! `rand()` and changes nothing the other sections read; they come with
-//! P3.5a2. The C++ keeps each list as a `std::list` and each map as a
+//! `[ObjList]` ([`super::obj_list`]) and `[MetaBehavior]`
+//! ([`super::meta_behavior`]) go into the mission object's two maps (P3.5a2):
+//! their parse draws no `rand()` and changes nothing the other sections
+//! read. The C++ keeps each list as a `std::list` and each map as a
 //! `std::map`; the port keeps them as `Vec` in insertion order and
 //! `BTreeMap`.
 
@@ -25,6 +26,8 @@ use neuron_server::controller::ControllerId;
 
 use super::dialog::{self, MissionDialog};
 use super::field::record;
+use super::meta_behavior::{self, MetaBehavior};
+use super::obj_list::{self, ObjListDirective};
 use super::objective::{self, Objective};
 use super::rand_enc::{self, MissionRandEnc};
 use super::{base_id_of, f32_at, nickname_id, system_id_into, tstring, value_tstring};
@@ -278,6 +281,12 @@ pub struct MissionObject {
     pub npcs: BTreeMap<u32, MsnNpc>,
     /// `Players` (+0x3c).
     pub players: BTreeMap<u32, MissionPlayer>,
+    /// `ObjLists` (+0x100): each `[ObjList]`'s directives by its nickname's
+    /// id (the first list of an id stays).
+    pub obj_lists: BTreeMap<u32, Vec<ObjListDirective>>,
+    /// `MetaBehaviors` (+0x114): each `[MetaBehavior]`'s objects by its
+    /// nickname's id (the first list of an id stays).
+    pub meta_behaviors: BTreeMap<u32, Vec<MetaBehavior>>,
 }
 
 impl MissionObject {
@@ -300,6 +309,8 @@ impl MissionObject {
             rand_encs: Vec::new(),
             npcs: BTreeMap::new(),
             players: BTreeMap::new(),
+            obj_lists: BTreeMap::new(),
+            meta_behaviors: BTreeMap::new(),
         }
     }
 
@@ -660,6 +671,8 @@ pub fn load_npc(cx: &mut Cx<'_>, reader: &mut IniReader) -> (u32, MsnNpc) {
 
 /// `FMissionObject::LoadMission` (`MissionObject.cpp:4141-4283`): the
 /// reader reset, both mad libs cleared, then every header in order.
+/// `[ObjList]` and `[MetaBehavior]` go into their maps (first id wins; a
+/// list's nickname starts as `CreateID("")`, a meta behaviour's as 0).
 /// `[Dialog]` sections go into Content's mission dialogs (`GMissionDialogs`,
 /// first id wins), `[NNObjective]` into the first player's objectives
 /// (none without a player record: the C++ writes through null, D813).
@@ -683,6 +696,13 @@ pub fn load(cx: &mut Cx<'_>, reader: &mut IniReader, object: &mut MissionObject)
             let player = object.player_state.then_some(object.player);
             let record = rand_enc::load_record(cx, reader, object.controller, player);
             object.rand_encs.push(record);
+        } else if reader.is_header(b"ObjList") {
+            let (nickname, list) = obj_list::load(cx, reader);
+            object.obj_lists.entry(nickname).or_insert(list);
+        } else if reader.is_header(b"MetaBehavior") {
+            let mut nickname = 0;
+            let list = meta_behavior::load(reader, &mut nickname);
+            object.meta_behaviors.entry(nickname).or_insert(list);
         } else if reader.is_header(b"Dialog") {
             reader.read_value();
             if reader.is_value(b"nickname") {

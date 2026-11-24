@@ -340,6 +340,9 @@ With P3.5a (`game-logic::content::mission::{object, objective, dialog,
 rand_enc, action}`) D810 to D815 were proposed; the owner accepted them on
 2026-11-24.
 
+With P3.5a2 (`game-logic::content::mission::obj_list`) D820 was proposed;
+the owner accepted it on 2026-11-24.
+
 The owner deferred the VMesh-backed deformable draw (P4.6's
 `DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)
 on 2026-11-19, as `TriMesh`'s editing mode (D358): no shipped model has
@@ -884,6 +887,7 @@ one, and it is ported when a caller needs it.
 | D813 | `game-logic::content::mission::{object, objective}` (P3.5a) | `[NNObjective]` goes into `&GetFirstPlayer()->Objectives` with no test that the mission has a player record (a multiplayer player outside any system has none), and a `type` outside 1 to 8 before any valid one calls `Parse` through a null objective | Without a player record the objective is dropped; such a `type` makes no objective | Null dereferences in the reference; proposed | None on the shipped data and in the oracle's run, whose player is in he01; every shipped `type` is a name or 1 to 8 |
 | D814 | `game-logic::content::mission::dialog` (P3.5a) | A `[Dialog]`'s `system` passes an unset local to `FindSystemInfo` when `pub::GetSystemID` fails, so an unknown system finds whatever record that stack value names | An unknown system leaves the dialog without a system | Reads an uninitialised value in the reference; proposed | None on the shipped data: every dialog's system is a universe system |
 | D815 | `game-logic::content::mission::rand_enc` (P3.5a) | `[MsnRandEnc]`'s `encounter_type` gives the parameters the encounter's labels, controller and player for every type, through null when no `TL_Attack` or `SP_Attack` line came first | Another type before a known one changes nothing | A null dereference in the reference; proposed | None on the shipped data: the seven random encounters are `SP_Attack` |
+| D820 | `game-logic::content::mission::obj_list` (P3.5a2) | `WaitForPlayerManeuver`'s `Parse` copies value 0 into the directive's 0x20-byte `BehaviorName` with an unbounded `strcpy` and points the op's name at it, so a name of 0x20 bytes or more writes past the end of the 0x13c-byte directive | The directive keeps the whole name, which the op's `validate` (`get_behavior_id`) reads | A heap overrun in the reference; proposed | None on the shipped data: no `[ObjList]` of the fourteen missions has a `WaitForPlayerManeuver` line |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32

@@ -10,7 +10,8 @@
 //! (`LoadMissionIni`, [`load_mission`]):
 //!
 //! 1. the mission object's sections ([`object`]: ships, solars, loot,
-//!    random encounters with their [`rand_enc`] parameters, dialogs
+//!    random encounters with their [`rand_enc`] parameters, object lists
+//!    ([`obj_list`]), meta behaviours ([`meta_behavior`]), dialogs
 //!    ([`dialog`]), `[Mission]` and the objectives of [`objective`]);
 //! 2. then, from the top again, the script's `[Trigger]` ([`trigger`],
 //!    with the [`condition`]s and [`action`]s), `[NPC]` and the `[Dialog]`
@@ -19,13 +20,17 @@
 //! The parse draws `rand()` from the world's generator in the C++ order
 //! (the random encounters' activation times and formation counts, then
 //! `Cnd_Timer`'s ranges) and calls the `pub::` getters of record 0008. The
-//! saves are P3.5b's, the run time P3.5c's, the story shell P3.5d's;
-//! `[ObjList]` and `[MetaBehavior]` come with P3.5a2.
+//! saves are P3.5b's, the run time P3.5c's, the story shell P3.5d's. The
+//! mission object's `[ObjList]` directives ([`obj_list`]) and
+//! `[MetaBehavior]` objects ([`meta_behavior`]) came with P3.5a2; they draw
+//! nothing.
 
 pub mod action;
 pub mod condition;
 pub mod dialog;
 pub mod field;
+pub mod meta_behavior;
+pub mod obj_list;
 pub mod object;
 pub mod objective;
 pub mod rand_enc;

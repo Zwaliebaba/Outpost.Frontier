@@ -815,7 +815,8 @@ as their floats joined by `,`; a costume `head,body,left,right/count/
 accessories`; lists joined by `,`, a pair `a:b`, a loadout line
 `id:archetype:count:health:equipped:mission:hardpoint`, a
 `Cnd_NPCSystem*` entry `label:system`. Maps are in key order, lists in
-insertion order.
+insertion order. P3.5a2 added the four tables of `[ObjList]` and
+`[MetaBehavior]`; the fourteen of P3.5a1 are unchanged.
 
 | File | Line |
 | --- | --- |
@@ -832,6 +833,10 @@ insertion order.
 | `mission_dialogs.txt` | `dialog controller system speakers lines` (the dialogs of `GMissionDialogs` after the mission) |
 | `mission_dialog_lines.txt` | `dialog speaker_key index` and every field of the line |
 | `mission_costumes.txt` | `index costume` (the script's dialog costumes) |
+| `mission_obj_lists.txt` | (P3.5a2) `list directives`: the mission object's `[ObjList]` map (+0x100) in key order, the key and its directive count |
+| `mission_obj_list_directives.txt` | `list index factory type directive name` (the factory case 0 to 0x16 or 0x19, `GetType`, the `[ObjList]` key of the class, `TractorBeam` for case 0x19, and the line the loader kept), then the class's members and its op's fields (`game-logic::content::mission::obj_list`'s `fields()`): every op starts with `priority`; a goto op `kind destination field_1c words_20` (the twelve words from +0x20) `range field_54 field_58 field_59 cruise no_cruise field_5c field_60 field_64 field_68 field_6c`, the guide's goto and follow parts with `goto_` and `follow_` before each name, the embedded ops' own priorities not written; a name a class does not have is written empty (`GotoSpline`'s and `GotoVec`'s `target_name`, `Guide`'s `object_name`); `formation` says whether `FindFormation` found it; `InstantTradelane`'s `speed` is the bits of its third word |
+| `mission_meta_behaviors.txt` | `list objects`: the `[MetaBehavior]` map (+0x114) in key order |
+| `mission_meta_behavior_objects.txt` | `list index type class` (5 `MB_GOTOGUIDE`, 6 `MB_DOCKGUIDE`) `line priority first_position destination range target_name field_0x174 field_0x175 field_0x176`, and for the dock guide `dock_target_id`; the leg list (empty after the parse) and the ship (null) are not written |
 
 ## `spread.jsonl` (`--runs N`)
 

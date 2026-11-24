@@ -33,13 +33,19 @@
 //   mission_objectives.txt       the [NNObjective] objectives of each player record;
 //   mission_dialogs.txt          one line per dialog in GMissionDialogs after the mission;
 //   mission_dialog_lines.txt     one line per line of each dialog's speakers;
-//   mission_costumes.txt         the script's dialog costumes.
+//   mission_costumes.txt         the script's dialog costumes;
+//   mission_obj_lists.txt        one line per [ObjList] in the mission's map, in key order (P3.5a2);
+//   mission_obj_list_directives.txt  one line per directive of each list, with its class's op;
+//   mission_meta_behaviors.txt   one line per [MetaBehavior] in the mission's map, in key order;
+//   mission_meta_behavior_objects.txt  one line per MB_GOTOGUIDE / MB_DOCKGUIDE object of each.
 
 #include "content.h"
 #include "ContentPlayerState.h"   // ReplaceContentPlayerState, RemoveContentPlayerState
+#include "Guides.h"               // FMetaBehavior, FMbGotoGuide, FMbDockGuide (P3.5a2)
 #include "MissionAct.h"
 #include "MissionCnd.h"
 #include "MissionDialogs.h"       // GMissionDialogs
+#include "MissionObjList.h"      // the [ObjList] directive classes (P3.5a2)
 #include "MissionObject.h"
 #include "MissionScript.h"
 #include "NpcShips.h"             // FNpcShipArch
@@ -1320,6 +1326,10 @@ namespace
         FILE* Dialogs;
         FILE* DialogLines;
         FILE* Costumes;
+        FILE* ObjLists;
+        FILE* ObjListDirectives;
+        FILE* MetaBehaviors;
+        FILE* MetaBehaviorObjects;
     };
 
     int DumpTriggers(FOracleFiles const& F, char const* Name, FMissionScript const* S)
@@ -1710,6 +1720,354 @@ namespace
         return Lines;
     }
 
+    // P3.5a2: the [ObjList] directives and the [MetaBehavior] objects. An op's fields after
+    // `Prefix` (the guide's two parts carry "goto_" / "follow_"); the embedded ops' own
+    // OpType and Priority are not written (the guide's are 0 after every parse).
+    void OGotoOp(FILE* Out, char const* Prefix, pub::AI::DirectiveGotoOp const& Op)
+    {
+        std::string const P(Prefix);
+        OI(Out, (P + "kind").c_str(), Op.Field_0C);
+        OV(Out, (P + "destination").c_str(), Op.Destination);
+        OI(Out, (P + "field_1c").c_str(), Op.Field_1C);
+        unsigned int const Words[12] = {Op.Field_20, Op.Field_24, Op.Field_28, Op.Field_2C,
+                                        Op.Field_30, Op.Field_34, Op.Field_38, Op.Field_3C,
+                                        Op.Field_40, Op.Field_44, Op.Field_48, Op.Field_4C};
+        std::fprintf(Out, " %swords_20=", Prefix);
+        for (int Index = 0; Index < 12; ++Index)
+            std::fprintf(Out, "%s%u", Index == 0 ? "" : ",", Words[Index]);
+        OF(Out, (P + "range").c_str(), Op.Field_50);
+        OF(Out, (P + "field_54").c_str(), Op.Field_54);
+        OU(Out, (P + "field_58").c_str(), Op.Field_58);
+        OU(Out, (P + "field_59").c_str(), Op.Field_59);
+        OU(Out, (P + "cruise").c_str(), Op.Field_5A);
+        OU(Out, (P + "no_cruise").c_str(), Op.Field_5B);
+        OU(Out, (P + "field_5c").c_str(), Op.Field_5C);
+        OF(Out, (P + "field_60").c_str(), Op.Field_60);
+        OF(Out, (P + "field_64").c_str(), Op.Field_64);
+        OU(Out, (P + "field_68").c_str(), Op.Field_68);
+        OU(Out, (P + "field_6c").c_str(), Op.Field_6C);
+    }
+
+    void OFollowOp(FILE* Out, char const* Prefix, pub::AI::DirectiveFollowOp const& Op)
+    {
+        std::string const P(Prefix);
+        OU(Out, (P + "target").c_str(), Op.TargetId);
+        OF(Out, (P + "distance").c_str(), Op.FollowDistance);
+        OV3(Out, (P + "offset").c_str(), Op.Field_14, Op.Field_18, Op.Field_1C);
+        OF(Out, (P + "range").c_str(), Op.Field_20);
+    }
+
+    void OGuideOp(FILE* Out, pub::AI::DirectiveGuideOp const& Op)
+    {
+        OU(Out, "priority", Op.Priority);
+        OGotoOp(Out, "goto_", Op.GotoParams);
+        OFollowOp(Out, "follow_", Op.FollowParams);
+        OU(Out, "field_a0", Op.Field_A0);
+        OF(Out, "field_a4", Op.Field_A4);
+        OF(Out, "field_a8", Op.Field_A8);
+        OI(Out, "field_ac", Op.Field_AC);
+        OF(Out, "field_b0", Op.Field_B0);
+        OF(Out, "field_b4", Op.Field_B4);
+        OF(Out, "field_b8", Op.Field_B8);
+    }
+
+    void OZoneOp(FILE* Out, pub::AI::SetZoneBehaviorParams const& Op, TString<0x30> const& ObjectName)
+    {
+        OU(Out, "priority", Op.Priority);
+        OI(Out, "mode", Op.Mode);
+        OI(Out, "invert_mode", Op.InvertMode);
+        OV(Out, "target_point", Op.TargetPoint);
+        OU(Out, "target_id", Op.TargetId);
+        OV(Out, "box_min", Op.BoxMin);
+        OV(Out, "box_max", Op.BoxMax);
+        OF(Out, "radius", Op.Radius);
+        OS(Out, "object_name", ObjectName);
+    }
+
+    // A formation directive: whether its formation was found, the members and (for
+    // MakeNewFormation) ADD_FOLLOWERS.
+    void OFormationDirective(FILE* Out, FFormation const* Formation,
+                             std::vector<TString<0x30>> const& Names, bool bAddFollowers)
+    {
+        OU(Out, "formation", Formation != nullptr ? 1u : 0u);
+        OSL(Out, "member_names", Names);
+        OU(Out, "add_followers", bAddFollowers ? 1u : 0u);
+    }
+
+    // The head of a directive line: the factory case, GetType (not const in the class), the
+    // [ObjList] key and the whole line the loader gave the directive.
+    void ODirectiveHead(FILE* Out, FObjListDirective const* D, unsigned int Factory, char const* Key)
+    {
+        OU(Out, "factory", Factory);
+        OI(Out, "type", const_cast<FObjListDirective*>(D)->GetType());
+        std::fprintf(Out, " directive=%s", Key);
+        OS(Out, "name", D->Name);
+    }
+
+    // One line per class, in the factory's order: the head, then every member and its op.
+    bool DumpDirective(FILE* Out, FObjListDirective const* D)
+    {
+        if (FObjListAvoidance const* C = dynamic_cast<FObjListAvoidance const*>(D))
+        {
+            ODirectiveHead(Out, D, 0x0, "Avoidance");
+            OU(Out, "priority", C->Op.Priority);
+            OI(Out, "flag_id", C->Op.FlagId);
+            OU(Out, "value", C->Op.bValue);
+            return true;
+        }
+        if (FObjListDelay const* C = dynamic_cast<FObjListDelay const*>(D))
+        {
+            ODirectiveHead(Out, D, 0x1, "Delay");
+            OU(Out, "priority", C->Op.Priority);
+            OF(Out, "delay_seconds", C->Op.DelaySeconds);
+            return true;
+        }
+        if (FObjListIdle const* C = dynamic_cast<FObjListIdle const*>(D))
+        {
+            ODirectiveHead(Out, D, 0x2, "Idle");
+            OU(Out, "priority", C->Op.Priority);
+            return true;
+        }
+        if (FObjListGotoShip const* C = dynamic_cast<FObjListGotoShip const*>(D))
+        {
+            ODirectiveHead(Out, D, 0x3, "GotoShip");
+            OU(Out, "priority", C->Op.Priority);
+            OGotoOp(Out, "", C->Op);
+            OI(Out, "field_0x17c", C->Field_0x17c);
+            OS(Out, "target_name", C->TargetName);
+            OS(Out, "object_name", C->ObjectName);
+            return true;
+        }
+        if (FObjListGotoSpline const* C = dynamic_cast<FObjListGotoSpline const*>(D))
+        {
+            ODirectiveHead(Out, D, 0x4, "GotoSpline");
+            OU(Out, "priority", C->Op.Priority);
+            OGotoOp(Out, "", C->Op);
+            OI(Out, "field_0x17c", C->Field_0x17c);
+            std::fprintf(Out, " target_name=");
+            OS(Out, "object_name", C->ObjectName);
+            return true;
+        }
+        if (FObjListGotoVec const* C = dynamic_cast<FObjListGotoVec const*>(D))
+        {
+            ODirectiveHead(Out, D, 0x5, "GotoVec");
+            OU(Out, "priority", C->Op.Priority);
+            OGotoOp(Out, "", C->Op);
+            OI(Out, "field_0x17c", C->Field_0x17c);
+            std::fprintf(Out, " target_name=");
+            OS(Out, "object_name", C->ObjectName);
+            return true;
+        }
+        if (FObjListTrail const* C = dynamic_cast<FObjListTrail const*>(D))
+        {
+            ODirectiveHead(Out, D, 0x6, "Trail");
+            OU(Out, "priority", C->Op.Priority);
+            OU(Out, "target", C->Op.TargetId);
+            OF(Out, "distance", C->Op.TrailDistance);
+            OF(Out, "field_14", C->Op.Field_14);
+            OF(Out, "field_18", C->Op.Field_18);
+            OS(Out, "target_name", C->TargetName);
+            return true;
+        }
+        if (FObjListFollow const* C = dynamic_cast<FObjListFollow const*>(D))
+        {
+            ODirectiveHead(Out, D, 0x7, "Follow");
+            OI(Out, "field_0x10c", C->Field_0x10c);
+            OS(Out, "target_name", C->TargetName);
+            OU(Out, "priority", C->Op.Priority);
+            OFollowOp(Out, "", C->Op);
+            return true;
+        }
+        if (FObjListGuide const* C = dynamic_cast<FObjListGuide const*>(D))
+        {
+            ODirectiveHead(Out, D, 0x8, "Guide");
+            OGuideOp(Out, C->Op);
+            OI(Out, "field_0x1c8", C->Field_0x1c8);
+            std::fprintf(Out, " object_name=");
+            OS(Out, "target_name", C->TargetName);
+            return true;
+        }
+        if (FObjListGuideShip const* C = dynamic_cast<FObjListGuideShip const*>(D))
+        {
+            ODirectiveHead(Out, D, 0x9, "GuideShip");
+            OGuideOp(Out, C->Op);
+            OI(Out, "field_0x1c8", C->Field_0x1c8);
+            OS(Out, "object_name", C->ObjectName);
+            OS(Out, "target_name", C->TargetName);
+            return true;
+        }
+        if (FObjListFace const* C = dynamic_cast<FObjListFace const*>(D))
+        {
+            ODirectiveHead(Out, D, 0xa, "Face");
+            OU(Out, "priority", C->Op.Priority);
+            OI(Out, "mode", C->Op.Mode);
+            OU(Out, "target", C->Op.TargetId);
+            OV(Out, "point", C->Op.FacePoint);
+            OME(Out, "orientation", C->Op.Orientation);
+            OU(Out, "field_44", C->Op.Field_44);
+            OS(Out, "target_name", C->TargetName);
+            return true;
+        }
+        if (FObjListSetLifeTime const* C = dynamic_cast<FObjListSetLifeTime const*>(D))
+        {
+            ODirectiveHead(Out, D, 0xb, "SetLifeTime");
+            OI(Out, "life_time", C->LifeTime);
+            return true;
+        }
+        if (FObjListSetPriority const* C = dynamic_cast<FObjListSetPriority const*>(D))
+        {
+            ODirectiveHead(Out, D, 0xc, "SetPriority");
+            OI(Out, "priority", C->Priority);
+            return true;
+        }
+        if (FObjListStayInRange const* C = dynamic_cast<FObjListStayInRange const*>(D))
+        {
+            ODirectiveHead(Out, D, 0xd, "StayInRange");
+            OZoneOp(Out, C->Op, C->ObjectName);
+            return true;
+        }
+        if (FObjListStayOutOfRange const* C = dynamic_cast<FObjListStayOutOfRange const*>(D))
+        {
+            ODirectiveHead(Out, D, 0xe, "StayOutOfRange");
+            OZoneOp(Out, C->Op, C->ObjectName);
+            return true;
+        }
+        if (FObjListMakeNewFormation const* C = dynamic_cast<FObjListMakeNewFormation const*>(D))
+        {
+            ODirectiveHead(Out, D, 0xf, "MakeNewFormation");
+            OFormationDirective(Out, C->Formation, C->MemberNames, C->bAddFollowers);
+            return true;
+        }
+        if (FObjListFollowPlayer const* C = dynamic_cast<FObjListFollowPlayer const*>(D))
+        {
+            ODirectiveHead(Out, D, 0x10, "FollowPlayer");
+            OFormationDirective(Out, C->Formation, C->MemberNames, false);
+            return true;
+        }
+        if (dynamic_cast<FObjListBreakFormation const*>(D) != nullptr)
+        {
+            ODirectiveHead(Out, D, 0x11, "BreakFormation");
+            return true;
+        }
+        if (dynamic_cast<FObjListCancelObjective const*>(D) != nullptr)
+        {
+            ODirectiveHead(Out, D, 0x12, "CancelObjective");
+            return true;
+        }
+        if (FObjListDock const* C = dynamic_cast<FObjListDock const*>(D))
+        {
+            ODirectiveHead(Out, D, 0x13, "Dock");
+            OU(Out, "priority", C->Op.Priority);
+            OU(Out, "dock_object", C->Op.DockObjectId);
+            OU(Out, "field_10", static_cast<unsigned int>(C->Op.Field_10));
+            OU(Out, "field_14", C->Op.Field_14);
+            OI(Out, "port", C->Op.DockPortIndex);
+            OU(Out, "field_1c", static_cast<unsigned int>(C->Op.Field_1C));
+            OF(Out, "field_20", C->Op.Field_20);
+            OF(Out, "field_24", C->Op.Field_24);
+            OU(Out, "field_28", static_cast<unsigned int>(C->Op.Field_28));
+            OS(Out, "object_name", C->ObjectName);
+            return true;
+        }
+        if (FObjListInstantTradelane const* C = dynamic_cast<FObjListInstantTradelane const*>(D))
+        {
+            ODirectiveHead(Out, D, 0x14, "InstantTradelane");
+            OU(Out, "priority", C->Op.Priority);
+            OU(Out, "entrance", C->Op.TradeLaneId);
+            OU(Out, "exit", static_cast<unsigned int>(C->Op.Field_10));
+            OFB(Out, "speed", static_cast<unsigned int>(C->Op.Field_14));
+            return true;
+        }
+        if (FObjListLaunch const* C = dynamic_cast<FObjListLaunch const*>(D))
+        {
+            ODirectiveHead(Out, D, 0x15, "Launch");
+            OU(Out, "priority", C->Op.Priority);
+            OU(Out, "launch_object", C->Op.LaunchObjectId);
+            OI(Out, "index", C->Op.Field_10);
+            OI(Out, "terminal", C->Op.Field_14);
+            return true;
+        }
+        if (FObjListWaitForPlayerManeuver const* C = dynamic_cast<FObjListWaitForPlayerManeuver const*>(D))
+        {
+            ODirectiveHead(Out, D, 0x16, "WaitForPlayerManeuver");
+            OU(Out, "priority", C->Op.Priority);
+            std::fprintf(Out, " behavior_name=");
+            OracleHex(Out, C->BehaviorName);
+            return true;
+        }
+        if (FObjListTractorBeam const* C = dynamic_cast<FObjListTractorBeam const*>(D))
+        {
+            ODirectiveHead(Out, D, 0x19, "TractorBeam");
+            OU(Out, "priority", C->Op.Priority);
+            OU(Out, "target", C->Op.TargetId);
+            OU(Out, "field_10", C->Op.Field_10);
+            return true;
+        }
+        return false;
+    }
+
+    // The mission object's two maps in key order: a line per list, then a line per element.
+    int DumpObjLists(FOracleFiles const& F, char const* Name, FMissionScript const* S)
+    {
+        int Lines = 0;
+        for (std::map<unsigned int, FMissionDirectiveList>::const_iterator It = S->ObjLists.begin();
+             It != S->ObjLists.end(); ++It)
+        {
+            std::list<FObjListDirective*> const& Items = It->second.Items;
+            std::fprintf(F.ObjLists, "mission=%s list=%u directives=%u\n", Name, It->first,
+                         static_cast<unsigned int>(Items.size()));
+            ++Lines;
+            unsigned int Index = 0;
+            for (std::list<FObjListDirective*>::const_iterator D = Items.begin(); D != Items.end(); ++D, ++Index)
+            {
+                std::fprintf(F.ObjListDirectives, "mission=%s list=%u index=%u", Name, It->first, Index);
+                if (!DumpDirective(F.ObjListDirectives, *D))
+                    std::fprintf(F.ObjListDirectives, " directive=unknown");
+                std::fprintf(F.ObjListDirectives, "\n");
+                ++Lines;
+            }
+        }
+        for (std::map<unsigned int, FMissionMetaBehaviorList>::const_iterator It = S->MetaBehaviors.begin();
+             It != S->MetaBehaviors.end(); ++It)
+        {
+            std::list<FMetaBehavior*> const& Items = It->second.Items;
+            std::fprintf(F.MetaBehaviors, "mission=%s list=%u objects=%u\n", Name, It->first,
+                         static_cast<unsigned int>(Items.size()));
+            ++Lines;
+            unsigned int Index = 0;
+            for (std::list<FMetaBehavior*>::const_iterator M = Items.begin(); M != Items.end(); ++M, ++Index)
+            {
+                FILE* const Out = F.MetaBehaviorObjects;
+                std::fprintf(Out, "mission=%s list=%u index=%u", Name, It->first, Index);
+                OI(Out, "type", (*M)->Type);
+                // The dock guide derives from the goto guide, so it is told apart first.
+                FMbDockGuide const* const Dock = dynamic_cast<FMbDockGuide const*>(*M);
+                FMbGotoGuide const* const Goto = dynamic_cast<FMbGotoGuide const*>(*M);
+                if (Goto == nullptr)
+                {
+                    std::fprintf(Out, " class=unknown\n");
+                    ++Lines;
+                    continue;
+                }
+                std::fprintf(Out, " class=%s", Dock != nullptr ? "MB_DOCKGUIDE" : "MB_GOTOGUIDE");
+                OS(Out, "line", Goto->Line);
+                OI(Out, "priority", Goto->Priority);
+                OV(Out, "first_position", Goto->FirstPosition);
+                OV(Out, "destination", Goto->Destination);
+                OF(Out, "range", Goto->Range);
+                OS(Out, "target_name", Goto->TargetName);
+                OU(Out, "field_0x174", Goto->Field_0x174);
+                OU(Out, "field_0x175", Goto->Field_0x175);
+                OU(Out, "field_0x176", Goto->Field_0x176);
+                if (Dock != nullptr)
+                    OU(Out, "dock_target_id", Dock->DockTargetId);
+                std::fprintf(Out, "\n");
+                ++Lines;
+            }
+        }
+        return Lines;
+    }
+
     int DumpScript(FOracleFiles const& F, char const* Name, FMissionScript const* S, int Draws)
     {
         unsigned int Objectives = 0;
@@ -1782,7 +2140,9 @@ extern "C" __declspec(dllexport) int __cdecl OracleDumpMissionScripts(char const
     std::string const Root(Dir);
     char const* const Tables[] = {"scripts",     "triggers",       "actions",    "ship_groups", "ships",
                                   "solars",      "loot",           "rand_encs",  "npcs",        "npc_ship_archs",
-                                  "objectives",  "dialogs",        "dialog_lines", "costumes"};
+                                  "objectives",  "dialogs",        "dialog_lines", "costumes",
+                                  "obj_lists",   "obj_list_directives", "meta_behaviors",
+                                  "meta_behavior_objects"};
     int const Count = static_cast<int>(sizeof(Tables) / sizeof(Tables[0]));
     FILE* Files[sizeof(Tables) / sizeof(Tables[0])] = {};
     bool bOpen = true;
@@ -1794,8 +2154,9 @@ extern "C" __declspec(dllexport) int __cdecl OracleDumpMissionScripts(char const
     int Lines = -1;
     if (bOpen)
     {
-        FOracleFiles const F = {Files[0], Files[1], Files[2],  Files[3],  Files[4],  Files[5],  Files[6],
-                                Files[7], Files[8], Files[9], Files[10], Files[11], Files[12], Files[13]};
+        FOracleFiles const F = {Files[0],  Files[1],  Files[2],  Files[3],  Files[4],  Files[5],
+                                Files[6],  Files[7],  Files[8],  Files[9],  Files[10], Files[11],
+                                Files[12], Files[13], Files[14], Files[15], Files[16], Files[17]};
         char const* const Missions[] = {"Mission_01a", "Mission_01b", "Mission_02", "Mission_03", "Mission_04",
                                         "Mission_05",  "Mission_06",  "Mission_07", "Mission_08", "Mission_09",
                                         "Mission_10",  "Mission_11",  "Mission_12", "Mission_13"};
@@ -1831,6 +2192,7 @@ extern "C" __declspec(dllexport) int __cdecl OracleDumpMissionScripts(char const
             Lines += DumpNpcs(F, Missions[Index], Script);
             Lines += DumpObjectives(F, Missions[Index], Script);
             Lines += DumpDialogs(F, Missions[Index]);
+            Lines += DumpObjLists(F, Missions[Index], Script);
             DestroyInstance(Instance);
         }
         GMissionDialogs.clear();
