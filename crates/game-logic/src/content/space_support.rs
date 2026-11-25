@@ -407,11 +407,12 @@ fn main_switch(cx: &mut Cx<'_>, message: &mut ControllerMessage<'_>) {
             let (param1, param2) = (*param1, *param2);
             if param1 == cx.logic.content.state.load_ids.music_timer {
                 let _ = api::audio::cancel_music(cx, param2);
+            } else {
+                // The faction-name queues, then the message router
+                // (`GMessageRouter->OnTimerExpired`, P3.7b), which sets no
+                // timer yet.
+                super::npc_names::handle_faction_name_timer(cx, param1, param2);
             }
-            // The faction-name queues (`HandleFactionNameTimer`, P3.6c with
-            // the NPC name builder) and the message router
-            // (`GMessageRouter->OnTimerExpired`, P3.7b): neither sets a
-            // timer yet.
         }
         ControllerMessage::DamageReputation {
             provoked,

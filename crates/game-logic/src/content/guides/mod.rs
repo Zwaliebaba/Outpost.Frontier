@@ -1,7 +1,8 @@
 //! The NPC guides (TU37, `Content/Guides.cpp`, `GotoGuides.cpp`,
-//! `PatrolGuides.cpp`; record 0008 point 7; work package P3.6c): the
-//! long-running behaviour of an NPC ship (`FContentNpcShip +0x178`), which
-//! gives the ship `[ObjList]` directives and hears its events.
+//! `PatrolGuides.cpp`; record 0008 point 7; work package P3.6c and its
+//! follow-up): the long-running behaviour of an NPC ship (`FContentNpcShip
+//! +0x178`), which gives the ship `[ObjList]` directives and hears its
+//! events.
 //!
 //! **Guides.** A guide is a counted object (`FContentGuide`) in Content's
 //! arena ([`GuideRef`]): the NPC ship holds one reference, a guide the
@@ -9,18 +10,32 @@
 //! `BreakFormationAtDock` gives each NPC member a clone (`Clone`, a
 //! member-wise copy that copies the reference count too).
 //! [`create_guide`] (`CreateGuide`) builds one from a [`GuideDesc`] by its
-//! type. P3.6c ports the guide base, the target guide's targets and flee
-//! answer (`FTargetGuide`) and the type 1 guide (`FNothingGuide`, which
-//! keeps the ship on a 10000 s delay). The trade (2), patrol (3), wander
-//! (4), goto (5) and dock (6) guides are not ported yet: `CreateGuide`
-//! builds none of them, so such a ship has no guide (D855).
+//! type:
+//! - 1, nothing (`FNothingGuide`): the ship waits 10000 s at a time;
+//! - 2, trade ([`trade`]): to the second target and back, docking at each;
+//! - 3, patrol path ([`patrol`]): the encounter's zone path between the
+//!   targets, with the cargo scanner;
+//! - 4, wander ([`wander`]): from point to point around the ship;
+//! - 5 and 6, the goto and dock guides of a `[MetaBehavior]` ([`goto`]).
+//!
+//! Types 1 to 4 are target guides ([`target`]): they copy the
+//! description's two targets, and the nothing and wander guides answer the
+//! flee from them.
+//!
+//! **The calls.** The C++'s virtual slots are matches on [`GuideKind`]. A
+//! slot works on a copy of the guide that is written back when it returns
+//! (nothing the guide calls reaches the same guide again before then).
+//! The flee answer is computed on a copy that is dropped before the
+//! behaviour tick, and made again with its effects after it (record 0008
+//! point 4, D852).
 //!
 //! **Directives.** [`execute_directive`] is `Execute` (slot 3) of the
-//! directive kinds a guide, the flee answer and the space paths make: the
-//! delay, idle, goto, dock and launch directives. A directive that names a
-//! target (`FindObjectIdByName`) comes only from a mission's `[ObjList]`,
-//! whose run time is P3.5c's; its name finds nothing here. The directives
-//! are shared objects ([`super::directives`]).
+//! directive kinds the guides, the flee answer and the space paths make:
+//! the delay, idle, goto, trail, guide, dock, launch and tractor beam
+//! directives. A directive that names a target (`FindObjectIdByName`)
+//! comes only from a mission's `[ObjList]`, whose run time is P3.5c's: such
+//! a directive finishes at once (D855). The directives are shared objects
+//! ([`super::directives`]).
 
 use std::collections::BTreeMap;
 
@@ -29,6 +44,7 @@ use game_sim::ai::content::FleeAnswer;
 use neuron_core::math::Vector;
 
 use super::directives::{DirectiveList, DirectiveRef};
+use super::mission::meta_behavior::MetaBehavior;
 use super::mission::obj_list::{Delay, DirectiveKind, Dock};
 use super::npc_ships::{self, set_goto_destination};
 use super::ships::{self, ShipKey};
@@ -37,12 +53,86 @@ use crate::api::ai::BaseOp;
 use crate::events::NpcShipKey;
 use crate::server::Cx;
 
-/// A guide description (`FGuideDesc`, types 1 to 4; `FMetaBehavior` for 5
-/// and 6), as the guide constructors read it.
+pub mod goto;
+pub mod patrol;
+pub mod target;
+pub mod trade;
+pub mod wander;
+
+/// `GGuideLaneEntryRangeSquared` (`Guides.cpp:28`): 10000², the reach of
+/// the trade and patrol guides' flee answers.
+pub const LANE_ENTRY_RANGE_SQUARED: f32 = 10000.0 * 10000.0;
+
+/// A system record's patrol path (`FPatrolPath*`), by the record and the
+/// path's index in it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PatrolPathRef {
+    /// The system record.
+    pub system: u32,
+    /// The index in its patrol paths.
+    pub index: usize,
+}
+
+/// The placement plan of an encounter spawn (`FSpawnPlan`, 0x38 bytes),
+/// which TU53 fills and copies into the leader's description (P3.6d).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpawnPlan {
+    /// `Kind` (`+0x00`): 0 not placed, 1 a lane, 2 a dock launch, 7 a
+    /// cruise, 8 a buzz.
+    pub kind: i32,
+    /// `RingId` (`+0x04`).
+    pub ring: u32,
+    /// `NextRingId` (`+0x08`).
+    pub next_ring: u32,
+    /// `DockTarget` (`+0x0c`).
+    pub dock_target: u32,
+    /// `Position` (`+0x10`).
+    pub position: Vector,
+    /// `Destination` (`+0x1c`).
+    pub destination: Vector,
+    /// `Path` (`+0x28`): a patrol path (guide type 3).
+    pub path: Option<PatrolPathRef>,
+    /// `PathPoint` (`+0x2c`, -1): the point of the trade target, the
+    /// patrol's end point.
+    pub path_point: i32,
+    /// `PathTargetPoint` (`+0x30`, -1): the point the ships head for.
+    pub path_target_point: i32,
+    /// `PathDirection` (`+0x34`, 0): +1 or -1 along the path.
+    pub path_direction: i32,
+}
+
+impl Default for SpawnPlan {
+    fn default() -> Self {
+        Self {
+            kind: 0,
+            ring: 0,
+            next_ring: 0,
+            dock_target: 0,
+            position: Vector::ZERO,
+            destination: Vector::ZERO,
+            path: None,
+            path_point: -1,
+            path_target_point: -1,
+            path_direction: 0,
+        }
+    }
+}
+
+/// A guide description: `FGuideDesc` (types 1 to 4) or a `[MetaBehavior]`
+/// object (types 5 and 6, `FMbGotoGuide`, `FMbDockGuide`), as the guide
+/// constructors read it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct GuideDesc {
     /// `Type` (`+0x08`): 0 none, 1 to 6 the guide kinds.
     pub kind: i32,
+    /// `Plan` (`+0x10`).
+    pub plan: SpawnPlan,
+    /// `WanderZone` (`+0x48`): the wander guide's zone.
+    pub wander_zone: Option<u32>,
+    /// `TradeGood` (`+0x4c`).
+    pub trade_good: u32,
+    /// `ReturnGood` (`+0x50`).
+    pub return_good: u32,
     /// `TargetId1` (`+0x54`).
     pub target1: u32,
     /// `TargetId2` (`+0x58`).
@@ -51,6 +141,63 @@ pub struct GuideDesc {
     pub base1: Option<u32>,
     /// `TargetBase2` (`+0x60`), by base id.
     pub base2: Option<u32>,
+    /// The `[MetaBehavior]` object of types 5 and 6.
+    pub meta: Option<MetaBehavior>,
+}
+
+impl GuideDesc {
+    /// The description of a `[MetaBehavior]` object (type 5 or 6).
+    #[must_use]
+    pub fn from_meta(meta: MetaBehavior) -> Self {
+        Self {
+            kind: meta.type_code(),
+            meta: Some(meta),
+            ..Self::default()
+        }
+    }
+
+    /// `FGuideDesc::SetTargets(&Id1, &Id2, &ClassIds, &Rep)`
+    /// (`Guides.cpp:990-997`): the two targets and the bases reached from
+    /// them ([`find_target_base`]), the first's first.
+    pub fn set_targets(&mut self, cx: &mut Cx<'_>, id1: u32, id2: u32, vibe: i32) {
+        self.target1 = id1;
+        self.target2 = id2;
+        self.base1 = find_target_base(cx, id1, vibe);
+        self.base2 = find_target_base(cx, id2, vibe);
+    }
+}
+
+/// `FGuideDesc::FindTargetBase(&ObjectId, ClassIds, &Rep)`
+/// (`Guides.cpp:1001-1036`): through a jump gate or hole (type `0x40`) a
+/// random base of the destination system (at most 20, `pub::GetBases`)
+/// whose record has the vibe's affiliation among its factions (each refused
+/// one leaves the candidates), else the object's docking target; the base
+/// record of it (`FindContentBaseInfo`), none without one. The class list
+/// is not read.
+pub fn find_target_base(cx: &mut Cx<'_>, object: u32, vibe: i32) -> Option<u32> {
+    let mut base = 0;
+    let kind = api::space_obj::object_type(cx, object).unwrap_or(0);
+    if kind & 0x40 != 0 {
+        let (system, _) = api::space_obj::jump_target(cx, object).unwrap_or((0, 0));
+        let mut candidates = api::misc::bases(cx, system, 0x14);
+        while !candidates.is_empty() && base == 0 {
+            let pick = cx.world.rng().rand().wrapping_mul(candidates.len() as i32) / 32768;
+            let at = usize::try_from(pick).unwrap_or(0).min(candidates.len() - 1);
+            if super::space_paths::is_base_of_affiliation(cx, vibe, candidates[at]) {
+                base = candidates[at];
+            } else {
+                candidates.remove(at);
+            }
+        }
+    } else {
+        base = api::space_obj::docking_target(cx, object).unwrap_or(0);
+    }
+    cx.logic
+        .content
+        .state
+        .bases
+        .contains_key(&base)
+        .then_some(base)
 }
 
 /// A guide in Content's arena (`FContentGuide`, counted).
@@ -70,6 +217,14 @@ pub struct Targets {
     pub base2: Option<u32>,
 }
 
+impl Targets {
+    /// `FTargetGuide::SwapTargets` (`Guides.cpp:282-290`).
+    pub fn swap(&mut self) {
+        std::mem::swap(&mut self.id1, &mut self.id2);
+        std::mem::swap(&mut self.base1, &mut self.base2);
+    }
+}
+
 /// The guide's class and its members.
 #[derive(Clone, Debug, PartialEq)]
 pub enum GuideKind {
@@ -81,6 +236,16 @@ pub enum GuideKind {
         /// `DelayDirective`.
         delay: DirectiveRef,
     },
+    /// Type 2, `FTradeGuide`.
+    Trade(trade::TradeGuide),
+    /// Type 3, `FPatrolGuide`.
+    Patrol(Box<patrol::PatrolGuide>),
+    /// Type 4, `FWanderGuide`.
+    Wander(wander::WanderGuide),
+    /// Type 5, `FGotoGuide`.
+    Goto(Box<goto::GotoGuide>),
+    /// Type 6, `FDockGuide`.
+    Dock(Box<goto::GotoGuide>, goto::DockPart),
 }
 
 /// `FContentGuide` (the base, `+0x08` to `+0x10`) with its class.
@@ -135,8 +300,28 @@ impl GuideArena {
     }
 }
 
-/// `Release`: the last one deletes the guide, which releases its
-/// directives.
+/// The ship's position (`GetPosition`, `pub::SpaceObj::GetLocation`).
+#[must_use]
+pub fn ship_position(cx: &Cx<'_>, ship: NpcShipKey) -> Vector {
+    ships::position(cx, ShipKey::Npc(ship))
+}
+
+/// A slot on a copy of the guide, written back when it returns (unless the
+/// guide is gone by then); `None` for a guide that is gone.
+fn with_guide<R>(
+    cx: &mut Cx<'_>,
+    guide: GuideRef,
+    f: impl FnOnce(&mut Cx<'_>, &mut Guide) -> R,
+) -> Option<R> {
+    let mut g = cx.logic.content.state.guides.get(guide)?.clone();
+    let r = f(cx, &mut g);
+    if let Some(slot) = cx.logic.content.state.guides.get_mut(guide) {
+        *slot = g;
+    }
+    Some(r)
+}
+
+/// `Release`: the last one deletes the guide (its destructor).
 pub fn release(cx: &mut Cx<'_>, guide: GuideRef) {
     let arena = &mut cx.logic.content.state.guides;
     let Some(e) = arena.entries.get_mut(&guide) else {
@@ -146,17 +331,34 @@ pub fn release(cx: &mut Cx<'_>, guide: GuideRef) {
     if e.0 != 0 {
         return;
     }
-    let Some((_, g)) = arena.entries.remove(&guide) else {
+    let Some((_, mut g)) = arena.entries.remove(&guide) else {
         return;
     };
-    match g.kind {
-        GuideKind::Nothing { delay, .. } => cx.logic.content.state.directives.release(delay),
+    let ship = g.ship;
+    match &mut g.kind {
+        GuideKind::Nothing { delay, .. } => cx.logic.content.state.directives.release(*delay),
+        GuideKind::Trade(_) => {}
+        GuideKind::Patrol(p) => {
+            // `~FPatrolGuide` (`PatrolGuides.cpp:939-945`).
+            if let Some(s) = ship {
+                super::space_support::unregister_guided_ship(cx, s);
+            }
+            p.scanner.destroy(cx, ship);
+        }
+        GuideKind::Wander(w) => {
+            if let Some(d) = w.directive {
+                cx.logic.content.state.directives.release(d);
+            }
+        }
+        GuideKind::Goto(go) | GuideKind::Dock(go, _) => goto::destroy(cx, ship, go),
     }
 }
 
 /// `CreateGuide(Desc, &Guide)` (`Guides.cpp:221-261`): the guide of the
-/// description's type for `ship`, with one reference; `None` for a type
-/// the port does not build (2 to 6, D855) or any other.
+/// description's type for `ship`, with one reference; `None` for any other
+/// type. A type 5 or 6 without its `[MetaBehavior]` object, which the C++
+/// reads as one, builds none, and a type 6 from a goto guide's object has
+/// the dock target 0 (D864).
 pub fn create_guide(cx: &mut Cx<'_>, desc: &GuideDesc, ship: NpcShipKey) -> Option<GuideRef> {
     let targets = Targets {
         id1: desc.target1,
@@ -176,6 +378,27 @@ pub fn create_guide(cx: &mut Cx<'_>, desc: &GuideDesc, ship: NpcShipKey) -> Opti
             }));
             arena.add_ref(delay);
             GuideKind::Nothing { targets, delay }
+        }
+        2 => GuideKind::Trade(trade::TradeGuide::new(cx, desc, targets)),
+        3 => GuideKind::Patrol(Box::new(patrol::PatrolGuide::new(
+            cx,
+            desc,
+            targets,
+            Some(ship),
+        ))),
+        4 => GuideKind::Wander(wander::WanderGuide::new(desc, targets)),
+        5 => {
+            let mb = desc.meta.as_ref()?.guide();
+            GuideKind::Goto(Box::new(goto::GotoGuide::new(cx, mb, Some(ship))))
+        }
+        6 => {
+            let meta = desc.meta.as_ref()?;
+            let dock_target = match meta {
+                MetaBehavior::DockGuide(_, target) => *target,
+                MetaBehavior::GotoGuide(_) => 0,
+            };
+            let (go, dock) = goto::new_dock(cx, meta.guide(), dock_target, Some(ship));
+            GuideKind::Dock(Box::new(go), dock)
         }
         _ => return None,
     };
@@ -280,9 +503,10 @@ pub fn set_guide(
 }
 
 /// `Clone` (slot 3): a member-wise copy, the reference count included;
-/// the copy's directives are `AddRef`'ed.
+/// the copy's directives are `AddRef`'ed. The patrol guide's scanner
+/// leaves its two id lists behind, and the copy joins no guided ships.
 pub fn clone_guide(cx: &mut Cx<'_>, guide: GuideRef) -> Option<GuideRef> {
-    let (refs, copy) = cx
+    let (refs, mut copy) = cx
         .logic
         .content
         .state
@@ -290,8 +514,27 @@ pub fn clone_guide(cx: &mut Cx<'_>, guide: GuideRef) -> Option<GuideRef> {
         .entries
         .get(&guide)
         .map(|(r, g)| (*r, g.clone()))?;
-    match &copy.kind {
+    let ship = copy.ship;
+    match &mut copy.kind {
         GuideKind::Nothing { delay, .. } => cx.logic.content.state.directives.add_ref(*delay),
+        GuideKind::Trade(t) => t.route.field_0x1c = 0,
+        GuideKind::Patrol(p) => p.scanner = p.scanner.copy(cx),
+        GuideKind::Wander(w) => {
+            if let Some(d) = w.directive {
+                cx.logic.content.state.directives.add_ref(d);
+            }
+        }
+        GuideKind::Goto(go) => {
+            let (g, _) = goto::copy(cx, ship, go, None);
+            **go = g;
+        }
+        GuideKind::Dock(go, dock) => {
+            let (g, d) = goto::copy(cx, ship, go, Some(dock));
+            **go = g;
+            if let Some(d) = d {
+                *dock = d;
+            }
+        }
     }
     Some(cx.logic.content.state.guides.insert(refs, copy))
 }
@@ -302,63 +545,91 @@ fn cancel_ai_directive(cx: &mut Cx<'_>, ship: NpcShipKey) {
     let _ = api::ai::submit_directive(cx, id, &BaseOp::directive(DirectiveOp::Cancel));
 }
 
-/// `IssueOnlyDirective(Ship, Directive)`: the ship's directives cancelled,
-/// the directive added, the queue restarted.
-fn issue_only_directive(cx: &mut Cx<'_>, ship: NpcShipKey, directive: DirectiveRef) {
-    let key = ShipKey::Npc(ship);
-    npc_ships::cancel_directives(cx, key);
-    npc_ships::add_directive(cx, key, directive);
-    npc_ships::restart_directives(cx, key);
-}
-
 /// `Start` (slot 4).
 pub fn start_guide(cx: &mut Cx<'_>, guide: GuideRef) {
-    let Some(g) = cx.logic.content.state.guides.get(guide) else {
-        return;
-    };
-    let ship = g.ship;
-    match &g.kind {
-        GuideKind::Nothing { delay, .. } => {
-            let delay = *delay;
-            // The C++ calls on its ship without a null test (D851).
-            if let Some(ship) = ship {
-                issue_only_directive(cx, ship, delay);
-            }
+    let _ = with_guide(cx, guide, |cx, g| {
+        let ship = g.ship;
+        match &mut g.kind {
+            GuideKind::Nothing { delay, .. } => target::issue_only_directive(cx, ship, *delay),
+            GuideKind::Trade(t) => trade::start(cx, ship, t),
+            GuideKind::Patrol(p) => patrol::start(cx, ship, p),
+            GuideKind::Wander(w) => wander::start(cx, ship, w),
+            GuideKind::Goto(go) => goto::start(cx, ship, go),
+            GuideKind::Dock(go, dock) => goto::dock_start(cx, ship, go, dock),
+        }
+    });
+}
+
+/// `Reset` (slot 5): nothing for the nothing guide; the trade, patrol and
+/// wander guides go back to state 0, the goto and dock guides to state 1.
+pub fn reset_guide(cx: &mut Cx<'_>, guide: GuideRef) {
+    if let Some(g) = cx.logic.content.state.guides.get_mut(guide) {
+        match &mut g.kind {
+            GuideKind::Nothing { .. } => {}
+            GuideKind::Trade(t) => t.state = 0,
+            GuideKind::Patrol(p) => p.state = 0,
+            GuideKind::Wander(w) => w.state = 0,
+            GuideKind::Goto(go) | GuideKind::Dock(go, _) => go.reset(),
         }
     }
 }
 
-/// `Reset` (slot 5): nothing for the target guides.
-pub fn reset_guide(cx: &mut Cx<'_>, guide: GuideRef) {
-    let _ = (cx, guide);
-}
-
-/// `OnDirectivesDone(Word11c, Word118)` (slot 6): the nothing guide starts
-/// again.
+/// `OnDirectivesDone(Word11c, Word118)` (slot 6): the target guides start
+/// again; the goto and dock guides do nothing.
 pub fn on_directives_done(cx: &mut Cx<'_>, guide: GuideRef, result: (i32, i32)) {
     let _ = result;
     let Some(g) = cx.logic.content.state.guides.get(guide) else {
         return;
     };
     match g.kind {
-        GuideKind::Nothing { .. } => start_guide(cx, guide),
+        GuideKind::Goto(_) | GuideKind::Dock(..) => {}
+        _ => start_guide(cx, guide),
     }
 }
 
-/// `HandleEvent(MsgId, Parms)` (slot 7): the base's does nothing.
+/// `HandleEvent(MsgId, Parms)` (slot 7): the base's does nothing; the
+/// patrol guide's goes to its scanner, the goto and dock guides' move
+/// their states and start again when asked.
 pub fn handle_event(
     cx: &mut Cx<'_>,
     guide: GuideRef,
     message: &crate::events::ControllerMessage<'_>,
 ) {
-    let _ = (cx, guide, message);
+    let _ = with_guide(cx, guide, |cx, g| {
+        let ship = g.ship;
+        let Guide { kind, done, .. } = g;
+        match kind {
+            GuideKind::Nothing { .. } | GuideKind::Trade(_) | GuideKind::Wander(_) => {}
+            GuideKind::Patrol(p) => patrol::handle_event(cx, ship, p, message),
+            GuideKind::Goto(go) => {
+                goto::handle_event(cx, ship, go, done, message);
+                // `FinishEvent`.
+                if go.restart {
+                    goto::start(cx, ship, go);
+                }
+            }
+            GuideKind::Dock(go, dock) => {
+                if goto::dock_handle_event(cx, ship, go, dock, done, message) {
+                    goto::dock_start(cx, ship, go, dock);
+                }
+            }
+        }
+    });
 }
 
-/// `SetShip(Ship)` (slot 8).
+/// `SetShip(Ship)` (slot 8): the base's stores the ship; the patrol, goto
+/// and dock guides move the guided ship and rebuild what depends on it.
 pub fn set_ship(cx: &mut Cx<'_>, guide: GuideRef, ship: Option<NpcShipKey>) {
-    if let Some(g) = cx.logic.content.state.guides.get_mut(guide) {
+    let _ = with_guide(cx, guide, |cx, g| {
+        let old = g.ship;
         g.ship = ship;
-    }
+        match &mut g.kind {
+            GuideKind::Nothing { .. } | GuideKind::Trade(_) | GuideKind::Wander(_) => {}
+            GuideKind::Patrol(p) => patrol::set_ship(cx, old, ship, p),
+            GuideKind::Goto(go) => goto::set_ship(cx, old, ship, go, None),
+            GuideKind::Dock(go, dock) => goto::set_ship(cx, old, ship, go, Some(dock)),
+        }
+    });
 }
 
 /// `IsDone` (slot 9).
@@ -383,102 +654,99 @@ pub fn guide_type(cx: &Cx<'_>, guide: GuideRef) -> i32 {
         .map_or(0, |g| g.kind_id)
 }
 
-/// `OnScanStateChange(bScanning)` (slot 11): the base's does nothing.
+/// `OnScanStateChange(bScanning)` (slot 11): the patrol guide keeps the
+/// ship's scan state and scans while undocked; the others do nothing.
 pub fn on_scan_state_change(cx: &mut Cx<'_>, guide: GuideRef, scanning: bool) {
-    let _ = (cx, guide, scanning);
+    if let Some(g) = cx.logic.content.state.guides.get_mut(guide)
+        && let GuideKind::Patrol(p) = &mut g.kind
+    {
+        p.scan_state = scanning;
+        p.scanner.scan_enabled = scanning && p.undocked;
+    }
 }
 
-/// `GetTargets` (slot 13): the target guide's two targets.
+/// `GetTargets` (slot 13): the target guide's two targets; none for the
+/// goto and dock guides (the base's).
 #[must_use]
 pub fn targets(cx: &Cx<'_>, guide: GuideRef) -> Targets {
     match cx.logic.content.state.guides.get(guide).map(|g| &g.kind) {
         Some(GuideKind::Nothing { targets, .. }) => *targets,
-        None => Targets::default(),
+        Some(GuideKind::Trade(t)) => t.targets,
+        Some(GuideKind::Patrol(p)) => p.targets,
+        Some(GuideKind::Wander(w)) => w.targets,
+        _ => Targets::default(),
     }
 }
 
-/// The squared distance of `FTargetGuide::RequestFleeDestination`: the
-/// float differences, `(z² + y²) + x²` stored as a float.
-fn target_distance_sq(ship: Vector, target: Vector) -> f32 {
-    let dx = (f64::from(ship.x) - f64::from(target.x)) as f32;
-    let dy = (f64::from(ship.y) - f64::from(target.y)) as f32;
-    let dz = (f64::from(ship.z) - f64::from(target.z)) as f32;
-    ((f64::from(dz) * f64::from(dz) + f64::from(dy) * f64::from(dy))
-        + f64::from(dx) * f64::from(dx)) as f32
+/// The trade guide's goods (`GetTradeGood`, `GetReturnGood`, slots 19 and
+/// 20); none for the other guides.
+#[must_use]
+pub fn trade_goods(cx: &Cx<'_>, guide: GuideRef) -> Option<(u32, u32)> {
+    match cx.logic.content.state.guides.get(guide).map(|g| &g.kind) {
+        Some(GuideKind::Trade(t)) => Some((t.trade_good, t.return_good)),
+        _ => None,
+    }
 }
 
-/// `FTargetGuide::RequestFleeDestination` (`Guides.cpp:346-416`) as a
-/// value: the answer and whether the targets swap. Both targets are
-/// needed; the path to the nearer one (`BuildPathDirectives`, range 2500)
-/// gives the answer by its first directive: a goto (type 5) the point
-/// within 2000, a dock (0x13) the object to dock at. Taking the first
-/// target swaps the targets.
-fn target_flee(cx: &Cx<'_>, ship: NpcShipKey, targets: Targets) -> (Option<FleeAnswer>, bool) {
-    if targets.id1 == 0 || targets.id2 == 0 {
-        return (None, false);
+/// The patrol guide's points to go (`GetPathPointsToGo`, slot 19).
+#[must_use]
+pub fn path_points_to_go(cx: &Cx<'_>, guide: GuideRef) -> Option<i32> {
+    match cx.logic.content.state.guides.get(guide).map(|g| &g.kind) {
+        Some(GuideKind::Patrol(p)) => Some(p.route.points_to_go(cx)),
+        _ => None,
     }
-    let position = ships::position(cx, ShipKey::Npc(ship));
-    let p1 = api::space_obj::location(cx, targets.id1).map_or(Vector::ZERO, |(p, _)| p);
-    let d1 = target_distance_sq(position, p1);
-    let p2 = api::space_obj::location(cx, targets.id2).map_or(Vector::ZERO, |(p, _)| p);
-    let d2 = target_distance_sq(position, p2);
-    let (to, swap) = if d1 < d2 { (p1, true) } else { (p2, false) };
-    let legs = npc_ships::system_id(cx, ship);
-    let first = cx
-        .logic
-        .content
-        .state
-        .systems
-        .get(&legs)
-        .and_then(|record| {
-            let (_, legs) = super::space_paths::build_nn_path(record, position, to, 2500.0);
-            legs.into_iter().find(|l| l.kind == 0 || l.kind == 1)
-        });
-    let Some(leg) = first else {
-        return (None, swap);
-    };
-    let mut answer = FleeAnswer::default();
-    if leg.kind == 1 {
-        answer.kind = 3;
-        answer.position = leg.point_b;
-        answer.radius = 2000.0;
-    } else {
-        answer.kind = 2;
-        answer.param = leg.object_a;
+}
+
+/// `RequestFleeDestination` (slot 12) on the guide's members.
+fn flee(cx: &Cx<'_>, g: &mut Guide) -> Option<FleeAnswer> {
+    let ship = g.ship;
+    match &mut g.kind {
+        GuideKind::Nothing { targets, .. } => target::flee(cx, ship, targets),
+        GuideKind::Wander(w) => target::flee(cx, ship, &mut w.targets),
+        GuideKind::Trade(t) => trade::flee(cx, ship, t),
+        GuideKind::Patrol(p) => patrol::flee(cx, ship, p),
+        GuideKind::Goto(go) | GuideKind::Dock(go, _) => goto::flee(cx, ship, go),
     }
-    (Some(answer), swap)
 }
 
 /// The read-only part of the guide's `RequestFleeDestination` (slot 12),
-/// asked before the tick.
+/// asked before the tick: the answer on a copy of the guide.
 #[must_use]
 pub fn flee_answer(cx: &Cx<'_>, guide: GuideRef, ship: NpcShipKey) -> Option<FleeAnswer> {
-    match cx.logic.content.state.guides.get(guide).map(|g| &g.kind)? {
-        GuideKind::Nothing { targets, .. } => target_flee(cx, ship, *targets).0,
-    }
+    let _ = ship;
+    let mut copy = cx.logic.content.state.guides.get(guide)?.clone();
+    flee(cx, &mut copy)
 }
 
 /// The guide's `RequestFleeDestination` with its effects, after the tick:
-/// the target guide swaps its targets when it takes the first.
+/// the target guides swap their targets when they take the first, the
+/// patrol route turns to its flee state, and the goto guide moves along its
+/// path.
 pub fn request_flee_destination(
     cx: &mut Cx<'_>,
     guide: GuideRef,
     ship: NpcShipKey,
 ) -> Option<FleeAnswer> {
-    let targets = targets(cx, guide);
-    let (answer, swap) = match cx.logic.content.state.guides.get(guide).map(|g| &g.kind) {
-        Some(GuideKind::Nothing { .. }) => target_flee(cx, ship, targets),
-        None => (None, false),
-    };
-    if swap && let Some(g) = cx.logic.content.state.guides.get_mut(guide) {
-        match &mut g.kind {
-            GuideKind::Nothing { targets, .. } => {
-                std::mem::swap(&mut targets.id1, &mut targets.id2);
-                std::mem::swap(&mut targets.base1, &mut targets.base2);
-            }
-        }
+    let _ = ship;
+    let mut g = cx.logic.content.state.guides.get(guide)?.clone();
+    let answer = flee(cx, &mut g);
+    if let Some(slot) = cx.logic.content.state.guides.get_mut(guide) {
+        *slot = g;
     }
     answer
+}
+
+/// `RefreshTarget` (slot 14): the goto and dock guides find their target
+/// again (the dock guide its destination too); nothing for the others.
+pub fn refresh_target(cx: &mut Cx<'_>, guide: GuideRef) {
+    let _ = with_guide(cx, guide, |cx, g| {
+        let ship = g.ship;
+        match &mut g.kind {
+            GuideKind::Goto(go) => goto::refresh_target(cx, ship, go, None),
+            GuideKind::Dock(go, dock) => goto::refresh_target(cx, ship, go, Some(dock)),
+            _ => {}
+        }
+    });
 }
 
 /// `ForwardToGuide(MsgId, Parms)` (`NpcShip.cpp:954-964`): the guide's
@@ -577,8 +845,9 @@ fn submit(cx: &mut Cx<'_>, ship: ShipKey, priority: u32, op: DirectiveOp) -> boo
 
 /// `Execute(Ship)` of a directive (slot 3, `MissionObjList.cpp`): false
 /// when it finished at once (the ship then advances). The delay, idle,
-/// point goto, dock and launch directives; a name to resolve finds nothing
-/// (P3.5c), and the kinds only missions give run nothing (P3.5c).
+/// goto, trail, guide, dock, launch and tractor beam directives; a name to
+/// resolve finds nothing (P3.5c, D855), and the kinds only missions give
+/// run nothing (P3.5c).
 pub fn execute_directive(cx: &mut Cx<'_>, ship: ShipKey, directive: DirectiveRef) -> bool {
     let ship_priority = npc_ships::priority(cx, ship);
     let Some(d) = cx.logic.content.state.directives.get_mut(directive) else {
@@ -608,6 +877,37 @@ pub fn execute_directive(cx: &mut Cx<'_>, ship: ShipKey, directive: DirectiveRef
             let (priority, op) = (goto.priority, goto.op.clone());
             mute_npc_ship(cx, ship);
             submit(cx, ship, priority, DirectiveOp::Goto(op))
+        }
+        DirectiveKind::Trail(trail) => {
+            // `FObjListTrail::Execute` (`MissionObjList.cpp:540-555`): slot
+            // 1 of the ship, whose answer is not read; then the name.
+            if !trail.target_name.is_empty() {
+                npc_ships::advance_directive(cx, ship);
+                return true;
+            }
+            default_priority(&mut trail.priority, ship_priority);
+            let (priority, op) = (trail.priority, trail.op.clone());
+            submit(cx, ship, priority, DirectiveOp::Trail(op))
+        }
+        DirectiveKind::Guide(guide) => {
+            // `FObjListGuide::Execute` (`MissionObjList.cpp:640-660`): the
+            // follow part follows the goto part's object (written into the
+            // shared directive).
+            if !guide.target_name.is_empty() {
+                npc_ships::advance_directive(cx, ship);
+                return true;
+            }
+            guide.op.follow.target = guide.op.goto.field_5c;
+            default_priority(&mut guide.priority, ship_priority);
+            let (priority, op) = (guide.priority, guide.op.clone());
+            mute_npc_ship(cx, ship);
+            submit(cx, ship, priority, DirectiveOp::Guide(Box::new(op)))
+        }
+        DirectiveKind::TractorBeam(tractor) => {
+            // `FObjListTractorBeam::Execute` (`:1458-1461`): no priority
+            // default.
+            let (priority, op) = (tractor.priority, tractor.op.clone());
+            submit(cx, ship, priority, DirectiveOp::TractorBeam(op))
         }
         DirectiveKind::Dock(dock) => {
             if !dock.object_name.is_empty() {
