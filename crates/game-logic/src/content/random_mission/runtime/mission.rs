@@ -129,8 +129,11 @@ pub(super) fn construct(cx: &mut Cx<'_>, id: ControllerId) {
 
 /// The destructors (`DestroyMission.cpp:146-151`,
 /// `RandomMissionDB.cpp:1066-1069`, `MissionObject.cpp:107-128`): every
-/// running machine removed, the dying ones destroyed; the group's members
-/// and its handler; the live count; the two references on the data.
+/// running machine removed and the dying ones destroyed (TU27's body);
+/// TU27's reference on the data, then TU47's (the last one destroys the
+/// data and its offers, whose components unregister); then
+/// `~StateMachineGroup`: the members left, front to back, and the group's
+/// own handler.
 pub(super) fn destruct(cx: &mut Cx<'_>, id: ControllerId) {
     let Some((handler, running, data)) = rm(cx, id).map(|r| (r.handler, r.running_machines.clone(), r.data))
     else {
@@ -138,7 +141,7 @@ pub(super) fn destruct(cx: &mut Cx<'_>, id: ControllerId) {
     };
     {
         let mut host = Host {
-            cx,
+            cx: &mut *cx,
             mission: id,
             save: None,
         };
@@ -146,22 +149,25 @@ pub(super) fn destruct(cx: &mut Cx<'_>, id: ControllerId) {
             host.mark(handler, machine);
         }
         host.remove_dying(handler);
-        // `~StateMachineGroup`: the members left are deleted front to back,
-        // then the group's own handler goes.
-        let members = host.rm().map(|r| r.members.clone()).unwrap_or_default();
-        for member in members {
-            host.destroy_machine(member);
-        }
-        if let Some(r) = host.rm_mut() {
-            r.members.clear();
-        }
-        router::unregister(host.cx, handler);
     }
     cx.logic.content.state.rm.runtime.mission_objects -= 1;
     if let Some(key) = data {
         super::super::mission::release(cx, key);
         super::super::mission::release(cx, key);
     }
+    let mut host = Host {
+        cx,
+        mission: id,
+        save: None,
+    };
+    let members = host.rm().map(|r| r.members.clone()).unwrap_or_default();
+    for member in members {
+        host.destroy_machine(member);
+    }
+    if let Some(r) = host.rm_mut() {
+        r.members.clear();
+    }
+    router::unregister(host.cx, handler);
 }
 
 /// `FRandomMissionObject::SetPlayer` (slot 18, `:1085-1112`): the map and

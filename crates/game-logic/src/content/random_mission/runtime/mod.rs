@@ -167,7 +167,9 @@ impl MachineKind {
             Self::Solars(_) => "solars",
             Self::Ships(_) => "ships",
             Self::Loot(_) => "loot",
-            Self::Trigger(t) => t.kind.name(),
+            // The oracle's hook sits in `FRmTrigger::Slot2`, shared by
+            // every kind.
+            Self::Trigger(_) => "trigger",
         }
     }
 }
@@ -758,6 +760,23 @@ pub(crate) fn player_position(cx: &mut Cx<'_>, player: u32) -> Vector {
     let (system, base) = (state.system.unwrap_or(0), state.base.unwrap_or(0));
     let source = crate::content::data_source(cx);
     crate::api::gf::base_position(cx, &*source, system, base).unwrap_or(Vector::ZERO)
+}
+
+/// The oracle session's `FRandomMissionObject::OracleJoinPlayer`: player
+/// `player` mapped, listed and named as `SetPlayer` does for each member of
+/// a group, which a player without a server slot does not have. Only the
+/// Tier B session calls it.
+pub fn join_player(cx: &mut Cx<'_>, id: ControllerId, player: u32) {
+    let name = crate::api::player::name(cx, player).unwrap_or_default();
+    let Some(r) = rm_mut(cx, id) else { return };
+    r.player_map.insert(player);
+    r.players.push(player);
+    if !r.player_names.contains(&name) {
+        if r.player_names.len() < 8 {
+            r.player_count += 1;
+        }
+        r.player_names.push(name);
+    }
 }
 
 /// A spawn record's loot list (for the records' constructors).
