@@ -413,6 +413,7 @@ pub fn load_from_reader(
     record.paths = build_patrol_paths(cx, record.system, &mut record.zones, &mut zones.path_labels);
     record.trade_lanes = build_trade_lanes(rings);
     if load_encounters {
+        mark_draws(cx, "validate");
         for zone in &mut record.zones {
             if zone.population.has_population_keys {
                 super::encounters::validate(cx, &mut zone.population);
@@ -606,6 +607,7 @@ pub fn load_full(cx: &mut Cx<'_>, system: u32) {
         }
         reader.reset();
         load_from_reader(cx, record, Some(&mut reader), true);
+        mark_draws(cx, "lanes");
         rebuild_trade_lanes(cx, record);
     });
     // `SubmitPersonalityState(true)` of every solar NPC, after the record is
@@ -618,7 +620,29 @@ pub fn load_full(cx: &mut Cx<'_>, system: u32) {
         .get(&system)
         .map_or(0, |r| r.solar_npcs.len());
     for at in 0..count {
+        mark_draws(cx, "solar");
         super::solar_npcs::submit_personality_state(cx, system, at, true);
+    }
+    mark_draws(cx, "end");
+}
+
+/// One mark of the load-time draw trace ([`super::ContentState::draw_marks`]):
+/// the step that starts and the generator as it starts.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DrawMark {
+    /// The step: `validate` (the zones' validation), `lanes` (the trade
+    /// lanes' rebuild), `solar` (one solar NPC's personality state) or
+    /// `end`.
+    pub step: &'static str,
+    /// The generator at the mark.
+    pub rand: neuron_core::rng::CrtRand,
+}
+
+/// Records a mark when the trace is on.
+fn mark_draws(cx: &mut Cx<'_>, step: &'static str) {
+    let rand = cx.world.rng().clone();
+    if let Some(marks) = cx.logic.content.state.draw_marks.as_mut() {
+        marks.push(DrawMark { step, rand });
     }
 }
 

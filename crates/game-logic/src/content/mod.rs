@@ -234,6 +234,11 @@ pub struct ContentState {
     /// whose guides hear SpaceSupport's messages, `None` for an entry
     /// unregistered during the walk.
     pub guided_ships: Vec<Option<crate::events::NpcShipKey>>,
+    /// The load-time draw trace (P3.6d, the `load_rand.jsonl` comparison):
+    /// `None` (off) unless a test sets it; each full load of a system
+    /// record then marks where its steps start
+    /// ([`systems::DrawMark`]).
+    pub draw_marks: Option<Vec<systems::DrawMark>>,
 }
 
 impl ContentState {
@@ -277,6 +282,7 @@ impl ContentState {
             npc_ship_events: npc_ships::NpcShipEvents::default(),
             guides: guides::GuideArena::default(),
             guided_ships: Vec::new(),
+            draw_marks: None,
         }
     }
 }
