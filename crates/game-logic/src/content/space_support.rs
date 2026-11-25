@@ -64,14 +64,45 @@ pub fn construct(cx: &mut Cx<'_>, id: ControllerId) -> Instance {
 fn gcs_handlers(_cx: &mut Cx<'_>, _message: &mut ControllerMessage<'_>) {}
 
 /// Step 2 (`:590-592`): the NPC ship events (`GNpcShipEvents`) of
-/// `CommComplete`, `ObjectDestroyed` and `TimerExpired`. P3.6c: Content has
-/// no NPC ship yet, so no event is waiting.
-fn npc_ship_events(_cx: &mut Cx<'_>, _message: &mut ControllerMessage<'_>) {}
+/// `CommComplete`, `ObjectDestroyed` and `TimerExpired`
+/// ([`super::npc_ships::handle_events_message`]).
+fn npc_ship_events(cx: &mut Cx<'_>, message: &mut ControllerMessage<'_>) {
+    super::npc_ships::handle_events_message(cx, message);
+}
 
 /// The tail's guided ships (`GSpaceSupportGuidedShips`, `:970-983`): each
-/// forwards the message to its guide, then the emptied entries go. P3.6c:
-/// no ship has a guide yet.
-fn guided_ships(_cx: &mut Cx<'_>, _message: &mut ControllerMessage<'_>) {}
+/// forwards the message to its guide (`ForwardToGuide`), then the emptied
+/// entries go. The walk reads each entry again, so an entry a guide
+/// unregisters during it is skipped.
+fn guided_ships(cx: &mut Cx<'_>, message: &mut ControllerMessage<'_>) {
+    let mut at = 0;
+    while at < cx.logic.content.state.guided_ships.len() {
+        if let Some(ship) = cx.logic.content.state.guided_ships[at] {
+            super::guides::forward_to_guide(cx, ship, message);
+        }
+        at += 1;
+    }
+    cx.logic.content.state.guided_ships.retain(Option::is_some);
+}
+
+/// `RegisterGuidedShip(Ship)` (`SpacePaths.cpp:446-449`).
+pub fn register_guided_ship(cx: &mut Cx<'_>, ship: crate::events::NpcShipKey) {
+    cx.logic.content.state.guided_ships.push(Some(ship));
+}
+
+/// `UnregisterGuidedShip(Ship)` (`:452-463`): its first entry emptied.
+pub fn unregister_guided_ship(cx: &mut Cx<'_>, ship: crate::events::NpcShipKey) {
+    if let Some(e) = cx
+        .logic
+        .content
+        .state
+        .guided_ships
+        .iter_mut()
+        .find(|e| **e == Some(ship))
+    {
+        *e = None;
+    }
+}
 
 /// The comm system's type 2 event (`FGcsDockGrantedEvent` to
 /// `GGcsConversations.QueueConversation`) of a dock answer: P3.6b (D844).
@@ -90,11 +121,6 @@ pub(crate) fn gcs_dock_granted_event(
 /// The comm system's "granted" event of a lane ring
 /// (`Content/TradelaneRequests.cpp:51-60`): P3.6b (D734).
 pub(crate) fn gcs_lane_granted_event(_cx: &mut Cx<'_>, _system: u32, _ring: u32, _ship: u32) {}
-
-/// The combat reputation (TU56, `Content/CombatReputation.cpp`):
-/// `OnDamageReputation`, `ApplyKillReputation` and `OnHeartbeatReputation`
-/// are not ported yet (D845).
-fn combat_reputation_damage(_cx: &mut Cx<'_>, _message: &ControllerMessage<'_>) {}
 
 /// `FSpaceSupport::HandleMessage`: the four steps in the C++ order.
 pub fn handle_message(cx: &mut Cx<'_>, _id: ControllerId, message: &mut ControllerMessage<'_>) {
@@ -131,7 +157,7 @@ fn main_switch(cx: &mut Cx<'_>, message: &mut ControllerMessage<'_>) {
         }
         ControllerMessage::ObjectDamaged(event) => {
             let event = *event;
-            combat_reputation_damage(cx, &ControllerMessage::ObjectDamaged(event));
+            super::combat_reputation::on_damage_reputation(cx, &event);
             // FindSystemInfo is not null-tested (D843).
             if let Some(ship) = ships::find_in_system(cx, event.system, event.id) {
                 ships::add_damage(
@@ -240,11 +266,17 @@ fn main_switch(cx: &mut Cx<'_>, message: &mut ControllerMessage<'_>) {
                 p.value_e4 = 0;
             }
         }
-        ControllerMessage::Heartbeat { .. } => heartbeat(cx),
-        ControllerMessage::Msg0x25 { .. } => {
-            // An object of the system record's space objects
-            // (`FindSpaceObj`, the NPC ships of P3.6c) is destroyed: the
-            // record holds none yet.
+        ControllerMessage::Heartbeat { elapsed } => {
+            let elapsed = *elapsed;
+            heartbeat(cx, elapsed);
+        }
+        ControllerMessage::Msg0x25 { ship, system, .. } => {
+            // An NPC ship of the record's space objects left the system: it
+            // is destroyed (`DESTROY_NORMAL`).
+            let (ship, system) = (*ship, *system);
+            if ships::find_space_obj(&cx.logic.content.state, system, ship).is_some() {
+                let _ = api::space_obj::destroy(cx, ship, 0);
+            }
         }
         ControllerMessage::Msg0x27 { ship, land, .. } => {
             let (ship, land) = (*ship, *land);
@@ -405,8 +437,9 @@ fn main_switch(cx: &mut Cx<'_>, message: &mut ControllerMessage<'_>) {
                 formations::remove_from_formation(cx, ship);
             }
         }
-        ControllerMessage::NpcShipCreated { .. } => {
-            // `ResetFormationState` of the new NPC ship: P3.6c.
+        ControllerMessage::NpcShipCreated { ship } => {
+            let ship = *ship;
+            formations::reset_formation_state(cx, ships::ShipKey::Npc(ship));
         }
         _ => {}
     }
@@ -426,22 +459,38 @@ fn erase_launch_queues_unless_occupied(cx: &mut Cx<'_>, system: u32) {
             .get(&system)
             .is_some_and(|r| !r.players.is_empty());
     if !occupied {
-        cx.logic.content.state.dock_queues.launch.clear();
+        dock_queues::erase_all_launch_queues(cx);
     }
 }
 
 /// The heartbeat case (`:715-746`): every system record's NPC ship lives
-/// (P3.6c), every record's flagged objects away from the players, the dock
-/// queues, the launch queues, the combat reputation (D845), each player's
-/// ship's hostile contacts (P3.6c: the system records' NPC ships) and the
+/// (with the heartbeat's period), every record's flagged objects away from
+/// the players, the dock queues, the launch queues, the combat reputation,
+/// each player's ship's hostile contacts (with the elapsed time) and the
 /// comm system's conversations (P3.6b).
-fn heartbeat(cx: &mut Cx<'_>) {
+fn heartbeat(cx: &mut Cx<'_>, elapsed: f32) {
     let ids: Vec<u32> = cx.logic.content.state.systems.keys().copied().collect();
+    for &system in &ids {
+        systems::update_npc_ship_lives(cx, system, HEARTBEAT);
+    }
     for &system in &ids {
         systems::destroy_flagged_objects_away_from_players(cx, system);
     }
     dock_queues::update_dock_queues(cx);
     let _ = dock_queues::launch_queued_ships(cx);
+    super::combat_reputation::on_heartbeat_reputation(cx);
+    let players: Vec<u32> = cx
+        .logic
+        .content
+        .state
+        .players
+        .iter()
+        .filter(|(_, p)| p.ship.is_some())
+        .map(|(&id, _)| id)
+        .collect();
+    for player in players {
+        super::combat_reputation::update_hostile_contacts(cx, player, elapsed);
+    }
 }
 
 /// The `SpaceEnter` case (`:820-861`): a multiplayer launch first syncs the
@@ -679,6 +728,7 @@ fn object_destroyed(cx: &mut Cx<'_>, event: &mut ObjectDestroyed) {
     let has_record = cx.logic.content.state.systems.contains_key(&event.system);
     let ship = ships::find_in_system(cx, event.system, object);
     if let Some(key) = ship {
+        let mut guide_kept = false;
         let lane = ships::base(&cx.logic.content.state, key)
             .filter(|s| s.lane_entry != 0)
             .map(|s| s.lane_entry);
@@ -698,9 +748,16 @@ fn object_destroyed(cx: &mut Cx<'_>, event: &mut ObjectDestroyed) {
             } else {
                 event.dropped_equip.clear();
             }
-            // `ApplyKillReputation(Ship, TopPlayer ? &TopPlayer :
-            // &Killer)`: the combat reputation (D845). An NPC ship's
-            // `PromoteFormationLeader`: P3.6c.
+            let ship_id = ships::id(&cx.logic.content.state, key);
+            let killer = if top_player != 0 {
+                top_player
+            } else {
+                event.killer
+            };
+            super::combat_reputation::apply_kill_reputation(cx, ship_id, killer);
+            if let ships::ShipKey::Npc(npc) = key {
+                guide_kept = super::formations::promote_formation_leader(cx, event.system, npc);
+            }
             let state = &cx.logic.content.state;
             let archetype = ships::base(state, key).map_or(0, |s| s.archetype);
             if let Some(killer) = players::find_by_ship(&state.players, event.killer)
@@ -709,7 +766,20 @@ fn object_destroyed(cx: &mut Cx<'_>, event: &mut ObjectDestroyed) {
                 k.count_ship_type_killed(archetype);
             }
         }
-        // An NPC ship's guide is told it lost its ship: P3.6c.
+        // An NPC ship's guide is told it lost its ship (`SetShip(null)`)
+        // unless a new leader took it.
+        if let ships::ShipKey::Npc(npc) = key
+            && !guide_kept
+            && let Some(g) = cx
+                .logic
+                .content
+                .state
+                .npc_ships
+                .get(&npc)
+                .and_then(|s| s.guide)
+        {
+            super::guides::set_ship(cx, g, None);
+        }
     }
     if event.owner_player != 0 && event.kind == 1 {
         let track = Tryptich {
@@ -723,12 +793,12 @@ fn object_destroyed(cx: &mut Cx<'_>, event: &mut ObjectDestroyed) {
         let _ = api::audio::set_music(cx, event.owner_player, &track);
     }
     let single_player = api::misc::single_player(cx);
+    dock_queues::erase_launch_queue_of(cx, object);
     let state = &mut cx.logic.content.state;
-    state.dock_queues.launch.remove(&object);
     state.gate_locks.remove_npc(object);
     state.gate_locks.unregister(0, object, single_player);
     if has_record {
-        // `RemoveSpaceObj(Id, true)`: the record's NPC ships (P3.6c).
+        systems::remove_space_obj(cx, event.system, object, true);
         systems::remove_mission_object(cx, event.system, object);
     }
     dock_queues::cancel_ship_docking(cx, object, 0, false);

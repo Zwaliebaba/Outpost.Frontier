@@ -734,6 +734,7 @@ is zero, which only `Oracle.exe sim` changes:
 | `Content\oracle_save_dump.cpp` (new), `Content.vcxproj`, `Oracle\oracle_sim.cpp`, `Oracle\mission_saves.txt` (new), `Oracle\mission_save_loads.txt` (new) (P3.5b) | `OracleDumpMissionSaves` and `OracleLoadMissionSaves`, two new exports that only `dump mission_saves` and `dump mission_save_loads` call right after the start-up. Both register player 7 in he01 and make each story mission as `OracleDumpMissionScripts` does. The first writes each mission's `PlayerSave` body without the message's gates (`SaveMissionState`, `SaveMission`, `SaveRandEncs` between the `[MissionState]` and `[BStoryMissionDone]` headers) in three states, setting the members of the advanced and pending states directly (`design/sim-records.md`, mission saves), and a new Story's `PlayerSave`; the second restores the port's saves from the out folder's `rust` folder (`LoadMissionState`, then `LoadMissionSave`, the generator seeded before) into new missions, and six Story saves into one Story through its `PlayerLoad`, and writes what each restored and its save of it. The six clamps a save writes are put back after each mission; the missions are destroyed and the player removed at the end. Nothing reaches a player except a restore's `SetMissionObjectives` to player 7, who has no slot |
 | `Content\oracle_content_tables.cpp`, `BaseDB.cpp` (P3.4c) | `OracleDumpContentTables` also writes the other loaders' tables: the `mBases.ini` records (`OracleContentDumpBases` in `BaseDB.cpp`, whose table is file-static, from fresh records loaded with `FContentBase::Load(nullptr)`, so the live records keep their load counts), the specific NPCs (StoryLauncher's loop into a local table), the three system path tables, and each system's encounter parameters, zones and patrol paths read into a local `FSystemInfo` as `LoadFromReader` reads them, with every ship line's factions and archetypes; nothing it writes reaches the live state |
 | `Oracle\oracle_sim.cpp`, `Oracle\scenarios\dock_at_station.txt` (P3.6a) | The "at least one object" check of `LoadScenario` exempts every object-less dump session (`system_loads`, `content_tables`, `content_systems`, `mission_scripts`, `mission_saves`, `mission_save_loads`; `content_systems` was not listed); `dock_at_station` gains the comment `# rust: server SpaceSupport answers the dock request`, which the parser skips |
+| `Content\oracle_content_npc.cpp` (new), `Content.vcxproj`, `Oracle\oracle_sim.cpp`, `Oracle\scenarios\content_follow.txt`, `content_guide.txt`, `content_flee.txt` (new) (P3.6c) | `OracleSimCreateNpcShip`, a new export that only a scenario's `content` ship calls: `FSystemInfo::CreateNpcShip` with a parameter block of the ship's archetype, loadout, place, hit points, state graph (`LEADER`) and personality, owned by SpaceSupport, whose reputation handle holds the vibe of the ship's `faction` (a handle class of the export's own that frees nothing), and with `flee X Y Z DISTANCE` `FContentNpcShip::SetFleePosition`. `oracle_sim.cpp` parses the two options (`content` needs `ai` and `faction`, which the NPC ship's constructor reads the properties of, and takes no `escort`; `flee` needs `content`) and spawns such a ship through the export instead of `pub::SpaceObj::Create` and `SubmitState`. The three scenarios are `follow`, `guide` and `skirmish` with one ship made by Content; each carries `# rust: server`, so only `scenario_hooks` runs it |
 
 `srand`, the frame time and the control words need no hook: the harness
 runs the frame loop itself.
@@ -793,8 +794,12 @@ place of `ram_asteroid` (owner, 2026-11-18); the escort scenarios of P2.5,
 run the scenario yet; a line `# rust: server <reason>` that the scenario
 needs the server's answers, so only `game-logic`'s `scenario_hooks` runs
 it, with the AI's requests to the server (P3.3, the trade lanes; P3.6a,
-`dock_at_station`). Since P3.6a every scenario there runs on the oracle's
-start-up, with Content's GameSupport, SpaceSupport and BaseSupport.
+`dock_at_station`; P3.6c, the `content` scenarios). Since P3.6a every
+scenario there runs on the oracle's start-up, with Content's GameSupport,
+SpaceSupport and BaseSupport. A ship line's `content` option (P3.6c) makes
+the ship Content's NPC ship (`OracleSimCreateNpcShip`, with `ai` and
+`faction`), and `flee X Y Z DISTANCE` gives it a flee position:
+`content_follow`, `content_guide` and `content_flee`.
 
 | Line | Meaning |
 | --- | --- |

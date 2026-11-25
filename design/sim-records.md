@@ -61,6 +61,7 @@ Conventions:
 | `content_systems` | (`dump content_systems`, P3.4d; after `system_loads`) `lines` i: the lines `OracleDumpContentSystems` wrote, −1 when a file could not be opened or Content.dll lacks the export |
 | `mission_scripts` | (`dump mission_scripts`, P3.5a) `lines` i: the lines `OracleDumpMissionScripts` wrote, −1 when a file could not be opened, a mission was not made or Content.dll lacks the export |
 | `mission_saves`, `mission_save_loads` | (`dump mission_saves` and `dump mission_save_loads`, P3.5b) `files` i: the files `OracleDumpMissionSaves` or `OracleLoadMissionSaves` wrote, −1 when a file could not be opened (for the loads, a port save in the out folder's `rust` folder is missing), a mission or the Story was not made or Content.dll lacks the export |
+| `random_missions` | (`dump random_missions`, P3.7a) `lines` i: the lines `OracleDumpRandomMissions` wrote, −1 when a file could not be opened, the generator or a random-mission loader is missing or Content.dll lacks the export |
 | `end` | `tick` u, `psi_total` u, `code` i (the exit code) |
 
 ## `tick.jsonl`
@@ -585,6 +586,19 @@ of kind `request`; their terminal states reach the docking points through
 `game-logic/tests/scenario_hooks.rs` runs it through the server's hooks and
 judges its `tick.jsonl` as the other scenarios.
 
+A `content` ship (P3.6c: `content_follow`, `content_guide`, `content_flee`)
+is made by Content.dll's `OracleSimCreateNpcShip` (`FSystemInfo::CreateNpcShip`)
+instead of `pub::SpaceObj::Create`, so its `spawn` record in `session.jsonl`
+has `content` true and the ship's `id`, its state graph and, with `pilot`, the
+pilot's lookup, but no `submit_state` (the NPC ship's constructor submits its
+state with the personality and both callbacks itself); with `flee`, `flee`
+true and the `flee_distance` f. The ship's manager reports to Content, whose
+reactions (the lead and tether events' timers on SpaceSupport, `LeadObject`,
+`FleeRequest`) the scenario records do not show; `tick.jsonl` records the
+ship as any other. `scenario_hooks` makes the ship through the server's
+record (`npc_ships::create_in_system`) and judges `tick.jsonl` as for the
+other scenarios.
+
 ## `run_rand.jsonl`
 
 Only with the environment variable `OUTPOST_ORACLE_RUN_RAND` set (the cross-runner
@@ -908,6 +922,57 @@ The three states of each mission:
 | `rust/story_<n>.ini` | (written by the port) the port's Story save after restoring `story_<n>.ini` of the same fixtures, n = 0 to 5, in turn |
 | `loaded_<mission>_<state>.txt` | (`dump mission_save_loads`) a new mission's restore of the port's save, the generator seeded before it: `script field_0x2ec initially_active` (`id:id`) `active pending_activations save_pending save_trigger nn_state draws`; per initially active trigger with a condition `cnd trigger=<id> text=` and its condition's `Save` output, then `|`; per ship of each respawn record `ship group index init_objectives init_meta guide directives`; `solar_reps=` (`,`-separated); per random encounter `rand_enc nickname` (hex) `enabled npc_count params`; then `=== save` and the save of the restored mission |
 | `story_loaded_<n>.txt` | (`dump mission_save_loads`) one Story's `PlayerLoad` of `rust/story_<n>.ini`, n = 0 to 5 in turn, then its `PlayerSave` and `mission_number=` the player's |
+
+## `rm_<table>.txt` (`dump random_missions`)
+
+The random missions' tables, vignette tree and offers (P3.7a, decision
+record 0008 point 8, Gate G3; `Content/oracle_random_missions.cpp`), read by
+`crates/game-logic/tests/random_missions.rs`. After the multiplayer start-up
+the tables and the tree are written as the generator object loaded them with
+Content.dll. Then one case per base of the export's list (26 bases), per
+`[BaseFaction]` of it with a `mission_type` and with faction properties and
+names, per difficulty (0.2, 1.5, 8, 30, 85) and per seed (1, 0x4f524143):
+`GRmObjectiveZones` emptied, player 7 put in the base's system,
+`srand(seed)`, then one loader's `CreateMission` for {7, the base, the
+faction, the difficulty}. Its draws since `FinalizeMission`'s
+`srand(random_seed)` are counted (−1 when it did not run). The loader keeps
+each mission until the next case's `CreateMission` releases it, so a target
+name stays reserved until then. Fields are `key=value` separated by one
+space: ids and unsigned values in decimal, signed values with their sign,
+flags 0 or 1, floats the eight hex digits of their bits, strings and
+flattened `FmtStr` values the hex of their bytes; lists joined by `,`,
+sub-fields by `/`, `:` or `+`, records by `;`.
+
+Every field is compared as text but the assassination target's position,
+which `FillTargetShips` makes from the objective's position and
+`random_inside_ring`'s offset: the position in the `target_ships` part of an
+`rm_offers.txt` line and the `position` of an `rm_offer_ship_groups.txt` line
+of the `target_ships` component. `random_inside_ring` turns its angle with
+`FSIN` and `FCOS` (D879), so these are Tier B (decision T11) and compared
+within the patrol points' bound (4 ulps or 1e-7,
+`crates/game-logic/tests/support/mod.rs`). The summary
+(`rust-random-missions.txt`) counts the lines equal only within the bound and
+lists each of them; a bit-equal line counts as exact.
+
+| File | Line |
+| --- | --- |
+| `rm_npc_rank_to_difficulty.txt` | `rank difficulties` |
+| `rm_diff2money.txt` | `difficulty money` |
+| `rm_bonus_loot.txt` | `drop_chance`, then per faction (`4294967295` for `all`) and record `faction index archetype num_to_drop difficulty weight` |
+| `rm_solar_formations.txt` | `formation nickname type slots` (`mandatory/type/x,y,z/` the 9 orientation floats row by row) |
+| `rm_killable_solars.txt` | `solar nickname type string_id any factions archetype loadout hitpoints difficulty zone_mask pilot_choices` |
+| `rm_critical_loot.txt` | `loot why name archetype types any factions` |
+| `rm_generator.txt` | `loaded linked root nodes leaves` |
+| `rm_nodes.txt` | `node node_id nickname parents children implemented first_child weight difficulty windows` (`min:max`) `offer_groups hostile_groups zone_types failure reward` (`str_id:params`) `objectives` (`key/str_id:params`) `offer_texts comm_sequences` (counts) |
+| `rm_offer_texts.txt` | `node index append entries` (`str_id/form/params`) |
+| `rm_comm_sequences.txt` | `node index trigger target f08 delay lines` (`speaker/text`) |
+| `rm_missions.txt` | `case base system group difficulty seed result` (`CreateMission`'s: 0 an offer, 1 no enemy group, 2 no offer, 3 no zone) `random_seed player offer_base offer_group enemy_group dest_sys zone pos reward rep_reward rep_hit path` (`T`/`F`) `offers draws serial` (`GRmShipGroupSerial`) `enemy_uses` (the enemy group's reserved pilot names and designations; −1,−1 without names) |
+| `rm_offers.txt` | `case machine type system offer_group hostile_group difficulty reward rep_hit rep_reward offer_base mc_costume voice text reward_text failure_text target_first target_second target_gender target_affiliation general target_ships` (`active:position:f50:f54`; the position Tier B) `solars ships` (`active:position`) |
+| `rm_offer_ship_groups.txt` | `case component` (`target_ships`, `ships`) `group f00 f01 f02 f04 f08 system position` (Tier B in the `target_ships` component) `f40 formation serial ships` |
+| `rm_offer_ships.txt` | `case component group ship nickname random_name affiliation npc_ship_arch target_name d8 dc loot` (`kind/f100/critical name/archetype/units/system/hit_pts_scale/tractor/rel_pos/offset`) |
+| `rm_offer_solars.txt` | `case solar nickname faction orientation position archetype loadout pilot` (`bPilot`; the personality is not written) `f4c8 arch type dest_sys mode invincible f4e0 hitpoints loot` |
+| `rm_offer_objectives.txt` | `case component key type str_id params marker` (`system:value:position`) |
+| `rm_offer_comms.txt` | `case conversation trigger delay ready lines` (`speaker/target/text`) |
 
 ## `spread.jsonl` (`--runs N`)
 

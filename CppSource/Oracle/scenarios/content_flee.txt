@@ -1,0 +1,19 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): Content's NPC ship flees to
+# its flee position (P3.6c). The skirmish's two hostile fighters (same archetypes, loadouts,
+# pilots, factions, FIGHTER state graph and the rogue's 400 hull points), but the rogue is made
+# by Content.dll (`content`: FSystemInfo::CreateNpcShip through OracleSimCreateNpcShip) with a
+# flee position (`flee`: FContentNpcShip::SetFleePosition, state 1). When its flee behaviour (4)
+# starts, request_flee_destination answers the position (type 3) within 800 m instead of the
+# fallback 10 km along x, and FleeRequest goes to SpaceSupport. No directive, no target command.
+# Multiplayer stepping.
+
+# rust: server Content makes the rogue (content)
+
+system he01
+ticks 1500
+stepping mp
+# Content's comm system off (owner, 2026-11-19), as in the skirmish.
+comms off
+
+ship police he_fighter li_p_he_fighter_loadout01 15000 3000 -25000 ai FIGHTER pilot pilot_police_med faction he_p_grp psi
+ship rogue pi_fighter fc_lr_pi_fighter_loadout01 15000 3000 -26500 heading 180 ai FIGHTER pilot pilot_pirate_med faction fc_lr_grp hp 400 content flee 9000 3000 -32000 800 psi

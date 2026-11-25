@@ -16,7 +16,11 @@
 //! `notify_stop_tradelane` ends both lanes' behaviours) and
 //! `dock_at_station` (SpaceSupport's dock queues answer the dock request:
 //! the fighter is no Content ship, so the answer is 5 with port -1, as the
-//! oracle's); the other scenarios do not.
+//! oracle's); the other scenarios do not. A scenario's `content` ships
+//! (P3.6c) are Content's NPC ships, made through the server's record
+//! (`FSystemInfo::CreateNpcShip`), so their managers report to Content
+//! and ask it for their flee destination (`content_follow`,
+//! `content_guide`, `content_flee`).
 //!
 //! With `OUTPOST_ORACLE_DIR` set, each run is judged against the oracle's
 //! `tick.jsonl` as `game-sim/tests/scenario_replay.rs` judges the run
@@ -36,6 +40,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use game_logic::content::npc_ships::{self, NpcShipParams};
 use game_logic::server::{CreateParams, Cx, Logic, RecordingSink};
 use game_logic::world::Hooks;
 use game_sim::data::config::{DataConfig, GameData};
@@ -43,8 +48,8 @@ use game_sim::object::damage::DamageList;
 use game_sim::object::world::{Assets, DamageState, ServerHooks, ServerRequest};
 use game_sim::object::{ObjHandle, World};
 use game_sim::scenario::{
-    self, dist, judge, needs_ai, oracle_ai_inputs, oracle_run, parse, report_guided,
-    scenario_files, world_config,
+    self, ScenarioServer, dist, judge, needs_ai, oracle_ai_inputs, oracle_run, parse,
+    report_guided, scenario_files, world_config,
 };
 use neuron_core::ini::IniReader;
 use neuron_core::math::Vector;
@@ -53,15 +58,18 @@ use neuron_server::controller::Priority;
 
 /// The scenarios run without the oracle: two contacts, an AI ship, the
 /// two trade lanes (the instant one and the dock behaviour's, whose
-/// request SpaceSupport answers) and the dock at a station, whose request
-/// SpaceSupport's dock queues answer.
-const SMOKE: [&str; 6] = [
+/// request SpaceSupport answers), the dock at a station, whose request
+/// SpaceSupport's dock queues answer, and Content's NPC ships following
+/// and guiding (P3.6c).
+const SMOKE: [&str; 8] = [
     "ram_ship",
     "ram_asteroid",
     "turn_to_heading",
     "trade_lane",
     "dock_trade_lane",
     "dock_at_station",
+    "content_follow",
+    "content_guide",
 ];
 
 fn outdir() -> PathBuf {
@@ -144,6 +152,87 @@ impl ServerHooks for ScenarioHooks<'_> {
     fn steps_physics(&mut self, _world: &World, _system: u32) -> bool {
         true
     }
+
+    fn content_answer(
+        &mut self,
+        world: &mut World,
+        ship: ObjHandle,
+        handle: u32,
+    ) -> Option<game_sim::ai::content::FleeAnswer> {
+        self.server.content_answer(world, ship, handle)
+    }
+
+    fn directive_complete(
+        &mut self,
+        world: &mut World,
+        ship: ObjHandle,
+        handle: u32,
+        result: (i32, i32),
+    ) {
+        self.server.directive_complete(world, ship, handle, result);
+    }
+}
+
+impl ScenarioServer for ScenarioHooks<'_> {
+    fn hooks(&mut self) -> &mut dyn ServerHooks {
+        self
+    }
+
+    /// A `content` ship (P3.6c): Content's NPC ship in the system's record
+    /// (`FSystemInfo::CreateNpcShip`), as the oracle's
+    /// `OracleSimCreateNpcShip` makes it: the archetype, loadout, place,
+    /// hit points, state graph (`LEADER`) and personality (the default, or the pilot's),
+    /// owned by SpaceSupport, with a reputation handle of no vibe (the
+    /// driver keeps no vibes; the attitudes come from the oracle) and the
+    /// `flee` position.
+    fn spawn_content_ship(
+        &mut self,
+        world: &mut World,
+        system: u32,
+        object: &game_sim::scenario::ObjDesc,
+        personality: Option<game_sim::ai::personality::Personality>,
+    ) -> Option<Option<ObjHandle>> {
+        let mut cx = Cx {
+            world,
+            logic: self.server.logic,
+        };
+        let state_graph = object.ai.as_ref().map_or(-1, |g| {
+            cx.world
+                .data()
+                .state_graphs
+                .find(g.as_bytes(), game_sim::ai::state_graph::GraphType::Leader)
+        });
+        let reputation = cx
+            .logic
+            .content
+            .state
+            .rep_handles
+            .create(-1, game_logic::content::rep_handles::RepKind::Plain);
+        let params = NpcShipParams {
+            reputation: Some(reputation),
+            archetype: neuron_core::id::create_id(object.archetype.as_bytes()),
+            loadout: if object.loadout.is_empty() {
+                0
+            } else {
+                neuron_core::id::create_id(object.loadout.as_bytes())
+            },
+            position: object.pos,
+            orientation: object.orient,
+            hit_points: object.hp as i32,
+            state_graph,
+            personality: personality.unwrap_or_default(),
+            controller: cx.logic.content.state.space_support.0,
+            ..NpcShipParams::default()
+        };
+        let (_, key) = npc_ships::create_in_system(&mut cx, system, &params, 0);
+        npc_ships::release_params(&mut cx, params);
+        let key = key?;
+        if let Some((point, distance)) = object.flee {
+            npc_ships::set_flee_position(&mut cx, key, point, distance);
+        }
+        let id = npc_ships::space_obj(&cx, key);
+        Some(cx.world.find(id))
+    }
 }
 
 /// The oracle's start-up (`Oracle.exe sim`, `WriteServerIni` and
@@ -218,7 +307,7 @@ fn scenarios_through_the_server_hooks() {
             server: Hooks { logic: &mut logic },
             requests: s.rust_server.is_some(),
         };
-        let ours = scenario::run(world, &s, &ai, &mut hooks);
+        let ours = scenario::run_with(world, &s, &ai, &mut hooks);
         if let Some((b, tick)) = ours.unported {
             let _ = writeln!(
                 summary,

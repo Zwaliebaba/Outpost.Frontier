@@ -108,6 +108,10 @@ pub struct ManagerState {
     pub level_camera: bool,
     /// +0x110 a content callback is installed.
     pub content_callback: bool,
+    /// +0x110 the content callback, as its owner's handle (D710; 0 for
+    /// none): the reports go to it after the tick
+    /// ([`super::world::AiWorld::content_event`]).
+    pub content_handle: u32,
     /// +0x114 the content callback's `get_creation_type` (3 until one is
     /// installed).
     pub creation_type: u32,
@@ -200,6 +204,7 @@ impl ManagerState {
             field_f8: true,
             level_camera: true,
             content_callback: false,
+            content_handle: 0,
             creation_type: 3,
             f118: 0,
             f11c: -1,
@@ -405,6 +410,7 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
         };
         let out = f(&mut *self.spare, &mut cx);
         std::mem::swap(&mut self.behaviors[i], &mut self.spare);
+        self.flush_content_events(world, ship);
         // `QueueNotification` from inside the behaviour: nothing the
         // behaviour reads later in the same call depends on it.
         for n in std::mem::take(&mut self.state.leader_notes) {
@@ -599,12 +605,32 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
             .personality_changed(world, ship, &personality);
     }
 
-    /// `set_content_callback(Callback)`: the callback installed (`None`
-    /// removes it) and, with one, its `get_creation_type` kept.
-    pub fn set_content_callback(&mut self, creation_type: Option<u32>) {
-        self.state.content_callback = creation_type.is_some();
-        if let Some(t) = creation_type {
+    /// `set_content_callback(Callback)`: the callback installed, as its
+    /// owner's handle with the `get_creation_type` it answered (`None`
+    /// removes it; the creation type stays).
+    pub fn set_content_callback(&mut self, callback: Option<(u32, u32)>) {
+        self.state.content_callback = callback.is_some();
+        self.state.content_handle = callback.map_or(0, |(h, _)| h);
+        if let Some((_, t)) = callback {
             self.state.creation_type = t;
+        }
+    }
+
+    /// Hands the content-callback reports the system manager queued to
+    /// the world, in order, for the installed callback
+    /// ([`super::world::AiWorld::content_event`]); without one they are
+    /// dropped (none is queued then).
+    fn flush_content_events(&mut self, world: &mut W, ship: W::Handle) {
+        if self.state.sys.events.is_empty() {
+            return;
+        }
+        let events = std::mem::take(&mut self.state.sys.events);
+        let handle = self.state.content_handle;
+        if handle == 0 {
+            return;
+        }
+        for event in events {
+            world.content_event(ship, handle, event);
         }
     }
 
@@ -975,6 +1001,7 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
         self.state.sys.targets.keep_cache = true;
         self.tick_body(world, ship, dt, &view);
         self.state.sys.targets.keep_cache = false;
+        self.flush_content_events(world, ship);
     }
 
     /// The system manager's update of the tick (`UpdateSystemManager`,
@@ -1068,6 +1095,7 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
             return;
         };
         self.update_system(world, ship, dt, view);
+        self.flush_content_events(world, ship);
         if view.is_player && len_sq(self.state.last_direction) != 0.0 {
             let dir = self.state.last_direction;
             self.update_current_behavior_direction(world, ship, dir);
@@ -1079,6 +1107,9 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
                 && (d[0] == 0 || d[1] == 1);
             if flag != self.state.field_f8 {
                 self.state.field_f8 = flag;
+                // `ContentCbPtr->scan_state_change(flag)`.
+                let handle = self.state.content_handle;
+                world.content_event(ship, handle, CombatEvent::ScanState(flag));
             }
         }
 

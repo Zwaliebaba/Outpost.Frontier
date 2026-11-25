@@ -110,6 +110,13 @@ namespace
         int HitPts = -1;
         bool bPsi = false;
         bool bEscort = false;    // P2.5 escort: the state graph's ESCORT variant (with `ai`)
+        // P3.6c: `content`, the ship is Content's NPC ship (FSystemInfo::CreateNpcShip through
+        // Content.dll's OracleSimCreateNpcShip), its manager's directive and content callback;
+        // `flee x y z distance` gives it that flee position (FContentNpcShip::SetFleePosition).
+        bool bContent = false;
+        bool bContentFlee = false;
+        double ContentFlee[3] = {0.0, 0.0, 0.0};
+        double ContentFleeDistance = 0.0;
         int Line = 0;
     };
 
@@ -172,6 +179,12 @@ namespace
         // 0008 point 10, Gate G3).
         bool bDumpMissionSaves = false;
         bool bDumpMissionSaveLoads = false;
+        // `dump random_missions`: right after the server starts, Content.dll writes its
+        // random-mission tables and vignette tree and the offers its generator builds for a fixed
+        // set of bases, factions, difficulties and seeds as rm_<table>.txt through its
+        // OracleDumpRandomMissions; no system loads and no scenario runs (P3.7a, decision record
+        // 0008 point 8, Gate G3).
+        bool bDumpRandomMissions = false;
         unsigned int Seed = 0x4f524143u;
         double ClockStart = 1000.0;
         std::vector<FObjectDesc> Objects;
@@ -343,11 +356,34 @@ namespace
                 Object.HitPts = (int)Value;
                 At += 2;
             }
+            else if (Key == "content")
+            {
+                Object.bContent = true;
+                ++At;
+            }
+            else if (Key == "flee" && At + 4 < T.size() && ParseVector(T, At + 1, Object.ContentFlee))
+            {
+                if (!ParseDouble(T[At + 4], Object.ContentFleeDistance))
+                    return Error = "bad flee distance", false;
+                Object.bContentFlee = true;
+                At += 5;
+            }
             else
             {
                 Error = "unknown or incomplete option '" + T[At] + "'";
                 return false;
             }
+        }
+        if (Object.bContent && (Object.StateGraph.empty() || Object.Faction.empty() || Object.bEscort))
+        {
+            // FContentNpcShip reads its faction's properties without a null test.
+            Error = "content needs ai and faction, and takes no escort";
+            return false;
+        }
+        if (Object.bContentFlee && !Object.bContent)
+        {
+            Error = "flee needs content";
+            return false;
         }
         if (!Object.bShip &&
             (!Object.StateGraph.empty() || !Object.Pilot.empty() || !Object.Faction.empty() || Object.HitPts != -1 ||
@@ -479,6 +515,10 @@ namespace
             {
                 Out.bDumpMissionSaveLoads = true;
             }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "random_missions")
+            {
+                Out.bDumpRandomMissions = true;
+            }
             else if (Key == "seed" && T.size() == 2 && ParseUnsigned(T[1], Value))
             {
                 Out.Seed = (unsigned int)Value;
@@ -548,10 +588,12 @@ namespace
         if (Out.System.empty() || !bTicks)
             return Error = "a scenario needs `system` and `ticks`", false;
         // A dump session needs no object: every `dump` line but `replication`, which records
-        // the objects the session spawns (P3.6a: `content_systems` joins the list).
+        // the objects the session spawns (P3.6a: `content_systems` joins the list; P3.7a:
+        // `random_missions`).
         bool const bObjectlessDump = Out.bDumpSystemLoads || Out.bDumpContentTables ||
                                      Out.bDumpContentSystems || Out.bDumpMissionScripts ||
-                                     Out.bDumpMissionSaves || Out.bDumpMissionSaveLoads;
+                                     Out.bDumpMissionSaves || Out.bDumpMissionSaveLoads ||
+                                     Out.bDumpRandomMissions;
         if (Out.Objects.empty() && !bObjectlessDump)
             return Error = "a scenario needs at least one object", false;
         std::stable_sort(Out.Commands.begin(), Out.Commands.end(),
@@ -1941,6 +1983,63 @@ namespace
         return AllocResult == 0 && AffiliationResult == 0;
     }
 
+    // P3.6c: a `content` ship, made by Content.dll's OracleSimCreateNpcShip
+    // (oracle_content_npc.cpp): FSystemInfo::CreateNpcShip with the ship's archetype, loadout,
+    // place, hit points, state graph, pilot personality and the vibe of its `faction`, owned by
+    // SpaceSupport. The constructor submits the state with the personality and both callbacks
+    // itself, so no SubmitState follows here.
+    bool SpawnContentShip(FObjectDesc const& Desc, unsigned int SystemId, int Vibe, FOracleJson& J,
+                          FSimObject& Object)
+    {
+        typedef unsigned int(__cdecl * FCreateNpcShip)(
+            unsigned int, unsigned int, unsigned int, Vector const*, Matrix const*, int, int,
+            pub::AI::Personality const*, int, bool, Vector const*, float);
+        typedef bool(__cdecl * FPilotPersonality)(char const*, pub::AI::Personality*);
+        HMODULE const Content = GetModuleHandleA("Content.dll");
+        FCreateNpcShip const Create =
+            Content != nullptr ? (FCreateNpcShip)GetProcAddress(Content, "OracleSimCreateNpcShip") : nullptr;
+        J.Str("kind", "ship");
+        J.Bool("content", true);
+        J.Str("arch", Desc.Archetype.c_str());
+        J.Str("loadout", Desc.Loadout.c_str());
+        if (Create == nullptr)
+        {
+            J.Str("error", "Content.dll lacks OracleSimCreateNpcShip");
+            return false;
+        }
+        pub::AI::Personality Personality;
+        bool bPilot = true;
+        if (!Desc.Pilot.empty())
+        {
+            FPilotPersonality const PilotPersonality =
+                (FPilotPersonality)GetProcAddress(Content, "OracleSimPilotPersonality");
+            bPilot = PilotPersonality != nullptr && PilotPersonality(Desc.Pilot.c_str(), &Personality);
+            J.Str("pilot", Desc.Pilot.c_str());
+            J.Bool("pilot_found", bPilot);
+        }
+        int const StateGraphId =
+            pub::StateGraph::get_state_graph(Desc.StateGraph.c_str(), pub::StateGraph::LEADER);
+        J.Str("state_graph", Desc.StateGraph.c_str());
+        J.Int("state_graph_id", StateGraphId);
+        Vector const Position = ToVector(Desc.Pos);
+        Matrix const Orientation = ToMatrix(Desc.Orient);
+        Vector const FleePosition = ToVector(Desc.ContentFlee);
+        unsigned int const Id = Create(SystemId, CreateID(Desc.Archetype.c_str()),
+                                       Desc.Loadout.empty() ? 0u : CreateID(Desc.Loadout.c_str()),
+                                       &Position, &Orientation, Desc.HitPts, StateGraphId,
+                                       &Personality, Vibe,
+                                       Desc.bContentFlee, &FleePosition,
+                                       (float)Desc.ContentFleeDistance);
+        Object.Id = Id;
+        J.Uint("id", Id);
+        if (Desc.bContentFlee)
+        {
+            J.Bool("flee", true);
+            J.Float("flee_distance", (float)Desc.ContentFleeDistance);
+        }
+        return bPilot && Id != 0;
+    }
+
     bool SpawnObject(FObjectDesc const& Desc, unsigned int SystemId, unsigned int ControllerId)
     {
         FSimObject Object;
@@ -1957,6 +2056,14 @@ namespace
             {
                 Write(FileSession, J);
                 return false;
+            }
+            if (Desc.bContent)
+            {
+                bOk = SpawnContentShip(Desc, SystemId, Vibe, J, Object);
+                Write(FileSession, J);
+                if (bOk)
+                    GObjects.push_back(Object);
+                return bOk;
             }
             pub::SpaceObj::ShipInfo Info;
             Info.ControllerId = ControllerId;
@@ -2891,6 +2998,30 @@ namespace oracle
             Write(FileSession, J);
             EndProcess(Files < 0 ? 3 : 0);
             return Files < 0 ? 3 : 0;
+        }
+
+        // `dump random_missions` (P3.7a): the random-mission tables, the vignette tree and the
+        // offers built from a seed after the start-up, through Content.dll's Oracle export, then
+        // the end of the run.
+        if (GScenario.bDumpRandomMissions)
+        {
+            typedef int(__cdecl * FDumpRandomMissions)(char const*);
+            HMODULE const Content = GetModuleHandleA("Content.dll");
+            FDumpRandomMissions const DumpRandomMissions =
+                Content != nullptr ? (FDumpRandomMissions)GetProcAddress(Content, "OracleDumpRandomMissions")
+                                   : nullptr;
+            int const Lines = DumpRandomMissions != nullptr ? DumpRandomMissions(OutDir.c_str()) : -1;
+            if (DumpRandomMissions == nullptr)
+                SessionNote("error", "dump random_missions: Content.dll is not loaded or lacks OracleDumpRandomMissions");
+            else if (Lines < 0)
+                SessionNote("error", "OracleDumpRandomMissions failed: a file could not be opened or the "
+                                     "generator or a random-mission loader is missing");
+            FOracleJson J;
+            J.Str("rec", "random_missions");
+            J.Int("lines", Lines);
+            Write(FileSession, J);
+            EndProcess(Lines < 0 ? 3 : 0);
+            return Lines < 0 ? 3 : 0;
         }
 
         // `comms off`: the GCS clamp through Content.dll's Oracle export, before the load.
