@@ -13,6 +13,10 @@ neuron-server.workspace = true
 toml.workspace = true
 tracing.workspace = true
 
+# Gate G3's scripted test client only (owner, 2026-11-25; AGENTS.md).
+[dev-dependencies]
+neuron-client.workspace = true
+
 [lints]
 workspace = true
 

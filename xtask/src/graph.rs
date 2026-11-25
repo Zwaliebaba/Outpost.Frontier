@@ -44,7 +44,13 @@ const ALLOWED: &[(&str, &[&str])] = &[
 ///   its scene-script tests (decision O18).
 /// - `neuron-client` runs its QUIC transport against `neuron-server`'s host
 ///   in its end-to-end test (P3.8, owner 2026-11-25).
-const DEV_ONLY: &[(&str, &[&str])] = &[("neuron-client", &["lua32-compiler", "neuron-server"])];
+/// - `outpost-server` drives Gate G3's scripted test client, a
+///   `neuron-client` QUIC connection, against the real server (P3.9,
+///   owner 2026-11-25).
+const DEV_ONLY: &[(&str, &[&str])] = &[
+    ("neuron-client", &["lua32-compiler", "neuron-server"]),
+    ("outpost-server", &["neuron-client"]),
+];
 
 const DEPENDENCY_TABLES: &[&str] = &["dependencies", "dev-dependencies", "build-dependencies"];
 
@@ -190,6 +196,7 @@ mod tests {
         "game-logic",
         "game-app",
         "lua32-compiler",
+        "outpost-server",
     ];
 
     const HEADER: &str = "[package]\nname = \"x\"\nrust-version.workspace = true\n\
@@ -296,6 +303,28 @@ mod tests {
                 &format!("{HEADER}[{table}]\nneuron-client.workspace = true\n"),
             );
             assert_eq!(findings(&m).len(), 1, "{table}");
+        }
+    }
+
+    #[test]
+    fn the_server_executable_may_test_with_the_client_only() {
+        let m = member(
+            "outpost-server",
+            &format!("{HEADER}[dev-dependencies]\nneuron-client.workspace = true\n"),
+        );
+        assert!(findings(&m).is_empty());
+        for table in ["dependencies", "build-dependencies"] {
+            let m = member(
+                "outpost-server",
+                &format!("{HEADER}[{table}]\nneuron-client.workspace = true\n"),
+            );
+            let found = findings(&m);
+            assert_eq!(found.len(), 1, "{table}");
+            assert!(
+                found[0]
+                    .message
+                    .contains("may not depend on `neuron-client`")
+            );
         }
     }
 
