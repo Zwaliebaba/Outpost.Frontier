@@ -930,6 +930,17 @@ flags 0 or 1, floats the eight hex digits of their bits, strings and
 flattened `FmtStr` values the hex of their bytes; lists joined by `,`,
 sub-fields by `/`, `:` or `+`, records by `;`.
 
+Every field is compared as text but the assassination target's position,
+which `FillTargetShips` makes from the objective's position and
+`random_inside_ring`'s offset: the position in the `target_ships` part of an
+`rm_offers.txt` line and the `position` of an `rm_offer_ship_groups.txt` line
+of the `target_ships` component. `random_inside_ring` turns its angle with
+`FSIN` and `FCOS` (D879), so these are Tier B (decision T11) and compared
+within the patrol points' bound (4 ulps or 1e-7,
+`crates/game-logic/tests/support/mod.rs`). The summary
+(`rust-random-missions.txt`) counts the lines equal only within the bound and
+lists each of them; a bit-equal line counts as exact.
+
 | File | Line |
 | --- | --- |
 | `rm_npc_rank_to_difficulty.txt` | `rank difficulties` |
@@ -943,8 +954,8 @@ sub-fields by `/`, `:` or `+`, records by `;`.
 | `rm_offer_texts.txt` | `node index append entries` (`str_id/form/params`) |
 | `rm_comm_sequences.txt` | `node index trigger target f08 delay lines` (`speaker/text`) |
 | `rm_missions.txt` | `case base system group difficulty seed result` (`CreateMission`'s: 0 an offer, 1 no enemy group, 2 no offer, 3 no zone) `random_seed player offer_base offer_group enemy_group dest_sys zone pos reward rep_reward rep_hit path` (`T`/`F`) `offers draws serial` (`GRmShipGroupSerial`) `enemy_uses` (the enemy group's reserved pilot names and designations; −1,−1 without names) |
-| `rm_offers.txt` | `case machine type system offer_group hostile_group difficulty reward rep_hit rep_reward offer_base mc_costume voice text reward_text failure_text target_first target_second target_gender target_affiliation general target_ships` (`active:position:f50:f54`) `solars ships` (`active:position`) |
-| `rm_offer_ship_groups.txt` | `case component` (`target_ships`, `ships`) `group f00 f01 f02 f04 f08 system position f40 formation serial ships` |
+| `rm_offers.txt` | `case machine type system offer_group hostile_group difficulty reward rep_hit rep_reward offer_base mc_costume voice text reward_text failure_text target_first target_second target_gender target_affiliation general target_ships` (`active:position:f50:f54`; the position Tier B) `solars ships` (`active:position`) |
+| `rm_offer_ship_groups.txt` | `case component` (`target_ships`, `ships`) `group f00 f01 f02 f04 f08 system position` (Tier B in the `target_ships` component) `f40 formation serial ships` |
 | `rm_offer_ships.txt` | `case component group ship nickname random_name affiliation npc_ship_arch target_name d8 dc loot` (`kind/f100/critical name/archetype/units/system/hit_pts_scale/tractor/rel_pos/offset`) |
 | `rm_offer_solars.txt` | `case solar nickname faction orientation position archetype loadout pilot` (`bPilot`; the personality is not written) `f4c8 arch type dest_sys mode invincible f4e0 hitpoints loot` |
 | `rm_offer_objectives.txt` | `case component key type str_id params marker` (`system:value:position`) |

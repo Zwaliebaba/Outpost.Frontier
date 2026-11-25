@@ -16,6 +16,13 @@
 //! the draws, the ship group serial, the enemy's name reservations and
 //! every offer line are then the port's own.
 //!
+//! Every line is compared exactly but for the fields that come from
+//! `random_inside_ring` (D879): the assassination target's position in the
+//! `target_ships` part of an offer line and the `position` of the target
+//! component's ship groups. Those are compared within the Tier B bound of
+//! the patrol points (4 ulps or 1e-7, `support`), and each line equal only
+//! within it is listed in the summary.
+//!
 //! `data_dump_random_missions` reads `OUTPOST_DATA_DIR` (the dump root with
 //! `EXE` and `DATA`) and `OUTPOST_ORACLE_DIR` (the oracle's output, with the
 //! session's files in `random_missions/`); without either it prints a notice
@@ -47,6 +54,10 @@ use neuron_core::math::{Matrix, Vector};
 use neuron_core::rng::CrtRand;
 use neuron_core::vfs::Host;
 use neuron_server::controller::{self, Priority};
+
+mod support;
+
+use support::{POINT_ABSOLUTE, POINT_ULPS, floats_within_bound, within_bound};
 
 /// The tables in the oracle's order, each `rm_<name>.txt`.
 const TABLES: [&str; 17] = [
@@ -664,7 +675,59 @@ fn render_cases(cx: &mut Cx<'_>, oracle: &str) -> Rendered {
     out
 }
 
-fn compare(table: &str, oracle: &str, rendered: &[String]) -> Vec<String> {
+/// Whether two lines of `table` are equal but for the fields that come from
+/// `random_inside_ring`, and those within the Tier B bound (D879): the
+/// assassination target's position, `FillTargetShips`' objective position
+/// plus the ring offset, which is the offer's `target_ships` position
+/// (`active:x,y,z:f50:f54`, its second part) and the `position` of every
+/// ship group of the `target_ships` component. Every other field, and every
+/// other table, compares exactly.
+fn ring_within_bound(table: &str, oracle: &str, rust: &str) -> bool {
+    let (w, g): (Vec<&str>, Vec<&str>) = (oracle.split(' ').collect(), rust.split(' ').collect());
+    if w.len() != g.len() {
+        return false;
+    }
+    let target_group = w.contains(&"component=target_ships");
+    w.iter().zip(&g).all(|(a, b)| {
+        if a == b {
+            return true;
+        }
+        match table {
+            "offers" => {
+                let (Some(x), Some(y)) = (
+                    a.strip_prefix("target_ships="),
+                    b.strip_prefix("target_ships="),
+                ) else {
+                    return false;
+                };
+                let (x, y): (Vec<&str>, Vec<&str>) =
+                    (x.split(':').collect(), y.split(':').collect());
+                x.len() == 4
+                    && y.len() == 4
+                    && x[0] == y[0]
+                    && x[2..] == y[2..]
+                    && floats_within_bound(x[1], y[1])
+            }
+            "offer_ship_groups" if target_group => {
+                match (a.strip_prefix("position="), b.strip_prefix("position=")) {
+                    (Some(x), Some(y)) => floats_within_bound(x, y),
+                    _ => false,
+                }
+            }
+            _ => false,
+        }
+    })
+}
+
+/// The differences of one table from the oracle's file; a line that
+/// differs only in the ring's fields, within the Tier B bound, is listed in
+/// `bounded` ([`ring_within_bound`]).
+fn compare(
+    table: &str,
+    oracle: &str,
+    rendered: &[String],
+    bounded: &mut Vec<String>,
+) -> Vec<String> {
     let mut problems = Vec::new();
     let want: Vec<&str> = oracle.lines().collect();
     if want.len() != rendered.len() {
@@ -678,6 +741,15 @@ fn compare(table: &str, oracle: &str, rendered: &[String]) -> Vec<String> {
     let mut shown = 0;
     for (i, (w, g)) in want.iter().zip(rendered).enumerate() {
         if *w != g {
+            if ring_within_bound(table, w, g) {
+                bounded.push(format!(
+                    "{table} line {} (within the Tier B bound):\n  oracle: {}\n  rust:   {}",
+                    i + 1,
+                    cut(w),
+                    cut(g)
+                ));
+                continue;
+            }
             problems.push(format!(
                 "{table} line {}:\n  oracle: {}\n  rust:   {}",
                 i + 1,
@@ -745,10 +817,16 @@ fn data_dump_random_missions() {
         rendered.iter().map(Vec::len).sum::<usize>()
     );
     let mut problems = Vec::new();
+    let mut bounded = Vec::new();
     for (table, lines) in TABLES.iter().zip(&rendered) {
         let _ = writeln!(summary, "  {table}: {} lines", lines.len());
         match read(table) {
-            Ok(bytes) => problems.extend(compare(table, &String::from_utf8_lossy(&bytes), lines)),
+            Ok(bytes) => problems.extend(compare(
+                table,
+                &String::from_utf8_lossy(&bytes),
+                lines,
+                &mut bounded,
+            )),
             Err(e) => problems.push(format!("rm_{table}.txt: {e}")),
         }
     }
@@ -758,6 +836,14 @@ fn data_dump_random_missions() {
         rendered.len(),
         problems.len()
     );
+    let _ = writeln!(
+        summary,
+        "{} lines equal within the Tier B bound ({POINT_ULPS} ulps or {POINT_ABSOLUTE:e}), the rest exactly",
+        bounded.len()
+    );
+    for b in &bounded {
+        let _ = writeln!(summary, "{b}");
+    }
     for p in problems.iter().take(40) {
         let _ = writeln!(summary, "{p}");
     }
@@ -1046,4 +1132,93 @@ fn a_rendered_case_reads_back_as_the_same_case() {
     assert_eq!(first.solars, second.solars);
     assert_eq!(first.objectives, second.objectives);
     assert_eq!(first.comms, second.comms);
+}
+
+#[test]
+fn the_ring_bound_takes_only_the_target_position() {
+    // An offer line, cut to the fields around the target's position, whose
+    // y differs by 3 ulps: within the bound, as is a 1e-7 difference near 0.
+    let offer = |position: &str, f50: &str, solars: &str| {
+        format!(
+            "case=4 machine=2 type=2 system=2745 general=1 target_ships=1:{position}:{f50}:1 \
+             solars=0:{solars} ships=1:c6a1b8f0,44fa0000,47c35000"
+        )
+    };
+    let oracle = offer(
+        "c6a2ce5f,43c80000,47b6a2b1",
+        "2",
+        "00000000,00000000,00000000",
+    );
+    let near = offer(
+        "c6a2ce5f,43c80003,47b6a2b1",
+        "2",
+        "00000000,00000000,00000000",
+    );
+    assert!(ring_within_bound("offers", &oracle, &near));
+    let tiny = offer(
+        "c6a2ce5f,43c80000,33d6bf94",
+        "2",
+        "00000000,00000000,00000000",
+    );
+    let zero = offer(
+        "c6a2ce5f,43c80000,00000000",
+        "2",
+        "00000000,00000000,00000000",
+    );
+    assert!(ring_within_bound("offers", &tiny, &zero));
+    // Five ulps, another field of the component, or another position is not.
+    let far = offer(
+        "c6a2ce5f,43c80005,47b6a2b1",
+        "2",
+        "00000000,00000000,00000000",
+    );
+    assert!(!ring_within_bound("offers", &oracle, &far));
+    let other = offer(
+        "c6a2ce5f,43c80003,47b6a2b1",
+        "3",
+        "00000000,00000000,00000000",
+    );
+    assert!(!ring_within_bound("offers", &oracle, &other));
+    let solars = offer(
+        "c6a2ce5f,43c80000,47b6a2b1",
+        "2",
+        "00000000,00000001,00000000",
+    );
+    assert!(!ring_within_bound("offers", &oracle, &solars));
+    // A ship group of the target's component takes the bound in its
+    // position; one of the other ship component does not.
+    let group = |component: &str, position: &str| {
+        format!(
+            "case=4 component={component} group=0 f00=1 f01=0 f02=1 f04=0 f08=4294967295 \
+             system=2745 position={position} f40=bf666666 formation=1 serial=17 ships=3"
+        )
+    };
+    let oracle = group("target_ships", "c6a2ce5f,43c80000,47b6a2b1");
+    let near = group("target_ships", "c6a2ce5b,43c80000,47b6a2b1");
+    assert!(ring_within_bound("offer_ship_groups", &oracle, &near));
+    let far = group("target_ships", "c6a2ce5a,43c80000,47b6a2b1");
+    assert!(!ring_within_bound("offer_ship_groups", &oracle, &far));
+    let oracle = group("ships", "c6a2ce5f,43c80000,47b6a2b1");
+    let near = group("ships", "c6a2ce5b,43c80000,47b6a2b1");
+    assert!(!ring_within_bound("offer_ship_groups", &oracle, &near));
+    // No other table takes it, and a bounded line is listed while a
+    // bit-equal one counts as exact.
+    let solar = "case=4 solar=0 position=c6a2ce5f,43c80000,47b6a2b1";
+    let moved = "case=4 solar=0 position=c6a2ce5b,43c80000,47b6a2b1";
+    assert!(!ring_within_bound("offer_solars", solar, moved));
+    let oracle_file = format!(
+        "{}\n{}\n",
+        group("target_ships", "c6a2ce5f,43c80000,47b6a2b1"),
+        group("ships", "c6a2ce5f,43c80000,47b6a2b1")
+    );
+    let rendered = vec![
+        group("target_ships", "c6a2ce5b,43c80000,47b6a2b1"),
+        group("ships", "c6a2ce5f,43c80000,47b6a2b1"),
+    ];
+    let mut bounded = Vec::new();
+    assert!(compare("offer_ship_groups", &oracle_file, &rendered, &mut bounded).is_empty());
+    assert_eq!(bounded.len(), 1);
+    assert!(bounded[0].starts_with("offer_ship_groups line 1 (within the Tier B bound)"));
+    assert!(within_bound(0x3f80_0000, 0x3f80_0004));
+    assert!(!within_bound(0x3f80_0000, 0x3f80_0005));
 }

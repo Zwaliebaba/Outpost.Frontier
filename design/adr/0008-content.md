@@ -2,7 +2,8 @@
 
 Status: accepted by the owner on 2026-11-22 (P3.4 to P3.7); decision O47.
 Questions 1 to 10 answered as recommended; question 4 (the NPC loot
-preference) on 2026-11-24. Builds on records
+preference) on 2026-11-24. Amended by the owner on 2026-11-25 with
+P3.7a (Context's random missions, points 1, 5, 8 and 10). Builds on records
 0006 (controller bus, decision O40: its "Content" section and Appendix A)
 and 0007 (server world, decision O43), and on P3.3's port of `pub::` in
 `game-logic::api`.
@@ -321,8 +322,9 @@ Paths are relative to `CppSource/`.
   the offer query's values, a seed, the tree path and the offers. It is
   the reference-counted create parameter of the `DestroyMission`
   controller.
-- **Creating a mission.** `CreateMission` draws the seed with `rand()`
-  and seeds the generator with it (`DestroyMission.cpp:1030-1052`).
+- **Creating a mission.** `CreateMission` (`DestroyMission.cpp:1041-1120`)
+  draws the seed with `rand()` and seeds the generator with it
+  (`:1051-1052`).
   `FinalizeMission` seeds it again from the saved seed and builds the
   offer (`:620-650`). A save rebuilds the mission the same way from
   `[RandomMission]` (`:661-689`; `Support.cpp:360-380`).
@@ -335,14 +337,32 @@ Paths are relative to `CppSource/`.
   validates the query, then picks an offer node, chooses the tree path and
   builds from the path. `RemapRmOfferDifficulty` takes `std::log`
   (FYL2X) and rounds the result to an integer rank (`:1876-1898`).
-- **State outside the seed.** Three counters are not part of the seed:
-  - the vignette solar and ship names (`RandomMissionGen.cpp:1857`, `:1998`);
-  - the vignette cookies (`RandomMissionVignette.cpp:43`);
-  - the ship groups (`RandomMissionRuntime.cpp:199`).
-- **Where offers come from.** The bar offers (`LootProps.cpp:166-200`) and
-  the vendor offers (`:330-380`) are built in TU35, which the
+- **State outside the seed.** An offer's build reads and changes state
+  that is not part of its seed (amended by the owner on 2026-11-25, with
+  P3.7a):
+  - three counters: the vignette solar and ship names
+    (`RandomMissionGen.cpp:1857`, `:1998`) and the ship groups
+    (`RandomMissionRuntime.cpp:199`);
+  - the faction name reservations an assassination target takes
+    (`FFactionNames::PickPilotName` and `PickFormationDesig`,
+    `FactionProps.cpp:457-616`), which `~FRmVignetteOffer` releases
+    (`RandomMissionRuntime.cpp:458-461`, through `ReleaseTargetName`,
+    `:463-521`);
+  - `GRmDestSystems`, the systems loaded for random missions
+    (`RandomMissionDB.cpp:395-410`);
+  - `GRmObjectiveZones`, the zones other missions hold as objectives
+    (`DestroyMission.cpp:43`), which `PickObjectiveZone` reads (`:952`,
+    the test at `:970`) and `CreateMission` adds to (`:1087`).
+
+  The vignette cookies (`RandomMissionVignette.cpp:43`) are not among
+  them: they are state of the runtime machines.
+- **Where offers come from.** The bar offers (`CreateBarMissionOffer`,
+  `LootProps.cpp:195`) and the vendor offers (`GenerateVendorMissions` and
+  `BuildMissionVendorOffers`, `:278-520`) are built in TU35, which the
   reconstruction put in `LootProps.cpp`. They are accepted in
-  `BaseSupport.cpp:420-435` and `BaseDB.cpp:782-800`.
+  `BaseSupport.cpp:420-435` (vendor) and `BaseDB.cpp:900-921` (bar,
+  `FBarOffer::Accept`). (References corrected by the owner on 2026-11-25,
+  with P3.7a.)
 - **The run time.** `FRandomMissionObject` is the mission object plus a
   state-machine group (`RandomMissionObject.h:39`). Its machines are at
   `RandomMissionMachine.h:205` and `RandomMissionRuntime.h:102`, `:185`.
@@ -407,6 +427,8 @@ Paths are relative to `CppSource/`.
      its own `Arc` (owner, 2026-11-23, with P3.4c).
    - `instances` holds each controller's own state. A handler is
      `fn(cx: &mut Cx, me: ControllerId, msg: &mut ControllerMessage)`.
+   - The random-mission tables are a fourth field, `rm`, beside `tables`
+     (point 5; amended by the owner on 2026-11-25, with P3.7a).
 
    The borrow rules are record 0006's, applied to Content:
    - A borrow of `cx.logic.content` ends before any call that takes
@@ -549,6 +571,17 @@ Paths are relative to `CppSource/`.
      in the scenario driver. A data test compares each `[Pilot]` with
      `OracleSimPilotPersonality`, an export that already exists
      (`PilotPersonalities.cpp:1364-1371`).
+   - **The random-mission tables.** Most random-mission tables are not
+     loaded by `LoadContentGameTables`. A static object, the generator
+     (`GRandomMissionGeneratorInstance`, `RandomMissionGen.cpp:1090`), loads
+     them when Content.dll loads: its constructor (`:313-374`) reads
+     `NpcRankToDiff.ini`, `Diff2Money.ini`, `RMLootInfo.ini`,
+     `SolarFormations.ini`, `KillableSolars.ini`,
+     `VignetteCriticalLoot.ini` and the vignette tree of
+     `VignetteParams.ini`. Their lifetime is the DLL's, not GameSupport's,
+     so the port keeps them in `Content::rm` (`RmData` behind an `Arc`),
+     loaded once per load of the DLL before its first controller, and not
+     in `ContentTables` (amended by the owner on 2026-11-25, with P3.7a).
 
 6. **Mission scripts are enums (P3.5: Tier A for parsing and saves, Tier
    B for the run time).**
@@ -620,11 +653,21 @@ Paths are relative to `CppSource/`.
    - **The tables and the generator.** The random-mission tables, the
      vignette tree and the generator are ported; `BuildOffer` is a
      function of the query, the tree path, the tables and the generator.
+     The tables and the tree are `Content::rm` (point 5; amended by the
+     owner on 2026-11-25, with P3.7a).
    - **Machines.** The runtime machines are state enums driven through
      point 3's `MachineHost`.
-   - **State outside the seed.** The three counters of Context are part of
-     `ContentState`. Where an offer's build reads them, the oracle's dump
-     records them as input.
+   - **State outside the seed.** The state outside the seed of Context
+     (the three counters, the faction name reservations, `GRmDestSystems`
+     and `GRmObjectiveZones`) is part of `ContentState`: the counters and
+     the destination systems in `ContentState::rm`, the reservations in
+     `ContentState::faction_name_uses`, the objective zones with
+     `CreateMission` (P3.7c). The vignette cookies come with the runtime
+     machines (P3.7b). The dump does not record the counters as input: it
+     compares them as outputs, from a fresh load that runs the oracle's
+     cases in the same order (the ship-group serial and the enemy group's
+     reservations on each mission line, the counters in the ships' and
+     solars' nicknames). Amended by the owner on 2026-11-25, with P3.7a.
    - **The rank.** It goes through `f64::ln`. It can differ from x87
      `FYL2X` only where `x + 0.5` lies within an ulp of an integer. The
      dump shows the rank, so a mismatch shows, and one found gets a T11
@@ -667,7 +710,7 @@ Paths are relative to `CppSource/`.
     | P3.6e | BaseSupport | Tier B base session trace |
     | P3.7a | Random-mission tables, vignette tree, generator | Tier A offers from a seed (Gate G3) |
     | P3.7b | Router, `MachineHost`, the DestroyMission controller, the runtime machines | Router and machine traces (Tier B) |
-    | P3.7c | Vendor and bar offers, `[RandomMission]` saves and the restore from save | Tier A rebuild from a saved seed (Gate G3) |
+    | P3.7c | Vendor and bar offers, `[RandomMission]` saves and the restore from save; `CreateMission` (`DestroyMission.cpp:1041-1120`) with its zone search (`CollectZonesInRange`, `CollectZonesAlongTradeLanes`, `CollectZonesThroughJumps`, `PickObjectiveZone`), `PickEnemyGroup`, `IsRouteBlocked` (`:719-752`) and the route check of the picked zone (`:991`; the search, the check and `PickEnemyGroup` at `:776-1027`), `ReleaseRmDestSystems` (`RandomMissionDB.cpp:414-422`) and `PickRmMissionDifficulty` (`:216-292`) (added by the owner on 2026-11-25, with P3.7a) | Tier A rebuild from a saved seed (Gate G3) |
 
     The owner moved the NPC name builder, the space paths and
     `GenerateCargo` out of P3.4c on 2026-11-23: none of them is a loader,
@@ -704,6 +747,12 @@ Paths are relative to `CppSource/`.
     P3.6e, P3.7b and the rest of P3.6c (guide types 2 to 6, the name
     builder, `GenerateCargo`). Where P3.7a or P3.7c needs P3.5c's run time,
     it takes the part it needs and the record says so.
+
+    P3.7a took the part of P3.6c's name builder that an assassination
+    target needs: the faction name reservations, `PickPilotName`,
+    `PickFormationDesig` and the default `BuildNpcName`
+    (`game-logic::content::npc_names`). P3.6c's follow-up keeps the rest
+    of the name builder (amended by the owner on 2026-11-25, with P3.7a).
 
 ## Alternatives considered
 
