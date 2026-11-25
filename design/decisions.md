@@ -272,8 +272,8 @@ The permitted licences are listed in `deny.toml`. In use so far:
   `ring`): the server's self-signed certificate, and a dev-dependency of
   `neuron-client` for its tests' stand-in server. The `ring` 0.17 provider
   (Apache-2.0 and ISC) needs a C compiler and no assembler; `aws-lc-rs`,
-  which needs CMake and NASM on Windows, is not in the tree. Proposed
-  2026-11-25 (P3.8); `deny.toml` needed no change.
+  which needs CMake and NASM on Windows, is not in the tree. Accepted by
+  the owner on 2026-11-25 (P3.8); `deny.toml` needed no change.
 
 Math types are the project's own (`neuron-core::math`) so operation order
 stays under control; conversion to `nalgebra` happens at the `parry3d`
