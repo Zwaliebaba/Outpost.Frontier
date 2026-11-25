@@ -10,8 +10,8 @@
 //! array without a check; these functions do nothing for an id outside it
 //! (D598).
 //!
-//! `PlayerData`'s other fields (the trade, the group) arrive with the work
-//! that uses them.
+//! The trade fields (`trade_offer`, `trade_request_partner`,
+//! `inbound_trade_requests`) are [`crate::trade`]'s.
 
 use std::collections::BTreeMap;
 
@@ -185,6 +185,16 @@ pub struct PlayerData {
     pub group_mission_id: u32,
     /// Who set it (`group_mission_set_by`).
     pub group_mission_set_by: u32,
+    /// The single-player difficulty (+0x3c4), 0 to 2.
+    pub difficulty_scale: f32,
+    /// The trade the player is in (`trade_offer`, +0x3cc): its own side.
+    pub trade_offer: Option<crate::trade::TradeOffer>,
+    /// The player this one asked to trade (`trade_request_partner`,
+    /// +0x3d0); 0 for none.
+    pub trade_request_partner: u32,
+    /// The players that asked this one to trade
+    /// (`inbound_trade_requests`, +0x3d4), in order.
+    pub inbound_trade_requests: Vec<u32>,
 }
 
 impl Default for PlayerData {
@@ -238,6 +248,10 @@ impl Default for PlayerData {
             group: None,
             group_mission_id: 0,
             group_mission_set_by: 0,
+            difficulty_scale: 1.0,
+            trade_offer: None,
+            trade_request_partner: 0,
+            inbound_trade_requests: Vec::new(),
         }
     }
 }

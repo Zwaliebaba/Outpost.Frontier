@@ -98,7 +98,10 @@ pub struct ServerHost<T> {
     /// The files outside the data tree.
     pub files: ServerFiles,
     transport: Rc<RefCell<T>>,
-    /// Messages no entry point takes yet, by name, with their count.
+    /// Messages no entry point takes, by name, with their count: none on a
+    /// dedicated server, where every message of both channels reaches its
+    /// `IServerImpl` function (the single-player `SAVEGAME` is the caller's,
+    /// [`crate::saves::server_save_game`]).
     pub unrouted: BTreeMap<&'static str, u32>,
 }
 

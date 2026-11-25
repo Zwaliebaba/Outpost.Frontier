@@ -858,3 +858,75 @@ fn a_players_jump_reports_arrive_as_packets() {
         ClientMessage::ExitBase(ExitBase { value: 0 })
     ));
 }
+
+/// The velocity is forward along the orientation's third column (a ship
+/// flies along its negated third column): the sine of the
+/// angle between them is below 1e-5.
+fn pushed_along(v: Vector, orient: &Matrix) -> bool {
+    let e = f64::from;
+    let c = [e(orient.m[0][2]), e(orient.m[1][2]), e(orient.m[2][2])];
+    let v = [e(v.x), e(v.y), e(v.z)];
+    let cross = [
+        v[1] * c[2] - v[2] * c[1],
+        v[2] * c[0] - v[0] * c[2],
+        v[0] * c[1] - v[1] * c[0],
+    ];
+    let norm = |a: [f64; 3]| (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt();
+    let speed = norm(v);
+    let forward = -(v[0] * c[0] + v[1] * c[1] + v[2] * c[2]);
+    speed > 1e-3 && forward > 0.0 && norm(cross) < 1e-5 * speed * norm(c)
+}
+
+/// The jump-in beams the ship from inside its controller (`PhySys::BeamR`),
+/// which writes the object's `Orientation` and `WorldPosition` at once
+/// (`Common/common_physys_query.cpp:599`): the engine, whose controller
+/// runs after the jump-in's in the PSI, pushes along the arrival
+/// orientation's third column, even when the ship was turned away from it
+/// before the PSI. The jump-in zeroes the throttle; the test opens it to
+/// see the push.
+#[test]
+fn a_jump_in_beam_turns_the_ship_before_the_engine_pushes() {
+    let sink = Shared::default();
+    let Some((mut world, mut logic)) = setup("a jump-in's beam", WorldConfig::default(), &sink)
+    else {
+        return;
+    };
+    let he02 = create_id(b"he02");
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    let controller = content(&mut cx);
+    world::load(&mut cx, he02);
+    // A player keeps he02 stepping.
+    let _ = player(&mut cx, 1, he02, Vector::new(20000.0, 0.0, 0.0));
+    let gate = solar(&cx, b"he02_to_he01");
+    let gate_id = id(&cx, gate);
+    let (_, gate_rotation) = pose(&cx, gate);
+    let npc = fighter(&mut cx, controller, he02, Vector::new(0.0, 0.0, 0.0));
+    let npc_id = id(&cx, npc);
+    assert_eq!(space_obj::jump_in(&mut cx, npc_id, gate_id), Ok(()));
+    // Turned a quarter about y, away from the arrival orientation.
+    let (at, _) = pose(&cx, npc);
+    let m = &gate_rotation.m;
+    let turned = Matrix {
+        m: [
+            [m[0][2], m[0][1], -m[0][0]],
+            [m[1][2], m[1][1], -m[1][0]],
+            [m[2][2], m[2][1], -m[2][0]],
+        ],
+    };
+    cx.world.beam_object(npc, at, turned);
+    cx.world
+        .get_mut(npc)
+        .unwrap()
+        .as_ship_mut()
+        .unwrap()
+        .flight
+        .throttle = 1.0;
+    tick(&mut cx, 1.0 / 30.0);
+    assert!(cx.world.is_jumping(npc));
+    let v = cx.world.velocity(npc);
+    assert!(pushed_along(v, &gate_rotation), "{v:?} {gate_rotation:?}");
+    assert!(!pushed_along(v, &turned), "{v:?}");
+}
