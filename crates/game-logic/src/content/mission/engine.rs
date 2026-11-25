@@ -652,6 +652,11 @@ fn mission_object_body(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMe
     let Some(player) = live_player(cx, id) else {
         return;
     };
+    // Every message but `PlayerLogout` and `GroupMemberLeft` first goes to
+    // the random encounters (`NotifyRandEncs`, P3.6d).
+    if !matches!(message, M::PlayerLogout { .. } | M::GroupMemberLeft { .. }) {
+        crate::content::random_encounters::notify_rand_encs(cx, id, message);
+    }
     match message {
         M::AbortMission { player: p, .. } => {
             let live = cx

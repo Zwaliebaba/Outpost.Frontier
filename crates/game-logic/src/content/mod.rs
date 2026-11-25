@@ -93,6 +93,8 @@ pub mod patrol_paths;
 /// The player states (TU46; P3.4d).
 pub mod players;
 pub mod population;
+/// The random encounters' run time (TU31, TU59, TU60; P3.6d).
+pub mod random_encounters;
 pub mod random_mission;
 /// The reputation handles of Content's space objects (TU19; P3.6c).
 pub mod rep_handles;
