@@ -1030,6 +1030,38 @@ its `rms_offers.txt` lines in number and every field but `source` and
 `jump_pref`, `rep_reward` and `rep_hit`; each is listed under "D954" in the
 summary. The loads compare exactly, because both sides load the same files.
 
+## `mission.jsonl` (`dump mission_trace`)
+
+The Tier B mission trace (P3.5c1, decision record 0008 question 9;
+`Content/oracle_mission_trace.cpp`, the hook `GOracleMissionTraceHook` of
+`Content/MissionScript.cpp`), read by `crates/game-logic/tests/mission_trace.rs`.
+After the multiplayer start-up and the load of the session's system
+(`RELAYSEVEN_system`): player 7 registered in that system without a ship,
+`GMissionDialogs` emptied, `srand(0x4f524143)`, `Mission_01a` made by
+`CreateInstance` on controller id `0x00ff0001`, which the bus does not know.
+The session hands the mission `MissionStart` at tick 0, then at every tick
+from 1 to 900 its scripted messages and a heartbeat of `1.0f / 30.0f`:
+`SpaceEnter` (tick 2), `CommComplete` of `DX_M01_0000_FREEPORT_7_BRIDGE`
+(200), `DX_M01_0005_Samura_SA_14` (260) and `DX_M01_0010_FREEPORT_7_BRIDGE`
+(320), `SpaceExit` (600) and `BaseEnter` of `he01_01_Base` (620). One JSON
+object per line, ids unsigned decimal:
+
+| `rec` | Fields | Written |
+| --- | --- | --- |
+| `message` | `tick`, `msg` | before each message the session sends |
+| `activate` | `tick`, `trigger` | `ActivateMissionTrigger` set the trigger `ACTIVE` |
+| `fire` | `tick`, `trigger`, `event` | a condition matched; `event` 4294967295 is the activation probe |
+| `action` | `tick`, `trigger`, `index` | before an action of the firing trigger runs, `index` its place in the list |
+| `timer` | `tick`, `trigger`, `index` | before a delayed action runs from the timer list |
+| `rearm` | `tick`, `trigger` | a repeatable trigger is `ACTIVE` again |
+| `deactivate` | `tick`, `trigger` | `DeactivateMissionTrigger` erased an active entry |
+| `state` | `tick`, `from`, `to` | `ApplyDesiredMissionState` applied a new state |
+| `final` | `tick`, `active`, `pending` | the session's end: the active list in order, the pending activations' targets |
+
+The comparison is exact, record by record; the summary
+`rust-mission-trace.txt` gives the first divergence with the two records on
+each side. The port's trace is kept as `rust-mission.jsonl`.
+
 ## `spread.jsonl` (`--runs N`)
 
 | `rec` | Fields |
