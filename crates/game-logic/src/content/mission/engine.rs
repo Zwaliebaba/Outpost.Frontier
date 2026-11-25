@@ -40,9 +40,9 @@
 //! respawns, the snapshot and the vibes, `ObjectDestroyed` and the logouts
 //! ([`super::spawn`]). What waits for later increments (D973): the random
 //! encounters' messages (P3.6d); the cut scenes, ambient scenes and costume
-//! hints of the base, location and space cases (P3.5c4, P3.6e); the
-//! objectives, the objective timer, the group members, the NN path and the
-//! nags of the tail (P3.5c5).
+//! hints of the base, location and space cases (P3.5c4, over P3.6e's bar
+//! scenes, `content::bar::create_bar_scene`); the objectives, the objective
+//! timer, the group members, the NN path and the nags of the tail (P3.5c5).
 
 use game_sim::protocol::fmtstr::FmtStr;
 use neuron_server::controller::ControllerId;

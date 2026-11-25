@@ -858,6 +858,12 @@ fn run_port(
     let mut reader = neuron_core::ini::IniReader::new();
     reader.open_memory(&initial_world);
     game_logic::selection::load_world_state(&mut cx, &mut reader);
+    // `comms off`: the GCS clamp, as the oracle's `OracleSimSetGcsClamp`
+    // sets it before the load, so Content's comm system admits nothing
+    // and draws no roll (P3.6b).
+    if s.comms_off {
+        cx.logic.content.state.clamps.set_gcs_clamp_enabled(1);
+    }
     let mut server = ReplicationServer {
         hooks: Hooks { logic: &mut logic },
         sink,

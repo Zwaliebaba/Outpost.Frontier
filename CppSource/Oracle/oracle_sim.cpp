@@ -207,6 +207,11 @@ namespace
         std::string MissionName;
         unsigned int MissionSession = 0;
         int MissionLine = 0;
+        // `dump base_session`: right after the server starts, Content.dll runs a base visit of a
+        // synthetic player through BaseSupport and writes what it and the base database did as
+        // base.jsonl through its OracleDumpBaseSession; no system loads and no scenario runs
+        // (P3.6e, decision record 0008 points 7 and 10).
+        bool bDumpBaseSession = false;
         unsigned int Seed = 0x4f524143u;
         double ClockStart = 1000.0;
         std::vector<FObjectDesc> Objects;
@@ -569,6 +574,10 @@ namespace
             {
                 Out.bDumpMissionTrace = true;
             }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "base_session")
+            {
+                Out.bDumpBaseSession = true;
+            }
             else if (Key == "seed" && T.size() == 2 && ParseUnsigned(T[1], Value))
             {
                 Out.Seed = (unsigned int)Value;
@@ -640,12 +649,13 @@ namespace
         // A dump session needs no object: every `dump` line but `replication`, which records
         // the objects the session spawns (P3.6a: `content_systems` joins the list; P3.7a:
         // `random_missions`; P3.7c: `random_mission_saves` and `random_mission_save_loads`; P3.5c1:
-        // `mission_trace`).
+        // `mission_trace`; P3.6e: `base_session`).
         bool const bObjectlessDump = Out.bDumpSystemLoads || Out.bDumpContentTables ||
                                      Out.bDumpContentSystems || Out.bDumpMissionScripts ||
                                      Out.bDumpMissionSaves || Out.bDumpMissionSaveLoads ||
                                      Out.bDumpRandomMissions || Out.bDumpRandomMissionSaves ||
-                                     Out.bDumpRandomMissionSaveLoads || Out.bDumpMissionTrace;
+                                     Out.bDumpRandomMissionSaveLoads || Out.bDumpMissionTrace ||
+                                     Out.bDumpBaseSession;
         if (Out.Objects.empty() && !bObjectlessDump)
             return Error = "a scenario needs at least one object", false;
         std::stable_sort(Out.Commands.begin(), Out.Commands.end(),
@@ -3138,6 +3148,28 @@ namespace oracle
             Write(FileSession, J);
             EndProcess(Lines < 0 ? 3 : 0);
             return Lines < 0 ? 3 : 0;
+        }
+
+        // `dump base_session` (P3.6e): a base visit through BaseSupport after the start-up, through
+        // Content.dll's Oracle export, then the end of the run.
+        if (GScenario.bDumpBaseSession)
+        {
+            typedef int(__cdecl * FDumpBaseSession)(char const*);
+            HMODULE const Content = GetModuleHandleA("Content.dll");
+            FDumpBaseSession const DumpBaseSession =
+                Content != nullptr ? (FDumpBaseSession)GetProcAddress(Content, "OracleDumpBaseSession") : nullptr;
+            int const Records = DumpBaseSession != nullptr ? DumpBaseSession(OutDir.c_str()) : -1;
+            if (DumpBaseSession == nullptr)
+                SessionNote("error", "dump base_session: Content.dll is not loaded or lacks OracleDumpBaseSession");
+            else if (Records < 0)
+                SessionNote("error", "OracleDumpBaseSession failed: base.jsonl could not be opened, the base is "
+                                     "unknown or Server.dll lacks OracleSetBaseDbTrace");
+            FOracleJson J;
+            J.Str("rec", "base_session");
+            J.Int("records", Records);
+            Write(FileSession, J);
+            EndProcess(Records < 0 ? 3 : 0);
+            return Records < 0 ? 3 : 0;
         }
 
         // `comms off`: the GCS clamp through Content.dll's Oracle export, before the load.

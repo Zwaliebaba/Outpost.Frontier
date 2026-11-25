@@ -47,8 +47,9 @@ fn route_check(cx: &Cx<'_>, ship: u32, ring: u32, end_ring: u32) -> Option<i32> 
 /// lane in the player's system record): 1 and 2 answer 1; otherwise the
 /// ring grants the lane (4). The answer goes to the ship
 /// (`pub::SpaceObj::LaneResponse`), and a granted ring is activated for
-/// it (`pub::SpaceObj::Activate(Ring, true, Ship)`). The comm system's
-/// "granted" conversation is not ported (D734); an unknown ring, whose
+/// it (`pub::SpaceObj::Activate(Ring, true, Ship)`). Before the answer a
+/// grant queues the comm system's "granted" conversation (type 2,
+/// [`super::space_support::gcs_lane_granted_event`]); an unknown ring, whose
 /// type the C++ reads from a stale stack slot, reads 0 (D735).
 pub fn handle_request(cx: &mut Cx<'_>, ship: u32, ring: u32, end_ring: u32, system: u32) {
     let ring_type = crate::api::space_obj::object_type(cx, ring).unwrap_or(0);

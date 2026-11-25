@@ -52,8 +52,12 @@
 //! ([`tradelane_requests`]) moved in from `crate::tradelane`. P3.6c brings
 //! the NPC ships ([`npc_ships`]) with their callback handles
 //! ([`callbacks`]), directives ([`directives`]), reputation handles
-//! ([`rep_handles`]) and guides ([`guides`]).
+//! ([`rep_handles`]) and guides ([`guides`]). P3.6e brings BaseSupport
+//! ([`base_support`]) with the bar characters of the base records
+//! ([`bar`]) and the generic bar scripts ([`generic_scripts`]).
 
+/// The bar characters, their offers and the bar scenes (TU17; P3.6e).
+pub mod bar;
 pub mod base_support;
 /// `missions\mBases.ini` (TU17, TU22; P3.4c).
 pub mod bases;
@@ -76,6 +80,9 @@ pub mod formations;
 pub mod game_support;
 /// The gate locks (TU53; P3.4d).
 pub mod gate_locks;
+/// The comm system, GCS (TU25; P3.6b).
+pub mod gcs;
+pub mod generic_scripts;
 /// The NPC guides (TU37; P3.6c).
 pub mod guides;
 pub mod mission;
@@ -232,6 +239,22 @@ pub struct ContentState {
     /// whose guides hear SpaceSupport's messages, `None` for an entry
     /// unregistered during the walk.
     pub guided_ships: Vec<Option<crate::events::NpcShipKey>>,
+    /// `GBaseVisits` (`Content/BaseSupport.cpp:487`): the players in a base,
+    /// their news and mission vendor offers (P3.6e, [`base_support`]).
+    pub base_visits: base_support::BaseVisits,
+    /// `GGenericScripts` (`Content/GenericScripts.cpp:28`): loaded by
+    /// BaseSupport's constructor, emptied by its destructor (P3.6e,
+    /// [`generic_scripts`]).
+    pub generic_scripts: generic_scripts::GenericScripts,
+    /// `GBarSceneNextId` (`Content/BaseDB.cpp:617`, 1): the next bar scene
+    /// id ([`bar::create_bar_scene`]).
+    pub next_bar_scene: i32,
+    /// `GBarSceneBases` (`Content/BaseDB.cpp:611`): the base of each bar
+    /// scene, by scene id; nothing reads it.
+    pub bar_scene_bases: BTreeMap<i32, u32>,
+    /// The comm system (TU25's admission tables, `GGcsHandlers` and
+    /// `GGcsConversations`; P3.6b, [`gcs`]).
+    pub gcs: gcs::Gcs,
 }
 
 impl ContentState {
@@ -275,6 +298,11 @@ impl ContentState {
             npc_ship_events: npc_ships::NpcShipEvents::default(),
             guides: guides::GuideArena::default(),
             guided_ships: Vec::new(),
+            base_visits: base_support::BaseVisits::new(),
+            generic_scripts: generic_scripts::GenericScripts::default(),
+            next_bar_scene: bar::FIRST_SCENE_ID,
+            bar_scene_bases: BTreeMap::new(),
+            gcs: gcs::Gcs::default(),
         }
     }
 }
@@ -509,14 +537,19 @@ pub fn destroy_instance(cx: &mut Cx<'_>, id: ControllerId, kind: ControllerKind)
     {
         content.finished_traces.push((id, trace));
     }
-    if content.instances.is_empty() {
-        content.unload();
+    if cx.logic.content.instances.is_empty() {
+        // The DLL's static destructors: `~FGcsHandlerSet` deletes the dock
+        // hail handler, whose destructor destroys every system's phantoms
+        // (`Gcs.cpp:3716-3721`).
+        gcs::on_system_unloaded(cx, 0);
+        cx.logic.content.unload();
     }
 }
 
 /// `IDLL::HandleMessage` of controller `id` of `kind`: the kind's handler.
 /// The kinds without a ported handler ignore the message for now; the
-/// script missions' handler came with P3.5c1 ([`mission::engine`]).
+/// script missions' handler came with P3.5c1 ([`mission::engine`]) and
+/// BaseSupport's with P3.6e ([`base_support`]).
 pub fn deliver(
     cx: &mut Cx<'_>,
     id: ControllerId,
@@ -526,12 +559,12 @@ pub fn deliver(
     match kind {
         ControllerKind::GameSupport => game_support::handle_message(cx, id, message),
         ControllerKind::SpaceSupport => space_support::handle_message(cx, id, message),
+        ControllerKind::BaseSupport => base_support::handle_message(cx, id, message),
         ControllerKind::Mission01a
         | ControllerKind::Mission01b
         | ControllerKind::Mission(_)
         | ControllerKind::GenericMission => mission::engine::handle_message(cx, id, message),
-        ControllerKind::BaseSupport
-        | ControllerKind::SpacePop
+        ControllerKind::SpacePop
         | ControllerKind::BasePop
         | ControllerKind::StoryLauncher
         | ControllerKind::Story

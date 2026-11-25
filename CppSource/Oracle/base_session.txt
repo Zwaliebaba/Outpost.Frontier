@@ -1,0 +1,11 @@
+# Oracle.exe sim session (P3.6e, decision record 0008 points 7 and 10): not a scenario. The server
+# starts as a multiplayer server (GameSupport's tables, then LoadGame's system records and bases),
+# then Content.dll runs a visit of he01_01_Base by a synthetic player through a BaseSupport of its
+# own: the base entered, the vendor offers built, every room walked, the bartender selected, the
+# first vendor mission accepted and the base left, and writes BaseSupport's messages, the base
+# database's records and each step's state as base.jsonl (OracleDumpBaseSession). No system loads
+# and nothing is stepped; the parser still wants `system` and `ticks`.
+
+system he01
+ticks 1
+dump base_session

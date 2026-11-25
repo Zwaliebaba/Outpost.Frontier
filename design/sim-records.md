@@ -1092,8 +1092,8 @@ mission down:
 listed, one record per live mission NPC ship (the mission's map order),
 spawned `[MsnSolar]` and spawned `[MsnLoot]` whose `GetLocation` succeeds:
 
-| `rec` | Fields |
-| --- | --- |
+| `rec` | Fields | Written |
+| --- | --- | --- |
 | `obj` | `tick` u, `kind` s (`npc`, `solar`, `loot`), `name` s (the nickname), `id` u, `pos` [u, u, u] (each coordinate's float bits) |
 
 The comparison (`rust-mission-session.txt`): the trace exactly, record by
@@ -1108,6 +1108,36 @@ that record, the deliveries before `J`, the objects within the gross bound
 `rust-mission-session.jsonl` and `rust-mission-objects.jsonl`. On `outdir/`, `J`
 is tick 2: with P3.5c2 at `Act_SetVibe` (18 records), with P3.5c3 at
 `Act_CallSceneScript` (30 records), a P3.5c4 action.
+## `base.jsonl` (`dump base_session`)
+The Tier B base session trace (P3.6e, decision record 0008 points 7 and 10;
+`Content/oracle_base_session.cpp`, the hook `OracleBaseDbTrace` of
+`Server/server_basedb.cpp`), read by `crates/game-logic/tests/base_session.rs`.
+After the multiplayer start-up: player 7 registered in `he01_01_Base`'s
+system without a ship or a server slot, a BaseSupport made by
+`CreateInstance` on controller id `0x00ff0002` (the generic scripts emptied
+first), `BaseDB::load_base` of the base. Ten steps, each from
+`srand(0x4f524143 + step)`: `base_enter` (`BaseEnter`), `vendor_offers`
+(`RefreshMissionVendorOffers`), one `room` per `[mRoom]` of the base
+(`LocationEnter`, `LocationExit`), `bar` (`LocationEnter` of the
+bartender's room), `select_bartender` (`GFObjSelect`), `accept_vendor`
+(`MissionResponse` accepting the first vendor offer) and `base_exit`
+(`LocationExit`, `BaseExit`). Each message goes to GameSupport's case for it,
+then to the BaseSupport. One JSON object per line, ids unsigned decimal,
+`data` lower-case hexadecimal:
+| `step` | `step`, `name` | at a step's start |
+| `message` | `step`, `msg` | before each message |
+| `create` | `step`, `kind`, `handle`, `filter`, `data` | the base database made a record (`kind` `character`, `behavior`, `ambient`, `vendor` or `news`); `data` its properties as `send_update` marshals them |
+| `destroy` | `step`, `kind`, `handle`, `found` | a destroy of a handle, `found` 1 when its map had it |
+| `set_behavior` | `step`, `character`, `behavior`, `found` | `set_character_behavior` |
+| `acceptance` | `step`, `handle`, `accepted`, `session`, `data` | a vendor offer's answer, `data` the marshalled `MissionVendorAcceptance` |
+| `why_empty` | `step`, `client`, `reason` | `pub::GF::ReportWhyMissionVendorEmpty` |
+| `state` | `step`, `draws`, `location`, `visit`, `rooms` | a step's end: the draws since its seeding (-1 beyond 0x10000 or after a reseed), the player's room, his visit (`null`, or `news` handles and `vendor` `[handle, offer id]`s) and the base's room states by id, each with `locks` `[player, placement, count]`, `characters` `[id, behaviour, uses, placement, role, player, talks, offer kind]` in list order and `refs` (character ids) |
+The comparison is exact, record by record, to the first difference, but in
+step `accept_vendor` past its `acceptance` record: the `DestroyMission`
+controller the acceptance makes runs in the C++ and not in the port (D955),
+so the rest of that step is compared and listed under "D955" in the summary
+`rust-base-session.txt` without being judged (accepted by the owner on 2026-11-25 until P3.7b, which ports the `DestroyMission` constructor, makes the step exact and drops the exception). The port's trace is kept as
+`rust-base.jsonl`.
 
 ## `spread.jsonl` (`--runs N`)
 
