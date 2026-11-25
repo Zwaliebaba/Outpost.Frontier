@@ -817,17 +817,31 @@ fn mined_loot_tractor_invincibility_manoeuvre_and_the_forced_landing() {
     assert!(!cx.logic.objects.get(ship).unwrap().invincible);
     deliver_client(&mut cx, 1, request(1, 2, ship_id));
     assert!(!cx.logic.objects.get(ship).unwrap().invincible);
+    let solar = game_logic::dock::collect_dockable_solars(&cx, he01(), 0)[0];
+    game_logic::dock::queue_dock_request(&mut cx, solar, 0, ship_id);
+    deliver_client(&mut cx, 1, request(1, 2, ship_id));
+    assert!(cx.logic.objects.get(ship).unwrap().invincible);
 
-    // A manoeuvre: routed; an NPC without a waiting directive keeps its
-    // state.
-    deliver_client(
-        &mut cx,
-        1,
-        SetManeuver {
-            field_00: ship_id,
-            object_id: npc_id,
-            field_08: 3,
-        },
+    // A manoeuvre ends a directive waiting for that behaviour (the manager's
+    // type-2 event); another behaviour's leaves it.
+    cx.world.with_behavior_manager(npc, |m, _| {
+        m.state.behavior = 0;
+        m.state.directive = [2, 0, 3];
+        m.state.f118 = 7;
+    });
+    let maneuver = |behavior: u32| SetManeuver {
+        field_00: ship_id,
+        object_id: npc_id,
+        field_08: behavior,
+    };
+    deliver_client(&mut cx, 1, maneuver(4));
+    let state = &cx.world.behavior_manager(npc).unwrap().state;
+    assert_eq!((state.directive, state.f118), ([2, 0, 3], 7));
+    deliver_client(&mut cx, 1, maneuver(3));
+    let state = &cx.world.behavior_manager(npc).unwrap().state;
+    assert_eq!(
+        (state.directive, state.f118, state.f11c),
+        ([0, 0, -1], 0, 3)
     );
 
     // The forced landing at the base of another system: the slot moves.
