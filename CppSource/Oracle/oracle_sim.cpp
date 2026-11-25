@@ -67,6 +67,10 @@ extern "C" __declspec(dllimport) bool __cdecl OracleSimLoadSystem(unsigned int S
 // Server.dll, IServerImpl.cpp (Oracle instrumentation, P3.3): every system loaded and its
 // solars written as JSON lines (decision record 0007 point 11).
 extern "C" __declspec(dllimport) int __cdecl OracleDumpSystemLoads(char const* Path);
+// Server.dll, IServerImpl.cpp (Oracle instrumentation, P3.3): a scenario's `player` joins the
+// system with the ship the harness made (decision record 0007 point 11).
+extern "C" __declspec(dllimport) bool __cdecl OracleSimAddPlayer(unsigned int SessionId, unsigned int SystemId,
+                                                                 unsigned int ShipId);
 // Server.dll's other Oracle export: every controller's heartbeat (session.jsonl `heartbeats`).
 typedef void(__cdecl* FOracleSimHeartbeatFn)(void* Context, unsigned int Flid, unsigned int Priority,
                                               char const* Module, float Interval, float Phase,
@@ -106,6 +110,13 @@ namespace
         int HitPts = -1;
         bool bPsi = false;
         bool bEscort = false;    // P2.5 escort: the state graph's ESCORT variant (with `ai`)
+        // P3.6c: `content`, the ship is Content's NPC ship (FSystemInfo::CreateNpcShip through
+        // Content.dll's OracleSimCreateNpcShip), its manager's directive and content callback;
+        // `flee x y z distance` gives it that flee position (FContentNpcShip::SetFleePosition).
+        bool bContent = false;
+        bool bContentFlee = false;
+        double ContentFlee[3] = {0.0, 0.0, 0.0};
+        double ContentFleeDistance = 0.0;
         int Line = 0;
     };
 
@@ -117,6 +128,15 @@ namespace
         std::string Text;
         int Line = 0;
         size_t Order = 0;
+    };
+
+    // P3.3 (decision record 0007 point 11): `player <session> <ship>`, a session that joins the
+    // scenario's system after the objects are spawned, its observer following the ship.
+    struct FPlayerDesc
+    {
+        unsigned int Session = 0;
+        std::string Object;
+        int Line = 0;
     };
 
     struct FScenario
@@ -133,10 +153,57 @@ namespace
         // `dump system_loads`: after the server starts and the scenario's system loads, every
         // system is loaded and its solars written (system_loads.jsonl); no scenario runs (P3.3).
         bool bDumpSystemLoads = false;
+        // `dump replication`: the packets of the replication comparison are written to
+        // replication.jsonl from the players' join on (SimClientStub, P3.3).
+        bool bDumpReplication = false;
+        // `dump content_tables`: right after the server starts, Content.dll's static tables
+        // (LoadContentGameTables, run by the GameSupport the start-up creates) are written as
+        // content_<table>.txt through its OracleDumpContentTables; no system loads and no
+        // scenario runs (P3.4b, decision record 0008 point 5).
+        bool bDumpContentTables = false;
+        // `dump content_systems`: with `dump system_loads`, after every system has loaded,
+        // Content.dll's system records, gate locks and a synthetic [mPlayer] are written as
+        // content_<table>.txt through its OracleDumpContentSystems (P3.4d, decision record
+        // 0008 point 10).
+        bool bDumpContentSystems = false;
+        // `dump mission_scripts`: right after the server starts, Content.dll makes each of the
+        // fourteen story missions for a synthetic player and writes what its parser left as
+        // mission_<table>.txt through its OracleDumpMissionScripts; no system loads and no
+        // scenario runs (P3.5a, decision record 0008 point 10).
+        bool bDumpMissionScripts = false;
+        // `dump mission_saves`: right after the server starts, Content.dll writes the player-save
+        // sections of the fourteen story missions in three states, and Story's, through its
+        // OracleDumpMissionSaves; `dump mission_save_loads`: it loads the port's saves from the
+        // out folder's `rust` folder and writes what it restored, through its
+        // OracleLoadMissionSaves. No system loads and no scenario runs (P3.5b, decision record
+        // 0008 point 10, Gate G3).
+        bool bDumpMissionSaves = false;
+        bool bDumpMissionSaveLoads = false;
+        // `dump random_missions`: right after the server starts, Content.dll writes its
+        // random-mission tables and vignette tree and the offers its generator builds for a fixed
+        // set of bases, factions, difficulties and seeds as rm_<table>.txt through its
+        // OracleDumpRandomMissions; no system loads and no scenario runs (P3.7a, decision record
+        // 0008 point 8, Gate G3).
+        bool bDumpRandomMissions = false;
+        // `dump random_mission_saves`: right after the server starts, Content.dll makes random
+        // missions through a fixed set of bases' vendor and bar offers, writes their
+        // [RandomMission] save sections and loads each again, through its
+        // OracleDumpRandomMissionSaves; `dump random_mission_save_loads`: it loads the port's
+        // saves from the out folder's `rust` folder and writes the rebuilt offers, through its
+        // OracleLoadRandomMissionSaves. No system loads and no scenario runs (P3.7c, decision
+        // record 0008 points 8 and 10, Gate G3).
+        bool bDumpRandomMissionSaves = false;
+        bool bDumpRandomMissionSaveLoads = false;
+        // `dump mission_trace`: after the server starts and the scenario's system loads,
+        // Content.dll runs Mission_01a's opening for a synthetic player and writes what its trigger
+        // engine did as mission.jsonl through its OracleDumpMissionTrace; no scenario runs (P3.5c1,
+        // decision record 0008 question 9).
+        bool bDumpMissionTrace = false;
         unsigned int Seed = 0x4f524143u;
         double ClockStart = 1000.0;
         std::vector<FObjectDesc> Objects;
         std::vector<FCommand> Commands;
+        std::vector<FPlayerDesc> Players;
     };
 
     std::string Lower(std::string Text)
@@ -303,11 +370,34 @@ namespace
                 Object.HitPts = (int)Value;
                 At += 2;
             }
+            else if (Key == "content")
+            {
+                Object.bContent = true;
+                ++At;
+            }
+            else if (Key == "flee" && At + 4 < T.size() && ParseVector(T, At + 1, Object.ContentFlee))
+            {
+                if (!ParseDouble(T[At + 4], Object.ContentFleeDistance))
+                    return Error = "bad flee distance", false;
+                Object.bContentFlee = true;
+                At += 5;
+            }
             else
             {
                 Error = "unknown or incomplete option '" + T[At] + "'";
                 return false;
             }
+        }
+        if (Object.bContent && (Object.StateGraph.empty() || Object.Faction.empty() || Object.bEscort))
+        {
+            // FContentNpcShip reads its faction's properties without a null test.
+            Error = "content needs ai and faction, and takes no escort";
+            return false;
+        }
+        if (Object.bContentFlee && !Object.bContent)
+        {
+            Error = "flee needs content";
+            return false;
         }
         if (!Object.bShip &&
             (!Object.StateGraph.empty() || !Object.Pilot.empty() || !Object.Faction.empty() || Object.HitPts != -1 ||
@@ -396,6 +486,65 @@ namespace
             {
                 Out.bDumpSystemLoads = true;
             }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "replication")
+            {
+                Out.bDumpReplication = true;
+            }
+            else if (Key == "player" && T.size() == 3)
+            {
+                // The session (1 to the server's 16 slots) and a ship named before the line.
+                FPlayerDesc Player;
+                Player.Line = LineNumber;
+                Player.Object = T[2];
+                if (!ParseUnsigned(T[1], Value) || Value == 0 || Value > 16)
+                    return Error = Where + "bad session '" + T[1] + "' (1 to 16)", false;
+                Player.Session = (unsigned int)Value;
+                FObjectDesc const* const Ship = FindDesc(Out, Player.Object);
+                if (Ship == nullptr || !Ship->bShip)
+                    return Error = Where + "a player needs a ship named before it: " + Player.Object, false;
+                for (FPlayerDesc const& Other : Out.Players)
+                {
+                    if (Other.Session == Player.Session || Other.Object == Player.Object)
+                        return Error = Where + "duplicate player", false;
+                }
+                Out.Players.push_back(Player);
+            }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "content_tables")
+            {
+                Out.bDumpContentTables = true;
+            }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "content_systems")
+            {
+                Out.bDumpContentSystems = true;
+            }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "mission_scripts")
+            {
+                Out.bDumpMissionScripts = true;
+            }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "mission_saves")
+            {
+                Out.bDumpMissionSaves = true;
+            }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "mission_save_loads")
+            {
+                Out.bDumpMissionSaveLoads = true;
+            }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "random_missions")
+            {
+                Out.bDumpRandomMissions = true;
+            }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "random_mission_saves")
+            {
+                Out.bDumpRandomMissionSaves = true;
+            }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "random_mission_save_loads")
+            {
+                Out.bDumpRandomMissionSaveLoads = true;
+            }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "mission_trace")
+            {
+                Out.bDumpMissionTrace = true;
+            }
             else if (Key == "seed" && T.size() == 2 && ParseUnsigned(T[1], Value))
             {
                 Out.Seed = (unsigned int)Value;
@@ -464,7 +613,16 @@ namespace
         }
         if (Out.System.empty() || !bTicks)
             return Error = "a scenario needs `system` and `ticks`", false;
-        if (Out.Objects.empty() && !Out.bDumpSystemLoads)
+        // A dump session needs no object: every `dump` line but `replication`, which records
+        // the objects the session spawns (P3.6a: `content_systems` joins the list; P3.7a:
+        // `random_missions`; P3.7c: `random_mission_saves` and `random_mission_save_loads`; P3.5c1:
+        // `mission_trace`).
+        bool const bObjectlessDump = Out.bDumpSystemLoads || Out.bDumpContentTables ||
+                                     Out.bDumpContentSystems || Out.bDumpMissionScripts ||
+                                     Out.bDumpMissionSaves || Out.bDumpMissionSaveLoads ||
+                                     Out.bDumpRandomMissions || Out.bDumpRandomMissionSaves ||
+                                     Out.bDumpRandomMissionSaveLoads || Out.bDumpMissionTrace;
+        if (Out.Objects.empty() && !bObjectlessDump)
             return Error = "a scenario needs at least one object", false;
         std::stable_sort(Out.Commands.begin(), Out.Commands.end(),
                          [](FCommand const& A, FCommand const& B) { return A.Tick < B.Tick; });
@@ -484,11 +642,12 @@ namespace
         FileCalls,
         FileMetrics,
         FileDump,
+        FileDispatch,
         kFileCount
     };
 
     char const* const kFileNames[kFileCount] = {"session.jsonl", "tick.jsonl", "events.jsonl", "psi.jsonl",
-                                                "calls.jsonl",   "metrics.txt", "fdump.txt"};
+                                                "calls.jsonl",   "metrics.txt", "fdump.txt", "dispatch.jsonl"};
 
     struct FSimObject
     {
@@ -1505,6 +1664,38 @@ namespace
         Write(FileCalls, J);
     }
 
+    // P3.4a, the dispatch trace (dispatch.jsonl, design/sim-records.md; record 0006 point 10):
+    // every delivery of Server.dll's controller registry, before the handler runs, numbered in
+    // order from the start-up on.
+    unsigned int GDispatchSeq = 0;
+
+    void __cdecl OnControllerDeliver(unsigned int Flid, int MsgId, void const* MsgData, int Path, int Depth)
+    {
+        static char const* const kPaths[] = {"broadcast", "send", "heartbeat"};
+        FOracleJson J;
+        J.Str("rec", "deliver");
+        J.Uint("tick", GTick);
+        J.Uint("seq", GDispatchSeq++);
+        J.Int("depth", Depth);
+        J.Uint("flid", Flid);
+        J.Int("msg", MsgId);
+        J.Str("path", Path >= 0 && Path < 3 ? kPaths[Path] : "?");
+        if (MsgData != nullptr)
+        {
+            if (MsgId == (int)pub::Controller::EMessage::Heartbeat)
+            {
+                J.Float("elapsed", *static_cast<float const*>(MsgData));
+            }
+            else if (MsgId == (int)pub::Controller::EMessage::TimerExpired)
+            {
+                unsigned int const* const Words = static_cast<unsigned int const*>(MsgData);
+                J.Uint("p1", Words[0]);
+                J.Uint("p2", Words[1]);
+            }
+        }
+        Write(FileDispatch, J);
+    }
+
     // SimClientStub's controller hands every controller message here.
     void __cdecl OnControllerMessage(int MessageId, void const* Data)
     {
@@ -1820,6 +2011,63 @@ namespace
         return AllocResult == 0 && AffiliationResult == 0;
     }
 
+    // P3.6c: a `content` ship, made by Content.dll's OracleSimCreateNpcShip
+    // (oracle_content_npc.cpp): FSystemInfo::CreateNpcShip with the ship's archetype, loadout,
+    // place, hit points, state graph, pilot personality and the vibe of its `faction`, owned by
+    // SpaceSupport. The constructor submits the state with the personality and both callbacks
+    // itself, so no SubmitState follows here.
+    bool SpawnContentShip(FObjectDesc const& Desc, unsigned int SystemId, int Vibe, FOracleJson& J,
+                          FSimObject& Object)
+    {
+        typedef unsigned int(__cdecl * FCreateNpcShip)(
+            unsigned int, unsigned int, unsigned int, Vector const*, Matrix const*, int, int,
+            pub::AI::Personality const*, int, bool, Vector const*, float);
+        typedef bool(__cdecl * FPilotPersonality)(char const*, pub::AI::Personality*);
+        HMODULE const Content = GetModuleHandleA("Content.dll");
+        FCreateNpcShip const Create =
+            Content != nullptr ? (FCreateNpcShip)GetProcAddress(Content, "OracleSimCreateNpcShip") : nullptr;
+        J.Str("kind", "ship");
+        J.Bool("content", true);
+        J.Str("arch", Desc.Archetype.c_str());
+        J.Str("loadout", Desc.Loadout.c_str());
+        if (Create == nullptr)
+        {
+            J.Str("error", "Content.dll lacks OracleSimCreateNpcShip");
+            return false;
+        }
+        pub::AI::Personality Personality;
+        bool bPilot = true;
+        if (!Desc.Pilot.empty())
+        {
+            FPilotPersonality const PilotPersonality =
+                (FPilotPersonality)GetProcAddress(Content, "OracleSimPilotPersonality");
+            bPilot = PilotPersonality != nullptr && PilotPersonality(Desc.Pilot.c_str(), &Personality);
+            J.Str("pilot", Desc.Pilot.c_str());
+            J.Bool("pilot_found", bPilot);
+        }
+        int const StateGraphId =
+            pub::StateGraph::get_state_graph(Desc.StateGraph.c_str(), pub::StateGraph::LEADER);
+        J.Str("state_graph", Desc.StateGraph.c_str());
+        J.Int("state_graph_id", StateGraphId);
+        Vector const Position = ToVector(Desc.Pos);
+        Matrix const Orientation = ToMatrix(Desc.Orient);
+        Vector const FleePosition = ToVector(Desc.ContentFlee);
+        unsigned int const Id = Create(SystemId, CreateID(Desc.Archetype.c_str()),
+                                       Desc.Loadout.empty() ? 0u : CreateID(Desc.Loadout.c_str()),
+                                       &Position, &Orientation, Desc.HitPts, StateGraphId,
+                                       &Personality, Vibe,
+                                       Desc.bContentFlee, &FleePosition,
+                                       (float)Desc.ContentFleeDistance);
+        Object.Id = Id;
+        J.Uint("id", Id);
+        if (Desc.bContentFlee)
+        {
+            J.Bool("flee", true);
+            J.Float("flee_distance", (float)Desc.ContentFleeDistance);
+        }
+        return bPilot && Id != 0;
+    }
+
     bool SpawnObject(FObjectDesc const& Desc, unsigned int SystemId, unsigned int ControllerId)
     {
         FSimObject Object;
@@ -1836,6 +2084,14 @@ namespace
             {
                 Write(FileSession, J);
                 return false;
+            }
+            if (Desc.bContent)
+            {
+                bOk = SpawnContentShip(Desc, SystemId, Vibe, J, Object);
+                Write(FileSession, J);
+                if (bOk)
+                    GObjects.push_back(Object);
+                return bOk;
             }
             pub::SpaceObj::ShipInfo Info;
             Info.ControllerId = ControllerId;
@@ -1975,6 +2231,32 @@ namespace
         Write(FileSession, J);
         if (bOk)
             GObjects.push_back(Object);
+        return bOk;
+    }
+
+    // P3.3 (decision record 0007 point 11): each `player` of the scenario joins its system, in
+    // file order, after the objects are spawned (Server.dll's OracleSimAddPlayer: the slot's
+    // system and ship, then StarSystem::add_player, whose packets are tick 0's). One `player`
+    // record each in session.jsonl. False when a ship is missing or a join is refused.
+    bool AddPlayers(unsigned int SystemId)
+    {
+        bool bOk = true;
+        for (FPlayerDesc const& Player : GScenario.Players)
+        {
+            FSimObject const* const Object = FindObject(Player.Object);
+            unsigned int const ShipId = Object != nullptr ? Object->Id : 0u;
+            bool const bJoined = ShipId != 0u && OracleSimAddPlayer(Player.Session, SystemId, ShipId);
+            FOracleJson J;
+            J.Str("rec", "player");
+            J.Uint("tick", GTick);
+            J.Int("line", Player.Line);
+            J.Uint("session", Player.Session);
+            J.Str("obj", Player.Object.c_str());
+            J.Uint("id", ShipId);
+            J.Bool("joined", bJoined);
+            Write(FileSession, J);
+            bOk = bJoined && bOk;
+        }
         return bOk;
     }
 
@@ -2609,6 +2891,16 @@ namespace oracle
             CloseAll();
             return 3;
         }
+        // P3.3: `dump replication`'s record (replication.jsonl), opened when the players join.
+        typedef void(__cdecl * FRecordReplication)(char const*);
+        FRecordReplication const RecordReplication =
+            (FRecordReplication)GetProcAddress(Stub, "SimClientStubRecordReplication");
+        if (GScenario.bDumpReplication && RecordReplication == nullptr)
+        {
+            SessionNote("error", "SimClientStub.dll lacks SimClientStubRecordReplication");
+            CloseAll();
+            return 3;
+        }
         Configure(OutDir.c_str());
 
         if (!WriteServerIni(DataRoot, ExeDir, IniPath))
@@ -2636,6 +2928,8 @@ namespace oracle
         GOracleSimHooks.StartupSeed = GScenario.Seed;
         GOracleSimHooks.FrameSeconds = GScenario.Frame;
         GOracleSimHooks.ClockSeconds = GScenario.ClockStart;
+        // The dispatch trace from the start-up on (Server_LoadWorldState's LoadGame included).
+        GOracleSimHooks.OnControllerDeliver = OnControllerDeliver;
         SetIsMPServer(true);
         if (!NeuronRuntime::Startup(nullptr, "NEURONCOMPONENTSsrv.ini"))
         {
@@ -2666,6 +2960,121 @@ namespace oracle
             SessionNote("error", "IServerImpl::Startup failed (DataConfig::startup)");
             EndProcess(3);
             return 3;
+        }
+
+        // `dump content_tables` (P3.4b): the tables as the start-up left them, through
+        // Content.dll's Oracle export, then the end of the run.
+        if (GScenario.bDumpContentTables)
+        {
+            typedef int(__cdecl * FDumpContentTables)(char const*);
+            HMODULE const Content = GetModuleHandleA("Content.dll");
+            FDumpContentTables const DumpContentTables =
+                Content != nullptr ? (FDumpContentTables)GetProcAddress(Content, "OracleDumpContentTables")
+                                   : nullptr;
+            int const Lines = DumpContentTables != nullptr ? DumpContentTables(OutDir.c_str()) : -1;
+            if (DumpContentTables == nullptr)
+                SessionNote("error", "dump content_tables: Content.dll is not loaded or lacks OracleDumpContentTables");
+            FOracleJson J;
+            J.Str("rec", "content_tables");
+            J.Int("lines", Lines);
+            Write(FileSession, J);
+            EndProcess(Lines < 0 ? 3 : 0);
+            return Lines < 0 ? 3 : 0;
+        }
+
+        // `dump mission_scripts` (P3.5a): the story missions' parse after the start-up, through
+        // Content.dll's Oracle export, then the end of the run.
+        if (GScenario.bDumpMissionScripts)
+        {
+            typedef int(__cdecl * FDumpMissionScripts)(char const*);
+            HMODULE const Content = GetModuleHandleA("Content.dll");
+            FDumpMissionScripts const DumpMissionScripts =
+                Content != nullptr ? (FDumpMissionScripts)GetProcAddress(Content, "OracleDumpMissionScripts")
+                                   : nullptr;
+            int const Lines = DumpMissionScripts != nullptr ? DumpMissionScripts(OutDir.c_str()) : -1;
+            if (DumpMissionScripts == nullptr)
+                SessionNote("error", "dump mission_scripts: Content.dll is not loaded or lacks OracleDumpMissionScripts");
+            FOracleJson J;
+            J.Str("rec", "mission_scripts");
+            J.Int("lines", Lines);
+            Write(FileSession, J);
+            EndProcess(Lines < 0 ? 3 : 0);
+            return Lines < 0 ? 3 : 0;
+        }
+
+        // `dump mission_saves` and `dump mission_save_loads` (P3.5b): the story missions' and
+        // Story's save sections, and their restores of the port's saves, after the start-up,
+        // through Content.dll's Oracle exports, then the end of the run.
+        if (GScenario.bDumpMissionSaves || GScenario.bDumpMissionSaveLoads)
+        {
+            typedef int(__cdecl * FMissionSaves)(char const*);
+            char const* const Export =
+                GScenario.bDumpMissionSaves ? "OracleDumpMissionSaves" : "OracleLoadMissionSaves";
+            HMODULE const Content = GetModuleHandleA("Content.dll");
+            FMissionSaves const Saves =
+                Content != nullptr ? (FMissionSaves)GetProcAddress(Content, Export) : nullptr;
+            int const Files = Saves != nullptr ? Saves(OutDir.c_str()) : -1;
+            if (Saves == nullptr)
+                SessionNote("error", (std::string("dump mission saves: Content.dll is not loaded or lacks ") +
+                                      Export).c_str());
+            else if (Files < 0)
+                SessionNote("error", (std::string(Export) + " failed: a file could not be opened or a "
+                                                            "mission or Story could not be made").c_str());
+            FOracleJson J;
+            J.Str("rec", GScenario.bDumpMissionSaves ? "mission_saves" : "mission_save_loads");
+            J.Int("files", Files);
+            Write(FileSession, J);
+            EndProcess(Files < 0 ? 3 : 0);
+            return Files < 0 ? 3 : 0;
+        }
+
+        // `dump random_missions` (P3.7a): the random-mission tables, the vignette tree and the
+        // offers built from a seed after the start-up, through Content.dll's Oracle export, then
+        // the end of the run.
+        if (GScenario.bDumpRandomMissions)
+        {
+            typedef int(__cdecl * FDumpRandomMissions)(char const*);
+            HMODULE const Content = GetModuleHandleA("Content.dll");
+            FDumpRandomMissions const DumpRandomMissions =
+                Content != nullptr ? (FDumpRandomMissions)GetProcAddress(Content, "OracleDumpRandomMissions")
+                                   : nullptr;
+            int const Lines = DumpRandomMissions != nullptr ? DumpRandomMissions(OutDir.c_str()) : -1;
+            if (DumpRandomMissions == nullptr)
+                SessionNote("error", "dump random_missions: Content.dll is not loaded or lacks OracleDumpRandomMissions");
+            else if (Lines < 0)
+                SessionNote("error", "OracleDumpRandomMissions failed: a file could not be opened or the "
+                                     "generator or a random-mission loader is missing");
+            FOracleJson J;
+            J.Str("rec", "random_missions");
+            J.Int("lines", Lines);
+            Write(FileSession, J);
+            EndProcess(Lines < 0 ? 3 : 0);
+            return Lines < 0 ? 3 : 0;
+        }
+
+        // `dump random_mission_saves` and `dump random_mission_save_loads` (P3.7c): the random
+        // missions' [RandomMission] save sections and their restores, the port's saves' among
+        // them, after the start-up, through Content.dll's Oracle exports, then the end of the run.
+        if (GScenario.bDumpRandomMissionSaves || GScenario.bDumpRandomMissionSaveLoads)
+        {
+            typedef int(__cdecl * FRandomMissionSaves)(char const*);
+            char const* const Export = GScenario.bDumpRandomMissionSaves ? "OracleDumpRandomMissionSaves"
+                                                                         : "OracleLoadRandomMissionSaves";
+            HMODULE const Content = GetModuleHandleA("Content.dll");
+            FRandomMissionSaves const Saves =
+                Content != nullptr ? (FRandomMissionSaves)GetProcAddress(Content, Export) : nullptr;
+            int const Lines = Saves != nullptr ? Saves(OutDir.c_str()) : -1;
+            if (Saves == nullptr)
+                SessionNote("error", (std::string("dump random mission saves: Content.dll is not loaded or lacks ") +
+                                      Export).c_str());
+            else if (Lines < 0)
+                SessionNote("error", (std::string(Export) + " failed: a file could not be opened").c_str());
+            FOracleJson J;
+            J.Str("rec", GScenario.bDumpRandomMissionSaves ? "random_mission_saves" : "random_mission_save_loads");
+            J.Int("lines", Lines);
+            Write(FileSession, J);
+            EndProcess(Lines < 0 ? 3 : 0);
+            return Lines < 0 ? 3 : 0;
         }
 
         // `comms off`: the GCS clamp through Content.dll's Oracle export, before the load.
@@ -2727,8 +3136,52 @@ namespace oracle
             J.Str("rec", "system_loads");
             J.Int("lines", Lines);
             Write(FileSession, J);
-            EndProcess(Lines < 0 ? 3 : 0);
-            return Lines < 0 ? 3 : 0;
+            // `dump content_systems` (P3.4d): every system has loaded, so SpaceSupport's
+            // SystemLoaded has run each record's full load.
+            int ContentLines = 0;
+            if (GScenario.bDumpContentSystems)
+            {
+                typedef int(__cdecl * FDumpContentSystems)(char const*);
+                HMODULE const Content = GetModuleHandleA("Content.dll");
+                FDumpContentSystems const DumpContentSystems =
+                    Content != nullptr
+                        ? (FDumpContentSystems)GetProcAddress(Content, "OracleDumpContentSystems")
+                        : nullptr;
+                ContentLines = DumpContentSystems != nullptr ? DumpContentSystems(OutDir.c_str()) : -1;
+                if (DumpContentSystems == nullptr)
+                    SessionNote("error", "dump content_systems: Content.dll is not loaded or lacks OracleDumpContentSystems");
+                FOracleJson C;
+                C.Str("rec", "content_systems");
+                C.Int("lines", ContentLines);
+                Write(FileSession, C);
+            }
+            int const Code = Lines < 0 || ContentLines < 0 ? 3 : 0;
+            EndProcess(Code);
+            return Code;
+        }
+
+        // `dump mission_trace` (P3.5c1): the scenario's system has loaded, so the mission's spawns
+        // have a system; Mission_01a's opening runs through Content.dll's Oracle export, then the
+        // end of the run.
+        if (GScenario.bDumpMissionTrace)
+        {
+            typedef int(__cdecl * FDumpMissionTrace)(char const*);
+            HMODULE const Content = GetModuleHandleA("Content.dll");
+            FDumpMissionTrace const DumpMissionTrace =
+                Content != nullptr ? (FDumpMissionTrace)GetProcAddress(Content, "OracleDumpMissionTrace")
+                                   : nullptr;
+            int const Records = DumpMissionTrace != nullptr ? DumpMissionTrace(OutDir.c_str()) : -1;
+            if (DumpMissionTrace == nullptr)
+                SessionNote("error", "dump mission_trace: Content.dll is not loaded or lacks OracleDumpMissionTrace");
+            else if (Records < 0)
+                SessionNote("error", "OracleDumpMissionTrace failed: mission.jsonl could not be opened or "
+                                     "Mission_01a could not be made");
+            FOracleJson J;
+            J.Str("rec", "mission_trace");
+            J.Int("records", Records);
+            Write(FileSession, J);
+            EndProcess(Records < 0 ? 3 : 0);
+            return Records < 0 ? 3 : 0;
         }
 
         // The seeding point of the comparison (owner, 2026-11-18): the system and Content's
@@ -2743,6 +3196,18 @@ namespace oracle
         {
             OracleSimLoadRandPhase("spawn " + Desc.Name);
             bSpawned = SpawnObject(Desc, SystemId, ControllerId) && bSpawned;
+        }
+        // P3.3: the replication record from here on, then the players' join (tick 0).
+        if (bSpawned && GScenario.bDumpReplication)
+            RecordReplication(OutDir.c_str());
+        if (bSpawned && !GScenario.Players.empty())
+        {
+            OracleSimLoadRandPhase("players");
+            if (!AddPlayers(SystemId))
+            {
+                SessionNote("error", "a player could not join the system");
+                bSpawned = false;
+            }
         }
         OracleSimLoadRandPhase("hooks");
         if (!bSpawned)

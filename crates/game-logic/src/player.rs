@@ -129,6 +129,9 @@ pub struct PlayerData {
     pub current_base: u32,
     /// The base `last_base` names (+0x3f0).
     pub last_base_id: u32,
+    /// The base `IServerImpl::BaseEnter` entered (+0x3f4), which `BaseExit`
+    /// checks; 0 outside a base.
+    pub entered_base_id: u32,
     /// The room in the base (+0x3f8).
     pub current_location: u32,
     /// +0x3fc, cleared with the location.
@@ -141,6 +144,9 @@ pub struct PlayerData {
     pub rep_vibe: i32,
     /// The rank (+0x284), which a single-player save writes.
     pub rank_level: u32,
+    /// The cash the next rank needs (`money_needed_to_next_rank`, after
+    /// the rank), which only `pub::Player` reads and writes.
+    pub money_needed_to_next_rank: i32,
     /// The comm costume (+0x288).
     pub com_costume: Costume,
     /// The voice (+0x2c4), at most 31 bytes.
@@ -205,12 +211,14 @@ impl Default for PlayerData {
             created_ship_id: 0,
             current_base: 0,
             last_base_id: 0,
+            entered_base_id: 0,
             current_location: 0,
             field_3fc: 0,
             exited_base_id: 0,
             starting_ring: 0,
             rep_vibe: -1,
             rank_level: 0,
+            money_needed_to_next_rank: 0,
             com_costume: Costume::default(),
             voice: Vec::new(),
             costume: Costume::default(),

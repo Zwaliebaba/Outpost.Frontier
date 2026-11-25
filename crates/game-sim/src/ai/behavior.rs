@@ -219,6 +219,29 @@ impl<'a, W: AiEnv + ?Sized> Cx<'a, W> {
         Some(f(&mut **b, &mut cx))
     }
 
+    /// The content-callback report of `IBehaviorManager::NotifyFollowEvent`,
+    /// `NotifyTetherEvent` and `GuideBehavior::NotifyManagerGuideEvent`:
+    /// made only while the ship is in an attack state (`AttackState != 0`)
+    /// and its current behaviour is one of `behaviors`, and only to an
+    /// installed callback ([`super::world::AiWorld::content_event`]).
+    /// True when it was made; without a callback the reference asks the
+    /// ship `is_player()` for nothing.
+    pub fn notify_content(
+        &mut self,
+        behaviors: &[i32],
+        event: super::content::CombatEvent,
+    ) -> bool {
+        if self.state.sys.attack_state() == 0 || !behaviors.contains(&self.state.behavior) {
+            return false;
+        }
+        let handle = self.state.content_handle;
+        if handle == 0 {
+            return false;
+        }
+        self.world.content_event(self.ship, handle, event);
+        true
+    }
+
     /// `rand()`.
     pub fn rand(&mut self) -> i32 {
         self.world.rand()
@@ -673,6 +696,50 @@ pub struct InstantTradeLaneOp {
     pub speed: f32,
 }
 
+/// `pub::AI::DirectiveTrailOp` (0x1c bytes).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TrailOp {
+    /// +0x0c the object to trail (`validate`: not 0).
+    pub target: u32,
+    /// +0x10 the trail distance (150).
+    pub distance: f32,
+    /// +0x14 (0).
+    pub field_14: f32,
+    /// +0x18 (0).
+    pub field_18: f32,
+}
+
+impl Default for TrailOp {
+    /// `DirectiveTrailOp::DirectiveTrailOp`.
+    fn default() -> Self {
+        Self {
+            target: 0,
+            distance: 150.0,
+            field_14: 0.0,
+            field_18: 0.0,
+        }
+    }
+}
+
+/// `pub::AI::DirectiveTractorBeamOp` (0x14 bytes).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TractorBeamOp {
+    /// +0x0c the object to tractor in (`validate`: not 0).
+    pub target: u32,
+    /// +0x10 (1), which `LootBehavior` keeps when the object is gone.
+    pub field_10: u8,
+}
+
+impl Default for TractorBeamOp {
+    /// `DirectiveTractorBeamOp::DirectiveTractorBeamOp`.
+    fn default() -> Self {
+        Self {
+            target: 0,
+            field_10: 1,
+        }
+    }
+}
+
 /// A directive operation (`pub::AI::BaseOp`), the argument of slot 10.
 /// Kinds without a ported reader keep their op type only.
 #[derive(Clone, Debug, PartialEq)]
@@ -681,8 +748,14 @@ pub enum DirectiveOp {
     Goto(GotoOp),
     /// `DirectiveFollowOp` (4).
     Follow(FollowOp),
+    /// `DirectiveTrailOp` (5).
+    Trail(TrailOp),
     /// `DirectiveFaceOp` (7).
     Face(FaceOp),
+    /// `DirectiveTractorBeamOp` (9).
+    TractorBeam(TractorBeamOp),
+    /// `DirectiveEvadeOp` (10): the threat to evade.
+    Evade(u32),
     /// `DirectiveDrasticEvadeOp` (11).
     DrasticEvade(DrasticEvadeOp),
     /// `DirectiveDockOp` (13).
@@ -710,7 +783,10 @@ impl DirectiveOp {
         match self {
             Self::Goto(_) => 3,
             Self::Follow(_) => 4,
+            Self::Trail(_) => 5,
             Self::Face(_) => 7,
+            Self::TractorBeam(_) => 9,
+            Self::Evade(_) => 10,
             Self::DrasticEvade(_) => 11,
             Self::Dock(_) => 13,
             Self::Launch(_) => 14,
@@ -744,6 +820,28 @@ impl DirectiveOp {
             _ => return None,
         })
     }
+}
+
+/// The payload of the manager's type-4 event (`FBehaviorTradelaneEvent`,
+/// `include/common_iface.h`): the server's `notify_go_tradelane` (a ship
+/// entered a lane) and `notify_stop_tradelane` (it left), and
+/// `CShip::request_exit_tradelane` to a leader's followers.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct LaneEvent {
+    /// +0x00 1 entering a lane, 0 leaving it.
+    pub entering: bool,
+    /// +0x01 the leader asked its followers out of the lane.
+    pub exit_requested: bool,
+    /// +0x02 `bFastExit`.
+    pub fast_exit: bool,
+    /// +0x04 the lane speed `go_tradelane` was given.
+    pub speed: f32,
+    /// +0x0c the ship.
+    pub ship: u32,
+    /// +0x10 the entrance ring.
+    pub entrance: u32,
+    /// +0x14 the exit ring (0 when leaving).
+    pub exit: u32,
 }
 
 /// One behaviour (`class Behavior`). Slot numbers of the reference's
@@ -897,6 +995,14 @@ pub trait Behavior<W: AiEnv + ?Sized> {
     /// (21) an object left the system.
     fn object_left(&mut self, cx: &mut Cx<'_, W>, id: u32) {
         let _ = (cx, id);
+    }
+
+    /// (22) the manager's type-4 event (`IBehaviorManager::Slot00` case 4
+    /// hands it to the current behaviour's `Slot22`): a ship entered or
+    /// left a trade lane, or a leader asked its followers out. `Behavior`'s
+    /// own slot does nothing.
+    fn lane_event(&mut self, cx: &mut Cx<'_, W>, event: &LaneEvent) {
+        let _ = (cx, event);
     }
 
     /// (23) `cancel_notify`: the directive flag cleared.

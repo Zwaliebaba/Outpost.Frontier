@@ -48,6 +48,7 @@ pub struct ControllerContext<'a> {
     /// The environment's time at the start of this PSI.
     pub current_time: IvpTime,
     core: &'a mut Core,
+    beam: Option<(Vector, Matrix, bool)>,
 }
 
 impl ControllerContext<'_> {
@@ -65,6 +66,29 @@ impl ControllerContext<'_> {
     #[must_use]
     pub fn core(&self) -> &Core {
         self.core
+    }
+
+    /// Writes the core's linear velocity (`core->speed`, +0xa4) directly,
+    /// as the server's mine controller does (`Mine::do_simulation_controller`).
+    pub fn set_speed(&mut self, speed: Vector) {
+        self.core.speed = speed.to_words();
+    }
+
+    /// `CObject::beam_object(Pos, Orient, false)` on the controlled body
+    /// from inside its controller (`PhySys::BeamR`, as `JumpInAction`'s
+    /// controller does): the body is put at the pose, at rest, when the
+    /// controller returns, before the PSI's next controller runs, as the
+    /// golems' beams are. The last call of a controller wins.
+    pub fn beam(&mut self, position: Vector, orientation: Matrix) {
+        self.beam = Some((position, orientation, false));
+    }
+
+    /// [`ControllerContext::beam`] with `beam_object`'s last argument true
+    /// (`PhySys::BeamR(.., true)`, as `LaneAction`'s controller beams): the
+    /// core's rotation since its last PSI is kept for its rotation axis
+    /// (`beam_object_to_new_position`'s `optimize_for_repeated_calls`).
+    pub fn beam_optimized(&mut self, position: Vector, orientation: Matrix) {
+        self.beam = Some((position, orientation, true));
     }
 }
 

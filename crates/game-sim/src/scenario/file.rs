@@ -42,6 +42,13 @@ pub struct ObjDesc {
     pub faction: Option<String>,
     /// The `escort` option: the state graph's escort variant.
     pub escort: bool,
+    /// The `content` option (P3.6c): the ship is Content's NPC ship, made
+    /// by the server (`FSystemInfo::CreateNpcShip`) and its manager's
+    /// callbacks ([`super::driver::ScenarioServer::spawn_content_ship`]).
+    pub content: bool,
+    /// The `flee X Y Z DISTANCE` option of a `content` ship: its flee
+    /// position (`FContentNpcShip::SetFleePosition`).
+    pub flee: Option<(Vector, f32)>,
 }
 
 /// One command (`at TICK OBJECT VERB ARGS`; a tick range expands to one
@@ -82,6 +89,10 @@ pub struct Scenario {
     /// The file is marked `# rust: skip <reason>`: the Rust world cannot
     /// run it yet.
     pub rust_skip: Option<String>,
+    /// The file is marked `# rust: server <reason>`: the scenario needs
+    /// the server's (or Content's) answers, so only a run through the
+    /// server's hooks is judged ([`needs_server`]).
+    pub rust_server: Option<String>,
     /// The `srand` seed (`seed`).
     pub seed: u32,
     /// The seed of the seeding point when it is not `seed`: Gate G2's seed
@@ -163,6 +174,11 @@ pub fn parse(path: &Path) -> Option<Scenario> {
                 .strip_prefix("# rust: skip ")
                 .map(|r| r.trim().to_owned())
         }),
+        rust_server: text.lines().find_map(|l| {
+            l.trim_start()
+                .strip_prefix("# rust: server ")
+                .map(|r| r.trim().to_owned())
+        }),
         seed: 0x4f52_4143,
         reseed: None,
         objects: Vec::new(),
@@ -211,6 +227,8 @@ pub fn parse(path: &Path) -> Option<Scenario> {
                     pilot: None,
                     faction: None,
                     escort: false,
+                    content: false,
+                    flee: None,
                 };
                 let mut at = if ship { 7 } else { 3 };
                 while at < t.len() {
@@ -248,6 +266,15 @@ pub fn parse(path: &Path) -> Option<Scenario> {
                             o.escort = true;
                             at += 1;
                         }
+                        "content" => {
+                            o.content = true;
+                            at += 1;
+                        }
+                        "flee" => {
+                            let point = vec3(&t, at + 1)?;
+                            o.flee = Some((point, num(t.get(at + 4)?)? as f32));
+                            at += 5;
+                        }
                         _ => at += 1,
                     }
                 }
@@ -278,6 +305,16 @@ pub fn parse(path: &Path) -> Option<Scenario> {
     }
     s.commands.sort_by_key(|c| c.tick);
     Some(s)
+}
+
+/// Why a scenario is judged only through the server's hooks: the file is
+/// marked `# rust: server <reason>` (the world alone would wait for an
+/// answer nobody gives). `scenario_replay` still runs one without
+/// Content's ships without a server, reported and not judged, for its
+/// first divergence (owner, 2026-11-25).
+#[must_use]
+pub fn needs_server(s: &Scenario) -> Option<String> {
+    s.rust_server.clone()
 }
 
 /// Why a scenario cannot run yet: the file says so (`# rust: skip`), or

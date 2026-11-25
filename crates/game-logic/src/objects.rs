@@ -12,9 +12,8 @@
 //! after each sub-step's deletes.
 //!
 //! The per-kind wrappers' state lives in the entry too: `EqObj`'s fuses
-//! ([`crate::fuses`]) and server equipment, `Ship`'s ([`crate::ship`]) and
-//! `Loot`'s ([`crate::loot`]); `Mine`'s and the munitions' arrive with
-//! their part.
+//! ([`crate::fuses`]) and server equipment, `Ship`'s ([`crate::ship`]),
+//! `Loot`'s ([`crate::loot`]) and `Mine`'s ([`crate::munitions`]).
 
 use std::collections::BTreeMap;
 
@@ -85,6 +84,11 @@ pub struct ServerObject {
     /// `EqObj::DockQueue`: the dock requests the object hosts, in order
     /// ([`crate::dock`]).
     pub dock_queue: Vec<crate::dock::DockRequest>,
+    /// A mine's own state (`Mine`).
+    pub mine: Option<crate::munitions::MineState>,
+    /// `EqObj::CargoDecayTimer`: the time since the cargo last decayed
+    /// ([`crate::cargo::decay_cargo`]).
+    pub cargo_decay_timer: f32,
 }
 
 impl Default for ServerObject {
@@ -105,6 +109,8 @@ impl Default for ServerObject {
             server_equip: Vec::new(),
             ship: None,
             dock_queue: Vec::new(),
+            mine: None,
+            cargo_decay_timer: 0.0,
         }
     }
 }
@@ -303,14 +309,15 @@ pub fn root_hit_ignored(cx: &mut Cx<'_>, h: ObjHandle, list: &DamageList) {
 /// latch is set.
 pub fn begin_damage_list(cx: &mut Cx<'_>, h: ObjHandle, list: &DamageList) {
     // `Ship::apply_damage_list`: a cruise disruptor's list (cause 6) on an
-    // NPC ship ends its cruise first (`slot_50(false, true, 0)`); the
-    // observers' cruise notice comes with replication.
+    // NPC ship ends its cruise first (`slot_50(false, true, 0)`); a cruise
+    // that ended tells the players who can see the ship (`notify_cruise`).
     if list.cause == 6
         && cx
             .world
             .get(h)
             .is_some_and(|o| o.kind == ObjectKind::Ship && o.simple.owner_player == 0)
     {
+        let cruising = crate::replication::cruise_active(cx.world, h);
         cx.world.command(
             h,
             game_sim::object::Command::EngageCruise {
@@ -318,6 +325,11 @@ pub fn begin_damage_list(cx: &mut Cx<'_>, h: ObjHandle, list: &DamageList) {
                 instant: true,
             },
         );
+        if cruising
+            && let Some((system, id)) = cx.world.get(h).map(|o| (o.physical.system, o.simple.id))
+        {
+            crate::replication::cruise_changed(cx, system, id, false, true, 0);
+        }
     }
     let id = cx.world.get(h).map_or(0, |o| o.simple.id);
     let Some(o) = cx.logic.objects.entry(cx.world, h) else {
@@ -391,12 +403,17 @@ pub fn set_relative_health(cx: &mut Cx<'_>, h: ObjHandle, relative: f32) -> Opti
     Some(pending)
 }
 
-/// `StarSystem::on_object_destroyed`'s player part: a player's current
-/// ship ends its trade (with the trade work), its health goes to 0 when
-/// destroyed by damage (kind 1), the slot's ship is cleared and
-/// `SpaceExit` goes to the bus. The observers' `OnObjectDestroyed` comes
-/// with replication.
-fn on_object_destroyed(cx: &mut Cx<'_>, session: u32, id: u32, kind: i32) {
+/// `StarSystem::on_object_destroyed`: a player's current ship ends its
+/// trade (with the trade work), its health goes to 0 when destroyed by
+/// damage (kind 1), the slot's ship is cleared and `SpaceExit` goes to the
+/// bus; then every player of the system hears of the object
+/// ([`crate::replication::object_destroyed`]).
+fn on_object_destroyed(cx: &mut Cx<'_>, h: ObjHandle, session: u32, id: u32, kind: i32) {
+    on_player_object_destroyed(cx, session, id, kind);
+    crate::replication::object_destroyed(cx, h, kind);
+}
+
+fn on_player_object_destroyed(cx: &mut Cx<'_>, session: u32, id: u32, kind: i32) {
     if session == 0
         || cx
             .logic
@@ -433,7 +450,7 @@ pub fn base_destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32) {
     };
     o.simple.hit_pts = 0.0;
     let (session, id) = (o.simple.owner_player, o.simple.id);
-    on_object_destroyed(cx, session, id, kind);
+    on_object_destroyed(cx, h, session, id, kind);
     if let Some(o) = cx.logic.objects.entry(cx.world, h) {
         o.destroyed = true;
     }
@@ -474,8 +491,20 @@ pub fn destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32, killer: u32) -> bool {
     if o.kind == ObjectKind::Loot {
         return crate::loot::destroy(cx, h, kind, killer);
     }
+    if matches!(o.kind, ObjectKind::Mine | ObjectKind::CounterMeasure) {
+        return crate::munitions::destroy(cx, h, kind, killer);
+    }
+    // `Solar::destroy`: once `EqObj::destroy` answers true, the system
+    // drops the solar (`StarSystem::remove_solar`), which takes it out of
+    // the solar BSP.
+    let solar_system = (o.kind == ObjectKind::Solar)
+        .then_some(o.simple.system)
+        .flatten();
     if !equipped {
         base_destroy(cx, h, kind);
+        if let Some(system) = solar_system {
+            crate::api::system::remove_from_solar_tree(cx, system, h);
+        }
         return true;
     }
     let lit = cx
@@ -511,13 +540,18 @@ pub fn destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32, killer: u32) -> bool {
                 let client = cx.logic.players.get(to).map_or(0, |p| p.client_id);
                 crate::group::send_notice(cx, client, 0x14, session);
             }
+            // `++GServerStats.Field_0x10` (`server_gameobject.cpp:1150`).
+            cx.logic.stats.player_deaths += 1;
         }
     }
     if let Some(o) = cx.world.get_mut(h) {
         o.simple.hit_pts = 0.0;
     }
     let dropped = if kind == 1 {
-        cx.world.droppable_equip(h)
+        // `Ship::collect_droppable_equip`: a ship's queued jettison too.
+        let mut dropped = cx.world.droppable_equip(h);
+        dropped.extend(crate::cargo::queued_jettison(cx, h));
+        dropped
     } else {
         Vec::new()
     };
@@ -535,7 +569,7 @@ pub fn destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32, killer: u32) -> bool {
         ControllerMessage::ObjectDestroyed(e) => e.dropped_equip,
         _ => Vec::new(),
     };
-    on_object_destroyed(cx, session, id, kind);
+    on_object_destroyed(cx, h, session, id, kind);
     // `EqObj::destroy_notify`: the queued docks' always-updated entries.
     crate::dock::release_always_update(cx, h);
     if let Some(o) = cx.logic.objects.entry(cx.world, h) {
@@ -551,25 +585,62 @@ pub fn destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32, killer: u32) -> bool {
             create_loot(cx, system, id, &spawns);
         }
     }
+    if let Some(system) = solar_system {
+        crate::api::system::remove_from_solar_tree(cx, system, h);
+    }
     true
 }
 
-/// `StarSystem::create_loot` (`Server/server_classes.cpp:9285`): each
-/// container made in the system (`CLoot::init`, owned by the source), with
-/// its server entry, then `LootSpawned` with the contents' good and count.
-/// The players' creates come with replication. Returns the containers.
+/// `StarSystem::create_loot` (`Server/server_classes.cpp:9285`) in mode 2,
+/// the mode of the destruction drops and the loot splits.
 pub fn create_loot(
     cx: &mut Cx<'_>,
     system: u32,
     source: u32,
     spawns: &[game_sim::object::world::LootSpawn],
 ) -> Vec<ObjHandle> {
+    create_loot_mode(cx, system, source, 2, spawns)
+}
+
+/// `StarSystem::create_loot`: each container made in the system
+/// (`CLoot::init`, owned by the source), with its server entry, then
+/// `LootSpawned` with the contents' good and count; then every player of
+/// the system gets the containers' create with the source and the mode
+/// ([`crate::replication::loot_created`]). Returns the containers.
+pub fn create_loot_mode(
+    cx: &mut Cx<'_>,
+    system: u32,
+    source: u32,
+    mode: u32,
+    spawns: &[game_sim::object::world::LootSpawn],
+) -> Vec<ObjHandle> {
+    create_loot_marked(cx, system, source, mode, spawns, &[])
+}
+
+/// [`create_loot_mode`] with each record's player to mark the container
+/// for (`FLootRecord::Field_0x18`, by index; a missing one is 0): a
+/// player whose low 30 bits are not 0 marks it (`mark_for_player(_, 1)`)
+/// before `LootSpawned`.
+pub fn create_loot_marked(
+    cx: &mut Cx<'_>,
+    system: u32,
+    source: u32,
+    mode: u32,
+    spawns: &[game_sim::object::world::LootSpawn],
+    marks: &[u32],
+) -> Vec<ObjHandle> {
     let mut made = Vec::new();
-    for spawn in spawns {
+    for (index, spawn) in spawns.iter().enumerate() {
         let Ok(h) = cx.world.spawn_loot(system, spawn) else {
             continue;
         };
-        let _ = cx.logic.objects.entry(cx.world, h);
+        let entry = cx.logic.objects.entry(cx.world, h);
+        let mark = marks.get(index).copied().unwrap_or(0);
+        if mark & 0x3fff_ffff != 0
+            && let Some(entry) = entry
+        {
+            entry.mark_for_player(mark, 1);
+        }
         let loot = cx.world.get(h).map_or(0, |o| o.simple.id);
         let good = cx.world.data().goods.arch_to_good(spawn.contents);
         let _ = cx.dispatch(
@@ -583,5 +654,6 @@ pub fn create_loot(
         );
         made.push(h);
     }
+    crate::replication::loot_created(cx, system, source, mode, &made);
     made
 }

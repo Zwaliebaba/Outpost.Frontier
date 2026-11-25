@@ -3,9 +3,9 @@
 # (3628, 0, -52369) and is given a dock directive with the ring, the way NPC traffic enters a
 # lane: the dock behaviour (7) flies to the ring's lane start, asks for the lane (request type
 # 2) and enters it (go_tradelane). Multiplayer stepping. No PSIs are recorded: in the lane
-# the ship moves by CShip's LaneAction, which the port does not have yet.
+# the ship moves by CShip's LaneAction.
 
-# rust: skip the lane start (get_lane_start), the server's lane request and CShip's LaneAction (P3.3)
+# rust: server SpaceSupport answers the lane request
 
 system he01
 ticks 1200

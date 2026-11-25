@@ -52,10 +52,16 @@ Conventions:
 | `server` | `data_path` s, `controller` u (SimClientStub's controller id), `system_id` u, `system_loaded` b, `reseed` u (the seed of the `srand` the harness calls again after the load, before the objects are spawned: the seeding point the Rust world matches, `--seed`'s when given; reference-build.md section 10, start-up step 5), `startup_seed` u (the seed `IServerImpl::Startup`'s `srand` took instead of `timeGetTime()`: the scenario's `seed`; since 2026-11-19), with `comms off` also `comms_clamped` b (Content's comm clamp was set) |
 | `heartbeats` | `tick` u (0), `controllers` [{`flid` u, `priority` u, `module` s (the controller's DLL), `interval` f (s, −1 for none), `phase` f (the accumulator frame 1 starts from), `deferred` b}, …] in the server's list order: the heartbeat of every controller (`OracleSimControllerHeartbeats`; Content's GameSupport heartbeat is its game time), written before tick 0 (since 2026-11-19) |
 | `spawn` | `obj` s, `kind` s (`ship` or `solar`); a ship: `arch` s, `arch_id` u, `loadout` s, `loadout_id` u, `result` i (`pub::SpaceObj::Create`), `id` u, [`state_graph` s, `state_graph_id` i, [`pilot` s, `pilot_found` b (the `pilot` option; its personality was submitted)], `submit_state` i]; with `faction`, before `arch`: `faction` s, `faction_result` i (`GetReputationGroup`), then when the group is known `faction_id` u, `vibe` i (the ship's `VibeGroupId`), `vibe_alloc` i, `vibe_affiliation` i (`pub::Reputation::Alloc`, `SetAffiliation`); a solar: `nickname` s, `id` u (`CreateID(nickname)`), `found` b; then (P2.5, the transport's collision geometry) a created ship's `part_map` [[`part` u, `instance` i], …] (`CObject::PartMap`) and `attached` [{`id` u, `connected` b, `kind` s (`non_physical`, `physical` or `none`), with `non_physical` also `hp_crc` u, `collisions` b}, …] (every `CAttachedEquip` and its attachment) |
+| `player` | (P3.3, a scenario's `player` line; after the `spawn` records) `tick` u (0), `line` i, `session` u, `obj` s (the ship), `id` u (its id, 0 when it was not spawned), `joined` b (`OracleSimAddPlayer` answered true) |
 | `command` | `tick` u, `line` i (in the scenario file), `obj` s, `cmd` s (the command as written), `ok` b, `result` i (what the called function returned; for a directive the `OP_RTYPE`), [`note` s, why it did not run] |
 | `error`, `critical_warning`, `note` | `tick` u, `text` s (`note`: an object marked `psi` whose PSIs are not recorded, and why; once per object) |
 | `fault` | `tick` u, `first_chance` b (from the vectored handler; false: the frame's `__except` filter, which ends the run with code 4), `code` s (hex), `code_name` s, `address` s (hex), `at` {`module` s\|null, `offset` s (hex, from the module base), `functions` s[] (the innermost inlined function first), `line` s (`file:line` under `CppSource/`, `""` when unknown)}, for an access violation `access` s (`read`, `write`, `execute`), `target` s (hex), `target_memory` s (`free`, `reserved`, `committed`, `committed, not readable`); `symbols` b (dbghelp started), `regs` {`eax` .. `ebp`: {`v` s, [`in` s (module+offset and symbol)], `words` s[4] and [`word0_in` s] when it points at readable memory (a vtable names the class), else `memory` s}, `esp` s, `eip` s, `eflags` s}, `esp_words` s[16], `stack` [{`module`, `offset`, `functions`, `line`}] (at most 48 frames; frame 0 is the faulting instruction, the others are resolved at their call) |
 | `env` | (cross-runner reproducibility, owner 2026-11-19; just before `end`, after everything the run computes) `msc_full_ver` u, `msc_build` u (`_MSC_FULL_VER`, `_MSC_BUILD` of the compiler that built Oracle.exe; the solution builds every DLL with it), `cpu` {`vendor` s, `brand` s, `signature` s (CPUID leaf 1 EAX), `leaf1_ecx` s, `leaf1_edx` s, `leaf7_ebx` s (hex feature words), `logical` u}, `os` {`build` s, `ubr` u, `display_version` s}, `process_heap` s (hex), `stack_local` s (the address of a local of the writer, hex), `modules` [{`name` s, `loaded` b, [`path` s, `base` s (hex), `version` s (the file version)]}, …] (Oracle.exe, Server.dll, Common.dll, Content.dll, SimClientStub.dll and the CRT and system DLLs) |
+| `content_tables` | (`dump content_tables`, P3.4b; P3.4c adds twelve tables) `lines` i: the lines `OracleDumpContentTables` wrote, −1 when a file could not be opened or Content.dll lacks the export |
+| `content_systems` | (`dump content_systems`, P3.4d; after `system_loads`) `lines` i: the lines `OracleDumpContentSystems` wrote, −1 when a file could not be opened or Content.dll lacks the export |
+| `mission_scripts` | (`dump mission_scripts`, P3.5a) `lines` i: the lines `OracleDumpMissionScripts` wrote, −1 when a file could not be opened, a mission was not made or Content.dll lacks the export |
+| `mission_saves`, `mission_save_loads` | (`dump mission_saves` and `dump mission_save_loads`, P3.5b) `files` i: the files `OracleDumpMissionSaves` or `OracleLoadMissionSaves` wrote, −1 when a file could not be opened (for the loads, a port save in the out folder's `rust` folder is missing), a mission or the Story was not made or Content.dll lacks the export |
+| `random_missions` | (`dump random_missions`, P3.7a) `lines` i: the lines `OracleDumpRandomMissions` wrote, −1 when a file could not be opened, the generator or a random-mission loader is missing or Content.dll lacks the export |
 | `end` | `tick` u, `psi_total` u, `code` i (the exit code) |
 
 ## `tick.jsonl`
@@ -571,6 +577,28 @@ player, or in the server's `ListD4` while a dock request is queued.
 `field_replay` makes the recorded activations and updates on the Rust
 world and compares each point after its tick.
 
+Content's dock queues (P3.6a) answer a dock request through
+`pub::SpaceObj::Dock`, which `ai.jsonl` records as the ship's `ai_answer`
+of kind `request`; their terminal states reach the docking points through
+`pub::SpaceObj::Activate` in SpaceSupport's handler tail, which
+`dock_activate` records. `dock_at_station` records the refusal (5, port
+-1) of a ship Content does not know, which marks no terminal.
+`game-logic/tests/scenario_hooks.rs` runs it through the server's hooks and
+judges its `tick.jsonl` as the other scenarios.
+
+A `content` ship (P3.6c: `content_follow`, `content_guide`, `content_flee`)
+is made by Content.dll's `OracleSimCreateNpcShip` (`FSystemInfo::CreateNpcShip`)
+instead of `pub::SpaceObj::Create`, so its `spawn` record in `session.jsonl`
+has `content` true and the ship's `id`, its state graph and, with `pilot`, the
+pilot's lookup, but no `submit_state` (the NPC ship's constructor submits its
+state with the personality and both callbacks itself); with `flee`, `flee`
+true and the `flee_distance` f. The ship's manager reports to Content, whose
+reactions (the lead and tether events' timers on SpaceSupport, `LeadObject`,
+`FleeRequest`) the scenario records do not show; `tick.jsonl` records the
+ship as any other. `scenario_hooks` makes the ship through the server's
+record (`npc_ships::create_in_system`) and judges `tick.jsonl` as for the
+other scenarios.
+
 ## `run_rand.jsonl`
 
 Only with the environment variable `OUTPOST_ORACLE_RUN_RAND` set (the cross-runner
@@ -650,6 +678,62 @@ structure or pointer as `"present"` (or `null`). The stub answers
 `w1`, `w2`), `Heartbeat` (`elapsed` f); any other message is
 `{"data":"present"}`.
 
+`replication.jsonl` (P3.3, decision record 0007 point 11; only with
+`dump replication`, from the players' join on): one line per call of the
+slots below, written after its `iclient.jsonl` line (the same `seq`),
+`tick` u, `seq` u, `client` u (the call's client id, the session), `m` s
+(the method), `id` u (the object the packet is about; 0 for
+`SendServerSetReputation`), then by method (`q` f4 is a `Quaternion` in
+its member order w, x, y, z; archetypes are the full ids):
+
+| `m` | Fields after `id` |
+| --- | --- |
+| `SendCommonUpdateObject` | `pos` f3, `q` f4, `time` f (`Field_0x20`, the observer's clock), `throttle` f (`Field_0x24`), `behavior` u (`Field_0x28`) |
+| `SendCommonFireWeapon` | `target` f3, `guns` u[] (the hardpoints) |
+| `SendCommonActivateEquip` | `equip` u, `on` b |
+| `SendCommonActivateCruise` | `on` b, `arg` u (`Field_0x05`) |
+| `SendCommonActivateThrusters` | `on` b |
+| `SendCommonSetTarget` | `sub` u, `target` u, `target_sub` u |
+| `SendCommonGoTradeLane` | `ring1` u, `ring2` u, `flag` b (`Field_0x0c`) |
+| `SendCommonStopTradeLane` | `ring1` u, `ring2` u (`id` is the ship) |
+| `SendCommonJettisonCargo` | `item` u, `count` u |
+| `SendServerCreateSolar` | `arch` u, `pos` f3, `q` f4 |
+| `SendServerCreateShip` | `arch` u, `pos` f3, `q` f4, `vel` f3, `angvel` f3, `hp` i, `throttle` f, `owner` u, `lane` u, `equip` i (the equipment list's length) |
+| `SendServerCreateLoot` | `owner` u, `kind` u, `items` [{`id` u, `contents` u, `units` u, `container` u, `pos` f3}, …] (`id` is the first item's) |
+| `SendServerCreateMine`, `SendServerCreateCounter` | `arch` u, `owner` u, `sub` u, `pos` f3, `q` f4, `vel` f3 |
+| `SendServerCreateGuided` | `arch` u, `owner` u, `sub` u, `target` u, `target_sub` u, `pos` f3, `q` f4 |
+| `SendServerSetGuidedTarget` | `target` u, `target_sub` u |
+| `SendServerDestroyObject` | `kind` u (`Field_0x04`) |
+| `SendServerDamageObject` | `destroyed` b, `cause` i, `inflictor` u, `entries` [[sub u, hit points f, fate i], …] |
+| `SendServerActivateObject` | `on` u, `index` u |
+| `SendServerSetReputation` | `vibe` i, `affiliation` u (`Field_0x08`) |
+| `SendServerBurnFuse` | `source` u, `fuse` u, `sub` u, `at` f, `lifetime` f, `lit` u |
+| `SendServerSystemSwitchOut` | `gate` u |
+| `SendServerSystemSwitchIn` | `bits` u, `pos` f3, `q` f4 |
+| `SendServerLand` | `dock` u, `base` u |
+| `SendServerLaunch` | `dock` u, `index` u, `pos` f3, `q` f4 |
+
+## `dispatch.jsonl`
+
+The dispatch trace (record 0006 point 10; since P3.4a): every delivery
+of `Server.dll`'s controller registry, from `IServerImpl::Startup` on,
+written before the controller's `IDLL::HandleMessage` runs. The hook
+(`GOracleSimHooks.OnControllerDeliver`, `FOracleSimDeliverScope`) sits at
+the registry's three delivery sites: the broadcast and targeted arms of
+`Server_ControllerDispatch`, and the heartbeat walk of `Server_TimerTick`.
+A timer's `TimerExpired` is one of the first two (`Server_TimerFiring`
+dispatches it). Every controller is listed, the harness's own included,
+so a broadcast shows as one record per controller in list order.
+
+| `rec` | Fields |
+| --- | --- |
+| `deliver` | `tick` u (0 for the start-up, before frame 1), `seq` u (from 0, in delivery order), `depth` i (the deliveries already in progress: 0 for one no handler made, 1 for one sent by a handler, and so on), `flid` u (the receiving controller), `msg` i (the `pub::Controller::EMessage` value), `path` s (`broadcast`, `send` or `heartbeat`), [`elapsed` f (`Heartbeat`: the whole periods delivered)], [`p1` u, `p2` u (`TimerExpired`: the timer's two words; `p1` is Content's counter value for Content's timers)] |
+
+`crates/game-logic/tests/content_startup.rs` compares the heartbeats
+Content's controllers get with the port's bus and reports the
+`TimerExpired` words against Content's counter (P3.4a). The payloads of
+the other messages are not decoded yet.
+
 ## Other files of a run
 
 `ai.jsonl` (above) holds the behaviour ticks (P2.5), `load_rand.jsonl` and
@@ -657,6 +741,326 @@ structure or pointer as `"present"` (or `null`). The stub answers
 populators left out), `fdump.txt` every `FDUMP` message (`tick`, flags in
 hex, text) and `metrics.txt` the plain-text input of `--runs`
 (`oracle_sim.h`). None of them is a record for the tests.
+
+## `content_<table>.txt` (`dump content_tables`)
+
+Content's static tables after a multiplayer start-up (P3.4b, decision
+record 0008 point 5; `Content/oracle_content_tables.cpp`), read by
+`crates/game-logic/tests/content_tables.rs`. Plain text, one record per
+line, fields `key=value` separated by one space: ids and unsigned values
+decimal, signed values decimal, floats as eight hex digits of their bits,
+strings as the hex of their bytes, lists comma-separated (empty for an empty
+list). Maps in key order, vectors in their order.
+
+| File | Line |
+| --- | --- |
+| `content_voice_lines.txt` | `voice msg duration` |
+| `content_voice_properties.txt` | `voice flags permutations` (`nickname:count`, …) |
+| `content_empathy.txt` | `group events` (4 floats) `rates` (`group:rate`, …) |
+| `content_formations.txt` | `formation nickname slots` (`x:y:z:player`, …) |
+| `content_pilots.txt` | `pilot refs` (inherit and the 16 references) `found personality` (the 0x3d8 bytes `GetPilotPersonality` fills over a default personality, as `OracleSimPilotPersonality` does; padding included, compared through `Personality::from_bytes`); then `blocks=<kind> ids` for each of the 16 block tables |
+| `content_npc_ships.txt` | `npc_ship nickname ship loadout pilot state_graph level classes` |
+| `content_factions.txt` | `faction npc_ships jump scan_cargo` (`archetype:level`, …) `scan_chance scan_announce market_goods assassinate legality singular formations` (`key:value`, …) `costumes` (`head,body,left,right,count,accessories…`, `;`-separated) `voices mc_costume msg_id_prefix` |
+| `content_faction_names.txt` | `faction group female male last formation large_ship` (each `count:first-last,…`) `large_ship_desig short_name rank_desig thresholds name_ids` |
+| `content_faction_groups.txt` | `group` |
+| `content_ship_classes.txt`, `content_ship_mission_properties.txt` | `class` or `ship`, `members` |
+| `content_loot.txt` | `loot drop_chance drop_properties` |
+| `content_phantom_loot.txt` | `phantom toughness chance num_to_drop` |
+| `content_gcs_exclusions.txt` | `voice scripts` |
+| `content_toughness.txt` | `experience toughness` |
+| `content_rank_difficulty.txt` | `stage difficulty` |
+| `content_news.txt` | `news` (the index) `bases from to audio logo` (lower case, D785) `breaking autoselect icon category headline text` (the three `FmtStr`s flattened) |
+
+P3.4c (record 0008 point 10) adds the other loaders' tables, after the
+seventeen above, read by `crates/game-logic/tests/content_loaders.rs`. In
+them `/`, `+`, `:` and `;` separate the fields of nested records, as each
+row says. The bases are written from fresh records that take the live
+records' factions and are then loaded (`FContentBase::Load(nullptr)`); no
+room file is loaded at start-up, so no fixture finds its placement. The
+specific NPCs are StoryLauncher's loop over `missions\specific_npc.ini`
+into a local table (a multiplayer server has no StoryLauncher). Each system,
+in id order, is read into a local `FSystemInfo` as `LoadFromReader` reads its
+encounter parameters, zones and patrol paths; `Validate`, the `[System]` and
+`[Object]` sections and the trade lanes are left out. Doubles are sixteen
+hex digits of their bits.
+
+| File | Line |
+| --- | --- |
+| `content_bases.txt` | `base msg_id_prefix diff local_faction vendor` (min,max) `npcs rooms` (counts) `factions` (`group:weight:npc+…:min/max/weight+…`, `;`-separated) |
+| `content_base_npcs.txt` | `base npc` (the key) `costume voice name affiliation nickname` `missions` (`min/max/type`) `bribes` (`cost/group/text`) `knows` (`price/v1/v0/level`) `rumors` (`from/to/level/id+…` with all 8 ids) `rooms` |
+| `content_base_rooms.txt` | `base room density fixtures` (`npc/placement/fidget/role`) |
+| `content_specific_npcs.txt` | `npc` (the key) `costume voice name affiliation nickname` |
+| `content_system_paths_all.txt`, `_gate`, `_hole` | `from to path` |
+| `content_encounter_params.txt` | `system params` (the key) `nickname system_id zone reroll last difficulty formations` (count) `permutations` (`weight:index[*]+…`, `;`-separated) |
+| `content_encounter_formations.txt` | `system params formation` (the index) `feeling reroll mask f0c value faction formation_id by_class behavior arrival` (nine digits) `distance times simultaneous f78 longevity ships` (`classes+…/npc_arch/pilot_job/min/max/make+…/offset`, `;`-separated) |
+| `content_ship_line_factions.txt` | `system params formation ship factions` (`GetShipLineFactions`) `archs` (`group:arch+…` from `GetFactionShipLineArchs`, `;`-separated) |
+| `content_zones.txt` | `system zone nickname path` (an index of the system's paths, −1 for none) `unpopulated tradelane lawful unlawful vignette density repop keys attack restrictions` (`count:type`) `f1c f30 additive battle relief encounters` (`nickname/zone/difficulty/chance/group:weight+…/class+…`, every ship line's classes, `;`-separated) |
+| `content_patrol_paths.txt` | `system path` (the index) `label usage eligible loop points` (`x:y:z`) `zones` (`zone:step+…`) `objects` (`id:point+…`). The points are Tier B (decision T11): they are the zones' ends moved along the zone's orientation, which goes through `FSIN` and `FCOS`, so they are compared within game-sim's bound for the orientation (4 ulps or 1e-7); every other field is compared as text |
+
+## `content_<table>.txt` (`dump content_systems`)
+
+Content's system records, gate locks and `[mPlayer]` writer after a
+multiplayer start-up whose `LoadGame` built the records and whose
+`system_loads` loaded every system (P3.4d, decision record 0008 point 10;
+`Content/oracle_content_systems.cpp`), read by
+`crates/game-logic/tests/content_systems.rs`. The same plain text as
+`dump content_tables`; records in `GSystemInfos`' key order, a record's
+vectors in their order.
+
+| File | Line |
+| --- | --- |
+| `content_systems.txt` | `system loads local_faction rpop zones paths jumps lanes lane_rings solar_npcs players mission_objects` (counts) |
+| `content_system_jumps.txt` | `system object type pos` (`x,y,z`) `goto_system goto_object` |
+| `content_system_lanes.txt` | `system lane` (the index) `start end` (`x,y,z`) `rotation` (9 floats, `,`-separated) `max_weight rings` (`id:x:y:z:reputation:` and the 9 rotation floats `:`-separated, `+`-separated) `candidates` (`ring index:max weight:zone@weight/…`, `+`-separated) |
+| `content_solar_npcs.txt` | `system index object nickname base msg_id_prefix state_graph pilot` (0 or 1) `vibe affiliation` (the reputation handle's vibe and `pub::Reputation::GetAffiliation` of it now; `none` without a handle) |
+| `content_gate_locks.txt` | `SaveContentGateLocks`' own text: `[locked_gates]`, `npc_locked_gate = id` lines, then `locked_gate = id` lines |
+| `content_mplayer.txt` | `FContentPlayerState::Save`'s own text for a synthetic state of player 7 (every record kind and statistic), then the save of that text read back by `LoadContentPlayerState`; the first save also stays in `content_mplayer_first.txt` |
+
+## `mission_<table>.txt` (`dump mission_scripts`)
+
+The fourteen story missions as their parser leaves them (P3.5a, decision
+record 0008 points 6 and 10; `Content/oracle_content_dump.cpp`), read
+by `crates/game-logic/tests/mission_scripts.rs`. After the multiplayer
+start-up (GameSupport's tables, `LoadGame`'s system records), player 7 is
+registered in he01; for each mission in the order `Mission_01a`,
+`Mission_01b`, `Mission_02` to `Mission_13` the mission dialogs are
+emptied, `srand(0x4f524143)`, the mission is made by `CreateInstance` on
+controller id `0x00ff0001` plus its index (no controller has it, so the
+constructors' heartbeats draw nothing), its draws are counted (the next
+four `rand()` values matched against the sequence from the seed), its
+tables written and it is destroyed. Every line starts `mission=<name>`;
+fields are `key=value` separated by one space, in the order of the C++
+dumpers, which is the order of the Rust records' `fields()`
+(`game-logic::content::mission::field`): unsigned and signed values in
+decimal, flags as the byte's value, floats as the eight hex digits of
+their bits, strings as the hex of their bytes; vectors, matrices (row by
+row), transforms (rotation, then translation) and quaternions (W, X, Y, Z)
+as their floats joined by `,`; a costume `head,body,left,right/count/
+accessories`; lists joined by `,`, a pair `a:b`, a loadout line
+`id:archetype:count:health:equipped:mission:hardpoint`, a
+`Cnd_NPCSystem*` entry `label:system`. Maps are in key order, lists in
+insertion order. P3.5a2 added the four tables of `[ObjList]` and
+`[MetaBehavior]`; the fourteen of P3.5a1 are unchanged.
+
+| File | Line |
+| --- | --- |
+| `mission_scripts.txt` | `draws` (−1 beyond 0x10000) `controller player player_state players heartbeat_interval reward title offer` (the mad libs) `previous_state mission_state field_0x2b0 campaign_slot_current campaign_slot_succeed story_cue field_0x2c0 field_0x2c4 field_0x2e8 elapsed_time triggers actions initially_active` (`id:id`) and the counts `ship_groups solars loot rand_encs npcs npc_ship_archs objectives dialogs dialog_costumes` |
+| `mission_triggers.txt` | `trigger` (the map key) `state repeatable id events actions` (the count), then `cnd_trigger` and `cnd=` the factory name and every field of the condition, or `cnd=none` |
+| `mission_actions.txt` | `trigger index act_trigger`, then `act=` the factory name and every field of the action |
+| `mission_ship_groups.txt` | `group` (the index) and every field of the `[MsnShip]` / `[MsnFormation]` record (`system` the record's system id, 0 for none), then `ships` (the slot count) |
+| `mission_ships.txt` | `group index` and every field of the slot (`cargo` as `good:count`) |
+| `mission_solars.txt`, `mission_loot.txt` | `index` and every field of the record (the loot's `LootInfo` flattened; the solar's `name` its mad lib; the solar's personality is not written, `pilot` says whether `GetPilotPersonality` found it) |
+| `mission_rand_encs.txt` | `index nickname enabled nickname_id formation_index npc_count params` (0 without parameters, else `GetType`: 2 SP, 3 TL) `system controller player attacker_rep pilot_id labels positions` (`x,y,z,weight`, `;`-separated) `ships_spawned formations_to_spawn num_forms_min num_forms_max formations` (`found:nickname:field_0x08:min:max:count:weight:` and the ship choices `classes/weight`, `;`-separated; formations `+`-separated) `target_ship_name goto_target_id target_object_id dock_target spawn_angle spawn_distance empty_pos_radius ship_name_counter`, then SP `activation_type activation_location activation_range activation_time_0 activation_time_1 cumulative_time` or TL `tl_attack_chance tl_attack_chance_read_in direction entry_ring exit_ring target_tradelane` |
+| `mission_npcs.txt` | `key` and every field of the `[NPC]` record |
+| `mission_npc_ship_archs.txt` | `key nickname ship_archetype loadout pilot state_graph npc_classes level` (the `[Mission] npc_ship_file`'s archetypes) |
+| `mission_objectives.txt` | `player n type hidden nickname ids index state`, then by type: 1 `base_id`; 2 `marker` (five words); 4 `marker label`; 5 and 6 `rep_instance system_id marker` |
+| `mission_dialogs.txt` | `dialog controller system speakers lines` (the dialogs of `GMissionDialogs` after the mission) |
+| `mission_dialog_lines.txt` | `dialog speaker_key index` and every field of the line |
+| `mission_costumes.txt` | `index costume` (the script's dialog costumes) |
+| `mission_obj_lists.txt` | (P3.5a2) `list directives`: the mission object's `[ObjList]` map (+0x100) in key order, the key and its directive count |
+| `mission_obj_list_directives.txt` | `list index factory type directive name` (the factory case 0 to 0x16 or 0x19, `GetType`, the `[ObjList]` key of the class, `TractorBeam` for case 0x19, and the line the loader kept), then the class's members and its op's fields (`game-logic::content::mission::obj_list`'s `fields()`): every op starts with `priority`; a goto op `kind destination field_1c words_20` (the twelve words from +0x20) `range field_54 field_58 field_59 cruise no_cruise field_5c field_60 field_64 field_68 field_6c`, the guide's goto and follow parts with `goto_` and `follow_` before each name, the embedded ops' own priorities not written; a name a class does not have is written empty (`GotoSpline`'s and `GotoVec`'s `target_name`, `Guide`'s `object_name`); `formation` says whether `FindFormation` found it; `InstantTradelane`'s `speed` is the bits of its third word |
+| `mission_meta_behaviors.txt` | `list objects`: the `[MetaBehavior]` map (+0x114) in key order |
+| `mission_meta_behavior_objects.txt` | `list index type class` (5 `MB_GOTOGUIDE`, 6 `MB_DOCKGUIDE`) `line priority first_position destination range target_name field_0x174 field_0x175 field_0x176`, and for the dock guide `dock_target_id`; the leg list (empty after the parse) and the ship (null) are not written |
+
+## Mission saves (`dump mission_saves`, `dump mission_save_loads`)
+
+The player-save sections of the fourteen story missions and of Story
+(P3.5b, decision record 0008 points 6 and 10, Gate G3;
+`Content/oracle_save_dump.cpp`), read by
+`crates/game-logic/tests/mission_saves.rs`. After the multiplayer start-up
+player 7 is registered in he01, and every mission is made as for
+`dump mission_scripts` (dialogs emptied, `srand(0x4f524143)`,
+`CreateInstance` on `0x00ff0001` plus its index). A save is the `PlayerSave` body of a script mission
+without the message's gates (single player, the player's id; the session's
+server is a multiplayer one): `\n[MissionState]\n`, `SaveMissionState`,
+unless a trigger save is pending `SaveMission` and `SaveRandEncs` (no ship,
+so no snapshot), then `\n[BStoryMissionDone]\n`. Files are written in
+binary, with the `\n`s of the format strings. The six clamps are put back
+after each mission.
+
+The three states of each mission:
+
+- `constructed`: right after the constructor.
+- `advanced`: every trigger with a condition made active, in id order; the
+  condition of the k-th (from 0) gets: `Cnd_Destroyed`, `Cnd_LootAcquired`,
+  `Cnd_ProjHit`, `Cnd_ProjHitShipToLbl` count k + 1; `Cnd_DistShip`,
+  `Cnd_DistVec` tick timer F[k], last distance F[k + 1]; `Cnd_DistVecLbl`
+  tick timer F[k + 2]; `Cnd_TetherBroke` +0x90 F[k + 3], +0x88 F[k + 4];
+  `Cnd_Timer` elapsed F[k + 5]; `Cnd_NPCSystemEnter` and `Exit` their ships
+  as pending, the i-th with system S[(k + i) mod 3]; where F is the twelve
+  floats `0.0078125, 0.0234375, 0.1, 123.456, -0.6, 31476.25, FLT_MAX,
+  1e-7, 2500, 0.33333334, 16777216, -0` (indices mod 12) and S `7,
+  16777217, 4000000007`. The script: story cue 7; the NN path active with
+  ids 1234 and -5, position (1.5, -2.25, 100000.125), label
+  `oracle_nn_target`, system 4000000007; three cut scenes
+  `missions\oracle\rtc_{a,b,c}.thn` (b finished, a with `Field_0x95`); an
+  ambient scene `scripts\oracle\ambi.thn` in room 0x1234 of base
+  4000000007; the friendly-fire labels `oracle_ff_a`, `oracle_ff_b`. The
+  mission object: two respawn ship records, a copy of the first `[MsnShip]`
+  record with only its first ship (position (-31476.25, 150, 0.1),
+  arrival 0, priority 3, 450 hit points, the first `[ObjList]`'s
+  directives) and a copy of the last with only its first ship (arrival
+  object 0x40000123, priority -2, the first `[MetaBehavior]`'s first object
+  as its guide); one random-encounter respawn record (the first encounter's
+  id or `CreateID("oracle_enc")`, 2 ships, priority 3, 450 hit points,
+  translation (100.5, -0, 3000000), classes `17, 34` and none, names
+  `oracle_rand_a`, `oracle_rand_b`, the first list's directives); the solar
+  `oracle_solar`, the marks `oracle_mark_a`, `oracle_mark_b`, the
+  invulnerables `oracle_inv_a` (12.5, 1) and `oracle_inv_b` (0.0234375, 0),
+  the decloaked `oracle_cloak`, three attitudes (`oracle_vibe_a` to
+  `Player` -0.6; reputation 17 to `oracle_vibe_b` 0.1; `oracle_vibe_c` to
+  reputation 4000000007 -0); the first random encounter enabled with 3
+  ships, the second disabled with 5; and the clamps attack 1, encounters 0,
+  scan 1, GCS on, hostile 0, population 0.
+- `pending`: a trigger save pending for the first trigger in id order.
+
+| File | Content |
+| --- | --- |
+| `mission_saves/save_<mission>_<state>.ini` | (`dump mission_saves`) the save of the mission in that state |
+| `mission_saves/story_constructed.ini` | (`dump mission_saves`) Story's `PlayerSave` right after its constructor for player 7 |
+| `rust/save_<mission>_<state>.ini` | (written by the port before `dump mission_save_loads`, through the text-mode translation) the port's save in the three states, `restored` (the port's save after restoring the hand-made `crates/game-logic/tests/fixtures/mission_saves/raw.ini`) and `raw` (that fixture) |
+| `rust/story_<n>.ini` | (written by the port) the port's Story save after restoring `story_<n>.ini` of the same fixtures, n = 0 to 5, in turn |
+| `loaded_<mission>_<state>.txt` | (`dump mission_save_loads`) a new mission's restore of the port's save, the generator seeded before it: `script field_0x2ec initially_active` (`id:id`) `active pending_activations save_pending save_trigger nn_state draws`; per initially active trigger with a condition `cnd trigger=<id> text=` and its condition's `Save` output, then `|`; per ship of each respawn record `ship group index init_objectives init_meta guide directives`; `solar_reps=` (`,`-separated); per random encounter `rand_enc nickname` (hex) `enabled npc_count params`; then `=== save` and the save of the restored mission |
+| `story_loaded_<n>.txt` | (`dump mission_save_loads`) one Story's `PlayerLoad` of `rust/story_<n>.ini`, n = 0 to 5 in turn, then its `PlayerSave` and `mission_number=` the player's |
+
+## `rm_<table>.txt` (`dump random_missions`)
+
+The random missions' tables, vignette tree and offers (P3.7a, decision
+record 0008 point 8, Gate G3; `Content/oracle_random_missions.cpp`), read by
+`crates/game-logic/tests/random_missions.rs`. After the multiplayer start-up
+the tables and the tree are written as the generator object loaded them with
+Content.dll. Then one case per base of the export's list (29 bases, the
+last three those without a dock object, D954), per
+`[BaseFaction]` of it with a `mission_type` and with faction properties and
+names, per difficulty (0.2, 1.5, 8, 30, 85) and per seed (1, 0x4f524143):
+`GRmObjectiveZones` emptied, player 7 put in the base's system,
+`srand(seed)`, then one loader's `CreateMission` for {7, the base, the
+faction, the difficulty}. Its draws since `FinalizeMission`'s
+`srand(random_seed)` are counted (−1 when it did not run). The loader keeps
+each mission until the next case's `CreateMission` releases it, so a target
+name stays reserved until then. Fields are `key=value` separated by one
+space: ids and unsigned values in decimal, signed values with their sign,
+flags 0 or 1, floats the eight hex digits of their bits, strings and
+flattened `FmtStr` values the hex of their bytes; lists joined by `,`,
+sub-fields by `/`, `:` or `+`, records by `;`.
+
+Every field is compared as text but the assassination target's position,
+which `FillTargetShips` makes from the objective's position and
+`random_inside_ring`'s offset: the position in the `target_ships` part of an
+`rm_offers.txt` line and the `position` of an `rm_offer_ship_groups.txt` line
+of the `target_ships` component. `random_inside_ring` turns its angle with
+`FSIN` and `FCOS` (D879), so these are Tier B (decision T11) and compared
+within the patrol points' bound (4 ulps or 1e-7,
+`crates/game-logic/tests/support/mod.rs`). The summary
+(`rust-random-missions.txt`) counts the lines equal only within the bound and
+lists each of them; a bit-equal line counts as exact.
+
+| File | Line |
+| --- | --- |
+| `rm_npc_rank_to_difficulty.txt` | `rank difficulties` |
+| `rm_diff2money.txt` | `difficulty money` |
+| `rm_bonus_loot.txt` | `drop_chance`, then per faction (`4294967295` for `all`) and record `faction index archetype num_to_drop difficulty weight` |
+| `rm_solar_formations.txt` | `formation nickname type slots` (`mandatory/type/x,y,z/` the 9 orientation floats row by row) |
+| `rm_killable_solars.txt` | `solar nickname type string_id any factions archetype loadout hitpoints difficulty zone_mask pilot_choices` |
+| `rm_critical_loot.txt` | `loot why name archetype types any factions` |
+| `rm_generator.txt` | `loaded linked root nodes leaves` |
+| `rm_nodes.txt` | `node node_id nickname parents children implemented first_child weight difficulty windows` (`min:max`) `offer_groups hostile_groups zone_types failure reward` (`str_id:params`) `objectives` (`key/str_id:params`) `offer_texts comm_sequences` (counts) |
+| `rm_offer_texts.txt` | `node index append entries` (`str_id/form/params`) |
+| `rm_comm_sequences.txt` | `node index trigger target f08 delay lines` (`speaker/text`) |
+| `rm_missions.txt` | `case base system group difficulty seed result` (`CreateMission`'s: 0 an offer, 1 no enemy group, 2 no offer, 3 no zone) `random_seed player offer_base offer_group enemy_group dest_sys zone pos reward rep_reward rep_hit path` (`T`/`F`) `offers draws serial` (`GRmShipGroupSerial`) `enemy_uses` (the enemy group's reserved pilot names and designations; −1,−1 without names) |
+| `rm_offers.txt` | `case machine type system offer_group hostile_group difficulty reward rep_hit rep_reward offer_base mc_costume voice text reward_text failure_text target_first target_second target_gender target_affiliation general target_ships` (`active:position:f50:f54`; the position Tier B) `solars ships` (`active:position`) |
+| `rm_offer_ship_groups.txt` | `case component` (`target_ships`, `ships`) `group f00 f01 f02 f04 f08 system position` (Tier B in the `target_ships` component) `f40 formation serial ships` |
+| `rm_offer_ships.txt` | `case component group ship nickname random_name affiliation npc_ship_arch target_name d8 dc loot` (`kind/f100/critical name/archetype/units/system/hit_pts_scale/tractor/rel_pos/offset`) |
+| `rm_offer_solars.txt` | `case solar nickname faction orientation position archetype loadout pilot` (`bPilot`; the personality is not written) `f4c8 arch type dest_sys mode invincible f4e0 hitpoints loot` |
+| `rm_offer_objectives.txt` | `case component key type str_id params marker` (`system:value:position`) |
+| `rm_offer_comms.txt` | `case conversation trigger delay ready lines` (`speaker/target/text`) |
+
+`random_missions.rs` also compares the port's own `CreateMission` with the
+same files (P3.7c, `data_dump_created_random_missions`, summary
+`rust-created-random-missions.txt`): the port makes the cases itself, in the
+export's order, and every field of the seven case files is its own (the zone,
+the enemy group, the seed, the result); the rebuild from the oracle's values
+above stays as it was. The rebuild takes the oracle's zone, enemy and seed,
+so the dock position `CreateMission` searches from (D954) does not reach it;
+the port's own creation is where it does. A case whose base is one of the
+three bases without a dock object (`fr01_01_Base`, `he01_15_Base`,
+`ve05_02_Base`; none is in the export's list) may differ only in the fields
+that derive from the dock position, and each such case is listed under
+"D954" in the summary (owner, 2026-11-25): the `rm_missions.txt` fields
+`result enemy_group dest_sys zone pos path offers draws serial enemy_uses`;
+the case's offer lines in number and every field but the query's
+(`offer_group difficulty reward rep_hit rep_reward offer_base voice`) where
+both have one; its other offer lines in number and every field. Every other
+case and field is compared exactly, and a bit-equal case counts as exact.
+A difference in the counters such a case leaves (the serial, the vignette
+nicknames) reaches the next cases, which are compared exactly.
+
+## `random_mission_saves/` (`dump random_mission_saves`) and `rmload_<table>.txt` (`dump random_mission_save_loads`)
+
+The random missions' `[RandomMission]` save sections and the offers rebuilt
+from them (P3.7c, decision record 0008 points 8 and 10, Gate G3;
+`Content/oracle_random_missions.cpp`), read by
+`crates/game-logic/tests/random_missions.rs`. After the multiplayer start-up,
+for every base of the export's list that Content knows: `GRmObjectiveZones`
+emptied, player 7 put in the base's system, the base loaded
+(`FContentBase::Load`, which reads its `num_offers`), `srand(0x4f524143)`,
+`BuildMissionVendorOffers` into a local visit, each vendor offer written and
+saved, `ClearMissionVendorOffers`, the base unloaded; then per
+`[BaseFaction]` with a `mission_type`, faction properties and names,
+`srand(0x4f524143)` and `CreateBarMissionOffer` with the faction's first
+mission type as the NPC's (`min`, `max`, type); a created offer is saved and
+the loader released. Every save is then loaded in turn by a new loader for
+player 7 (`Load`: every section, each with `FinalizeMission`), its draws
+since the last `srand(random_seed)` counted, the loader released. The fields
+are written as in `rm_<table>.txt`.
+
+| File | Content |
+| --- | --- |
+| `random_mission_saves/rms_offers.txt` | per base `source=vendor_offers base count zones` (`GRmObjectiveZones`' size); per offer `save` (the save's number, −1 when not saved) `source` (`vendor`, `bar`) `base group created offer_id type`, then `mission=-`, or `random_seed player offer_base offer_group enemy_group dest_sys zone pos reward rep_reward rep_hit difficulty path offers serial zones` and the vendor description (`class=-` without an offer, else `class title description briefing base_id icon filter`) |
+| `random_mission_saves/rmsave_<n>.ini` | the section a `DestroyMission` controller writes on `PlayerSave`: `[RandomMission]`, `type = DestroyMission`, `FRandomMissionData::Save` (binary: the `\n` the format strings write) |
+| `random_mission_saves/rmsave_pair.ini` | `rmsave_0.ini` then `rmsave_1.ini` |
+| `random_mission_saves/rmload_missions.txt` | per load `save loaded player offer_base offer_group enemy_group dest_sys zone pos reward rep_reward rep_hit difficulty jump_pref offer_ids random_seed path offers draws serial zones description enemy_uses` |
+| `random_mission_saves/rmload_<table>.txt` | the rebuilt offers in the format of `rm_<table>.txt` (`offers`, `offer_ship_groups`, `offer_ships`, `offer_solars`, `offer_objectives`, `offer_comms`), the load's number as the case; the same Tier B fields as there |
+| `rust/rmsave_<n>.ini`, `rust/rmsave_pair.ini` | (written by the port before `dump random_mission_save_loads`, through the text-mode translation) the port's saves of the same offers |
+| `rmload_<table>.txt` | (`dump random_mission_save_loads`) the C++ loads of the port's saves, `n` = 0 up while a file opens, then the pair, in the same format |
+
+Under D954 (owner, 2026-11-25) a base without a dock object may differ in
+its `rms_offers.txt` lines in number and every field but `source` and
+`base`, and in its saves in every key but `offer_base`, `offer_ids`,
+`jump_pref`, `rep_reward` and `rep_hit`; each is listed under "D954" in the
+summary. The loads compare exactly, because both sides load the same files.
+
+## `mission.jsonl` (`dump mission_trace`)
+
+The Tier B mission trace (P3.5c1, decision record 0008 question 9;
+`Content/oracle_mission_trace.cpp`, the hook `GOracleMissionTraceHook` of
+`Content/MissionScript.cpp`), read by `crates/game-logic/tests/mission_trace.rs`.
+After the multiplayer start-up and the load of the session's system
+(`RELAYSEVEN_system`): player 7 registered in that system without a ship,
+`GMissionDialogs` emptied, `srand(0x4f524143)`, `Mission_01a` made by
+`CreateInstance` on controller id `0x00ff0001`, which the bus does not know.
+The session hands the mission `MissionStart` at tick 0, then at every tick
+from 1 to 900 its scripted messages and a heartbeat of `1.0f / 30.0f`:
+`SpaceEnter` (tick 2), `CommComplete` of `DX_M01_0000_FREEPORT_7_BRIDGE`
+(200), `DX_M01_0005_Samura_SA_14` (260) and `DX_M01_0010_FREEPORT_7_BRIDGE`
+(320), `SpaceExit` (600) and `BaseEnter` of `he01_01_Base` (620). One JSON
+object per line, ids unsigned decimal:
+
+| `rec` | Fields | Written |
+| --- | --- | --- |
+| `message` | `tick`, `msg` | before each message the session sends |
+| `activate` | `tick`, `trigger` | `ActivateMissionTrigger` set the trigger `ACTIVE` |
+| `fire` | `tick`, `trigger`, `event` | a condition matched; `event` 4294967295 is the activation probe |
+| `action` | `tick`, `trigger`, `index` | before an action of the firing trigger runs, `index` its place in the list |
+| `timer` | `tick`, `trigger`, `index` | before a delayed action runs from the timer list |
+| `rearm` | `tick`, `trigger` | a repeatable trigger is `ACTIVE` again |
+| `deactivate` | `tick`, `trigger` | `DeactivateMissionTrigger` erased an active entry |
+| `state` | `tick`, `from`, `to` | `ApplyDesiredMissionState` applied a new state |
+| `final` | `tick`, `active`, `pending` | the session's end: the active list in order, the pending activations' targets |
+
+The comparison is exact, record by record; the summary
+`rust-mission-trace.txt` gives the first divergence with the two records on
+each side. The port's trace is kept as `rust-mission.jsonl`.
 
 ## `spread.jsonl` (`--runs N`)
 

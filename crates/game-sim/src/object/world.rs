@@ -37,8 +37,13 @@ mod combat;
 mod descs;
 mod fields;
 mod guided;
+mod jump;
+mod lane_action;
 mod launch;
+mod launch_action;
 mod loot_drop;
+mod mine;
+mod phantom;
 pub use guided::GuidedTrace;
 mod sensors;
 mod solar_read;
@@ -70,10 +75,11 @@ pub use ai::ManagerHook;
 pub use animate::ActivateResult;
 pub use cargo::{ScanResult, ScannedEquip};
 pub use combat::damage_sub_obj;
+pub use launch_action::{LAUNCH_ACTION_CALLBACK, LAUNCH_COAST_TIME, LAUNCH_DECEL_TIME};
 pub use sensors::{EquipStatus, EquipmentVal, equipment_val};
 pub(crate) use spawn::shield_status;
 pub use spawn::{LootSpawn, ProjectileSpawn, ShipSpawn, SolarSpawn, SpawnError};
-pub use step::{DamageState, Hit, HitRule, NoServerHooks, ServerHooks, ServerRequest};
+pub use step::{AiChange, DamageState, Hit, HitRule, NoServerHooks, ServerHooks, ServerRequest};
 pub use turret::TurretGeometry;
 
 /// A force controller the world registered with the physics
@@ -93,6 +99,14 @@ pub enum ControllerRef {
     Equip(SubObjId),
     /// The server's `Guided` wrapper (a missile's motor, `arm`).
     Guided,
+    /// The server's `Mine` wrapper (a seeking mine's push, `arm`).
+    Mine,
+    /// A ship's `JumpInAction` (the eased approach to its arrival point).
+    JumpIn,
+    /// A ship's `LaunchAction` (the path out of a docking ring).
+    Launch,
+    /// A ship's `LaneAction` (the transit of a trade lane).
+    Lane,
 }
 
 /// The behaviour manager's tick (`IBehaviorManager::UpdateBehaviorTick`),
@@ -196,6 +210,22 @@ pub enum WorldEvent {
         equip: SubObjId,
         /// The projectile's id: 0 for a bullet, which has none.
         bullet: u32,
+    },
+    /// A ship's `JumpInAction` arrived (`IObjAffect::slot_74` with the
+    /// system the ship is in).
+    JumpInComplete {
+        /// The ship's id.
+        ship: u32,
+        /// The system's id.
+        system: u32,
+    },
+    /// A ship's `LaunchAction` completed (`IObjAffect::slot_70` with the
+    /// object launched from).
+    LaunchComplete {
+        /// The ship's id.
+        ship: u32,
+        /// The id of the object it launched from.
+        base: u32,
     },
 }
 
@@ -334,6 +364,9 @@ pub struct World {
     pub(crate) time: f64,
     pub(crate) events: Vec<WorldEvent>,
     behavior: Option<Box<dyn BehaviorHook>>,
+    /// The content callback's flee answer for the ship whose behaviour
+    /// tick runs (`ServerHooks::content_answer`, asked before it).
+    pub(crate) content_answer: Option<(ObjHandle, Option<crate::ai::content::FleeAnswer>)>,
     pub(crate) behavior_managers: BTreeMap<ObjHandle, crate::ai::manager::BehaviorManager<World>>,
     /// `GAvoidIndexTableShuffled`: the first obstacle probe of the process
     /// has drawn its 50 `rand()` values.
@@ -464,6 +497,7 @@ impl World {
             time: 0.0,
             events: Vec::new(),
             behavior: None,
+            content_answer: None,
             behavior_managers: BTreeMap::new(),
             avoid_table_shuffled: false,
             attitudes: BTreeMap::new(),
@@ -502,6 +536,13 @@ impl World {
         self.assets
             .as_ref()
             .map(|a| &a.host as &dyn crate::data::DataSource)
+    }
+
+    /// The data root's host, cloned: for a loader that reads files while it
+    /// changes the world (Content's system records); `None` without assets.
+    #[must_use]
+    pub fn data_host(&self) -> Option<Host> {
+        self.assets.as_ref().map(|a| a.host.clone())
     }
 
     /// The game data.
@@ -827,10 +868,13 @@ impl World {
             }
             self.controllers.remove(key);
         }
-        // `~Guided`: `PhySys::DestroyPhantom`.
-        if let super::KindData::Guided(g) = &obj.data
-            && let (Some(phantom), Some(world)) = (g.phantom, self.physics.world_mut(system))
-        {
+        // `~Guided` and `~Mine`: `PhySys::DestroyPhantom`.
+        let phantom = match &obj.data {
+            super::KindData::Guided(g) => g.phantom,
+            super::KindData::Mine(m) => m.phantom,
+            _ => None,
+        };
+        if let (Some(phantom), Some(world)) = (phantom, self.physics.world_mut(system)) {
             world.destroy_phantom(phantom);
         }
         if let (Some(body), Some(world)) = (obj.physical.body, self.physics.world_mut(system)) {

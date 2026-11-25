@@ -2,7 +2,7 @@
 //! controllers read, the drag and damping the update recomputes, and the
 //! ship-only commands.
 
-use neuron_core::math::Vector;
+use neuron_core::math::{Matrix, Quaternion, Transform, Vector};
 
 use crate::data::constants::EngineEquipConsts;
 use crate::equip::flight::{EngineState, Nudge, ShipFlightArch, Steering, Strafe};
@@ -54,6 +54,10 @@ pub struct GunStats {
     /// Their farthest range.
     pub cm_max_munition_range: f32,
 }
+
+/// `CShip::JETTISON_CLEARANCE_TIME` (`common_cship.cpp:2637`): the time a
+/// jettisoned item has to clear the bay before the next one goes.
+pub const JETTISON_CLEARANCE_TIME: f32 = 4.0;
 
 /// `BayState`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -121,6 +125,182 @@ pub struct ShipData {
     pub jumped_out: bool,
     /// +0x2b0 the bay door animation (`BayAnim`), `None` (-1) without one.
     pub bay_anim: Option<super::anim::Playback>,
+    /// The jump-in action in the ship's `ActionDB` (`JumpInAction`), from
+    /// `CShip::jump_in` until it completes.
+    pub jump_in: Option<JumpIn>,
+    /// The launch action in the ship's `ActionDB` (`LaunchAction`), from
+    /// `CShip::launch` until it completes.
+    pub launch: Option<Launch>,
+    /// The trade-lane action in the ship's `ActionDB` (`LaneAction`), from
+    /// `CShip::go_tradelane` until the ship's update after its end.
+    pub lane: Option<Box<Lane>>,
+}
+
+/// `LaneRingTransform` (0x34 bytes): a ring's lane frame, its `HpRightLane`
+/// or `HpLeftLane` hardpoint (`LaneAction::BuildRingTransform`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct LaneRing {
+    /// +0x00 the ring's id (`Ring`, an `IObjInspect`; `None` for null).
+    pub ring: Option<u32>,
+    /// +0x04 the frame's orientation.
+    pub orientation: Matrix,
+    /// +0x28 the frame's position.
+    pub position: Vector,
+}
+
+/// What the lane's controller reads of a ring, the ring in the frame the
+/// lane runs (refreshed before each physics step, D732).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct LaneRingInput {
+    /// The ring's lane frame.
+    pub frame: LaneRing,
+    /// `get_status(Health)`, 1 when the ring answers nothing.
+    pub health: f32,
+    /// `traverse_rings(Next, forward)`: the next ring's id (0 for none),
+    /// `None` when the object is not a lane ring (nothing written).
+    pub next: Option<u32>,
+}
+
+/// What the lane's controller reads of the traveller's formation or
+/// follow leader (refreshed before each physics step, D732).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct LaneLeader {
+    /// The formation leader is another ship.
+    pub formation: bool,
+    /// The follow leader lives (asked only of a ship no player flies).
+    pub follow: bool,
+    /// The formation leader's `is_using_tradelane`.
+    pub in_lane: bool,
+    /// The formation leader's position.
+    pub position: Vector,
+}
+
+/// `LaneAction` (0xfc bytes, `Common/common_laneaction.cpp`): a ship in a
+/// trade lane, beamed each PSI along the line from ring to ring.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Lane {
+    /// +0x20 the entrance ring's id.
+    pub entrance_ring: u32,
+    /// +0x24 the exit ring's id.
+    pub exit_ring: u32,
+    /// +0x28 the frame of the leg's first ring (`EntranceRingXform`).
+    pub entrance: LaneRing,
+    /// +0x5c the frame of the leg's last ring (`ExitRingXform`).
+    pub exit: LaneRing,
+    /// +0x90 the state (`ExitState`): 1 speeding up, 2 at speed, 3 the last
+    /// leg, 4 leaving, 5 left, 0 stopped.
+    pub exit_state: i32,
+    /// +0x94 the leaving turn (`bExitFlag`).
+    pub exit_flag: bool,
+    /// +0x96 the lane runs in the rings' forward direction
+    /// (`bHpLeftLane`): the ring after the entrance ring is the exit ring.
+    pub forward: bool,
+    /// +0x97 the fast entry at full speed (`bRingApproachValid`,
+    /// `bFastExit`).
+    pub fast_exit: bool,
+    /// +0x98 `go_tradelane`'s speed.
+    pub speed: f32,
+    /// +0x9c the pose the ship is beamed to (`LanePose`).
+    pub pose: Transform,
+    /// +0xcc the ship's position at the start, moved with the lane.
+    pub captured_position: Vector,
+    /// +0xd8 the ship's orientation at the start.
+    pub captured_orientation: Quaternion,
+    /// +0xe8 the time the controller has run (`TransitElapsed`).
+    pub elapsed: f32,
+    /// +0xec the speed's fraction of 2500 m/s (`TransitRamp`).
+    pub ramp: f32,
+    /// +0xf0 the fraction to leave at (`TransitRampTarget`).
+    pub ramp_target: f32,
+    /// +0xf4 the fraction the leaving started from (`ExitRampStart`).
+    pub exit_ramp_start: f32,
+    /// The rings ahead, from the exit ring on (the controller's reads of
+    /// the rings, D732).
+    pub rings: Vec<LaneRingInput>,
+    /// The traveller has an object database (`CSimple::ObjectDb`: it is in
+    /// a system).
+    pub in_system: bool,
+    /// The traveller's leaders.
+    pub leader: LaneLeader,
+    /// `SinglePlayer()`.
+    pub single_player: bool,
+    /// `LaneAction::stop(0)` ran in the physics step: the end the world
+    /// finishes after the step (D731).
+    pub stopped_in_step: bool,
+}
+
+impl Lane {
+    /// The ring input for a ring id.
+    #[must_use]
+    pub fn ring_input(&self, id: u32) -> Option<&LaneRingInput> {
+        self.rings.iter().find(|r| r.frame.ring == Some(id))
+    }
+}
+
+/// `LaunchAction` (0x78 bytes, `Common/common_launchaction.cpp:61`): a
+/// ship leaving a dock. From a docking ring it is beamed along the launch
+/// point's axis for three seconds with its collisions off; from a station
+/// or a capital ship the AI flies it out (`DirectiveLaunchOp`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Launch {
+    /// +0x24 the id of the object launched from (`BaseObj->Id`, read when
+    /// the launch completes).
+    pub base: u32,
+    /// +0x28 the base's type bits (`LaunchFlags`).
+    pub flags: u32,
+    /// +0x2c the launch point's index (`LaunchType`; 1 from a docking
+    /// ring).
+    pub launch_type: i32,
+    /// +0x30 the time the controller has run (`CoastElapsed`).
+    pub coast_elapsed: f32,
+    /// +0x34 the end of the launch path (`LaunchPos`).
+    pub position: Vector,
+    /// +0x40 the launch orientation's third column (`LaunchDir`).
+    pub direction: Vector,
+    /// +0x4c the base's archetype has no docking camera
+    /// (`bNoDockingCamera`): the ship is beamed to the end at once.
+    pub no_docking_camera: bool,
+    /// +0x4d the launch is over (`bUpdateComplete`).
+    pub complete: bool,
+    /// +0x50 the launch orientation (`LaunchOrient`).
+    pub orientation: Matrix,
+    /// +0x74 the coast's distance (`CoastTimer`, `launch_coast_time * 80`).
+    pub coast_timer: f32,
+    /// The launch waits for the AI's directive (`set_directive_callback`).
+    pub directive: bool,
+}
+
+impl Launch {
+    /// `LaunchAction::update`'s and `Start`'s test: the immediate launch
+    /// out of a docking ring (`LaunchFlags & 0x20`).
+    #[must_use]
+    pub fn is_physical(&self) -> bool {
+        self.flags & 0x20 != 0
+    }
+}
+
+/// `JumpInAction` (0x68 bytes, `Common/common_launchaction.cpp:490`): a
+/// ship arriving through a jump gate or hole eases to its arrival point
+/// over `speed` seconds, with its collisions off.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct JumpIn {
+    /// +0x20 the time the controller has run.
+    pub elapsed: f32,
+    /// +0x24 the length of the approach in seconds (`JumpSpeed`).
+    pub speed: f32,
+    /// +0x28 `speed * 2000`: the approach's distance at its start.
+    pub approach_budget: f32,
+    /// +0x2c the arrival orientation.
+    pub orientation: Matrix,
+    /// +0x50 the arrival position.
+    pub position: Vector,
+    /// +0x64 the ship has arrived (`bJumpComplete`).
+    pub complete: bool,
+    /// The arrival's report (`IObjAffect::slot_74` with the system id),
+    /// until the server has it.
+    pub arrived: Option<u32>,
+    /// The arrival's engine activation, which runs after the physics step.
+    pub activate_engine: bool,
 }
 
 impl ShipData {

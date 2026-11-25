@@ -609,6 +609,34 @@ any order. The data job runs the ensemble of
 .\bin\Oracle.exe sim "$PWD\outdir" CppSource\Oracle\scenarios\dogfight.txt "$env:TEMP\ens\seed_3985226492\dogfight" --seed 3985226492
 ```
 
+**Rust saves loaded by the C++ build** (P3.5b, Gate G3). One session reads
+what the port wrote, so its run sits between two runs of the port's tests
+and is not part of the cached oracle outputs. The data job's step "Load
+the port's saves with the oracle" runs, on every run:
+
+```powershell
+$env:OUTPOST_DATA_DIR = "$env:RUNNER_TEMP\outpost-data"
+$env:OUTPOST_SAVE_LOADS_DIR = "$env:RUNNER_TEMP\outpost-save-loads"
+cargo test --release -p game-logic --test mission_saves -- rust_saves_for_the_oracle --nocapture
+.\bin\Oracle.exe sim "$PWD\outdir" CppSource\Oracle\mission_save_loads.txt "$env:RUNNER_TEMP\outpost-save-loads"
+$env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-save-loads"
+cargo test --release -p game-logic --test mission_saves -- oracle_loads_of_rust_saves --nocapture
+```
+
+The first test writes the port's saves into the folder's `rust` folder
+through the text-mode translation the server's save path makes; the
+session restores them; the second test restores them in the port and
+compares (summary `rust-mission-save-loads.txt`). The step "Load the port's random-mission
+saves with the oracle" does the same for P3.7c's `[RandomMission]` saves
+(`random_missions.rs`' `rust_random_mission_saves_for_the_oracle`, the
+session `random_mission_save_loads.txt` over
+`$env:RUNNER_TEMP\outpost-rm-save-loads`, then
+`oracle_loads_of_rust_random_mission_saves`; summary
+`rust-random-mission-save-loads.txt`). The step needs the C++
+build when the oracle's outputs come from the cache, so the data job keeps
+`bin` in a cache of its own, keyed on the C++ and the toolset only ("Restore
+the C++ build"), and builds only when that misses.
+
 ### Start-up
 
 As `OutpostServer.exe` (`OutpostServer.cpp:437`, `:523`, `:731-745`,
@@ -655,6 +683,8 @@ As `OutpostServer.exe` (`OutpostServer.cpp:437`, `:523`, `:731-745`,
    controllers) and loads the stub as its client interface. Its `srand`
    takes the scenario's `seed` instead of `timeGetTime()` (the start-up
    seed, below under "Determinism"), and again after `PlayerDB::init`.
+   The dispatch trace (`dispatch.jsonl`, sim-records.md) records every
+   controller delivery from here on (P3.4a).
    With `comms off` the harness then sets Content's comm clamp
    (`OracleSimSetGcsClamp`).
 4. The load-time rand() recorder starts (`load_rand.jsonl`, below);
@@ -690,7 +720,7 @@ is zero, which only `Oracle.exe sim` changes:
 
 | File | Hook |
 | --- | --- |
-| `Server\IServerImpl.cpp` | `Server_StepSystems` steps `StepSystemId` and no other system; `StarSystem_Update` runs the multiplayer physics and collision pass for that system although it has no player; `IServerImpl::ElapseTime` takes the frame time as its real dt (`OracleSimFixElapsed`); `OracleSimLoadSystem`, a new export; `IServerImpl::Startup`'s `srand` takes `StartupSeed` instead of `timeGetTime()` under the fixed clock, and seeds again after `PlayerDB::init` (2026-11-19); `OracleSimControllerHeartbeats`, a new export (each controller's heartbeat interval and phase) |
+| `Server\IServerImpl.cpp` | `Server_StepSystems` steps `StepSystemId` and no other system; `StarSystem_Update` runs the multiplayer physics and collision pass for that system although it has no player; `IServerImpl::ElapseTime` takes the frame time as its real dt (`OracleSimFixElapsed`); `OracleSimLoadSystem`, a new export; `IServerImpl::Startup`'s `srand` takes `StartupSeed` instead of `timeGetTime()` under the fixed clock, and seeds again after `PlayerDB::init` (2026-11-19); `OracleSimControllerHeartbeats`, a new export (each controller's heartbeat interval and phase); `OracleSimAddPlayer`, a new export (P3.3, a scenario's `player`: the session's slot takes the system and the ship, then `StarSystem::add_player`; the client id stays 0); the registry's three delivery sites (`Server_ControllerDispatch`'s broadcast and targeted arms, the heartbeat walk) report each delivery before the handler (`FOracleSimDeliverScope`, the dispatch trace `dispatch.jsonl`, P3.4a) |
 | `Server\server_gameobject.cpp` | the three timer stamps (`EqObj::update` repair, `apply_damage_list`, `apply_equip_entry`) read `OracleSimTimingRead()`, which is `Timing::read()` unless the clock is fixed; `GameObject::on_collision` reports `CalcCollisionDamage`; `Ship::set_throttle`, `set_axis_throttle`, `set_nudge_vec`, `set_strafe_dir` and `EqObj::slot_34` report the `IObjAffect` call |
 | `Server\server_classes.cpp` | `StarSystem::munition_collision` reports the impact and its damage list; `StarSystem_MpCollisionFilter` takes its single-player branch when asked (`collisions sp`) |
 | `Common\common_physicalsystem.cpp` | `PhysicalSystem::Update` takes the single-player branch when asked |
@@ -704,6 +734,15 @@ is zero, which only `Oracle.exe sim` changes:
 | `Server\server_gameobject.cpp` (P2.5) | `Ship::slot_5c`, `slot_60`, `go_tradelane`, `stop_tradelane` and `EqObj::slot_44` report the `IObjAffect` call; `Ship::request_returned`, `go_tradelane` and `slot_44` report their answers; `request_returned` runs the pending callback at affect depth 0 |
 | `Content\PilotPersonalities.cpp` | `OracleSimPilotPersonality`, a new export (P2.5) that only the `pilot` option calls: `GetPilotPersonality` of a pilot nickname |
 | `Content\Content.cpp` | `OracleSimSetGcsClamp`, a new export (2026-11-19) that only the `comms off` option calls: `ContentSetGcsClampEnabled`, the clamp a mission's `Act_GcsClamp` sets |
+| `Content\oracle_content_tables.cpp` (new), `PilotPersonalities.cpp`, `LootProps.cpp`, `Support.cpp` | `OracleDumpContentTables`, a new export (P3.4b) that only `dump content_tables` calls: Content's static tables as `LoadContentGameTables` left them, one `content_<table>.txt` per table; the three other files write the tables they keep file-static (`OracleContentDumpPilots`, with each pilot's personality from `GetPilotPersonality`, `OracleContentDumpLoot`, `OracleContentDumpToughness`) |
+| `Content\oracle_content_systems.cpp` (new), `Content.vcxproj`, `Oracle\oracle_sim.cpp`, `Oracle\system_loads.txt` (P3.4d) | `OracleDumpContentSystems`, a new export that only `dump content_systems` calls after `dump system_loads`' loads: Content's system records as SpaceSupport's `SystemLoaded` left them (counts, jumps, trade lanes with their attack zones, solar NPCs with their vibes' affiliations), `SaveContentGateLocks`' text, and `FContentPlayerState::Save` and `LoadContentPlayerState` on a synthetic local state; the read-back registers the synthetic player with the gates its text locks, after the gate locks were written, and nothing reaches a player |
+| `Content\oracle_content_dump.cpp` (new), `Content.vcxproj`, `Oracle\oracle_sim.cpp`, `Oracle\mission_scripts.txt` (new) (P3.5a) | `OracleDumpMissionScripts`, a new export that only `dump mission_scripts` calls right after the start-up: it registers a synthetic player 7 in he01 (`ReplaceContentPlayerState`), makes each of the fourteen story missions through `CreateInstance` on a fixed seed and on a controller id no controller has, counts the parse's `rand()` draws, writes every field of its triggers, conditions, actions, sections, objectives and dialogs (the classes told apart by `dynamic_cast`) and destroys it (`DestroyInstance`), emptying `GMissionDialogs` before each mission and at the end and removing the player; nothing reaches a player and no message is sent; with P3.5a2 it also writes the mission object's `[ObjList]` directives (each class and its `pub::AI` op) and `[MetaBehavior]` objects into four more files, also told apart by `dynamic_cast`, through `MissionObjList.h` and `Guides.h` |
+| `Content\oracle_save_dump.cpp` (new), `Content.vcxproj`, `Oracle\oracle_sim.cpp`, `Oracle\mission_saves.txt` (new), `Oracle\mission_save_loads.txt` (new) (P3.5b) | `OracleDumpMissionSaves` and `OracleLoadMissionSaves`, two new exports that only `dump mission_saves` and `dump mission_save_loads` call right after the start-up. Both register player 7 in he01 and make each story mission as `OracleDumpMissionScripts` does. The first writes each mission's `PlayerSave` body without the message's gates (`SaveMissionState`, `SaveMission`, `SaveRandEncs` between the `[MissionState]` and `[BStoryMissionDone]` headers) in three states, setting the members of the advanced and pending states directly (`design/sim-records.md`, mission saves), and a new Story's `PlayerSave`; the second restores the port's saves from the out folder's `rust` folder (`LoadMissionState`, then `LoadMissionSave`, the generator seeded before) into new missions, and six Story saves into one Story through its `PlayerLoad`, and writes what each restored and its save of it. The six clamps a save writes are put back after each mission; the missions are destroyed and the player removed at the end. Nothing reaches a player except a restore's `SetMissionObjectives` to player 7, who has no slot |
+| `Content\oracle_content_tables.cpp`, `BaseDB.cpp` (P3.4c) | `OracleDumpContentTables` also writes the other loaders' tables: the `mBases.ini` records (`OracleContentDumpBases` in `BaseDB.cpp`, whose table is file-static, from fresh records loaded with `FContentBase::Load(nullptr)`, so the live records keep their load counts), the specific NPCs (StoryLauncher's loop into a local table), the three system path tables, and each system's encounter parameters, zones and patrol paths read into a local `FSystemInfo` as `LoadFromReader` reads them, with every ship line's factions and archetypes; nothing it writes reaches the live state |
+| `Oracle\oracle_sim.cpp`, `Oracle\scenarios\dock_at_station.txt` (P3.6a) | The "at least one object" check of `LoadScenario` exempts every object-less dump session (`system_loads`, `content_tables`, `content_systems`, `mission_scripts`, `mission_saves`, `mission_save_loads`; `content_systems` was not listed); `dock_at_station` gains the comment `# rust: server SpaceSupport answers the dock request`, which the parser skips |
+| `Content\oracle_content_npc.cpp` (new), `Content.vcxproj`, `Oracle\oracle_sim.cpp`, `Oracle\scenarios\content_follow.txt`, `content_guide.txt`, `content_flee.txt` (new) (P3.6c) | `OracleSimCreateNpcShip`, a new export that only a scenario's `content` ship calls: `FSystemInfo::CreateNpcShip` with a parameter block of the ship's archetype, loadout, place, hit points, state graph (`LEADER`) and personality, owned by SpaceSupport, whose reputation handle holds the vibe of the ship's `faction` (a handle class of the export's own that frees nothing), and with `flee X Y Z DISTANCE` `FContentNpcShip::SetFleePosition`. `oracle_sim.cpp` parses the two options (`content` needs `ai` and `faction`, which the NPC ship's constructor reads the properties of, and takes no `escort`; `flee` needs `content`) and spawns such a ship through the export instead of `pub::SpaceObj::Create` and `SubmitState`. The three scenarios are `follow`, `guide` and `skirmish` with one ship made by Content; each carries `# rust: server`, so only `scenario_hooks` runs it |
+| `Content\oracle_random_missions.cpp`, `Oracle\oracle_sim.cpp`, `Oracle\random_mission_saves.txt` (new), `Oracle\random_mission_save_loads.txt` (new) (P3.7c) | `OracleDumpRandomMissionSaves` and `OracleLoadRandomMissionSaves`, two new exports in P3.7a's file that only `dump random_mission_saves` and `dump random_mission_save_loads` call right after the start-up. The first registers player 7 and, for each base of P3.7a's list, loads the base (`FContentBase::Load`), runs `BuildMissionVendorOffers` into a local visit and `ClearMissionVendorOffers`, unloads the base, and runs `CreateBarMissionOffer` per faction with a mission type, each with the generator seeded first; it saves each mission as a `DestroyMission` controller's `PlayerSave` writes it and loads every save again with a new loader. The second loads the port's saves from the output folder's `rust` folder. Nothing reaches a player but `ReportWhyMissionVendorEmpty` and the vendor records' `MissionVendorOfferCreate` and `Destroy` for player 7, who has no slot; the objective zones are emptied and the player removed at the end. The session's object-less exemption lists both |
+| `Content\MissionScript.h`, `Content\MissionScript.cpp`, `Content\oracle_mission_trace.cpp` (new), `Content.vcxproj`, `Oracle\oracle_sim.cpp`, `Oracle\mission_trace.txt` (new) (P3.5c1) | `GOracleMissionTraceHook`, a hook the trigger engine calls when it activates, fires, rearms or deactivates a trigger, runs an action from a trigger or from the timer list, and applies a new mission state; null in a game run. `OracleDumpMissionTrace`, a new export that only `dump mission_trace` calls after the start-up and the scenario's system load: it registers a synthetic player 7 in `RELAYSEVEN_system` without a ship, makes `Mission_01a` as `OracleDumpMissionScripts` makes its missions, sets the hook, hands the mission `MissionStart`, 900 heartbeats of 1/30 s and the session's scripted `SpaceEnter`, `CommComplete`, `SpaceExit` and `BaseEnter` through `IDLL::HandleMessage`, and writes the records as `mission.jsonl`; the mission is destroyed, the clamps its actions set are put back and the player removed at the end. The mission's controller id is none the bus knows, so nothing the actions send reaches it. The session's object-less exemption lists it |
 
 `srand`, the frame time and the control words need no hook: the harness
 runs the frame loop itself.
@@ -760,7 +799,15 @@ place of `ram_asteroid` (owner, 2026-11-18); the escort scenarios of P2.5,
 `formation`, `follow`, `guide` and `large_ship`; and the dock scenarios of P2.5,
 `dock_trade_lane`, `launch_from_station` and `trade_lane`. A line
 `# rust: skip <reason>` tells `scenario_replay` that the Rust world cannot
-run the scenario yet.
+run the scenario yet; a line `# rust: server <reason>` that the scenario
+needs the server's answers, so only `game-logic`'s `scenario_hooks` runs
+it, with the AI's requests to the server (P3.3, the trade lanes; P3.6a,
+`dock_at_station`; P3.6c, the `content` scenarios). Since P3.6a every
+scenario there runs on the oracle's start-up, with Content's GameSupport,
+SpaceSupport and BaseSupport. A ship line's `content` option (P3.6c) makes
+the ship Content's NPC ship (`OracleSimCreateNpcShip`, with `ai` and
+`faction`), and `flee X Y Z DISTANCE` gives it a flee position:
+`content_follow`, `content_guide` and `content_flee`.
 
 | Line | Meaning |
 | --- | --- |
@@ -770,11 +817,21 @@ run the scenario yet.
 | `stepping sp\|mp` | default `mp` |
 | `collisions sp\|mp` | default `mp`; `sp` makes the server's collision filter take its single-player branch (below) |
 | `comms on\|off` | default `on`; `off` sets Content's comm clamp before the load, so `IsGcsCommAllowed` refuses every comm before its `rand()` roll (owner, 2026-11-19; record 0003: the G2 fights run with comms off) |
+| `dump content_systems` | with `dump system_loads` (P3.4d, `CppSource\Oracle\system_loads.txt`): after every system has loaded, Content.dll's `OracleDumpContentSystems` writes its system records, gate locks and a synthetic `[mPlayer]` into the output folder as `content_<table>.txt` |
+| `dump mission_scripts` | (P3.5a, `CppSource\Oracle\mission_scripts.txt`): right after the start-up, Content.dll's `OracleDumpMissionScripts` writes the fourteen story missions' parse into the output folder as `mission_<table>.txt`; no system loads and the run ends |
+| `dump mission_saves` | (P3.5b, `CppSource\Oracle\mission_saves.txt`): right after the start-up, Content.dll's `OracleDumpMissionSaves` writes the save sections of the fourteen story missions in three states and Story's into the output folder as `save_<mission>_<state>.ini` and `story_constructed.ini`; no system loads and the run ends |
+| `dump mission_save_loads` | (P3.5b, `CppSource\Oracle\mission_save_loads.txt`): right after the start-up, Content.dll's `OracleLoadMissionSaves` restores the saves the port wrote into the output folder's `rust` folder and writes `loaded_<mission>_<state>.txt` and `story_loaded_<n>.txt`; the run fails (exit code 3) when a save is missing. The data job writes the port's saves first and compares after (below, "Rust saves loaded by the C++ build") |
+| `dump random_mission_saves` | (P3.7c, `CppSource\Oracle\random_mission_saves.txt`): right after the start-up, Content.dll's `OracleDumpRandomMissionSaves` makes random missions through the vendor and bar offers of a fixed list of bases, writes their `[RandomMission]` sections as `rmsave_<n>.ini` and the offers as `rms_offers.txt`, and loads every save again into `rmload_<table>.txt`; no system loads and the run ends |
+| `dump random_mission_save_loads` | (P3.7c, `CppSource\Oracle\random_mission_save_loads.txt`): right after the start-up, Content.dll's `OracleLoadRandomMissionSaves` loads the `[RandomMission]` saves the port wrote into the output folder's `rust` folder and writes the rebuilt offers as `rmload_<table>.txt`. The data job writes the port's saves first and compares after (below, "Rust saves loaded by the C++ build") |
+| `dump mission_trace` | (P3.5c1, `CppSource\Oracle\mission_trace.txt`): after the start-up and the scenario's system load, Content.dll's `OracleDumpMissionTrace` runs `Mission_01a`'s opening for a synthetic player and writes its trigger engine's records into the output folder as `mission.jsonl`; the run ends |
+| `dump content_tables` | not a scenario (P3.4b, `CppSource\Oracle\content_tables.txt`): right after the server starts, Content.dll's `OracleDumpContentTables` writes its static tables into the output folder as `content_<table>.txt`, and the run ends; no system loads. P3.4c adds the other loaders' twelve tables to the same run |
 | `seed <n>` | `srand` after start-up; default `0x4f524143`; also the start-up seed |
 | `clock <seconds>` | the fixed clock at tick 0; default 1000 |
 | `ship <name> <archetype> <loadout\|-> <x> <y> <z> [options]` | spawn a ship; options: `heading <degrees>` (about +Y; 0 faces −Z, 90 faces −X), `orient <9 numbers>` (row-major), `vel <x y z>`, `angvel <x y z>`, `ai <state graph>` (e.g. `FIGHTER`; without it the ship has no behaviour and keeps the commands it is given), `escort` (with `ai`: the graph's escort variant, `get_state_graph(name, ESCORT)`, as Content's `ResetFormationState` gives a wingman; without it the leader variant), `pilot <nickname>` (with `ai`: the personality of a `[Pilot]` of `missions\pilots_population.ini` or `pilots_story.ini`, as Content gives an NPC ship of an `npcships.ini` entry, without a job; without it the default personality), `faction <group>` (a reputation affiliated with a group of `initialworld.ini`, e.g. `he_p_grp`; without it none), `hp <n>` (default −1, the archetype's), `psi` (record its PSIs) |
 | `solar <name> <nickname> [psi]` | a system object of the loaded system |
 | `at <ticks> <name> <command> [arguments]` | `<ticks>` is `t`, `a..b` or `a..b/step` (ticks from 1) |
+| `player <session> <ship>` | (P3.3, decision record 0007 point 11) after the objects are spawned, session 1 to 16 joins the system with the ship, named before the line, as its own (`OracleSimAddPlayer`): its observer follows the ship and its packets are tick 0's; no login, no client id, so no other session or controller hears of it |
+| `dump replication` | (P3.3) SimClientStub also writes the packets of the replication comparison each client receives to `replication.jsonl`, from the players' join on (`SimClientStubRecordReplication`) |
 
 Commands. The first five call the ship's `IObjAffect` as the AI does; the
 directives go through `pub::AI::SubmitDirective`, each after a
@@ -838,9 +895,10 @@ trial run).
 The dock scenarios (P2.5). In `dock_at_station` the fighter's dock
 behaviour (7) flies the approach through the goto behaviour to within
 1000 m of `he01_11` (ticks 1 to 349), asks for a port at tick 354
-(`slot_5c` type 0) and is refused (response 5, port -1: the ship has no
-reputation), so the directive ends with result 2 and the ship idles; no
-docking point is reached. `dock_trade_lane` has the fighter dock with
+(`slot_5c` type 0) and is refused (response 5, port -1: SpaceSupport's
+`TryStartDocking` answers 5 for a ship its system record does not know,
+and the harness's ships are none of Content's), so the directive ends with
+result 2 and the ship idles; no docking point is reached. `dock_trade_lane` has the fighter dock with
 trade lane ring 16 as NPC traffic enters a lane: the lane start
 (`get_lane_start`), the approach, the lane request at tick 222 (type 2,
 granted at once), the ring's spline, the lane at tick 588 and the lane's
@@ -848,8 +906,14 @@ end at tick 1188. `launch_from_station` launches the fighter from the
 station's first berth (behaviour 8, ticks 1 to 277). `trade_lane` puts the
 fighter into the lane from ring 16 to ring 18 with the instant trade lane
 (behaviour 9, `go_tradelane` at tick 12). The lane scenarios record no
-PSIs: in the lane the ship moves by `CShip`'s `LaneAction`, which the port
-does not have yet.
+PSIs: in the lane the ship moves by `CShip`'s `LaneAction`. Since P3.3's
+trade lanes both run through the server's hooks (`# rust: server`): the
+lane request is SpaceSupport's to answer, and the server's
+`notify_stop_tradelane` ends the instant trade lane's directive. Since P3.6a `dock_at_station` runs through the server's hooks too: its
+dock request is answered by SpaceSupport's dock queues
+(`game-logic::content::dock_queues`), and every scenario of
+`scenario_hooks` runs on the oracle's start-up (GameSupport, SpaceSupport
+and BaseSupport, then `LoadGame`).
 
 The escort scenarios (P2.5) reach the behaviours no fight does.
 `formation` is a leader and two wingmen of `formations.ini`'s
@@ -888,7 +952,9 @@ notes.
 load-time draws `load_rand.jsonl` with its summary `load_rand.txt`, and
 the simulation units of the first PSIs, `units.jsonl`, since P2.4's
 remainder the asteroid cubes `asteroids.jsonl` and the docking points
-`dock.jsonl` (`oracle_sim_fields.cpp`; sim-records.md); the stub's `iclient.jsonl` and `controller.jsonl`;
+`dock.jsonl` (`oracle_sim_fields.cpp`; sim-records.md); the stub's `iclient.jsonl` and `controller.jsonl`,
+and with `dump replication` its `replication.jsonl` (P3.3: `CppSource\Oracle\replication.txt`,
+which the data job runs twice into `outpost-replication\replication\run_NN`);
 `server.ini`, `fdump.txt`, `metrics.txt`. The rand() recorder
 (`oracle_sim_rand.cpp`) replaces the `rand` import of every module bound
 to the universal CRT's `rand` (`Common.dll`, `Server.dll`, `Content.dll`

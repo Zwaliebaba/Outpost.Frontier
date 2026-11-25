@@ -13,6 +13,7 @@
 #include "ContentStaticIds.h"
 #include "common_ini.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <map>
@@ -1368,4 +1369,64 @@ extern "C" __declspec(dllexport) bool __cdecl OracleSimPilotPersonality(char con
         return false;
     unsigned int PilotId = CreateID(Pilot);
     return GetPilotPersonality(&PilotId, OutPersonality);
+}
+
+
+// Oracle instrumentation (P3.4b, decision record 0008 point 5): the pilot lines of
+// OracleDumpContentTables (oracle_content_tables.cpp), whose tables are file-static here.
+// Each [Pilot] in key order: its id, its references (inherit, then the fifteen blocks and
+// the job, in FPilotRefs order), and the personality OracleSimPilotPersonality gives for
+// the pilot's nickname (GetPilotPersonality of its id, over a default personality), as its
+// bytes. Then one line per block table with its ids in key order. Returns the lines
+// written. No game module calls it.
+namespace
+{
+    template <typename TMap>
+    int OracleContentDumpBlockIds(FILE* Out, char const* Kind, TMap const& Map)
+    {
+        fprintf(Out, "blocks=%s ids=", Kind);
+        for (typename TMap::const_iterator It = Map.begin(); It != Map.end(); ++It)
+            fprintf(Out, "%s%u", It == Map.begin() ? "" : ",", It->first);
+        fprintf(Out, "\n");
+        return 1;
+    }
+}
+
+int __cdecl OracleContentDumpPilots(FILE* Out)
+{
+    int Lines = 0;
+    for (std::map<unsigned int, FPilotRefs>::const_iterator It = GPilots.begin(); It != GPilots.end(); ++It)
+    {
+        FPilotRefs const& R = It->second;
+        fprintf(Out, "pilot=%u refs=%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u", It->first, R.Inherit.Id,
+                R.EvadeDodge.Id, R.EvadeBreak.Id, R.BuzzHeadToward.Id, R.BuzzPassBy.Id, R.Trail.Id, R.Strafe.Id,
+                R.EngineKill.Id, R.Repair.Id, R.Gun.Id, R.Mine.Id, R.Missile.Id, R.DamageReaction.Id,
+                R.MissileReaction.Id, R.Countermeasure.Id, R.Formation.Id, R.Job.Id);
+        FPersonality Filled;
+        unsigned int PilotId = It->first;
+        bool const bFound = GetPilotPersonality(&PilotId, &Filled);
+        fprintf(Out, " found=%d personality=", bFound ? 1 : 0);
+        unsigned char const* Bytes = reinterpret_cast<unsigned char const*>(&Filled);
+        for (size_t Index = 0; Index < sizeof(Filled); ++Index)
+            fprintf(Out, "%02x", Bytes[Index]);
+        fprintf(Out, "\n");
+        ++Lines;
+    }
+    Lines += OracleContentDumpBlockIds(Out, "evade_dodge", GEvadeDodgeBlocks);
+    Lines += OracleContentDumpBlockIds(Out, "evade_break", GEvadeBreakBlocks);
+    Lines += OracleContentDumpBlockIds(Out, "buzz_head_toward", GBuzzHeadTowardBlocks);
+    Lines += OracleContentDumpBlockIds(Out, "buzz_pass_by", GBuzzPassByBlocks);
+    Lines += OracleContentDumpBlockIds(Out, "trail", GTrailBlocks);
+    Lines += OracleContentDumpBlockIds(Out, "strafe", GStrafeBlocks);
+    Lines += OracleContentDumpBlockIds(Out, "engine_kill", GEngineKillBlocks);
+    Lines += OracleContentDumpBlockIds(Out, "repair", GRepairBlocks);
+    Lines += OracleContentDumpBlockIds(Out, "gun", GGunBlocks);
+    Lines += OracleContentDumpBlockIds(Out, "mine", GMineBlocks);
+    Lines += OracleContentDumpBlockIds(Out, "missile", GMissileBlocks);
+    Lines += OracleContentDumpBlockIds(Out, "damage_reaction", GDamageReactionBlocks);
+    Lines += OracleContentDumpBlockIds(Out, "missile_reaction", GMissileReactionBlocks);
+    Lines += OracleContentDumpBlockIds(Out, "countermeasure", GCountermeasureBlocks);
+    Lines += OracleContentDumpBlockIds(Out, "formation", GFormationBlocks);
+    Lines += OracleContentDumpBlockIds(Out, "job", GJobBlocks);
+    return Lines;
 }

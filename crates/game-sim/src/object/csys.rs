@@ -1,5 +1,7 @@
 //! Frame helpers of Common the object model uses: `LookMatrix`
-//! (`common_csys.cpp:207`), `RandomVector` (`common_misc.cpp:481`) and
+//! (`common_csys.cpp:207`), `RandomVector` (`common_misc.cpp:481`),
+//! `random_inside_sphere` (`common_misc.cpp:527`), `random_inside_ring`
+//! (`common_misc.cpp:601`) and
 //! `RotateWorldToObjectSpace` (`common_cobject_internal.h`).
 
 use neuron_core::math::{Matrix, Vector, transpose_transform};
@@ -63,6 +65,52 @@ pub fn random_vector(radius: f32, rng: &mut CrtRand) -> Vector {
     Vector::new(r(e(x) * scale), r(e(y) * scale), r(scale * z))
 }
 
+/// `random_inside_sphere(radius)` (`Common/common_misc.cpp:527`): three
+/// draws; the radius is `u1^(1/3) * radius` (stored), `cos(theta) = 2 u2 -
+/// 1` (stored; the sine is taken of the unrounded value's arc cosine),
+/// `phi = u3 * 2 pi`, and the result `(sin(phi) S, cos(theta) R', cos(phi)
+/// S)` with `S = sin(theta) R'` stored.
+#[must_use]
+pub fn random_inside_sphere(radius: f32, rng: &mut CrtRand) -> Vector {
+    // `GRandUnitScale` (1/32768) and `GRandTwoPi` (2 pi rounded through a
+    // float).
+    const UNIT: f64 = 3.051_757_812_5e-5;
+    const TWO_PI: f64 = 6.283_185_482_025_146_5;
+    let u1 = f64::from(rng.rand()) * UNIT;
+    let scaled = r(u1.powf(1.0 / 3.0) * e(radius));
+    let cos_raw = f64::from(rng.rand()) * UNIT * 2.0 - 1.0;
+    let cos_theta = r(cos_raw);
+    let sin_scaled = r(cos_raw.acos().sin() * e(scaled));
+    let phi = f64::from(rng.rand()) * UNIT * TWO_PI;
+    Vector::new(
+        r(phi.sin() * e(sin_scaled)),
+        r(e(cos_theta) * e(scaled)),
+        r(phi.cos() * e(sin_scaled)),
+    )
+}
+
+/// `random_inside_ring(outer, inner, half_height)`
+/// (`Common/common_misc.cpp:601`): three draws; the radius
+/// `sqrt(u1) * (outer - inner) + inner` (stored), the height
+/// `(h - (-h)) * u2 + (-h)` and `phi = u3 * 2 pi`; the result
+/// `(sin(phi) R, height, cos(phi) R)` around the y axis. The x87 `FSIN` and
+/// `FCOS` are `f64`'s (D879).
+#[must_use]
+pub fn random_inside_ring(outer: f32, inner: f32, half_height: f32, rng: &mut CrtRand) -> Vector {
+    const UNIT: f64 = 3.051_757_812_5e-5;
+    const TWO_PI: f64 = 6.283_185_482_025_146_5;
+    let u1 = f64::from(rng.rand()) * UNIT;
+    let scaled = r(u1.sqrt() * (e(outer) - e(inner)) + e(inner));
+    let neg_half = -half_height;
+    let t = f64::from(rng.rand()) * UNIT;
+    let phi = f64::from(rng.rand()) * UNIT * TWO_PI;
+    Vector::new(
+        r(phi.sin() * e(scaled)),
+        r((e(half_height) - e(neg_half)) * t + e(neg_half)),
+        r(phi.cos() * e(scaled)),
+    )
+}
+
 /// `RotateWorldToObjectSpace(orientation, v)`: the transposed orientation
 /// applied to `v` (`TransformMatrix` of the transpose).
 #[must_use]
@@ -82,6 +130,20 @@ mod tests {
         assert_eq!((m.m[0][2], m.m[1][2], m.m[2][2]), (-1.0, 0.0, 0.0));
         let degenerate = look_matrix(Vector::ZERO);
         assert_eq!(degenerate.m[0][2], 1.0);
+    }
+
+    #[test]
+    fn random_inside_sphere_draws_three_and_stays_inside() {
+        let mut rng = CrtRand::with_seed(7);
+        let mut copy = rng.clone();
+        let v = random_inside_sphere(5.0, &mut rng);
+        for _ in 0..3 {
+            let _ = copy.rand();
+        }
+        assert_eq!(rng, copy);
+        let len = (e(v.x) * e(v.x) + e(v.y) * e(v.y) + e(v.z) * e(v.z)).sqrt();
+        assert!(len <= 5.0 + 1e-5, "{len}");
+        assert_eq!(random_inside_sphere(0.0, &mut rng), Vector::ZERO);
     }
 
     #[test]

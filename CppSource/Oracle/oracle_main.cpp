@@ -161,6 +161,29 @@ namespace
         }
     }
 
+    // P3.5b: "%.*f" at the precisions the saves use (fprintf "%f" is precision 6) and around
+    // them, as the Universal C Runtime prints them.
+    void FormatF()
+    {
+        Suite Out("format_f.jsonl");
+        for (const std::string& Line : InputLines("format_f.hex"))
+        {
+            const unsigned long long Bits = _strtoui64(Line.c_str(), nullptr, 16);
+            double Value;
+            memcpy(&Value, &Bits, sizeof(Value));
+            static char F[7][0x200];
+            const int Precisions[7] = {0, 1, 2, 3, 6, 9, 17};
+            for (int Index = 0; Index < 7; ++Index)
+                sprintf_s(F[Index], sizeof(F[Index]), "%.*f", Precisions[Index], Value);
+            std::string Text = "{\"bits\":\"" + Line + "\"";
+            const char* const Keys[7] = {"f0", "f1", "f2", "f3", "f6", "f9", "f17"};
+            for (int Index = 0; Index < 7; ++Index)
+                Text += std::string(",\"") + Keys[Index] + "\":\"" + F[Index] + "\"";
+            Text += "}";
+            Out.Line(Text);
+        }
+    }
+
     void Rand()
     {
         Suite Out("rand.jsonl");
@@ -576,6 +599,7 @@ int main(int Argc, char** Argv)
     Fields();
     Wide();
     Doubles();
+    FormatF();
     Rand();
     EngineIni();
     IniReader();

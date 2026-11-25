@@ -4,6 +4,8 @@
 # station answers through Content.dll's SpaceSupport; a completed dock is a "dock"
 # event (events.jsonl). Multiplayer stepping.
 
+# rust: server SpaceSupport answers the dock request
+
 system he01
 ticks 2700
 stepping mp

@@ -39,6 +39,20 @@
 
 I3DMathEngine* GTriggerMathEngine = nullptr;
 
+// Oracle instrumentation (P3.5c1; see MissionScript.h): null in a game run.
+FOracleMissionTraceHook GOracleMissionTraceHook = nullptr;
+
+namespace
+{
+    // One trace record, when the harness set the hook.
+    void OracleMissionTrace(EOracleMissionTrace Kind, FMissionScript const* Script,
+                            unsigned int TriggerId, unsigned int A, int B, Act const* Action)
+    {
+        if (GOracleMissionTraceHook != nullptr)
+            GOracleMissionTraceHook(Kind, Script, TriggerId, A, B, Action);
+    }
+}
+
 // (see MissionScript.h).
 unsigned char GMissionScanClamp = 0;
 
@@ -337,6 +351,7 @@ void LoadMissionTriggerSection(FMissionScript* Script, INI_Reader* Reader)
 void RearmTrigger(FTrigger* Trigger)
 {
     Trigger->State = G_TriggerStateActive;
+    OracleMissionTrace(OracleMissionTraceRearm, Trigger->Mission, Trigger->Id, 0, 0, nullptr);
     if (Trigger->Condition != nullptr)
         Trigger->Condition->OnActivate();
 }
@@ -375,6 +390,7 @@ void ActivateMissionTrigger(FMissionScript* Script, unsigned int const* TriggerI
 
     FTrigger& Trigger = Found->second;
     Trigger.State = G_TriggerStateActive;
+    OracleMissionTrace(OracleMissionTraceActivate, Script, Trigger.Id, 0, 0, nullptr);
     if (Trigger.Condition != nullptr)
         Trigger.Condition->OnActivate();
 
@@ -384,13 +400,18 @@ void ActivateMissionTrigger(FMissionScript* Script, unsigned int const* TriggerI
         Trigger.Condition->Matches(static_cast<EMessage>(-1), nullptr))
     {
         Trigger.State = G_TriggerStateComplete;
+        OracleMissionTrace(OracleMissionTraceFire, Script, Trigger.Id, 0xffffffffu, 0, nullptr);
         std::list<Act*>::iterator ActIt = Trigger.Actions.begin();
-        for (; ActIt != Trigger.Actions.end(); ++ActIt)
+        for (unsigned int ActIndex = 0; ActIt != Trigger.Actions.end(); ++ActIt, ++ActIndex)
+        {
+            OracleMissionTrace(OracleMissionTraceAction, Script, Trigger.Id, ActIndex, 0, *ActIt);
             (*ActIt)->Execute();
+        }
         // inline copy of the routine.
         if (Trigger.bRepeatable != 0)
         {
             Trigger.State = G_TriggerStateActive;
+            OracleMissionTrace(OracleMissionTraceRearm, Script, Trigger.Id, 0, 0, nullptr);
             if (Trigger.Condition != nullptr)
                 Trigger.Condition->OnActivate();
         }
@@ -414,6 +435,7 @@ void DeactivateMissionTrigger(FMissionScript* Script, unsigned int const* Trigge
         {
             Trigger.State = G_TriggerStateInactive;
             Script->ActiveTriggers.erase(ActiveIt);
+            OracleMissionTrace(OracleMissionTraceDeactivate, Script, *TriggerId, 0, 0, nullptr);
             break;
         }
     }
@@ -456,9 +478,14 @@ void DispatchMissionTriggerEvent(FMissionScript* Script, EMessage const* EventId
             if (Trigger.Condition->Matches(*EventId, EventParms))
             {
                 Trigger.State = G_TriggerStateComplete;
+                OracleMissionTrace(OracleMissionTraceFire, Script, Trigger.Id,
+                                   static_cast<unsigned int>(*EventId), 0, nullptr);
                 std::list<Act*>::iterator ActIt = Trigger.Actions.begin();
-                for (; ActIt != Trigger.Actions.end(); ++ActIt)
+                for (unsigned int ActIndex = 0; ActIt != Trigger.Actions.end(); ++ActIt, ++ActIndex)
+                {
+                    OracleMissionTrace(OracleMissionTraceAction, Script, Trigger.Id, ActIndex, 0, *ActIt);
                     (*ActIt)->Execute();
+                }
                 if (Trigger.bRepeatable != 0)
                     RearmTrigger(&Trigger);
             }
@@ -497,7 +524,11 @@ void TickMissionTimers(FMissionScript* Script, float DeltaSeconds)
         if (It->Remaining <= 0.0f)
         {
             if (It->Action != nullptr)
+            {
+                OracleMissionTrace(OracleMissionTraceTimer, Script, It->Action->TriggerId, 0, 0,
+                                   It->Action);
                 It->Action->Execute();
+            }
             It = Script->Timers.erase(It);
             continue;
         }
@@ -817,7 +848,10 @@ void FMissionScript::ApplyDesiredMissionState()
     int Desired = MissionState;
     if (Desired == PreviousMissionState)
         return;
+    int const OraclePrevious = PreviousMissionState;
     PreviousMissionState = Desired;
+    OracleMissionTrace(OracleMissionTraceState, this, 0, static_cast<unsigned int>(OraclePrevious),
+                       Desired, nullptr);
     if (Desired == G_MissionStateFail)
     {
         OnMissionFail();

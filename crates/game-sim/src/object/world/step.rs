@@ -41,7 +41,12 @@ pub(crate) fn run_controller(
     };
     let flight = &mut ship.flight;
     match which {
-        ControllerRef::Ship | ControllerRef::Guided => {}
+        ControllerRef::Ship
+        | ControllerRef::Guided
+        | ControllerRef::Mine
+        | ControllerRef::JumpIn
+        | ControllerRef::Launch
+        | ControllerRef::Lane => {}
         ControllerRef::Steering => {
             steering_controller(&flight.steering, &flight.arch, &orientation, dt, pusher);
         }
@@ -118,6 +123,22 @@ impl ControllerHost for Host<'_> {
             super::guided::guided_controller(obj, mass, dt, context);
             return;
         }
+        if which == ControllerRef::Mine {
+            super::mine::mine_controller(obj, dt, context);
+            return;
+        }
+        if which == ControllerRef::JumpIn {
+            super::jump::jump_in_controller(obj, dt, context);
+            return;
+        }
+        if which == ControllerRef::Launch {
+            super::launch_action::launch_controller(obj, dt, context);
+            return;
+        }
+        if which == ControllerRef::Lane {
+            super::lane_action::lane_controller(obj, dt, context);
+            return;
+        }
         run_controller(obj, which, self.consts, dt, context);
     }
 }
@@ -176,8 +197,22 @@ pub enum HitRule {
 /// A request the AI made of the server through `IObjAffect`, which the
 /// world hands to [`ServerHooks::server_requests`] after the behaviour
 /// tick that made it (the reference runs it inside the tick, D622).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ServerRequest {
+    /// `EqObj::slot_34(Ids, Count, Target, -1)` from the AI: the world
+    /// fired the guns inside the tick ([`World::fire`]); the server's part
+    /// of the shot (the wrappers' fire counts, the missiles' wrappers and
+    /// creates, the fire notice) follows.
+    Fired {
+        /// The shooter.
+        ship: ObjHandle,
+        /// The aim point (`None`: each gun fired forward).
+        aim: Option<Vector>,
+        /// Each gun's result, in the request's order.
+        results: Vec<(crate::equip::SubObjId, crate::equip::launcher::FireResult)>,
+        /// The guided munitions the shot made, with their gun.
+        guided: Vec<(crate::equip::SubObjId, ObjHandle)>,
+    },
     /// `slot_5c(Kind, &Target, &Second, Flag, Callback)` (`Ship::slot_5c`):
     /// a dock (0), formation (1) or trade-lane (2) request with the
     /// requesting behaviour as the callback.
@@ -204,6 +239,88 @@ pub enum ServerRequest {
         target: u32,
         /// `Arg3`.
         arg: i32,
+    },
+    /// `go_tradelane(Entrance, Exit, bFastExit, Speed)` (`Ship::
+    /// go_tradelane`, IObjAffect slot 25) from the AI: the world made the
+    /// ship's `LaneAction` (`CShip::go_tradelane`); the server's
+    /// `notify_go_tradelane` follows (D730).
+    GoTradeLane {
+        /// The ship.
+        ship: ObjHandle,
+        /// The entrance ring's id.
+        entrance: u32,
+        /// The exit ring's id (0 for none).
+        exit: u32,
+        /// `bFastExit`.
+        fast_exit: bool,
+        /// The speed.
+        speed: f32,
+    },
+    /// A change the AI made through the server's wrapper that the
+    /// players are told of (`Ship::set_target`, `EqObj::slot_44`,
+    /// `Ship::slot_50`, `slot_54`, `EqObj::slot_4c`): the world made it
+    /// inside the tick; the server's `notify_*` follows (D857).
+    Changed {
+        /// The ship.
+        ship: ObjHandle,
+        /// The change.
+        change: AiChange,
+    },
+    /// A report of the ship's behaviour manager to its content callback
+    /// (`pub::AI::ContentCallback`, by the owner's handle, D710), in the
+    /// order the tick made it among the requests (record 0008 point 4).
+    Content {
+        /// The ship.
+        ship: ObjHandle,
+        /// The content callback's handle.
+        handle: u32,
+        /// The report.
+        event: crate::ai::content::CombatEvent,
+    },
+    /// `stop_tradelane()` (`Ship::stop_tradelane`, IObjAffect slot 26) of
+    /// the ship, from the AI or from its `LaneAction`'s end: the world ran
+    /// `CShip::stop_tradelane` and read the rings
+    /// (`get_tradelane_entrance_ring`, `get_tradelane_exit_ring`); the
+    /// server's `notify_stop_tradelane` follows (D730).
+    StopTradeLane {
+        /// The ship.
+        ship: ObjHandle,
+        /// The entrance ring's id.
+        entrance: u32,
+        /// What `get_tradelane_exit_ring` answers (the current leg's first
+        /// ring, as the reference reads it).
+        exit: u32,
+    },
+}
+
+/// A change of [`ServerRequest::Changed`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AiChange {
+    /// `notify_set_target(Id, Equip, Target, SubTarget, 0)`: the ship's
+    /// target (`equip` `SUBOBJ_ID_NONE`) or a gun's.
+    Target {
+        /// The sub-object (`SUBOBJ_ID_NONE` for the ship).
+        equip: crate::equip::SubObjId,
+        /// The target.
+        target: Option<ObjHandle>,
+        /// The sub-target.
+        sub_target: crate::equip::SubObjId,
+    },
+    /// `notify_cruise(Id, bEngage, bArg2, 0)`.
+    Cruise {
+        /// `bEngage`.
+        engage: bool,
+        /// `bArg2`.
+        instant: bool,
+    },
+    /// `notify_thrusters(Id, bActivate, 0)`.
+    Thrusters(bool),
+    /// `notify_activate_equip(Id, Equip, bActivate, 0)`.
+    Equip {
+        /// The item.
+        equip: crate::equip::SubObjId,
+        /// `bActivate`.
+        on: bool,
     },
 }
 
@@ -317,6 +434,105 @@ pub trait ServerHooks {
         let _ = (world, requests);
     }
 
+    /// The answer of the content callback `handle` of `ship`'s manager to
+    /// `request_flee_destination` (`None` for false), asked right before
+    /// the ship's behaviour tick for the flee that may start in it (record
+    /// 0008 point 4): it must not change the server's state, which the
+    /// request itself changes after the tick (`ServerRequest::Content`).
+    /// `None` without a server.
+    fn content_answer(
+        &mut self,
+        world: &mut World,
+        ship: ObjHandle,
+        handle: u32,
+    ) -> Option<crate::ai::content::FleeAnswer> {
+        let _ = (world, ship, handle);
+        None
+    }
+
+    /// `NotifyDirectiveCallbacks` for a directive callback of the server's
+    /// (a handle of the manager's five slots other than the launch
+    /// action's, D710): `OnDirectiveComplete(Word11c, Word118)` after the
+    /// ship's behaviour tick that reported it (D194). Nothing without a
+    /// server.
+    fn directive_complete(
+        &mut self,
+        world: &mut World,
+        ship: ObjHandle,
+        handle: u32,
+        result: (i32, i32),
+    ) {
+        let _ = (world, ship, handle, result);
+    }
+
+    /// A phantom's enter or leave event that no object of the world claims
+    /// (`CObjectCB::added`, `deleted` of a server wrapper's phantom: a
+    /// mine's). Nothing without a server, which makes no such phantom.
+    fn phantom_event(
+        &mut self,
+        world: &mut World,
+        system: u32,
+        event: &neuron_core::physics::PhantomEvent,
+    ) {
+        let _ = (world, system, event);
+    }
+
+    /// The server's PvP gate (`GbAllowPvp`) on damage that `inflictor` (the
+    /// object the caller found for the inflictor's id, none when it found
+    /// none) deals to `target`: `StarSystem::explode`'s damage pass,
+    /// `munition_collision` and `collision_damage` skip the target when it
+    /// answers true. False without a server.
+    fn pvp_blocked(
+        &mut self,
+        world: &World,
+        inflictor: Option<ObjHandle>,
+        target: ObjHandle,
+    ) -> bool {
+        let _ = (world, inflictor, target);
+        false
+    }
+
+    /// An event `object`'s item `equip` tells its listeners (`INotify`),
+    /// which the server's equipment wrappers hear (`ServerEquip::notify`):
+    /// a counter-measure dropper's [`crate::equip::EquipEvent::IncomingMissile`]
+    /// as it is raised, the events of the equipment pass after it, those
+    /// the controllers raise in the physics step after the step. Nothing
+    /// without a server, which has no wrappers.
+    fn equip_event(
+        &mut self,
+        world: &mut World,
+        object: ObjHandle,
+        equip: crate::equip::SubObjId,
+        event: crate::equip::EquipEvent,
+    ) {
+        let _ = (world, object, equip, event);
+    }
+
+    /// Whether `EqObj::apply_equip_entry`'s cargo rule applies to
+    /// `object`'s stacks: an entry of exactly 0 hit points on a stack of
+    /// more than one unit takes one unit off (`RemoveFromStack(1)`, the
+    /// next unit whole) instead of setting the hit points. False without
+    /// a server.
+    fn cargo_stack_rule(&mut self, world: &World, object: ObjHandle) -> bool {
+        let _ = (world, object);
+        false
+    }
+
+    /// `StarSystem_UpdateNearShips`' fill from the system's solar BSP
+    /// (`StarSystem::GetBucket`, the partition `StarSystem::load` builds):
+    /// for each player of the system, in arrival order, whose ship exists,
+    /// the solars the partition's sphere query of 10000 m around the ship
+    /// finds, all appended to one list of at most
+    /// [`RESULT_CAPACITY`](crate::data::spatial::RESULT_CAPACITY) entries
+    /// (a solar near two players is in it twice). `None` when the system
+    /// has no partition, which skips the whole pass, the always-updated
+    /// list included. Without a server there is neither a partition nor a
+    /// player: an empty list, so only the always-updated entries update.
+    fn near_solars(&mut self, world: &World, system: u32) -> Option<Vec<ObjHandle>> {
+        let _ = (world, system);
+        Some(Vec::new())
+    }
+
     /// After a sub-step's deferred deletes: `StarSystem_Update`'s dock
     /// queue.
     fn after_reap(&mut self, world: &mut World, system: u32) {
@@ -330,6 +546,41 @@ pub trait ServerHooks {
         let _ = (world, system);
         true
     }
+
+    /// A guided munition's seeker lost its target, which the munition has
+    /// already dropped (`Guided::update`'s `set_target(nullptr,
+    /// SUBOBJ_ID_ROOT, 0)`): on the server, `Guided::set_target` tells the
+    /// players who can see it (`StarSystem::notify_set_target`). Called only
+    /// when the target or sub-target changed. Nothing without a server.
+    fn guided_target_lost(&mut self, world: &mut World, missile: ObjHandle) {
+        let _ = (world, missile);
+    }
+
+    /// A ship's `JumpInAction` arrived in `system`: the jumping object's
+    /// `IObjAffect::slot_74(system)`, which on the server's `Ship` tells
+    /// the bus (`JumpInComplete`) and ends the jump's invincibility.
+    /// Nothing without a server.
+    fn jump_in_complete(&mut self, world: &mut World, object: ObjHandle, system: u32) {
+        let _ = (world, object, system);
+    }
+
+    /// A ship's `LaunchAction` completed: the launching object's
+    /// `IObjAffect::slot_70(base)` with the id of the object it launched
+    /// from, which on the server's `Ship` ends the launch invincibility and
+    /// tells the bus (`LaunchComplete`). Nothing without a server.
+    fn launch_complete(&mut self, world: &mut World, object: ObjHandle, base: u32) {
+        let _ = (world, object, base);
+    }
+}
+
+/// A sensor of `CEqObj::update`'s list that updates after the list's
+/// walk, in the list's order.
+#[derive(Clone, Copy)]
+enum Sensor {
+    /// `CEScanner::Update`.
+    Scanner(crate::equip::SubObjId),
+    /// `CECounterMeasureDropper::Update`.
+    CmDropper(crate::equip::SubObjId),
 }
 
 /// No server: every sub-step steps the physics.
@@ -433,9 +684,61 @@ impl World {
         if self.config.server_physics && hooks.steps_physics(self, system) {
             self.move_beams(system, step);
             self.step_physics(system, step);
-            self.phantom_events(system);
+            self.deliver_controller_events(system, hooks);
+            self.deliver_jump_ins(system, hooks);
+            // A trade lane that ended in the step (`LaneAction::stop`'s
+            // `stop_tradelane` on the traveller, D731).
+            let requests = self.take_server_requests();
+            if !requests.is_empty() {
+                hooks.server_requests(self, requests);
+            }
+            self.phantom_events(system, hooks);
             self.process_collisions(system, hooks);
             self.reap();
+        }
+    }
+
+    /// The events an object's equipment queued (`NotifyA`, `NotifyB`), oldest
+    /// first: each goes to the world's events and to the server's
+    /// listeners ([`ServerHooks::equip_event`]).
+    pub(crate) fn deliver_equip_events(&mut self, h: ObjHandle, hooks: &mut dyn ServerHooks) {
+        let Some(o) = self.objects.get_mut(h) else {
+            return;
+        };
+        let owner_id = o.simple.id;
+        let Some(eq) = o.equipped.as_deref_mut() else {
+            return;
+        };
+        let mut queued = Vec::new();
+        for e in eq.equipment.iter_mut() {
+            for event in e.events.drain(..) {
+                queued.push((e.id, event));
+            }
+        }
+        for &(equip, event) in &queued {
+            self.events.push(WorldEvent::Equip {
+                owner: owner_id,
+                equip,
+                event,
+            });
+        }
+        for (equip, event) in queued {
+            hooks.equip_event(self, h, equip, event);
+        }
+    }
+
+    /// After the physics step: the events the equipment's controllers
+    /// raised in it (a starved thruster's), to the listeners, ship by ship.
+    fn deliver_controller_events(&mut self, system: u32, hooks: &mut dyn ServerHooks) {
+        for h in self.list(system, TickList::Ships) {
+            let pending = self
+                .objects
+                .get(h)
+                .and_then(|o| o.equipped.as_deref())
+                .is_some_and(|eq| eq.equipment.iter().any(|e| !e.events.is_empty()));
+            if pending {
+                self.deliver_equip_events(h, hooks);
+            }
         }
     }
 
@@ -449,41 +752,31 @@ impl World {
         }
     }
 
-    /// `StarSystem_UpdateNearShips`: the solars within 10000 m of a
-    /// player's ship, then every entry of the always-updated list
-    /// (`ListD4`, with its repeats), with the reference's de-duplication:
-    /// each item drops only the first later repeat of itself, so an object
-    /// listed three times updates twice. A near solar enters the list once
-    /// whatever the number of players near it, and the list has no cap
-    /// (D628).
+    /// `StarSystem_UpdateNearShips`: the scan list the server fills from
+    /// the system's solar BSP ([`ServerHooks::near_solars`], once per
+    /// player, so a solar near two players is in it twice), then every
+    /// entry of the system's always-updated list (`ListD4`, with its
+    /// repeats) while the list holds fewer than
+    /// [`RESULT_CAPACITY`](crate::data::spatial::RESULT_CAPACITY) entries.
+    /// The reference's de-duplication follows: each item drops only the
+    /// first later repeat of itself, so an object listed three times
+    /// updates twice. Without a partition the pass does nothing.
     fn tick_near_solars(&mut self, system: u32, dt: f32, hooks: &mut dyn ServerHooks) {
-        let players: Vec<Vector> = self
-            .list(system, TickList::Ships)
-            .into_iter()
-            .filter_map(|h| self.objects.get(h))
-            .filter(|o| o.simple.owner_player != 0)
-            .map(|o| o.engine.position)
-            .collect();
-        let mut scan: Vec<Option<ObjHandle>> = Vec::new();
-        if !players.is_empty() {
-            for h in self.list(system, TickList::Solars) {
-                let Some(o) = self.objects.get(h) else {
-                    continue;
-                };
-                let near = players.iter().any(|p| {
-                    let d = [
-                        f64::from(p.x) - f64::from(o.engine.position.x),
-                        f64::from(p.y) - f64::from(o.engine.position.y),
-                        f64::from(p.z) - f64::from(o.engine.position.z),
-                    ];
-                    (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) <= 10000.0 * 10000.0
-                });
-                if near {
-                    scan.push(Some(h));
-                }
+        use crate::data::spatial::RESULT_CAPACITY;
+        let Some(mut near) = hooks.near_solars(self, system) else {
+            return;
+        };
+        near.truncate(RESULT_CAPACITY);
+        let mut scan: Vec<Option<ObjHandle>> = near.into_iter().map(Some).collect();
+        for &h in self.always_update() {
+            let here = self
+                .objects
+                .get(h)
+                .is_some_and(|o| o.simple.system == Some(system));
+            if here && scan.len() < RESULT_CAPACITY {
+                scan.push(Some(h));
             }
         }
-        scan.extend(self.always_update().iter().map(|&h| Some(h)));
         let mut chosen = Vec::new();
         if scan.len() > 1 {
             for index in 0..scan.len() {
@@ -499,6 +792,11 @@ impl World {
             chosen.extend(scan.into_iter().flatten());
         }
         for h in chosen {
+            // The `GameObject` narrowing: an object the world no longer
+            // has is not updated.
+            if !self.objects.contains(h) {
+                continue;
+            }
             if hooks.object_update(self, h, dt) {
                 let flags = hooks.object_update_flags(self, h);
                 self.update_object_hooked(h, dt, flags, hooks);
@@ -659,7 +957,10 @@ impl World {
         let mut cloak = None;
         let mut regen: Vec<(crate::equip::SubObjId, f32)> = Vec::new();
         let mut guns: Vec<crate::equip::SubObjId> = Vec::new();
-        let mut scanners: Vec<crate::equip::SubObjId> = Vec::new();
+        // The scanners and the counter-measure droppers, in the list's
+        // order: a dropper reads the first scanner's list as the items
+        // before it left it.
+        let mut sensors: Vec<Sensor> = Vec::new();
         let mut tractors: Vec<crate::equip::SubObjId> = Vec::new();
         let slots = eq.equipment.traverse(types::EXTERNAL_LIST, false);
         for slot in slots {
@@ -707,7 +1008,8 @@ impl World {
                         guns.push(id);
                     }
                 }
-                EquipKind::MineDropper(l) | EquipKind::CmDropper(l) => l.update(dt),
+                EquipKind::MineDropper(l) => l.update(dt),
+                EquipKind::CmDropper(_) => sensors.push(Sensor::CmDropper(id)),
                 EquipKind::Shield(s) => s.update(status, now, events),
                 EquipKind::ShieldGenerator(g) => {
                     let real_dt = (now - g.last_update_time) as f32;
@@ -720,7 +1022,7 @@ impl World {
                         regen.push((shield_id, new_hit));
                     }
                 }
-                EquipKind::Scanner(_) => scanners.push(id),
+                EquipKind::Scanner(_) => sensors.push(Sensor::Scanner(id)),
                 EquipKind::Tractor(_) => tractors.push(id),
                 EquipKind::Cloak(c) => {
                     if let Some(p) = c.update(destroyed, dt) {
@@ -752,31 +1054,45 @@ impl World {
         for id in guns {
             self.update_gun_turret(h, id, dt);
         }
-        for id in scanners {
-            self.update_scanner(h, id, flags);
+        for sensor in sensors {
+            match sensor {
+                Sensor::Scanner(id) => self.update_scanner(h, id, flags),
+                Sensor::CmDropper(id) => {
+                    // `Notify(Event_0x19)` reaches the listeners at once,
+                    // before the launcher's own update.
+                    if self.cm_dropper_sees_missile(h, id, flags) {
+                        let event = crate::equip::EquipEvent::IncomingMissile;
+                        self.events.push(WorldEvent::Equip {
+                            owner: owner_id,
+                            equip: id,
+                            event,
+                        });
+                        hooks.equip_event(self, h, id, event);
+                    }
+                    self.cm_dropper_launcher_update(h, id, dt);
+                }
+            }
         }
         for id in tractors {
             self.update_tractor(h, id, dt);
         }
         // Equipment events go to the listeners.
-        if let Some(eq) = self
-            .objects
-            .get_mut(h)
-            .and_then(|o| o.equipped.as_deref_mut())
-        {
-            for e in eq.equipment.iter_mut() {
-                for event in e.events.drain(..) {
-                    self.events.push(WorldEvent::Equip {
-                        owner: owner_id,
-                        equip: e.id,
-                        event,
-                    });
-                }
-            }
-        }
+        self.deliver_equip_events(h, hooks);
         self.sync_shield_collisions(h);
+        let results = self.directive_results(h);
         if behavior && let Some(mut hook) = self.take_behavior() {
+            // The content callback's flee answer, for a flee that starts in
+            // the tick (record 0008 point 4).
+            let handle = self
+                .behavior_managers
+                .get(&h)
+                .map_or(0, |m| m.state.content_handle);
+            if handle != 0 {
+                let answer = hooks.content_answer(self, h, handle);
+                self.content_answer = Some((h, answer));
+            }
             hook.update_behavior_tick(self, h, dt);
+            self.content_answer = None;
             self.put_behavior(Some(hook));
         }
         // The requests the tick made, to the server (`Ship::slot_5c` and
@@ -785,12 +1101,20 @@ impl World {
         if !requests.is_empty() {
             hooks.server_requests(self, requests);
         }
+        // The directive callbacks, which the tick's
+        // `NotifyDirectiveCallbacks` calls at its end in the reference: the
+        // launch action's (D722) and the server's (D194).
+        self.directive_callbacks(h, results, hooks);
         self.update_docking_animations(h);
     }
 
-    /// `CShip::update`: zones, `CEqObj::update`, the wake-up and the
-    /// damping (drag over mass and inertia), the target check.
+    /// `CShip::update`: the actions (`ActionDB::update`: the jump-in and
+    /// the launch), zones, `CEqObj::update`, the wake-up and the damping
+    /// (drag over mass and inertia), the target check.
     fn update_ship(&mut self, h: ObjHandle, dt: f32, flags: u32, hooks: &mut dyn ServerHooks) {
+        if flags & update_flags::NO_ACTIONS == 0 {
+            self.update_actions(h, hooks);
+        }
         self.update_zones(h);
         self.update_equipped(h, dt, flags, hooks);
         if flags & update_flags::NO_DYNAMICS == 0 {
@@ -875,6 +1199,7 @@ impl World {
     pub fn step_physics(&mut self, system: u32, dt: f32) {
         let mode = self.config.step_mode;
         let consts = self.data.constants.engine.clone();
+        self.prepare_lanes(system);
         let objects = RefCell::new(&mut self.objects);
         let mut host = Host {
             objects: &objects,
@@ -900,6 +1225,8 @@ impl World {
         for h in moved {
             self.sync_instance(h);
         }
+        self.finish_jump_ins(system);
+        self.finish_lanes(system);
         let _ = StepMode::SinglePlayer;
     }
 }

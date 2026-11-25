@@ -201,6 +201,15 @@ struct FOracleSimHooks
     // set the controllers' heartbeat phases (Server_ControllerSetHeartbeat), and through them
     // Content's game time.
     unsigned int StartupSeed;
+    // P3.4a (the dispatch trace, design/adr/0006-controller-bus.md point 10): every delivery
+    // of Server.dll's controller registry, before the controller's IDLL::HandleMessage (the
+    // broadcast and targeted arms of Server_ControllerDispatch and the heartbeat walk; Path
+    // an EOracleSimDeliverPath), with the deliveries already in progress (Depth, 0 for one no
+    // handler made). FOracleSimDeliverScope calls it.
+    void(__cdecl* OnControllerDeliver)(unsigned int Flid, int MsgId, void const* MsgData, int Path,
+                                       int Depth);
+    // The deliveries in progress (FOracleSimDeliverScope).
+    int DeliverDepth;
 };
 
 COMMON_API extern FOracleSimHooks GOracleSimHooks;
@@ -239,6 +248,29 @@ struct FOracleSimAffectScope
     ~FOracleSimAffectScope() { --GOracleSimHooks.AffectDepth; }
     FOracleSimAffectScope(FOracleSimAffectScope const&) = delete;
     FOracleSimAffectScope& operator=(FOracleSimAffectScope const&) = delete;
+};
+
+// The registry's delivery paths OnControllerDeliver reports.
+enum EOracleSimDeliverPath
+{
+    OracleSimDeliverBroadcast = 0,  // Server_ControllerDispatch's broadcast arm
+    OracleSimDeliverSend = 1,       // its targeted arm
+    OracleSimDeliverHeartbeat = 2   // Server_TimerTick's heartbeat walk
+};
+
+// One controller delivery in progress: OnControllerDeliver when constructed, before the
+// handler, and the depth counted while the handler runs.
+struct FOracleSimDeliverScope
+{
+    FOracleSimDeliverScope(unsigned int Flid, int MsgId, void const* MsgData, int Path)
+    {
+        if (GOracleSimHooks.OnControllerDeliver != nullptr)
+            GOracleSimHooks.OnControllerDeliver(Flid, MsgId, MsgData, Path, GOracleSimHooks.DeliverDepth);
+        ++GOracleSimHooks.DeliverDepth;
+    }
+    ~FOracleSimDeliverScope() { --GOracleSimHooks.DeliverDepth; }
+    FOracleSimDeliverScope(FOracleSimDeliverScope const&) = delete;
+    FOracleSimDeliverScope& operator=(FOracleSimDeliverScope const&) = delete;
 };
 
 // UpdateBehaviorTick's hook: OnBehaviorTick(phase 0) when constructed, phase 1 when destroyed.

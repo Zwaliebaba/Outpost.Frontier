@@ -25,10 +25,12 @@ use std::sync::Arc;
 
 use neuron_core::math::Vector;
 
-use super::behavior::{AiEnv, Behavior, CancelRequest, Cx, DirectiveOp, EvaluateResult, ids};
+use super::behavior::{
+    AiEnv, Behavior, CancelRequest, Cx, DirectiveOp, EvaluateResult, LaneEvent, ids,
+};
 use super::behaviors::{UnportedBehavior, create_behavior};
 use super::fp::{e, r};
-use super::gun_convergence::LeaderNotification;
+use super::gun_convergence::{DirectiveOrder, LeaderNotification};
 use super::intercept::{is_aligned_and_outside_heading_cone, is_within_intercept_range_of_iface};
 use super::pathfind::PathfindManager;
 use super::personality::Personality;
@@ -106,6 +108,10 @@ pub struct ManagerState {
     pub level_camera: bool,
     /// +0x110 a content callback is installed.
     pub content_callback: bool,
+    /// +0x110 the content callback, as its owner's handle (D710; 0 for
+    /// none): the reports go to it after the tick
+    /// ([`super::world::AiWorld::content_event`]).
+    pub content_handle: u32,
     /// +0x114 the content callback's `get_creation_type` (3 until one is
     /// installed).
     pub creation_type: u32,
@@ -152,6 +158,10 @@ pub struct ManagerState {
     /// The directive results the callbacks would receive (`f11c`,
     /// `f118`), in order; the owner drains them.
     pub completed: Vec<(i32, i32)>,
+    /// +0xfc the five directive callbacks (`set_directive_callback`), as
+    /// the owner's handles of them (0 an empty slot); the results go to
+    /// [`ManagerState::completed`] (D194).
+    pub directive_callbacks: [u32; 5],
     /// Notifications for other objects' managers; the owner drains them.
     pub outbox: Vec<NotificationOut>,
     /// The formation leader's notifications a behaviour asked for
@@ -194,6 +204,7 @@ impl ManagerState {
             field_f8: true,
             level_camera: true,
             content_callback: false,
+            content_handle: 0,
             creation_type: 3,
             f118: 0,
             f11c: -1,
@@ -216,6 +227,7 @@ impl ManagerState {
             personality: Personality::default(),
             sys: SystemManager::default(),
             completed: Vec::new(),
+            directive_callbacks: [0; 5],
             outbox: Vec::new(),
             leader_notes: Vec::new(),
             stand_in_polls: 0,
@@ -398,6 +410,7 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
         };
         let out = f(&mut *self.spare, &mut cx);
         std::mem::swap(&mut self.behaviors[i], &mut self.spare);
+        self.flush_content_events(world, ship);
         // `QueueNotification` from inside the behaviour: nothing the
         // behaviour reads later in the same call depends on it.
         for n in std::mem::take(&mut self.state.leader_notes) {
@@ -592,13 +605,71 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
             .personality_changed(world, ship, &personality);
     }
 
-    /// `set_content_callback(Callback)`: the callback installed (`None`
-    /// removes it) and, with one, its `get_creation_type` kept.
-    pub fn set_content_callback(&mut self, creation_type: Option<u32>) {
-        self.state.content_callback = creation_type.is_some();
-        if let Some(t) = creation_type {
+    /// `set_content_callback(Callback)`: the callback installed, as its
+    /// owner's handle with the `get_creation_type` it answered (`None`
+    /// removes it; the creation type stays).
+    pub fn set_content_callback(&mut self, callback: Option<(u32, u32)>) {
+        self.state.content_callback = callback.is_some();
+        self.state.content_handle = callback.map_or(0, |(h, _)| h);
+        if let Some((_, t)) = callback {
             self.state.creation_type = t;
         }
+    }
+
+    /// Hands the content-callback reports the system manager queued to
+    /// the world, in order, for the installed callback
+    /// ([`super::world::AiWorld::content_event`]); without one they are
+    /// dropped (none is queued then).
+    fn flush_content_events(&mut self, world: &mut W, ship: W::Handle) {
+        if self.state.sys.events.is_empty() {
+            return;
+        }
+        let events = std::mem::take(&mut self.state.sys.events);
+        let handle = self.state.content_handle;
+        if handle == 0 {
+            return;
+        }
+        for event in events {
+            world.content_event(ship, handle, event);
+        }
+    }
+
+    /// `set_directive_callback(Callback)`: into the first slot that is
+    /// empty or holds it; dropped when all five hold others.
+    pub fn set_directive_callback(&mut self, callback: u32) {
+        if let Some(slot) = self
+            .state
+            .directive_callbacks
+            .iter_mut()
+            .find(|s| **s == 0 || **s == callback)
+        {
+            *slot = callback;
+        }
+    }
+
+    /// `clear_directive_callback(Callback)`: every slot that holds it is
+    /// emptied.
+    pub fn clear_directive_callback(&mut self, callback: u32) {
+        for slot in &mut self.state.directive_callbacks {
+            if *slot == callback {
+                *slot = 0;
+            }
+        }
+    }
+
+    /// `get_scan_response(Type)`: the target manager's answer
+    /// (`TargetManager::GetScanResponse`): 1 when the hostile power around
+    /// the ship is below its personality's loot-flee threshold, else 0.
+    /// The type only feeds the reference's unused `FindById`.
+    pub fn scan_response(&mut self, world: &mut W, ship: W::Handle) -> i32 {
+        let st = &mut self.state;
+        st.sys.scan_response(
+            world,
+            ship,
+            &st.personality,
+            st.content_callback,
+            st.directive,
+        )
     }
 
     /// `enable_maneuver`: bit `maneuver + 1` (mod 32); -1 refused.
@@ -646,6 +717,49 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
             self.state.pending_request = None;
             self.state.request_busy = false;
         }
+    }
+
+    /// `IBehaviorManager::Slot00` case 4 (a trade-lane event): nothing
+    /// without a current behaviour; when the formation block's current
+    /// leader is the event's ship, its trade-lane order becomes the
+    /// event's (`SetDirectiveOrder(entering, entrance, exit, fast exit,
+    /// speed)`); then the current behaviour's slot 22 hears the event.
+    pub fn lane_event(&mut self, world: &mut W, ship: W::Handle, event: &LaneEvent) {
+        if self.state.behavior == -1 {
+            return;
+        }
+        if self.state.sys.formation.current_leader(&*world) == Some(event.ship) {
+            self.state.sys.formation.order = DirectiveOrder {
+                pending: event.entering,
+                object: event.entrance,
+                second_object: event.exit,
+                commit_directly: event.fast_exit,
+                lane_param: event.speed.to_bits(),
+            };
+        }
+        let index = self.state.behavior;
+        let _ = self.with(world, ship, index, |b, cx| b.lane_event(cx, event));
+    }
+
+    /// `IBehaviorManager::Slot00` case 2 (a player's manoeuvre,
+    /// `IServerImpl::SetManeuver`): nothing without a current behaviour;
+    /// a directive waiting for a manoeuvre (kind 2) whose behaviour is the
+    /// event's `behavior` (`XSetManeuver::Field_0x08`) ends: the kind
+    /// becomes 0, the behaviour -1, the result word 0 and the finished
+    /// behaviour the old one.
+    pub fn maneuver_event(&mut self, behavior: i32) {
+        if self.state.behavior == -1 {
+            return;
+        }
+        let directive = &mut self.state.directive;
+        if directive[0] != 2 || directive[2] != behavior {
+            return;
+        }
+        let old = directive[2];
+        directive[0] = 0;
+        directive[2] = -1;
+        self.state.f118 = 0;
+        self.state.f11c = old;
     }
 
     /// `lock_maneuvers`.
@@ -908,6 +1022,7 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
         self.state.sys.targets.keep_cache = true;
         self.tick_body(world, ship, dt, &view);
         self.state.sys.targets.keep_cache = false;
+        self.flush_content_events(world, ship);
     }
 
     /// The system manager's update of the tick (`UpdateSystemManager`,
@@ -1001,6 +1116,7 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
             return;
         };
         self.update_system(world, ship, dt, view);
+        self.flush_content_events(world, ship);
         if view.is_player && len_sq(self.state.last_direction) != 0.0 {
             let dir = self.state.last_direction;
             self.update_current_behavior_direction(world, ship, dir);
@@ -1012,6 +1128,9 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
                 && (d[0] == 0 || d[1] == 1);
             if flag != self.state.field_f8 {
                 self.state.field_f8 = flag;
+                // `ContentCbPtr->scan_state_change(flag)`.
+                let handle = self.state.content_handle;
+                world.content_event(ship, handle, CombatEvent::ScanState(flag));
             }
         }
 

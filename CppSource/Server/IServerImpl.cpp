@@ -245,6 +245,25 @@ extern "C" SERVER_API int __cdecl OracleDumpSystemLoads(char const* Path) {
     return Lines;
 }
 
+// Oracle instrumentation (P3.3, decision record 0007 point 11): a player of Oracle.exe sim's
+// replication scenario. Session SessionId's slot takes the system and the ship the harness
+// made (system_id, ship_object_id), and the session joins the system (StarSystem::add_player),
+// whose observer then follows that ship. Nothing else of a login is done: the client id stays
+// 0, so PlayerDB::is_valid refuses the slot and no account, character, controller or other
+// session hears of it. False for a session outside the player array or an unknown system. No
+// game module calls it.
+extern "C" SERVER_API bool __cdecl OracleSimAddPlayer(unsigned int SessionId, unsigned int SystemId,
+                                                      unsigned int ShipId) {
+    if (SessionId == 0 || SessionId > PlayerDB_GetMaxPlayers()) return false;
+    StarSystem* const System = SysDB_LookupSystem(SystemId);
+    if (System == nullptr) return false;
+    PlayerData& Slot = Players[SessionId];
+    Slot.system_id = SystemId;
+    Slot.ship_object_id = ShipId;
+    System->add_player(SessionId);
+    return true;
+}
+
 static PlayerSlot* GetPlayerBySession(unsigned int session_id) {
     return PlayerDB_GetPlayer(session_id);
 }
@@ -3246,7 +3265,11 @@ extern "C" int __cdecl Server_ControllerDispatch(unsigned int Flid, pub::Control
         g_ReentrancyGuard++;
         FControllerNode* cur = g_ControllerListSentinel.Next;
         while (cur != &g_ControllerListSentinel) {
-            cur->InterfacePtr->HandleMessage(MsgId, MsgData);
+            {
+                // Oracle instrumentation (P3.4a, the dispatch trace): inert outside Oracle.exe sim.
+                FOracleSimDeliverScope OracleDeliver(cur->FLID, (int)MsgId, MsgData, OracleSimDeliverBroadcast);
+                cur->InterfacePtr->HandleMessage(MsgId, MsgData);
+            }
             cur = cur->Next;
         }
         g_ReentrancyGuard--;
@@ -3257,7 +3280,11 @@ extern "C" int __cdecl Server_ControllerDispatch(unsigned int Flid, pub::Control
     // Targeted arm (baseline 0x06d44148-0x06d4416c).
     FControllerNode* node = Server_ControllerFind(Flid);
     if (node == nullptr) return -2;
-    node->InterfacePtr->HandleMessage(MsgId, MsgData);
+    {
+        // Oracle instrumentation (P3.4a, the dispatch trace): inert outside Oracle.exe sim.
+        FOracleSimDeliverScope OracleDeliver(node->FLID, (int)MsgId, MsgData, OracleSimDeliverSend);
+        node->InterfacePtr->HandleMessage(MsgId, MsgData);
+    }
     return 0;
 }
 
@@ -4368,7 +4395,12 @@ static void Server_TimerTick(float dt) {
             const double Period = static_cast<double>(cur->HeartbeatTimer);
             if (Sum >= Period) {
                 float WrapTime = static_cast<float>(floor(Sum / Period) * Period);
-                cur->InterfacePtr->HandleMessage(pub::Controller::EMessage::Heartbeat, &WrapTime);
+                {
+                    // Oracle instrumentation (P3.4a, the dispatch trace): inert outside Oracle.exe sim.
+                    FOracleSimDeliverScope OracleDeliver(cur->FLID, (int)pub::Controller::EMessage::Heartbeat,
+                                                         &WrapTime, OracleSimDeliverHeartbeat);
+                    cur->InterfacePtr->HandleMessage(pub::Controller::EMessage::Heartbeat, &WrapTime);
+                }
                 cur->HeartbeatAccum = cur->HeartbeatAccum - WrapTime;
             }
         }

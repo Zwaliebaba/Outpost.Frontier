@@ -6,10 +6,26 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+ctrlc.workspace = true
+dirs.workspace = true
+jiff.workspace = true
 game-logic.workspace = true
+game-sim.workspace = true
+neuron-core.workspace = true
+neuron-server.workspace = true
+toml.workspace = true
+tracing.workspace = true
+
+# Gate G3's scripted test client only (owner, 2026-11-25; AGENTS.md).
+[dev-dependencies]
+neuron-client.workspace = true
 
 [lints]
 workspace = true
+
+[lib]
+name = "outpost_server"
+path = "src/lib.rs"
 
 [[bin]]
 name = "OutpostServer"

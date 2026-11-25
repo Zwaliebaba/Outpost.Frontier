@@ -6,15 +6,17 @@
 //! or an object), dock behaviour or, when the leader flees, formation
 //! behaviour, which it ticks in its own slots.
 //!
-//! The port has no content callback to ask (`request_flee_destination` is
-//! Content's, P3.6), so the destination is the reference's fallback: the
-//! ship's centre 10 km along x, within 500 m (D184). The dock and formation
-//! behaviours are not ported: while the flee drives one of them it reports
-//! itself not ported.
+//! The destination is the content callback's answer
+//! (`request_flee_destination`, Content's NPC ship and its guide, given
+//! before the tick, record 0008 point 4), else the reference's fallback:
+//! the ship's centre 10 km along x, within 500 m. The dock and formation
+//! behaviours are not ported here: while the flee drives one of them it
+//! reports itself not ported.
 
 use neuron_core::math::Vector;
 
-use super::behavior::{AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, GotoOp, ids};
+use super::behavior::{AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, GotoOp, LaneEvent, ids};
+use super::content::CombatEvent;
 use super::fp::{e, r};
 use super::goto::GotoBehavior;
 
@@ -89,26 +91,48 @@ impl FleeBehavior {
         }
     }
 
-    /// The first tick of a flee: the destination (the fallback, D184) and
-    /// the delegate's directive and slot 3.
+    /// The first tick of a flee: the destination and the delegate's
+    /// directive and slot 3. `RequestFleeDestination` asks the content
+    /// callback: its answer was given before the tick
+    /// ([`super::world::AiWorld::content_answer`]), and the request itself
+    /// goes to the callback after the tick (`FleeRequested`), where Content
+    /// makes the answer's other effects. Without a callback, or when it
+    /// answers false, the fallback: type 3, the cached physical centre
+    /// 10 km along x, within 500 m.
     fn start<W: AiEnv + ?Sized>(&mut self, cx: &mut Cx<'_, W>) {
         self.field_2c = 1;
-        // `RequestFleeDestination`: no callback answers (D184). The
-        // fallback: type 3, the cached physical centre 10 km along x.
-        let kind = 3;
-        let center = cx.own().map_or(Vector::ZERO, |v| v.center);
-        let destination = Vector::new(
-            r(e(center.x) + e(FLEE_DESTINATION_OFFSET_X)),
-            center.y,
-            center.z,
-        );
-        let destination_id = 0u32;
-        let radius = FLEE_RADIUS;
+        let handle = cx.state.content_handle;
+        let answer = if handle == 0 {
+            None
+        } else {
+            let answer = cx.world.content_answer(cx.ship);
+            let own = cx.own().map_or(0, |v| v.id);
+            let event = CombatEvent::FleeRequested {
+                own,
+                reason: self.field_30,
+                answer,
+            };
+            cx.world.content_event(cx.ship, handle, event);
+            answer
+        };
+        let (kind, destination, destination_id, radius) = match answer {
+            Some(a) => (a.kind, a.position, a.param, a.radius),
+            None => {
+                let center = cx.own().map_or(Vector::ZERO, |v| v.center);
+                let destination = Vector::new(
+                    r(e(center.x) + e(FLEE_DESTINATION_OFFSET_X)),
+                    center.y,
+                    center.z,
+                );
+                (3, destination, 0u32, FLEE_RADIUS)
+            }
+        };
         self.field_34 = kind;
         match self.field_34 {
             2 => {
                 // A `DirectiveDockOp` for the destination: the dock
-                // behaviour is not ported (its op has no fields here).
+                // behaviour is not ported here (its op has no fields).
+                let _ = destination_id;
                 self.field_48 = 0;
                 cx.with_peer(ids::DOCK, |b, cx| {
                     b.accept_directive(cx, &DirectiveOp::Other(13));
@@ -221,6 +245,16 @@ impl<W: AiEnv + ?Sized> Behavior<W> for FleeBehavior {
                 });
             }
             _ => {}
+        }
+    }
+
+    /// Slot 22: the delegate's (the formation behaviour while the leader
+    /// flees, else the dock or goto behaviour by the flee's type; the goto
+    /// behaviour keeps `Behavior`'s). Nothing for an uninitialised type,
+    /// where the reference writes an error report.
+    fn lane_event(&mut self, cx: &mut Cx<'_, W>, event: &LaneEvent) {
+        if let Some(delegate) = self.delegate() {
+            cx.with_peer(delegate, |b, cx| b.lane_event(cx, event));
         }
     }
 

@@ -1,0 +1,40 @@
+# An example configuration of the Outpost:Frontier dedicated server
+# (OutpostServer --config <file>; OutpostServer.toml in the working folder
+# by default). Every key is optional and shows its default. When the file
+# does not exist, the server writes one with these defaults, importing the
+# old admin application's OutpostServer.cfg from the accounts folder.
+
+[server]
+# The session name clients see; it may not be empty.
+name = "OutpostFrontier Default Session Name"
+description = ""
+# The session password; empty for none.
+password = ""
+# Players admitted at once, 1 to 128.
+max_players = 16
+allow_new_players = true
+allow_pvp = false
+
+[network]
+address = "0.0.0.0"
+# UDP port of the QUIC host; 0 lets the system choose.
+port = 14041
+
+[paths]
+# The folder of OutpostFrontier.ini and the character templates; empty for
+# the executable's folder.
+install_dir = ""
+# The user-data folder; the accounts are in its Accts/MultiPlayer. Empty for
+# My Games/OutpostFrontier in the user's Documents folder.
+user_data = ""
+
+[log]
+# 1 to 7: a line shows when its level is at most this.
+level = 4
+# Categories shown besides the general one (0x10000).
+categories = []
+# A log file, truncated at start; empty for none.
+file = ""
+# Lines at levels 0 and 1; empty for OutpostServerErrors.log in the
+# accounts folder.
+error_log = ""

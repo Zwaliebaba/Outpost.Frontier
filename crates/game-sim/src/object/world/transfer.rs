@@ -3,10 +3,12 @@
 //!
 //! `GameObject::leave_system` (`Server/server_gameobject.cpp:459`) saves
 //! the body's physics parameters (`PhySys::CreateParms`), turns the
-//! object's controllers off and destroys its body (`unmake_physical`);
+//! object's controllers off, destroys its body (`unmake_physical`) and
+//! disconnects it from its system's object database;
 //! `GameObject::enter_system` (`:417`) rebuilds the body from the saved
-//! parameters in the new system (`remake_physical`) and turns the
-//! controllers back on. Between the two the object is in transit: it is in
+//! parameters in the new system (`remake_physical`), turns the
+//! controllers back on and connects the object to the new system (D680
+//! for a player's ship in single player). Between the two the object is in transit: it is in
 //! no system's lists, has no body and is found by id. The server's own
 //! parts of the move (the observers, `notify_object_left`, the lookup
 //! cache) belong to `game-logic`.
@@ -14,7 +16,7 @@
 //! `StarSystem::unload` (`Server/server_classes.cpp:11102`) deletes every
 //! object of a system's lists, its asteroid fields and its physics world.
 
-use neuron_core::math::{Matrix, Vector};
+use neuron_core::math::{Matrix, Quaternion, Vector};
 use neuron_core::physics::CreateParms;
 
 use crate::equip::EquipKind;
@@ -190,8 +192,14 @@ impl World {
             inertia: Some(inertia),
         };
         // `unmake_physical`: the controllers, then the body and the bodies
-        // of the parts below it that are objects of their own.
+        // of the parts below it that are objects of their own. Deleting the
+        // core detaches the controllers still on it: a jump-in's and a
+        // launch's and a trade lane's
+        // (`PhySys::Controller::core_is_going_to_be_deleted_event`).
         self.disable_controllers(h);
+        self.unregister(h, ControllerRef::JumpIn);
+        self.unregister(h, ControllerRef::Launch);
+        self.unregister(h, ControllerRef::Lane);
         if let Some(obj) = self.objects.get_mut(h) {
             let body = obj.physical.body.take();
             let free: Vec<_> = obj.physical.free_parts.drain(..).map(|p| p.body).collect();
@@ -211,8 +219,12 @@ impl World {
             }
         }
         self.always_update.retain(|x| *x != h);
+        // `CSimple::disconnect(OwnerSystem)`.
         if let Some(obj) = self.objects.get_mut(h) {
             obj.physical.system = 0;
+            if obj.simple.system == Some(system) {
+                obj.simple.system = None;
+            }
         }
         Some(parms)
     }
@@ -228,6 +240,18 @@ impl World {
     #[must_use]
     pub fn in_transit(&self, h: ObjHandle) -> bool {
         self.transit_parms(h).is_some()
+    }
+
+    /// `Server_DestroyInTransit`'s `delete`: an object in transit leaves
+    /// the arena and the id map at once (it is in no system's lists and
+    /// has no body). False, with nothing changed, for an object that is
+    /// not in transit.
+    pub fn delete_in_transit(&mut self, h: ObjHandle) -> bool {
+        if !self.in_transit(h) {
+            return false;
+        }
+        self.remove_object(h);
+        true
     }
 
     /// `StarSystem::add_ship`'s object part and `GameObject::enter_system`
@@ -257,6 +281,8 @@ impl World {
         obj.engine.position = position;
         obj.engine.orientation = orientation;
         obj.physical.system = system;
+        // `CSimple::connect(Sys)`.
+        obj.simple.system = Some(system);
         let kind = obj.kind;
         self.sync_instance(h);
         let enable = parms.enable_collisions;
@@ -306,5 +332,81 @@ impl World {
     #[must_use]
     pub fn system_loaded(&self, system: u32) -> bool {
         self.systems.contains_key(&system)
+    }
+
+    /// `PhySys::RCBegin` on an object's body: the body follows a client's
+    /// samples from now on (remote correction), starting from `position`,
+    /// `orientation` and `velocity`; the angular velocity is not used, as
+    /// in the reference. Nothing for an object without a body. The server
+    /// calls it for a player's object entering a system on a multiplayer
+    /// server (`GameObject::enter_system`).
+    pub fn rc_begin(
+        &mut self,
+        h: ObjHandle,
+        position: Vector,
+        velocity: Vector,
+        orientation: Quaternion,
+        angular_velocity: Vector,
+    ) {
+        let Some((system, Some(body))) = self
+            .objects
+            .get(h)
+            .map(|o| (o.physical.system, o.physical.body))
+        else {
+            return;
+        };
+        let constants = self.physics.constants().clone();
+        if let Some(world) = self.physics.world_mut(system) {
+            world.rc_begin(
+                body,
+                &constants,
+                position,
+                velocity,
+                orientation,
+                angular_velocity,
+            );
+        }
+    }
+
+    /// `PhySys::RCSet`: a client's further sample of an object under
+    /// remote correction; nothing without [`World::rc_begin`].
+    pub fn rc_set(&mut self, h: ObjHandle, position: Vector, orientation: Quaternion, time: f64) {
+        let Some((system, Some(body))) = self
+            .objects
+            .get(h)
+            .map(|o| (o.physical.system, o.physical.body))
+        else {
+            return;
+        };
+        if let Some(world) = self.physics.world_mut(system) {
+            world.rc_set(body, position, orientation, time);
+        }
+    }
+
+    /// `PhySys::RCEnd`: the remote correction of an object's body ends.
+    pub fn rc_end(&mut self, h: ObjHandle) {
+        let Some((system, Some(body))) = self
+            .objects
+            .get(h)
+            .map(|o| (o.physical.system, o.physical.body))
+        else {
+            return;
+        };
+        if let Some(world) = self.physics.world_mut(system) {
+            world.rc_end(body);
+        }
+    }
+
+    /// Whether an object's body is under remote correction
+    /// ([`World::rc_begin`]).
+    #[must_use]
+    pub fn rc_active(&self, h: ObjHandle) -> bool {
+        self.objects
+            .get(h)
+            .and_then(|o| {
+                let world = self.physics.world(o.physical.system)?;
+                world.remote_simulation(o.physical.body?)
+            })
+            .is_some()
     }
 }

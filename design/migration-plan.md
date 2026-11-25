@@ -164,6 +164,14 @@ Phase 0 ──> Phase 1 ──┬──> Phase 2 ──> Phase 3 ──┐
 Phase 4 (client engine) depends only on Phase 1 and runs alongside Phases 2
 and 3.
 
+The owner started Phase 5 beside the rest of Phase 3 on 2026-11-25 (decision
+O50), in a separate session that the owner runs; the session carrying Phase 3
+does no Phase 5 work. Phase 5 begins with its own design record and with the
+check whether the C++ client's `+oracle` mode runs in CI. Gate G5 still needs
+the whole of Phase 3, and P5.9 and P5.10 wait for P3.6e and P3.7b on their
+server side. O50 sets which session owns which crates and how the two keep the
+divergence and decision registers apart.
+
 ### Phase 0 — make the migration verifiable
 
 | ID | Work | Where it runs | Size |
@@ -319,12 +327,14 @@ separate runner (owner, 2026-11-18).
 | P3.1 | `Server`: save container, account hashing and files, paths, session slots, controller registry, heartbeats, timers, tick driver | `neuron-server` | M | A |
 | P3.2 | `Server`: typed events replacing 81 message IDs, client sink, character file schema and templates, player database, worth and cheat checks, groups, chat | `game-logic::{events, player, character_file}` | L | A |
 | P3.3 | `Server`: star systems, object wrappers, munitions (with the mine and counter-measure controllers; the guided-missile controller moved to P2.4's remainder, owner 2026-11-18), fuses, loot drops, debris, docking, observers and replication, asteroid fields, base database (the server parts moved from P2.4, owner 2026-11-17; they remove D125, narrowed to the mines and counter-measures, and D126; D124 was removed by the P2.4 follow-up); the `pub::` functions become methods on the world | `game-logic::{world, objects, replication, bases}` | XL | B |
-| P3.4 | `Content`: static tables, factions, loot, cargo, system connections | `game-logic::tables` | L | A |
-| P3.5 | `Content`: mission script parser (44 conditions, 85 actions as enums) and runtime, mission object, object lists, dialogs, save sections, story shell | `game-logic::mission`, `::story` | XL | A for parse and save, B for runtime |
-| P3.6 | `Content`: encounters, spawn placement, patrol paths, NPC ships and pilots, guides, comm chatter, space support, dock queues, trade lanes | `game-logic::{population, npc}` | XL | B |
-| P3.7 | `Content`: random mission database, offer generator, vignette tree, runtime machines | `game-logic::random_mission` | XL | A for offers from a seed, B for runtime |
+| P3.4 | `Content`: static tables, factions, loot, cargo, system connections | `game-logic::content::{tables, game_support}` (decision O47) | L | A |
+| P3.5 | `Content`: mission script parser (44 conditions, 85 actions as enums) and runtime, mission object, object lists, dialogs, save sections, story shell | `game-logic::content::{mission, story}` | XL | A for parse and save, B for runtime |
+| P3.6 | `Content`: encounters, spawn placement, patrol paths, NPC ships and pilots, guides, comm chatter, space support, dock queues, trade lanes | `game-logic::content::{population, npc, gcs, space_support, base_support}` | XL | B |
+| P3.7 | `Content`: random mission database, offer generator, vignette tree, runtime machines | `game-logic::content::{random_mission, router}` | XL | A for offers from a seed, B for runtime |
 | P3.8 | `NeuronRuntime` transport, `RemoteClient`, `RemoteServer`: QUIC host and connection, handshake with version and password, length-prefixed frames, batching, send-backlog governor, certificate pinning | `neuron-server::net`, `neuron-client::net` | M | B |
 | P3.9 | `OutpostServer`: TOML config, command console (accounts, kick, ban, chat, news, status), logging | `apps/outpost-server`, `game-logic::admin` | M | — |
+| P3.10a | `Server`: the client's flight and combat handlers (fire, equipment, cruise, thrusters, target, tractor, trade lanes, jettison, collision reports, mining, use item, invincibility, manoeuvre, dock); before Gate G3 (decision O49) | `game-logic::{session, receive}` and the world's owners | M | B |
+| P3.10b | `Server`: the player-state requests (equipment and items, collision groups, visited state, mission log, interface state, rank, best path, group positions, pop-up dialogs, difficulty scale) and the player trades; after Gate G3 (decision O49) | `game-logic::{session, player}` | M | A |
 
 **Gate G3 (milestone "headless server").** `OutpostServer.exe` starts on
 the original data. A scripted test client connects over QUIC, logs in,
@@ -335,6 +345,25 @@ lane request, `LaneAction` and `get_lane_start`, owner 2026-11-19) run
 through the Rust world and fall inside their approved envelopes. Saves written by
 Rust load in the C++ build and the reverse. Mission script dumps equal the
 oracle. A random mission offer rebuilt from a saved seed equals the oracle.
+P3.5b checks the save item for the story missions' and Story's sections
+(`[MissionState]`, `[TriggerSave]`, the mission object's sections,
+`[NNObjective]`, `[RandomEncounter]`, `[StoryInfo]`): the C++ writer's text
+equals the port's for every mission in three states, the C++ build restores
+the port's saves as the port does (the data job's "Load the port's saves
+with the oracle"), and the port's saves round-trip; the `[RandomMission]`
+sections follow with P3.7c. The owner decided on 2026-11-25 that the
+two-client scripted test (`apps/outpost-server/tests/g3_client.rs`) meets
+the scripted client criterion; NPC population (P3.6d) comes after the
+milestone.
+
+The owner re-sequenced Phase 3 on 2026-11-25 (decision O48): the packages
+Gate G3 needs (P3.7a, P3.7c, P3.8, P3.9) come first, P3.8 and P3.9 on their
+own branches beside Content, and the other Content packages finish the phase
+after the milestone.
+
+The owner signed off Gate G3 on 2026-11-25, on the data run of #165
+(run 45614252212): every criterion above is met, the three scenarios bit for
+bit equal to the oracle through the Rust server.
 
 ### Phase 4 — client engine (`neuron-client`)
 

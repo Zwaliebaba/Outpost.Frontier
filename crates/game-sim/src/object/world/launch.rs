@@ -109,6 +109,27 @@ impl World {
         found
     }
 
+    /// `Archetype::Load` and `HardpointPositionA` apart (`pub::FindHardpoint`):
+    /// `None` when the ship archetype is unknown or its model does not load
+    /// (no assets), else the hardpoint as [`World::ship_archetype_hardpoint`]
+    /// finds it, `None` inside when the model lacks it.
+    pub fn ship_archetype_hardpoint_lookup(
+        &mut self,
+        archetype: u32,
+        name: &[u8],
+    ) -> Option<Option<Transform>> {
+        let path = {
+            let arch = self.data.archetypes.ships.get(&archetype)?;
+            self.strings.get(arch.eq_obj.root.da_archetype).to_vec()
+        };
+        let instance = self.create_scene_instance(&path)?;
+        let found = self
+            .find_hardpoint(Some(instance), name)
+            .map(|(_, data)| Transform::new(data.orientation(), data.position()));
+        self.scene.destroy_instance(instance);
+        Some(found)
+    }
+
     /// `CObject::beam_object(Pos, Orient, false)` (`PhySys::BeamR`): the
     /// object and its body at the pose, at rest. The attached equipment
     /// shares the ship's body (record 0001), so no child is beamed apart.

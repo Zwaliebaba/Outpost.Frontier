@@ -193,6 +193,19 @@ void LoadPlayerToughnessScale(INI_Reader* Reader)
     }
 }
 
+// Oracle instrumentation (P3.4b, decision record 0008 point 5): the toughness lines of
+// OracleDumpContentTables (oracle_content_tables.cpp), whose table is file-static here, in
+// vector order. Returns the lines written. No game module calls it.
+int __cdecl OracleContentDumpToughness(FILE* Out)
+{
+    for (size_t Index = 0; Index < GPlayerToughnessScale.size(); ++Index)
+    {
+        fprintf(Out, "experience=%d toughness=%d\n", GPlayerToughnessScale[Index].Experience,
+                GPlayerToughnessScale[Index].Toughness);
+    }
+    return static_cast<int>(GPlayerToughnessScale.size());
+}
+
 void RecalculateContentPlayerRank(FContentPlayerState* State)
 {
     // Content.dll the routine (module storage–06f495e4, listing 286859–287013).

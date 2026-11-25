@@ -697,6 +697,247 @@ pub fn report_object_errors(
     }
 }
 
+/// One state as the first-divergence report prints it: alive, then
+/// every field [`same_state`] compares as its bit pattern (position with
+/// its value), the angular velocity, the behaviour and the commanded
+/// throttle beside them.
+#[must_use]
+pub fn fmt_state_bits(st: &State) -> String {
+    if !st.alive {
+        return "gone".to_owned();
+    }
+    let hex3 = |v: Vector| {
+        format!(
+            "[{:08x} {:08x} {:08x}]",
+            v.x.to_bits(),
+            v.y.to_bits(),
+            v.z.to_bits()
+        )
+    };
+    let shield = st.shield.map_or_else(
+        || "-".to_owned(),
+        |sh| format!("{:08x} ({})", sh.hp.to_bits(), sh.hp),
+    );
+    format!(
+        "pos ({:.4}, {:.4}, {:.4}) {} vel {} angvel {} orient [{}] hp {:08x} ({}) shield {shield} behaviour {} throttle {}",
+        st.pos.x,
+        st.pos.y,
+        st.pos.z,
+        hex3(st.pos),
+        hex3(st.vel),
+        hex3(st.angvel),
+        st.orient
+            .iter()
+            .map(|x| format!("{:08x}", x.to_bits()))
+            .collect::<Vec<_>>()
+            .join(" "),
+        st.hp.to_bits(),
+        st.hp,
+        st.behavior,
+        st.throttle
+            .map_or_else(|| "-".to_owned(), |t| format!("{:08x} ({t})", t.to_bits()))
+    )
+}
+
+/// The fields of two states that [`same_state`] finds different, each
+/// as `field rust | oracle` in bit patterns.
+fn differing_fields(a: &State, b: &State) -> Vec<String> {
+    let hex3 = |v: Vector| {
+        format!(
+            "[{:08x} {:08x} {:08x}]",
+            v.x.to_bits(),
+            v.y.to_bits(),
+            v.z.to_bits()
+        )
+    };
+    let bits = |v: Vector| [v.x.to_bits(), v.y.to_bits(), v.z.to_bits()];
+    let mut out = Vec::new();
+    if a.alive != b.alive {
+        out.push(format!("alive {} | {}", a.alive, b.alive));
+        return out;
+    }
+    if !a.alive {
+        return out;
+    }
+    for (field, x, y) in [("pos", a.pos, b.pos), ("vel", a.vel, b.vel)] {
+        if bits(x) != bits(y) {
+            out.push(format!(
+                "{field} {} | {} (distance {:e})",
+                hex3(x),
+                hex3(y),
+                dist(x, y)
+            ));
+        }
+    }
+    for i in 0..9 {
+        if a.orient[i].to_bits() != b.orient[i].to_bits() {
+            out.push(format!(
+                "orient[{i}] {:08x} ({}) | {:08x} ({})",
+                a.orient[i].to_bits(),
+                a.orient[i],
+                b.orient[i].to_bits(),
+                b.orient[i]
+            ));
+        }
+    }
+    if a.hp.to_bits() != b.hp.to_bits() {
+        out.push(format!(
+            "hp {:08x} ({}) | {:08x} ({})",
+            a.hp.to_bits(),
+            a.hp,
+            b.hp.to_bits(),
+            b.hp
+        ));
+    }
+    match (a.shield, b.shield) {
+        (Some(x), Some(y)) if x.hp.to_bits() != y.hp.to_bits() => out.push(format!(
+            "shield hp {:08x} ({}) | {:08x} ({})",
+            x.hp.to_bits(),
+            x.hp,
+            y.hp.to_bits(),
+            y.hp
+        )),
+        (None, Some(y)) => out.push(format!("shield none | {}", y.hp)),
+        _ => {}
+    }
+    out
+}
+
+/// Whether each object equals the oracle bit for bit over the whole run
+/// ([`same_state`] at every tick, and as many ticks on both sides), and
+/// for each that does not, its first divergence: the tick, the fields
+/// that differ and both sides' states, bit for bit, at the tick before it,
+/// at it and after it. `first` is a contact scenario's or a fight's first
+/// contact or impact in the oracle ([`first_judged`]), against which the
+/// first divergence is placed (judged before it, reported after it). Then
+/// one line for the scenario. Informational: it judges nothing
+/// (`judge_exact`, `judge_contact` and `judge_fight` do).
+pub fn report_first_divergence(
+    summary: &mut String,
+    s: &Scenario,
+    ours: &Run,
+    theirs: &Run,
+    first: Option<u32>,
+) {
+    report_first_divergence_from(summary, s, ours, theirs, first, ("rust", "oracle"));
+}
+
+/// [`report_first_divergence`] against another run than the oracle's,
+/// the two sides named by `sides` (the oracle's report is `("rust",
+/// "oracle")`): `scenario_hooks` without the oracle sets its run through
+/// the server's hooks beside the same scenario's run without a server.
+pub fn report_first_divergence_from(
+    summary: &mut String,
+    s: &Scenario,
+    ours: &Run,
+    theirs: &Run,
+    first: Option<u32>,
+    sides: (&str, &str),
+) {
+    let (mine, other) = sides;
+    let width = mine.len().max(other.len()) + 2;
+    let mut exact = Vec::new();
+    let mut differ = Vec::new();
+    for (name, a) in &ours.states {
+        let Some(b) = theirs.states.get(name) else {
+            let _ = writeln!(
+                summary,
+                "{}: {name}: not compared: the {other} run records no such object",
+                s.name
+            );
+            continue;
+        };
+        let n = a.len().min(b.len());
+        let differing: Vec<usize> = (0..n).filter(|&t| !same_state(&a[t], &b[t])).collect();
+        let Some(&t) = differing.first() else {
+            if a.len() == b.len() {
+                exact.push(name.as_str());
+                let _ = writeln!(
+                    summary,
+                    "{}: {name}: bit-exact: all {n} ticks equal the {other} run bit for bit (alive, position, velocity, orientation, hit points, shield)",
+                    s.name
+                );
+            } else {
+                differ.push(format!("{name} (tick count)"));
+                let _ = writeln!(
+                    summary,
+                    "{}: {name}: not bit-exact: the {n} common ticks equal the {other} run bit for bit, but the {mine} run has {} ticks against the {other} run's {}",
+                    s.name,
+                    a.len(),
+                    b.len()
+                );
+            }
+            continue;
+        };
+        differ.push(format!("{name} from tick {t}"));
+        let place = first.map_or_else(String::new, |f| {
+            if (t as u64) < u64::from(f) {
+                format!(", before the oracle's first contact or impact (tick {f})")
+            } else {
+                format!(
+                    ", at or after the oracle's first contact or impact (tick {f}): every tick before it is bit-exact"
+                )
+            }
+        });
+        let _ = writeln!(
+            summary,
+            "{}: {name}: not bit-exact: first divergence at tick {t} ({} of {n} ticks differ{}){place}; {mine} | {other}:",
+            s.name,
+            differing.len(),
+            if a.len() == b.len() {
+                String::new()
+            } else {
+                format!("; ticks {mine} {} {other} {}", a.len(), b.len())
+            }
+        );
+        for f in differing_fields(&a[t], &b[t]) {
+            let _ = writeln!(summary, "    {f}");
+        }
+        for k in t.saturating_sub(1)..(t + 2).min(n) {
+            let _ = writeln!(
+                summary,
+                "    tick {k} {:width$}{}",
+                format!("{mine}:"),
+                fmt_state_bits(&a[k])
+            );
+            let _ = writeln!(
+                summary,
+                "    tick {k} {:width$}{}",
+                format!("{other}:"),
+                fmt_state_bits(&b[k])
+            );
+        }
+    }
+    let _ = writeln!(
+        summary,
+        "{}: bit-exact objects: {} of {}{}",
+        s.name,
+        exact.len(),
+        exact.len() + differ.len(),
+        if differ.is_empty() {
+            String::new()
+        } else {
+            format!("; not bit-exact: {}", differ.join(", "))
+        }
+    );
+}
+
+/// The tick up to which a run is judged bit for bit, for
+/// [`report_first_divergence`]: a contact scenario's first collision
+/// event in the oracle ([`judge_contact`]), a fight's first contact or
+/// munition impact ([`judge_fight`]; the ships' attitudes in `ai`), `None`
+/// for the others.
+#[must_use]
+pub fn first_judged(dir: &Path, s: &Scenario, ai: &AiInputs, theirs: &Run) -> Option<u32> {
+    if s.contact {
+        theirs.contacts.iter().map(|c| c.tick).min()
+    } else if !ai.attitudes.is_empty() {
+        first_event(dir, &s.name, theirs)
+    } else {
+        None
+    }
+}
+
 /// Every judgement `scenario_replay` makes of a run against the oracle's
 /// run `theirs` (from `dir`), without its diagnostic reports: each
 /// object's errors ([`report_object_errors`]), the guided munitions
@@ -729,6 +970,7 @@ pub fn judge(
         u32::MAX
     };
     report_guided(summary, gross, dir, &s.name, ours, cutoff);
+    report_first_divergence(summary, s, ours, theirs, first_judged(dir, s, ai, theirs));
     if EXACT_SCENARIOS.contains(&s.name.as_str()) {
         judge_exact(summary, gross, s, ours, theirs);
     }
@@ -743,5 +985,57 @@ pub fn judge(
             ours.contacts.len(),
             theirs.contacts.len()
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scenario::file::{parse, scenarios_dir};
+
+    fn states(n: usize) -> Vec<State> {
+        (0..n)
+            .map(|t| State {
+                alive: true,
+                pos: Vector::new(t as f32, 0.0, 0.0),
+                ..State::default()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_first_divergence_report_says_which_objects_are_bit_exact() {
+        let s = parse(&scenarios_dir().join("dock_trade_lane.txt")).expect("dock_trade_lane");
+        let mut ours = Run::default();
+        let mut theirs = Run::default();
+        ours.states.insert("ring16".to_owned(), states(4));
+        theirs.states.insert("ring16".to_owned(), states(4));
+        let mut pilot = states(4);
+        pilot[2].pos.x = f32::from_bits(pilot[2].pos.x.to_bits() + 1);
+        ours.states.insert("pilot".to_owned(), pilot);
+        theirs.states.insert("pilot".to_owned(), states(4));
+        let mut summary = String::new();
+        report_first_divergence(&mut summary, &s, &ours, &theirs, None);
+        assert!(summary.contains("dock_trade_lane: ring16: bit-exact: all 4 ticks"));
+        assert!(summary.contains(
+            "dock_trade_lane: pilot: not bit-exact: first divergence at tick 2 (1 of 4 ticks differ); rust | oracle:"
+        ));
+        assert!(
+            summary.contains("    pos [40000001 00000000 00000000] | [40000000 00000000 00000000]")
+        );
+        assert!(summary.contains("    tick 1 rust:   pos (1.0000, 0.0000, 0.0000) [3f800000"));
+        assert!(summary.contains("    tick 3 oracle: pos (3.0000"));
+        assert!(summary.ends_with(
+            "dock_trade_lane: bit-exact objects: 1 of 2; not bit-exact: pilot from tick 2\n"
+        ));
+        // Placed against a first contact.
+        let mut summary = String::new();
+        report_first_divergence(&mut summary, &s, &ours, &theirs, Some(2));
+        assert!(summary.contains(
+            ", at or after the oracle's first contact or impact (tick 2): every tick before it is bit-exact"
+        ));
+        let mut summary = String::new();
+        report_first_divergence(&mut summary, &s, &ours, &theirs, Some(3));
+        assert!(summary.contains(", before the oracle's first contact or impact (tick 3)"));
     }
 }

@@ -58,15 +58,24 @@
 //! `launch`, `tradelane`) take their ids from the Rust world. Scenarios
 //! whose directives need a behaviour that is not ported yet, and those
 //! marked `# rust: skip <reason>` (the server's and Content's parts the
-//! Rust world does not have yet), are skipped with a note. The fights (`dogfight`, `skirmish`: AI ships of hostile
+//! Rust world does not have yet), are skipped with a note. Those marked
+//! `# rust: server <reason>` (answers only the server gives, which
+//! `scenario_hooks` judges) run here without the server, reported and not
+//! judged, so that each object's first divergence without a server stands
+//! beside the one through the server's hooks (owner, 2026-11-25); those
+//! with Content's ships, which only the server makes, are skipped. The
+//! fights (`dogfight`, `skirmish`: AI ships of hostile
 //! factions; `strafe`: an AI fighter and a hostile ship without one) take
 //! each pilot's personality and the ships' attitudes from the oracle's
 //! `ai.jsonl` (a ship without a manager the reverse attitude of the AI
 //! ship's snapshot), and are judged to their first contact or munition
 //! impact (see below; record 0003 point 9): each ship's exact span, the
 //! first behaviour and target difference, the behaviour sequences, the
-//! hits before the first divergence and the outcome are reported. A
-//! summary goes to `rust-scenario-replay.txt` in the oracle folder.
+//! hits before the first divergence and the outcome are reported. Every
+//! object's line says whether it is bit-exact over the run, and where it
+//! first differs (`report_first_divergence`, shared with
+//! `scenario_hooks`). A summary goes to `rust-scenario-replay.txt` in the
+//! oracle folder.
 //!
 //! The scenario files, the run driver, the oracle's records and the
 //! judges are in `game_sim::scenario` (decision O45); this test runs them
@@ -88,10 +97,10 @@ use game_sim::object::World;
 use game_sim::object::world::{NoServerHooks, ShipSpawn, WorldConfig};
 use game_sim::scenario::{
     self, AiInputs, Contact, EXACT_SCENARIOS, GROSS_POSITION, Hit, Run, Scenario, State, Unit,
-    dist, first_event, first_event_of, fmt_contact, gun_text, judge_contact, judge_exact,
-    judge_fight, needs_ai, oracle_ai_inputs, oracle_run, parse, report_guided,
-    report_object_errors, same_state, scenario_files, scenarios_dir, spawn_orientation,
-    world_config,
+    dist, first_event, first_event_of, first_judged, fmt_contact, gun_text, judge_contact,
+    judge_exact, judge_fight, needs_ai, needs_server, oracle_ai_inputs, oracle_run, parse,
+    report_first_divergence, report_guided, report_object_errors, same_state, scenario_files,
+    scenarios_dir, spawn_orientation, world_config,
 };
 use neuron_core::id::create_id;
 use neuron_core::math::Vector;
@@ -1393,121 +1402,174 @@ fn scenarios_against_the_oracle() {
             let _ = writeln!(summary, "{}: skipped, {why} (AI is P2.5)", s.name);
             continue;
         }
-        let ai = oracle
-            .as_ref()
-            .map(|d| oracle_ai_inputs(d, &s.name))
-            .unwrap_or_default();
-        let Some(our_run) = run(&s, &ai) else {
-            let _ = writeln!(summary, "{}: did not run", s.name);
-            continue;
-        };
-        if let Some((b, tick)) = our_run.unported {
-            let _ = writeln!(
-                summary,
-                "{}: skipped, an AI ship runs behaviour {b} from tick {tick}, which is not ported (AI is P2.5)",
-                s.name
-            );
-            // The missiles fly before it.
-            if let Some(dir) = &oracle {
-                report_guided(&mut summary, &mut gross, dir, &s.name, &our_run, u32::MAX);
-            }
-            continue;
-        }
-        let ours = &our_run.states;
-        for m in &our_run.managers {
-            let _ = writeln!(summary, "{}: {m}", s.name);
-        }
-        for (name, states) in ours {
-            if let Some(last) = states.last() {
-                let _ = writeln!(
-                    summary,
-                    "{}: {name} after {} ticks: alive {} pos ({:.3}, {:.3}, {:.3}) speed {:.3} hp {}",
-                    s.name,
-                    states.len() - 1,
-                    last.alive,
-                    last.pos.x,
-                    last.pos.y,
-                    last.pos.z,
-                    dist(last.vel, Vector::ZERO),
-                    last.hp
-                );
-            }
-        }
-        let Some(dir) = &oracle else {
-            continue;
-        };
-        let Some(their_run) = oracle_run(dir, &s.name) else {
-            let _ = writeln!(summary, "{}: no oracle tick.jsonl", s.name);
-            continue;
-        };
-        let theirs = &their_run.states;
-        for (name, ours_states) in ours {
-            let Some(their_states) = theirs.get(name) else {
-                continue;
-            };
-            // The gross bound (not for a contact scenario or a fight; the
-            // library's `judge` makes the same judgements in one call).
-            let fight = !ai.attitudes.is_empty();
-            report_object_errors(
-                &mut summary,
-                &mut gross,
-                &s,
-                name,
-                ours_states,
-                their_states,
-                fight,
-            );
-
-            first_divergences(&mut summary, &s.name, name, ours_states, their_states);
-            if let Some(first) =
-                first_bit_difference(&mut summary, &s.name, name, ours_states, their_states)
-            {
-                report_cores(&mut summary, dir, &s.name, name, first, &our_run);
-            }
-        }
-        // The AI's phases come from the CRT sequence: with both sides
-        // seeded after the load, the first AI ship's pathfinder phases sit
-        // at the same index.
-        if let (Some(rust), Some(oracle_p)) = (our_run.pathfind_phases, oracle_phases(dir, &s.name))
-            && let (Some(i_rust), Some(i_oracle)) =
-                (phase_index(s.seed, rust), phase_index(s.seed, oracle_p))
+        // A scenario that needs the server's answers (`# rust: server`)
+        // runs here without them, reported and not judged, so that its
+        // first divergence without a server can be set beside the one
+        // through the server's hooks (owner, 2026-11-25): game-logic's
+        // scenario_hooks judges it. One with Content's ships needs the
+        // server to make them.
+        let without_server = needs_server(&s);
+        if let Some(why) = &without_server
+            && s.objects.iter().any(|o| o.content)
         {
             let _ = writeln!(
                 summary,
-                "{}: the AI's first draws are at index {i_oracle} of the oracle's rand() sequence and {i_rust} of the Rust world's (both from the seeding after the load)",
+                "{}: skipped without a server, {why} (game-logic's scenario_hooks runs it)",
+                s.name
+            );
+            continue;
+        }
+        if let Some(why) = &without_server {
+            let _ = writeln!(
+                summary,
+                "{}: run without a server, reported and not judged: {why} (game-logic's scenario_hooks judges it)",
                 s.name
             );
         }
-        if !ai.attitudes.is_empty() {
-            report_combat(&mut summary, &s.name, &our_run, &their_run);
+        let mut run_gross = Vec::new();
+        'run: {
+            let ai = oracle
+                .as_ref()
+                .map(|d| oracle_ai_inputs(d, &s.name))
+                .unwrap_or_default();
+            let Some(our_run) = run(&s, &ai) else {
+                let _ = writeln!(summary, "{}: did not run", s.name);
+                break 'run;
+            };
+            if let Some((b, tick)) = our_run.unported {
+                let _ = writeln!(
+                    summary,
+                    "{}: skipped, an AI ship runs behaviour {b} from tick {tick}, which is not ported (AI is P2.5)",
+                    s.name
+                );
+                // The missiles fly before it.
+                if let Some(dir) = &oracle {
+                    report_guided(
+                        &mut summary,
+                        &mut run_gross,
+                        dir,
+                        &s.name,
+                        &our_run,
+                        u32::MAX,
+                    );
+                }
+                break 'run;
+            }
+            let ours = &our_run.states;
+            for m in &our_run.managers {
+                let _ = writeln!(summary, "{}: {m}", s.name);
+            }
+            for (name, states) in ours {
+                if let Some(last) = states.last() {
+                    let _ = writeln!(
+                        summary,
+                        "{}: {name} after {} ticks: alive {} pos ({:.3}, {:.3}, {:.3}) speed {:.3} hp {}",
+                        s.name,
+                        states.len() - 1,
+                        last.alive,
+                        last.pos.x,
+                        last.pos.y,
+                        last.pos.z,
+                        dist(last.vel, Vector::ZERO),
+                        last.hp
+                    );
+                }
+            }
+            let Some(dir) = &oracle else {
+                break 'run;
+            };
+            let Some(their_run) = oracle_run(dir, &s.name) else {
+                let _ = writeln!(summary, "{}: no oracle tick.jsonl", s.name);
+                break 'run;
+            };
+            let theirs = &their_run.states;
+            for (name, ours_states) in ours {
+                let Some(their_states) = theirs.get(name) else {
+                    continue;
+                };
+                // The gross bound (not for a contact scenario or a fight; the
+                // library's `judge` makes the same judgements in one call).
+                let fight = !ai.attitudes.is_empty();
+                report_object_errors(
+                    &mut summary,
+                    &mut run_gross,
+                    &s,
+                    name,
+                    ours_states,
+                    their_states,
+                    fight,
+                );
+
+                first_divergences(&mut summary, &s.name, name, ours_states, their_states);
+                if let Some(first) =
+                    first_bit_difference(&mut summary, &s.name, name, ours_states, their_states)
+                {
+                    report_cores(&mut summary, dir, &s.name, name, first, &our_run);
+                }
+            }
+            // The AI's phases come from the CRT sequence: with both sides
+            // seeded after the load, the first AI ship's pathfinder phases sit
+            // at the same index.
+            if let (Some(rust), Some(oracle_p)) =
+                (our_run.pathfind_phases, oracle_phases(dir, &s.name))
+                && let (Some(i_rust), Some(i_oracle)) =
+                    (phase_index(s.seed, rust), phase_index(s.seed, oracle_p))
+            {
+                let _ = writeln!(
+                    summary,
+                    "{}: the AI's first draws are at index {i_oracle} of the oracle's rand() sequence and {i_rust} of the Rust world's (both from the seeding after the load)",
+                    s.name
+                );
+            }
+            if !ai.attitudes.is_empty() {
+                report_combat(&mut summary, &s.name, &our_run, &their_run);
+            }
+            report_hits(&mut summary, &s.name, &our_run.hits, &their_run.hits);
+            report_rays(&mut summary, &s.name, &our_run);
+            report_units(&mut summary, dir, &s.name, &our_run);
+            let fight = !ai.attitudes.is_empty();
+            let cutoff = if fight {
+                first_event(dir, &s.name, &their_run).unwrap_or(u32::MAX)
+            } else {
+                u32::MAX
+            };
+            report_guided(&mut summary, &mut run_gross, dir, &s.name, &our_run, cutoff);
+            report_guns(&mut summary, dir, &s.name, &our_run);
+            report_turret_probes(&mut summary, dir, &s.name, &our_run);
+            report_contacts(&mut summary, &s, &our_run, &their_run);
+            report_first_divergence(
+                &mut summary,
+                &s,
+                &our_run,
+                &their_run,
+                first_judged(dir, &s, &ai, &their_run),
+            );
+            if EXACT_SCENARIOS.contains(&s.name.as_str()) {
+                judge_exact(&mut summary, &mut run_gross, &s, &our_run, &their_run);
+            }
+            if s.contact {
+                judge_contact(&mut summary, &mut run_gross, &s, &our_run, &their_run);
+            } else if fight {
+                judge_fight(&mut summary, &mut run_gross, dir, &s, &our_run, &their_run);
+            } else if our_run.contacts.is_empty() != their_run.contacts.is_empty() {
+                run_gross.push(format!(
+                    "{}: collision events rust {} vs oracle {}",
+                    s.name,
+                    our_run.contacts.len(),
+                    their_run.contacts.len()
+                ));
+            }
         }
-        report_hits(&mut summary, &s.name, &our_run.hits, &their_run.hits);
-        report_rays(&mut summary, &s.name, &our_run);
-        report_units(&mut summary, dir, &s.name, &our_run);
-        let fight = !ai.attitudes.is_empty();
-        let cutoff = if fight {
-            first_event(dir, &s.name, &their_run).unwrap_or(u32::MAX)
+        if let Some(why) = &without_server {
+            for g in run_gross {
+                let _ = writeln!(
+                    summary,
+                    "{}: without a server (not judged, {why}): {g}",
+                    s.name
+                );
+            }
         } else {
-            u32::MAX
-        };
-        report_guided(&mut summary, &mut gross, dir, &s.name, &our_run, cutoff);
-        report_guns(&mut summary, dir, &s.name, &our_run);
-        report_turret_probes(&mut summary, dir, &s.name, &our_run);
-        report_contacts(&mut summary, &s, &our_run, &their_run);
-        if EXACT_SCENARIOS.contains(&s.name.as_str()) {
-            judge_exact(&mut summary, &mut gross, &s, &our_run, &their_run);
-        }
-        if s.contact {
-            judge_contact(&mut summary, &mut gross, &s, &our_run, &their_run);
-        } else if fight {
-            judge_fight(&mut summary, &mut gross, dir, &s, &our_run, &their_run);
-        } else if our_run.contacts.is_empty() != their_run.contacts.is_empty() {
-            gross.push(format!(
-                "{}: collision events rust {} vs oracle {}",
-                s.name,
-                our_run.contacts.len(),
-                their_run.contacts.len()
-            ));
+            gross.extend(run_gross);
         }
     }
     print!("{summary}");

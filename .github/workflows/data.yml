@@ -25,10 +25,12 @@ on:
       - ".github/scripts/**"
   workflow_dispatch:
 
-# A newer push to the same pull request or branch replaces a run in progress.
 concurrency:
   group: data-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Only a pull request's newer push replaces its run. A run on main finishes, queued
+  # behind the one before it: it checks the merged code and saves the caches the pull
+  # requests restore, which a merge every half hour cancelled before the save.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -54,15 +56,53 @@ jobs:
           path: |
             ${{ runner.temp }}/outpost-oracle
             ${{ runner.temp }}/outpost-sim
-            ${{ runner.temp }}/outpost-ensemble
             ${{ runner.temp }}/outpost-systems
+            ${{ runner.temp }}/outpost-replication
             ${{ runner.temp }}/outpost-sim-summaries
             ${{ runner.temp }}/oracle-dump.log
+      - name: Key the seed ensemble
+        # Decision O48 (4): the seed ensemble's oracle outputs are cached apart from the other
+        # oracle outputs, keyed on what the ensemble runs: the C++ without the instrumentation
+        # the ensemble never calls (Content's oracle_*.cpp dump exports and their project
+        # entries, the dump sessions at the top of CppSource/Oracle/, and oracle_sim.cpp, whose
+        # changes are the dump options; the scenario oracle below runs every scenario again on
+        # each change), the ensemble's own scenario files, the data, the toolset and the seed
+        # list. This file is not in the key: bump the version in the key when the ensemble's
+        # step changes. The nightly run rebuilds the ensemble without the cache.
+        id: ensemble-key
+        shell: pwsh
+        env:
+          SOURCES: ${{ hashFiles('CppSource/**', '!CppSource/Content/oracle_*.cpp', '!CppSource/Content/Content.vcxproj', '!CppSource/Content/Content.vcxproj.filters', '!CppSource/Oracle/*.txt', '!CppSource/Oracle/scenarios/**', '!CppSource/Oracle/oracle_sim.cpp', 'outdir/**', '.github/msvc-toolset.txt', '.github/scripts/**', 'crates/game-sim/tests/fixtures/g2_ensemble.txt') }}
+        run: |
+          $list = Get-Content crates\game-sim\tests\fixtures\g2_ensemble.txt | ForEach-Object { ($_ -split '#')[0].Trim() } | Where-Object { $_ -like 'scenario *' }
+          $text = ($list | ForEach-Object { Get-Content -Raw "CppSource\Oracle\scenarios\$(($_ -split '\s+')[1]).txt" -ErrorAction Stop }) -join "`n"
+          $sha = [Security.Cryptography.SHA256]::Create()
+          $hash = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($text))).Replace('-', '')
+          "key=ensemble-v1-$env:SOURCES-$hash" >> $env:GITHUB_OUTPUT
+      - name: Restore the seed ensemble's outputs
+        id: ensemble-cache
+        if: ${{ github.event_name != 'schedule' }}
+        uses: actions/cache/restore@v4
+        with:
+          key: ${{ steps.ensemble-key.outputs.key }}
+          path: |
+            ${{ runner.temp }}/outpost-ensemble
+            ${{ runner.temp }}/outpost-sim-summaries/ensemble
+      - name: Restore the C++ build
+        # P3.5b: the step that loads the port's saves with the oracle runs after the port's
+        # tests on every run, so the oracle's build is kept as well as its outputs. It depends
+        # only on the C++ and the pinned toolset; a run whose sources a run before it built
+        # takes that build.
+        id: data-bin
+        uses: actions/cache/restore@v4
+        with:
+          key: data-bin-v1-${{ hashFiles('CppSource/**', '.github/msvc-toolset.txt', '.github/scripts/**') }}
+          path: bin
       - name: Build the oracle harness
         # Oracle builds Server.dll and SimClientStub.dll through its references; the
         # scenario oracle (Oracle.exe sim) also loads Content.dll and the engine DLLs
         # NEURONCOMPONENTSsrv.ini names, built here by name.
-        if: ${{ steps.oracle-cache.outputs.cache-hit != 'true' }}
+        if: ${{ steps.data-bin.outputs.cache-hit != 'true' }}
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -73,6 +113,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo @pin
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Save the C++ build
+        # The restore step's key, hashed before the build wrote CppSource/obj/.
+        if: ${{ success() && steps.data-bin.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          key: ${{ steps.data-bin.outputs.cache-primary-key }}
+          path: bin
       - name: Prepare the dump root
         # The dump root holds DATA (a junction to outdir\data) and EXE (the
         # INI files at the top of outdir\), as design/reference-build.md
@@ -101,6 +148,90 @@ jobs:
           $code = $LASTEXITCODE
           "Oracle.exe dump exited with $code" | Add-Content "$env:RUNNER_TEMP\oracle-dump.log"
           if ($code -ne 0) { exit $code }
+          # P3.4b (decision record 0008 point 5): Content's static tables as a multiplayer
+          # start-up leaves them (CppSource/Oracle/content_tables.txt, Content.dll's
+          # OracleDumpContentTables), one content_<table>.txt each, into outpost-oracle\content,
+          # which game-logic's data_dump_content_tables reads. P3.4c (record 0008 point 10)
+          # adds the other loaders' twelve tables to the same run (data_dump_content_loaders).
+          $content = "$env:RUNNER_TEMP\outpost-oracle\content"
+          & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\content_tables.txt" $content | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+          $code = $LASTEXITCODE
+          "Oracle.exe sim content_tables.txt exited with $code" | Add-Content "$env:RUNNER_TEMP\oracle-dump.log"
+          if ($code -ne 0) {
+            Get-Content "$content\session.jsonl" -Tail 20 -ErrorAction SilentlyContinue | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+            exit $code
+          }
+          Get-ChildItem $content -Filter content_*.txt | ForEach-Object { "$($_.Name): $(@(Get-Content $_.FullName).Count) lines" }
+          # P3.5a (record 0008 point 10, Gate G3): the fourteen story missions' parse after the
+          # same start-up (CppSource/Oracle/mission_scripts.txt, Content.dll's
+          # OracleDumpMissionScripts), one mission_<table>.txt each (P3.5a2 added the [ObjList]
+          # and [MetaBehavior] tables), into outpost-oracle\missions, which game-logic's
+          # data_dump_mission_scripts reads.
+          $missions = "$env:RUNNER_TEMP\outpost-oracle\missions"
+          & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\mission_scripts.txt" $missions | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+          $code = $LASTEXITCODE
+          "Oracle.exe sim mission_scripts.txt exited with $code" | Add-Content "$env:RUNNER_TEMP\oracle-dump.log"
+          if ($code -ne 0) {
+            Get-Content "$missions\session.jsonl" -Tail 20 -ErrorAction SilentlyContinue | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+            exit $code
+          }
+          Get-ChildItem $missions -Filter mission_*.txt | ForEach-Object { "$($_.Name): $(@(Get-Content $_.FullName).Count) lines" }
+          # P3.5b (record 0008 point 10, Gate G3): the C++ writer of the story missions' save
+          # sections in three states each, and of Story's (CppSource/Oracle/mission_saves.txt,
+          # Content.dll's OracleDumpMissionSaves), into outpost-oracle\mission_saves, which
+          # game-logic's data_dump_mission_saves reads.
+          $saves = "$env:RUNNER_TEMP\outpost-oracle\mission_saves"
+          & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\mission_saves.txt" $saves | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+          $code = $LASTEXITCODE
+          "Oracle.exe sim mission_saves.txt exited with $code" | Add-Content "$env:RUNNER_TEMP\oracle-dump.log"
+          if ($code -ne 0) {
+            Get-Content "$saves\session.jsonl" -Tail 20 -ErrorAction SilentlyContinue | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+            exit $code
+          }
+          "mission_saves: $(@(Get-ChildItem $saves -Filter *.ini).Count) saves"
+          # P3.7a (record 0008 point 8, Gate G3): the random-mission tables, the vignette tree
+          # and the offers built from a seed after the same start-up
+          # (CppSource/Oracle/random_missions.txt, Content.dll's OracleDumpRandomMissions), one
+          # rm_<table>.txt each, into outpost-oracle\random_missions, which game-logic's
+          # data_dump_random_missions reads.
+          $random = "$env:RUNNER_TEMP\outpost-oracle\random_missions"
+          & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\random_missions.txt" $random | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+          $code = $LASTEXITCODE
+          "Oracle.exe sim random_missions.txt exited with $code" | Add-Content "$env:RUNNER_TEMP\oracle-dump.log"
+          if ($code -ne 0) {
+            Get-Content "$random\session.jsonl" -Tail 20 -ErrorAction SilentlyContinue | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+            exit $code
+          }
+          Get-ChildItem $random -Filter rm_*.txt | ForEach-Object { "$($_.Name): $(@(Get-Content $_.FullName).Count) lines" } | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+          # P3.7c (record 0008 points 8 and 10, Gate G3): the random missions the vendor and bar
+          # offers make after the same start-up, their [RandomMission] save sections and the offers
+          # rebuilt from the saved seeds (CppSource/Oracle/random_mission_saves.txt, Content.dll's
+          # OracleDumpRandomMissionSaves), into outpost-oracle\random_mission_saves, which
+          # game-logic's data_dump_random_mission_saves reads.
+          $rmsaves = "$env:RUNNER_TEMP\outpost-oracle\random_mission_saves"
+          & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\random_mission_saves.txt" $rmsaves | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+          $code = $LASTEXITCODE
+          "Oracle.exe sim random_mission_saves.txt exited with $code" | Add-Content "$env:RUNNER_TEMP\oracle-dump.log"
+          if ($code -ne 0) {
+            Get-Content "$rmsaves\session.jsonl" -Tail 20 -ErrorAction SilentlyContinue | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+            exit $code
+          }
+          "random_mission_saves: $(@(Get-ChildItem $rmsaves -Filter rmsave_*.ini).Count) saves" | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+          Get-ChildItem $rmsaves -Filter *.txt | ForEach-Object { "$($_.Name): $(@(Get-Content $_.FullName).Count) lines" } | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+          # P3.5c1 (record 0008 question 9): the Tier B mission trace, Mission_01a's opening run
+          # for a synthetic player after the same start-up and RELAYSEVEN_system's load
+          # (CppSource/Oracle/mission_trace.txt, Content.dll's OracleDumpMissionTrace), into
+          # outpost-oracle\mission_trace\mission.jsonl, which game-logic's data_dump_mission_trace
+          # reads.
+          $trace = "$env:RUNNER_TEMP\outpost-oracle\mission_trace"
+          & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\mission_trace.txt" $trace | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+          $code = $LASTEXITCODE
+          "Oracle.exe sim mission_trace.txt exited with $code" | Add-Content "$env:RUNNER_TEMP\oracle-dump.log"
+          if ($code -ne 0) {
+            Get-Content "$trace\session.jsonl" -Tail 20 -ErrorAction SilentlyContinue | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+            exit $code
+          }
+          "mission_trace: $(@(Get-Content "$trace\mission.jsonl").Count) records" | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
       - name: Run the scenario oracle
         # Work package P2.3 (design/adr/0003-simulation-oracle.md, design/reference-build.md
         # section 10): every scenario in CppSource/Oracle/scenarios three times, each run in a
@@ -282,10 +413,13 @@ jobs:
         # run must record its seed. Only what the Rust comparison reads is kept on the runner
         # (tick.jsonl, events.jsonl, the munition_hit and collision_damage records of calls.jsonl,
         # the head of ai.jsonl with the pilots' personalities and attitudes, session.jsonl); the
-        # session logs go to the summaries.
-        if: ${{ !cancelled() && steps.oracle-cache.outputs.cache-hit != 'true' }}
+        # session logs go to the summaries. It runs when the ensemble's own cache missed (O48).
+        if: ${{ !cancelled() && steps.ensemble-cache.outputs.cache-hit != 'true' }}
         shell: pwsh
         run: |
+          # The other oracle steps may have come from their cache (O48), so the templates the
+          # dump step puts next to Oracle.exe are copied here too.
+          Copy-Item outdir\*.fl bin\ -Force
           $ens = "$env:RUNNER_TEMP\outpost-ensemble"
           $keep = "$env:RUNNER_TEMP\outpost-sim-summaries\ensemble"
           New-Item -ItemType Directory -Force $keep | Out-Null
@@ -334,7 +468,10 @@ jobs:
       - name: Load every system with the oracle
         # Work package P3.3 (decision record 0007 point 11): Oracle.exe sim starts a multiplayer
         # server, loads every system (StarSystem::load) and writes its solars
-        # (CppSource/Oracle/system_loads.txt, Server.dll's OracleDumpSystemLoads).
+        # (CppSource/Oracle/system_loads.txt, Server.dll's OracleDumpSystemLoads). P3.4d (record
+        # 0008 point 10): the same run then writes Content's system records, gate locks and a
+        # synthetic [mPlayer] as content_<table>.txt (`dump content_systems`, Content.dll's
+        # OracleDumpContentSystems).
         if: ${{ !cancelled() && steps.oracle-cache.outputs.cache-hit != 'true' }}
         shell: pwsh
         run: |
@@ -344,6 +481,29 @@ jobs:
             Get-Content "$out\session.jsonl" -Tail 20 -ErrorAction SilentlyContinue
             exit $LASTEXITCODE
           }
+      - name: Record the replication scenario with the oracle
+        # Work package P3.3 (decision record 0007 point 11): Oracle.exe sim runs
+        # CppSource/Oracle/replication.txt (two players joined to he01, `dump replication`) twice,
+        # each run in a fresh process, and SimClientStub writes the packets each client receives
+        # per tick to replication.jsonl. The runs' session logs are kept with the summaries.
+        if: ${{ !cancelled() && steps.oracle-cache.outputs.cache-hit != 'true' }}
+        shell: pwsh
+        run: |
+          $out = "$env:RUNNER_TEMP\outpost-replication\replication"
+          $keep = "$env:RUNNER_TEMP\outpost-sim-summaries\replication"
+          New-Item -ItemType Directory -Force $keep | Out-Null
+          $failed = 0
+          foreach ($run in 'run_01', 'run_02') {
+            & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\replication.txt" "$out\$run"
+            $code = $LASTEXITCODE
+            Copy-Item "$out\$run\session.jsonl" "$keep\$run-session.jsonl" -ErrorAction SilentlyContinue
+            $lines = @(Get-Content "$out\$run\replication.jsonl" -ErrorAction SilentlyContinue).Count
+            Write-Host "replication ${run}: exit code $code, $lines packets"
+            Select-String -Path "$out\$run\session.jsonl" -Pattern '"rec":"(player|error|fault)"' -ErrorAction SilentlyContinue |
+              Select-Object -First 20 | ForEach-Object { "  $($_.Line)" }
+            if ($code -ne 0) { $failed = 1 }
+          }
+          exit $failed
       - name: Save the oracle's outputs
         # The key is the one the restore step computed on the clean checkout: hashing
         # CppSource/ again here would take in the build's intermediate files (CppSource/obj/)
@@ -355,10 +515,21 @@ jobs:
           path: |
             ${{ runner.temp }}/outpost-oracle
             ${{ runner.temp }}/outpost-sim
-            ${{ runner.temp }}/outpost-ensemble
             ${{ runner.temp }}/outpost-systems
+            ${{ runner.temp }}/outpost-replication
             ${{ runner.temp }}/outpost-sim-summaries
             ${{ runner.temp }}/oracle-dump.log
+      - name: Save the seed ensemble's outputs
+        # The key step's key, computed on the clean checkout before the build. The nightly run,
+        # which skipped the restore, saves only a key no run saved before.
+        if: ${{ success() && steps.ensemble-cache.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          key: ${{ steps.ensemble-key.outputs.key }}
+          path: |
+            ${{ runner.temp }}/outpost-ensemble
+            ${{ runner.temp }}/outpost-sim-summaries/ensemble
       - name: Prepare Rust
         run: rustup toolchain install
       - name: Cache the Rust build
@@ -368,16 +539,35 @@ jobs:
         run: |
           $env:OUTPOST_DATA_DIR = "$env:RUNNER_TEMP\outpost-data"
           $env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-oracle"
-          cargo test --locked --release -p neuron-core --tests -- data_dump_ --nocapture
+          # The output is kept for the last step, which repeats its end where the job
+          # log's tail shows it (the log tool reads only the tail of a long log).
+          $log = "$env:RUNNER_TEMP\compare-port.log"
+          cmd /c "cargo test --locked --release -p neuron-core --tests -- data_dump_ --nocapture 2>&1" | Tee-Object -FilePath $log -Append
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The game databases of work package P2.1 (crates/game-sim/tests/data_dump.rs).
-          cargo test --locked --release -p game-sim --tests -- data_dump_ --nocapture
+          cmd /c "cargo test --locked --release -p game-sim --tests -- data_dump_ --nocapture 2>&1" | Tee-Object -FilePath $log -Append
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The scene scripts of work package P4.14 (crates/neuron-client/tests/data_dump.rs).
-          cargo test --locked --release -p neuron-client --tests -- data_dump_ --nocapture
+          cmd /c "cargo test --locked --release -p neuron-client --tests -- data_dump_ --nocapture 2>&1" | Tee-Object -FilePath $log -Append
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # The character save reader of work package P3.2 (crates/game-logic/tests/save_dump.rs).
-          cargo test --locked --release -p game-logic --tests -- data_dump_ --nocapture
+          # The character save reader of work package P3.2 (crates/game-logic/tests/save_dump.rs)
+          # and Content's static tables of P3.4b (crates/game-logic/tests/content_tables.rs,
+          # against outpost-oracle\content; summary rust-content.txt) and the other loaders of
+          # P3.4c (crates/game-logic/tests/content_loaders.rs; summary rust-content-loaders.txt), and
+          # the mission scripts of P3.5a (crates/game-logic/tests/mission_scripts.rs, against
+          # outpost-oracle\missions; summary rust-mission-scripts.txt), and the missions' and
+          # Story's save sections of P3.5b against the C++ writer
+          # (crates/game-logic/tests/mission_saves.rs, against outpost-oracle\mission_saves;
+          # summary rust-mission-saves.txt), and the random-mission tables, vignette tree and
+          # offers of P3.7a (crates/game-logic/tests/random_missions.rs, against
+          # outpost-oracle\random_missions; summary rust-random-missions.txt), and P3.7c's
+          # missions the port creates for the same cases (same file and folder; summary
+          # rust-created-random-missions.txt) and [RandomMission] saves against the C++ writer
+          # and the C++ restores of its own saves (against outpost-oracle\random_mission_saves;
+          # summary rust-random-mission-saves.txt), and P3.5c1's Tier B mission trace
+          # (crates/game-logic/tests/mission_trace.rs, against outpost-oracle\mission_trace;
+          # summary rust-mission-trace.txt, exact to the first divergence).
+          cmd /c "cargo test --locked --release -p game-logic --tests -- data_dump_ --nocapture 2>&1" | Tee-Object -FilePath $log -Append
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Keep the summaries
         if: always()
@@ -402,7 +592,8 @@ jobs:
         # inputs (ctl) against the recorded pushes, the munition hits and collision damages of
         # calls.jsonl against the recorded damage lists, and the scenarios run through the Rust
         # world against tick.jsonl (differences reported; only gross divergence fails, the
-        # envelopes being unapproved); the asteroid field walk and the docking points replayed
+        # envelopes being unapproved; the scenarios marked "# rust: server" run without a server,
+        # reported and not judged); the asteroid field walk and the docking points replayed
         # from the oracle's own inputs against asteroids.jsonl and dock.jsonl (field_replay).
         # Summaries rust-controller-replay.txt, rust-damage-replay.txt, rust-scenario-replay.txt,
         # rust-field-replay.txt and rust-dock-replay.txt.
@@ -431,10 +622,29 @@ jobs:
           New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\outpost-sim-summaries" | Out-Null
           Copy-Item "$env:OUTPOST_ORACLE_DIR\rust-scenario-hooks.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
           exit $code
+      - name: Compare Content's start-up
+        # Work package P3.4a (decision record 0008): the port's start-up from the oracle's
+        # [Initial MP DLLs] rows against each scenario's session.jsonl `heartbeats` (ids,
+        # priorities, intervals and phases on the start-up seed), the heartbeats Content's
+        # controllers get in dispatch.jsonl (record 0006 point 10), and the TimerExpired words
+        # there reported against Content's counter (crates/game-logic/tests/content_startup.rs).
+        # Summary rust-content-startup.txt.
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-sim"
+          cargo test --locked --release -p game-logic --test content_startup -- --nocapture
+          $code = $LASTEXITCODE
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\outpost-sim-summaries" | Out-Null
+          Copy-Item "$env:OUTPOST_ORACLE_DIR\rust-content-startup.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
+          exit $code
       - name: Compare the system loads
         # Work package P3.3 (decision record 0007 point 11): the port loads every system through
         # game-logic::world and renders the lines the oracle wrote
-        # (crates/game-logic/tests/system_loads.rs). Summary rust-system-loads.txt.
+        # (crates/game-logic/tests/system_loads.rs). Summary rust-system-loads.txt. P3.4d (record
+        # 0008 point 10, Tier A): the same start-up and loads with Content's controllers, and the
+        # system records, gate locks and [mPlayer] rendered as the oracle wrote them
+        # (crates/game-logic/tests/content_systems.rs). Summary rust-content-systems.txt.
         if: ${{ !cancelled() }}
         shell: pwsh
         run: |
@@ -442,8 +652,92 @@ jobs:
           $env:OUTPOST_ORACLE_DIR = $out
           cargo test --locked --release -p game-logic --test system_loads -- --nocapture
           $code = $LASTEXITCODE
+          cargo test --locked --release -p game-logic --test content_systems -- --nocapture
+          if ($code -eq 0) { $code = $LASTEXITCODE }
           New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\outpost-sim-summaries" | Out-Null
           Copy-Item "$out\rust-system-loads.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
+          Copy-Item "$out\rust-content-systems.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
+          exit $code
+      - name: Load the port's saves with the oracle
+        # Work package P3.5b (decision record 0008 point 10, Gate G3): the C++ build reads saves
+        # the Rust side wrote. Three steps in order, on every run (the saves depend on the port):
+        # the port writes its saves of the story missions and of Story into
+        # outpost-save-loads\rust (mission_saves.rs, rust_saves_for_the_oracle); Oracle.exe sim
+        # runs CppSource/Oracle/mission_save_loads.txt over that folder, and Content.dll's
+        # OracleLoadMissionSaves restores each save and writes what it restored; the port
+        # restores the same saves and compares (oracle_loads_of_rust_saves). Summary
+        # rust-mission-save-loads.txt.
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $dir = "$env:RUNNER_TEMP\outpost-save-loads"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $env:OUTPOST_DATA_DIR = "$env:RUNNER_TEMP\outpost-data"
+          $env:OUTPOST_SAVE_LOADS_DIR = $dir
+          cargo test --locked --release -p game-logic --test mission_saves -- rust_saves_for_the_oracle --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\mission_save_loads.txt" $dir
+          $code = $LASTEXITCODE
+          Write-Host "Oracle.exe sim mission_save_loads.txt exited with $code"
+          if ($code -ne 0) {
+            Get-Content "$dir\session.jsonl" -Tail 20 -ErrorAction SilentlyContinue
+            exit $code
+          }
+          $env:OUTPOST_ORACLE_DIR = $dir
+          cargo test --locked --release -p game-logic --test mission_saves -- oracle_loads_of_rust_saves --nocapture
+          $code = $LASTEXITCODE
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\outpost-sim-summaries" | Out-Null
+          Copy-Item "$dir\rust-mission-save-loads.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
+          Copy-Item "$dir\session.jsonl" "$env:RUNNER_TEMP\outpost-sim-summaries\mission-save-loads-session.jsonl" -ErrorAction SilentlyContinue
+          exit $code
+      - name: Load the port's random-mission saves with the oracle
+        # Work package P3.7c (decision record 0008 points 8 and 10, Gate G3): the C++ build
+        # rebuilds random mission offers from the saved seeds of saves the Rust side wrote. Three
+        # steps in order, on every run (the saves depend on the port): the port writes the
+        # [RandomMission] saves of the vendor and bar offers it makes into
+        # outpost-rm-save-loads\rust (random_missions.rs, rust_random_mission_saves_for_the_oracle);
+        # Oracle.exe sim runs CppSource/Oracle/random_mission_save_loads.txt over that folder, and
+        # Content.dll's OracleLoadRandomMissionSaves loads each save and writes the rebuilt
+        # offers; the port loads the same saves and compares
+        # (oracle_loads_of_rust_random_mission_saves). Summary rust-random-mission-save-loads.txt.
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $dir = "$env:RUNNER_TEMP\outpost-rm-save-loads"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $env:OUTPOST_DATA_DIR = "$env:RUNNER_TEMP\outpost-data"
+          $env:OUTPOST_SAVE_LOADS_DIR = $dir
+          cargo test --locked --release -p game-logic --test random_missions -- rust_random_mission_saves_for_the_oracle --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\random_mission_save_loads.txt" $dir
+          $code = $LASTEXITCODE
+          Write-Host "Oracle.exe sim random_mission_save_loads.txt exited with $code"
+          if ($code -ne 0) {
+            Get-Content "$dir\session.jsonl" -Tail 20 -ErrorAction SilentlyContinue
+            exit $code
+          }
+          $env:OUTPOST_ORACLE_DIR = $dir
+          cargo test --locked --release -p game-logic --test random_missions -- oracle_loads_of_rust_random_mission_saves --nocapture
+          $code = $LASTEXITCODE
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\outpost-sim-summaries" | Out-Null
+          Copy-Item "$dir\rust-random-mission-save-loads.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
+          Copy-Item "$dir\session.jsonl" "$env:RUNNER_TEMP\outpost-sim-summaries\random-mission-save-loads-session.jsonl" -ErrorAction SilentlyContinue
+          exit $code
+      - name: Compare the replication with the oracle
+        # Work package P3.3 (decision record 0007 point 11, Tier B): the replication scenario runs
+        # through game-logic's server and each client's packets per tick are compared with the
+        # oracle's replication.jsonl, exactly while the objects are the oracle's bit for bit and by
+        # report after (crates/game-logic/tests/replication_oracle.rs). Summary
+        # rust-replication.txt.
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $env:OUTPOST_DATA_DIR = "$env:RUNNER_TEMP\outpost-data"
+          $env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-replication"
+          cargo test --locked --release -p game-logic --test replication_oracle -- --nocapture
+          $code = $LASTEXITCODE
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\outpost-sim-summaries" | Out-Null
+          Copy-Item "$env:OUTPOST_ORACLE_DIR\rust-replication.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
           exit $code
       - name: Compare the seed ensemble through the Rust world
         # Gate G2 (record 0003 point 9): the same scenarios and seeds through the Rust world
@@ -468,10 +762,59 @@ jobs:
           path: ${{ runner.temp }}/outpost-sim-summaries
           if-no-files-found: ignore
       - name: Repeat the oracle dump's last output
-        # The dump step's output sits in the middle of a long log; its end is repeated
-        # here, at the log's tail, so a failure can be read from it.
+        # The dump step's and the comparison step's output sit in the middle of a long
+        # log; their ends, and the start of the Content and server summaries, are repeated
+        # here, at the log's tail, so a failure can be read from them.
         if: always()
         shell: pwsh
         run: |
           $log = "$env:RUNNER_TEMP\oracle-dump.log"
-          if (Test-Path $log) { Get-Content $log -Tail 80 } else { "the oracle dump did not run" }
+          if (Test-Path $log) { Get-Content $log -Tail 120 } else { "the oracle dump did not run" }
+          $compare = "$env:RUNNER_TEMP\compare-port.log"
+          if (Test-Path $compare) { "--- Compare the port with the oracle (end) ---"; Get-Content $compare -Tail 150 }
+          # The start of each Content and server comparison's summary: what was compared and
+          # its first differences, readable from the log's tail on a green run as well.
+          $summaries = @(
+            "$env:RUNNER_TEMP\outpost-oracle\rust-content.txt",
+            "$env:RUNNER_TEMP\outpost-oracle\rust-content-loaders.txt",
+            "$env:RUNNER_TEMP\outpost-oracle\rust-mission-scripts.txt",
+            "$env:RUNNER_TEMP\outpost-oracle\rust-mission-saves.txt",
+            "$env:RUNNER_TEMP\outpost-oracle\rust-random-missions.txt",
+            "$env:RUNNER_TEMP\outpost-oracle\rust-created-random-missions.txt",
+            "$env:RUNNER_TEMP\outpost-oracle\rust-random-mission-saves.txt",
+            "$env:RUNNER_TEMP\outpost-oracle\rust-mission-trace.txt",
+            "$env:RUNNER_TEMP\outpost-sim-summaries\rust-mission-save-loads.txt",
+            "$env:RUNNER_TEMP\outpost-sim-summaries\rust-random-mission-save-loads.txt",
+            "$env:RUNNER_TEMP\outpost-sim-summaries\rust-system-loads.txt",
+            "$env:RUNNER_TEMP\outpost-sim-summaries\rust-content-systems.txt",
+            "$env:RUNNER_TEMP\outpost-sim-summaries\rust-replication.txt"
+          )
+          foreach ($summary in $summaries) {
+            if (Test-Path $summary) { "--- $(Split-Path $summary -Leaf) (start) ---"; Get-Content $summary -TotalCount 40 }
+            else { "--- $(Split-Path $summary -Leaf): not written ---" }
+          }
+          # Gate G3's scenarios (dock_at_station, trade_lane, dock_trade_lane), for the gate's
+          # review: through the server's hooks (rust-scenario-hooks.txt, judged) and without a
+          # server (rust-scenario-replay.txt, reported and not judged; owner, 2026-11-25), each
+          # object's line saying whether it is bit-exact and, if not, its first divergence bit for
+          # bit. The first divergences of the two runs set side by side tell a server-side cause
+          # from a game-sim one. Then every scenario's verdict through the server's hooks.
+          $g3 = '^(dock_at_station|trade_lane|dock_trade_lane): '
+          foreach ($file in 'rust-scenario-hooks.txt', 'rust-scenario-replay.txt') {
+            $path = "$env:RUNNER_TEMP\outpost-sim-summaries\$file"
+            if (Test-Path $path) {
+              "--- $file (Gate G3's scenarios) ---"
+              $keep = $false
+              foreach ($line in Get-Content $path) {
+                # An indented line belongs to the scenario of the line above it.
+                if ($line -notmatch '^\s') { $keep = $line -match $g3 }
+                if ($keep) { $line }
+              }
+            }
+            else { "--- ${file}: not written ---" }
+          }
+          $hooks = "$env:RUNNER_TEMP\outpost-sim-summaries\rust-scenario-hooks.txt"
+          if (Test-Path $hooks) {
+            "--- rust-scenario-hooks.txt (every scenario's verdict) ---"
+            Get-Content $hooks | Where-Object { $_ -match '^\S+: (bit-exact objects|exact|contact scenario|fight|skipped)|^gross divergences' }
+          }

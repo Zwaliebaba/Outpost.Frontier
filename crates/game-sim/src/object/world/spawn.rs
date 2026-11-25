@@ -174,6 +174,12 @@ pub struct SolarSpawn {
     pub continual_anims: Vec<Vec<u8>>,
     /// The reputation record (`VibeId`): the nickname id once verified.
     pub vibe: i32,
+    /// The hit points (`CSimple::init`): -1 for the archetype's, a
+    /// negative value 0.5, more than the archetype's the archetype's.
+    pub hit_pts: f32,
+    /// `bDynamic`: made at run time (`StarSystem::create_solar`), not read
+    /// from the system file.
+    pub dynamic: bool,
 }
 
 impl Default for SolarSpawn {
@@ -201,6 +207,8 @@ impl Default for SolarSpawn {
             costume: crate::data::costume::Costume::default(),
             continual_anims: Vec::new(),
             vibe: 0,
+            hit_pts: -1.0,
+            dynamic: false,
         }
     }
 }
@@ -277,6 +285,9 @@ pub struct ProjectileSpawn {
     pub velocity: Vector,
     /// A guided munition's target.
     pub target: Option<(ObjHandle, SubObjId)>,
+    /// A mine's or counter-measure's angular velocity, world space
+    /// (`CreateParms` +0x4c; the server draws it, `StarSystem::create_mine`).
+    pub angular_velocity: Vector,
 }
 
 fn simple_for(root: &Root) -> Simple {
@@ -863,6 +874,16 @@ impl World {
         for (id, on) in changes {
             self.set_attachment_collisions(owner, id, on);
         }
+    }
+
+    /// `CEqObj::add_item` on a live object (the server's
+    /// `StarSystem::add_cargo`): as at spawn, a ship's items as a ship's.
+    pub fn add_equip_item(&mut self, owner: ObjHandle, desc: &crate::data::equip_desc::EquipDesc) {
+        let ship = self
+            .objects
+            .get(owner)
+            .is_some_and(|o| o.kind == ObjectKind::Ship);
+        self.add_item(owner, desc, ship);
     }
 
     /// `CEqObj::add_item`: an equipped item (allocated, its hit points
@@ -1487,6 +1508,7 @@ impl World {
         solar.visit_value = s.visit;
         solar.parent_nickname = s.parent;
         solar.continual_anims.clone_from(&s.continual_anims);
+        solar.dynamic = s.dynamic;
         let mut obj = self.base_object(
             ObjectKind::Solar,
             &arch.eq_obj.root,
@@ -1497,7 +1519,7 @@ impl World {
             system,
             s.nickname,
             0,
-            -1.0,
+            s.hit_pts,
             s.position,
             s.orientation,
         );
@@ -1710,6 +1732,7 @@ impl World {
         linear: f32,
         owner: u32,
         velocity: Vector,
+        angular_velocity: Vector,
     ) {
         let constants = self.physics.constants().clone();
         let parms = CreateParms {
@@ -1726,7 +1749,7 @@ impl World {
         {
             world.set_single_contact(body, true);
         }
-        self.add_initial_velocity(h, velocity, Vector::ZERO);
+        self.add_initial_velocity(h, velocity, angular_velocity);
     }
 
     /// A guided munition (`CGuided::init`, `init_physics`: no damping).
@@ -1866,6 +1889,7 @@ impl World {
             seek_dist,
             acceleration,
             top_speed,
+            ..MineData::default()
         };
         let mut obj = self.base_object(ObjectKind::Mine, &arch.root, KindData::Mine(data));
         let id = self.allocate_id();
@@ -1878,6 +1902,7 @@ impl World {
             drag_damping(linear_drag, arch.root.mass),
             s.owner,
             s.velocity,
+            s.angular_velocity,
         );
         Ok(h)
     }
@@ -1930,6 +1955,7 @@ impl World {
             drag_damping(linear_drag, arch.root.mass),
             s.owner,
             s.velocity,
+            s.angular_velocity,
         );
         Ok(h)
     }

@@ -23,7 +23,7 @@ use support::{
 use neuron_core::hash::{continued_name_crc32, continued_name_crc32_byte, name_crc32, stricmp};
 use neuron_core::id::{create_id, make_id, make_location_id};
 use neuron_core::ini::{EngineIni, IniReader, is_number, parse_number, string_index, value_num};
-use neuron_core::msvcrt::{atof, atoi, format_g, wtoi};
+use neuron_core::msvcrt::{atof, atoi, format_f, format_g, wtoi};
 use neuron_core::num::{round_even_to_i32, trunc_to_i32, trunc_to_i32_via_i64, trunc_to_i64};
 use neuron_core::rng::CrtRand;
 
@@ -149,6 +149,29 @@ fn doubles() {
         })
         .collect();
     check_suite("doubles.jsonl", &lines);
+}
+
+/// P3.5b: `sprintf("%.*f")` at the precisions the saves and statistics
+/// use (6, `%f`) and around them.
+#[test]
+fn format_f_suite() {
+    let lines: Vec<String> = input_lines("format_f.hex")
+        .iter()
+        .map(|line| {
+            let value = f64::from_bits(u64::from_str_radix(line, 16).unwrap_or_default());
+            format!(
+                "{{\"bits\":\"{line}\",\"f0\":\"{}\",\"f1\":\"{}\",\"f2\":\"{}\",\"f3\":\"{}\",\"f6\":\"{}\",\"f9\":\"{}\",\"f17\":\"{}\"}}",
+                format_f(value, 0),
+                format_f(value, 1),
+                format_f(value, 2),
+                format_f(value, 3),
+                format_f(value, 6),
+                format_f(value, 9),
+                format_f(value, 17),
+            )
+        })
+        .collect();
+    check_suite("format_f.jsonl", &lines);
 }
 
 #[test]

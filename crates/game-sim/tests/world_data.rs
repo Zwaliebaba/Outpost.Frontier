@@ -1106,3 +1106,133 @@ fn a_turret_joint_takes_the_narrower_hardpoint_limits() {
     assert_eq!(turret.yaw, Some((-2.792_529_8, 2.792_52)));
     assert_eq!(turret.pitch, Some((0.0, 1.570_779_9)));
 }
+
+/// The armed field mines of a system and their intruder counts.
+fn mine_counts(world: &game_sim::object::World, system: u32) -> Vec<i32> {
+    rocks(world, system)
+        .into_iter()
+        .filter_map(|h| match &world.get(h)?.data {
+            game_sim::object::KindData::Asteroid(a) => a.armed.as_ref().map(|m| m.intruders),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `MedMine::deleted` uncounts a ship that is destroyed inside a mine's
+/// phantom: the leave event comes after the world has reaped the ship's
+/// object, and the mine still drops its count (the C++ reads the class of
+/// the object while it is being deleted).
+#[test]
+fn a_field_mine_uncounts_a_ship_destroyed_inside_it() {
+    let Some(mut world) = support::world::world(WorldConfig::default()) else {
+        println!("outdir/ is missing: no mine field");
+        return;
+    };
+    // he01's Zone_he01_zone21 is filled with mine_spike1 mines (its centre
+    // is excluded; 8 km south of it the cubes fill).
+    let system = create_id(b"he01");
+    world.load_system(system);
+    assert!(world.load_asteroid_fields(system) > 0);
+    let ship = fighter(&mut world, system, Vector::new(81640.0, 0.0, -5950.0));
+    let mut counted = false;
+    for _ in 0..60 {
+        world.step(system, 1.0 / 30.0);
+        if mine_counts(&world, system).iter().any(|&n| n > 0) {
+            counted = true;
+            break;
+        }
+    }
+    let armed = mine_counts(&world, system).len();
+    println!("{armed} armed mines; the ship counted: {counted}");
+    assert!(armed > 0, "the field arms its mines around the ship");
+    assert!(counted, "a mine's phantom counts the ship");
+    world.destroy(ship, 0);
+    for _ in 0..3 {
+        world.step(system, 1.0 / 30.0);
+    }
+    assert!(world.get(ship).is_none_or(|o| o.dead));
+    let counts = mine_counts(&world, system);
+    assert!(!counts.is_empty(), "the mines are still there");
+    assert!(
+        counts.iter().all(|&n| n == 0),
+        "every mine uncounted the destroyed ship: {counts:?}"
+    );
+}
+
+/// The near-solar pass (`StarSystem_UpdateNearShips`) over a server's
+/// scan list: the list the server fills is capped at 0x800 entries
+/// before the always-updated entries of the system join it, each item
+/// drops only the first later repeat of itself, and without a partition
+/// the pass updates nothing.
+#[test]
+fn the_near_solar_pass_caps_and_deduplicates_the_scan_list() {
+    use game_sim::object::ObjHandle;
+    use game_sim::object::world::ServerHooks;
+    use std::collections::BTreeMap;
+
+    struct Near {
+        list: Option<Vec<ObjHandle>>,
+        updates: BTreeMap<ObjHandle, u32>,
+    }
+    impl ServerHooks for Near {
+        fn near_solars(
+            &mut self,
+            _world: &game_sim::object::World,
+            _system: u32,
+        ) -> Option<Vec<ObjHandle>> {
+            self.list.clone()
+        }
+        fn object_update(
+            &mut self,
+            _world: &mut game_sim::object::World,
+            object: ObjHandle,
+            _dt: f32,
+        ) -> bool {
+            *self.updates.entry(object).or_default() += 1;
+            true
+        }
+    }
+
+    let Some(mut world) = support::world::world(WorldConfig::default()) else {
+        println!("outdir/ is missing: no near-solar pass");
+        return;
+    };
+    let system = create_id(b"he01");
+    let other = create_id(b"he02");
+    let (planet, station) = (create_id(b"he01_01"), create_id(b"he01_14"));
+    let made =
+        world.load_system_solars_where(system, |s| s.nickname == planet || s.nickname == station);
+    let a = world.find(planet).expect("he01_01 spawns");
+    let b = world.find(station).expect("he01_14 spawns");
+    assert_eq!(made.len(), 2);
+    let elsewhere = *world
+        .load_system_solars_where(other, |s| s.nickname == create_id(b"he02_01"))
+        .first()
+        .expect("he02_01 spawns");
+    world.add_always_update(b);
+    world.add_always_update(elsewhere);
+    let frame = |world: &mut game_sim::object::World, list: Option<Vec<ObjHandle>>| {
+        let mut hooks = Near {
+            list,
+            updates: BTreeMap::new(),
+        };
+        world.step_with(system, 0.05, &mut hooks);
+        let count = |h: ObjHandle| hooks.updates.get(&h).copied().unwrap_or(0);
+        (count(a), count(b), count(elsewhere))
+    };
+    // A full list: `ListD4`'s entry has no room; 0x800 entries of one
+    // solar update 0x400 times. The other system's entry is never listed.
+    assert_eq!(frame(&mut world, Some(vec![a; 0x800])), (0x400, 0, 0));
+    // One short of full: the entry joins.
+    assert_eq!(frame(&mut world, Some(vec![a; 0x7ff])), (0x400, 1, 0));
+    // A longer list is cut at the capacity first.
+    assert_eq!(frame(&mut world, Some(vec![a; 0x900])), (0x400, 0, 0));
+    // Three listings of a and b's two (near one player and queued once):
+    // two updates and one.
+    assert_eq!(frame(&mut world, Some(vec![a, b, a, a])), (2, 1, 0));
+    // No partition: nothing, the always-updated entry included.
+    assert_eq!(frame(&mut world, None), (0, 0, 0));
+    // The world alone (`NoServerHooks`' empty list): only the
+    // always-updated entry.
+    assert_eq!(frame(&mut world, Some(Vec::new())), (0, 1, 0));
+}

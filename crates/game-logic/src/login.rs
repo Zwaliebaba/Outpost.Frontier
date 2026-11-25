@@ -7,9 +7,9 @@
 //!
 //! Files are written in text mode (`"wt"`), so with CR LF, and read as
 //! [`read_save`] reads them. A multiplayer server keeps its accounts in
-//! [`neuron_server::registry::AccountRegistry`] (`Logic::accounts`). The
-//! multiplayer prologues of the character list (the autosave and leaving
-//! the system) arrive with character selection.
+//! [`neuron_server::registry::AccountRegistry`] (`Logic::accounts`). Of
+//! the multiplayer prologue of the character list the autosave is ported
+//! ([`crate::saves`]); leaving the system and the base is not yet.
 
 use std::path::{Path, PathBuf};
 
@@ -393,6 +393,16 @@ pub fn reload_saved_character(
     session: u32,
     file_name: &[u8],
 ) {
+    reload_saved_character_in(cx, &files.accounts, session, file_name);
+}
+
+/// [`reload_saved_character`] in the accounts folder `accounts`.
+pub fn reload_saved_character_in(
+    cx: &mut Cx<'_>,
+    accounts: &AccountsRoot,
+    session: u32,
+    file_name: &[u8],
+) {
     let mut key = file_name.to_vec();
     if !cx.logic.multiplayer_server {
         key.extend_from_slice(b".fl");
@@ -405,8 +415,7 @@ pub fn reload_saved_character(
     else {
         return;
     };
-    let path = files
-        .accounts
+    let path = accounts
         .account_dir(&account)
         .join(String::from_utf8_lossy(&key).as_ref());
     load_into(cx, session, &key, &path);
@@ -488,7 +497,21 @@ fn goes_before(new: &CharacterInfo, existing: &CharacterInfo) -> bool {
 /// `PlayerData_BuildCharacterSet`: one entry per saved character in id
 /// order, each placed before the first entry it goes before; the slot's
 /// save failure count moves to the list.
+///
+/// On a multiplayer server a slot with a selected character is first
+/// autosaved ([`crate::saves::auto_save`]). The rest of that prologue
+/// (leaving the system and the base, `SystemExit`, ending a trade) is not
+/// ported yet.
 pub fn build_character_set(cx: &mut Cx<'_>, session: u32) -> Option<CharacterSet> {
+    if cx.logic.multiplayer_server
+        && cx
+            .logic
+            .players
+            .get(session)
+            .is_some_and(|s| s.selected_character.is_valid())
+    {
+        let _ = crate::saves::auto_save(cx, session);
+    }
     let slot = cx.logic.players.get_mut(session)?;
     let mut set = CharacterSet::default();
     for (id, saved) in &slot.saved_characters {
@@ -812,4 +835,169 @@ pub fn saved_character<'a>(
     id: &CharacterId,
 ) -> Option<&'a SavedCharacter> {
     cx.logic.players.get(session)?.saved_characters.get(id)
+}
+
+/// `PlayerDB::logout(session)` (`Server/server_classes.cpp:2521-2626`):
+/// a multiplayer server autosaves the slot; the slot leaves its system
+/// (`PlayerDB_LeaveSystem`: the system's observer and ships go, the
+/// pending visits are committed, `SystemExit`) and its base
+/// (`PlayerDB_LeaveBase`: the room and the base are left in the base
+/// database); `PlayerLogout` goes to the bus and the counter counts it;
+/// the player's group hears of it; every other player in use loses the
+/// player from its list (on a dedicated server only for a selected
+/// character); the account's logout is reported; then the slot is torn
+/// down (`PlayerData_Teardown`): its vibe is freed, its character, ship,
+/// cargo, costumes, places and selection are wiped, cash is the C++'s
+/// fill value 666, the account is marked logged out and the slot's client
+/// id is 0, which frees it. Trades are not ported, so none can be live
+/// (steps 4 and the teardown's trade requests).
+pub fn logout(cx: &mut Cx<'_>, session: u32) {
+    let max = cx.logic.players.max_players() as u32;
+    if session == 0 || session > max {
+        return;
+    }
+    let single_player = cx.world.config().single_player;
+    if !single_player {
+        let _ = crate::saves::auto_save(cx, session);
+    }
+    // PlayerDB_LeaveSystem.
+    let system = cx.logic.players.get(session).map_or(0, |s| s.system_id);
+    if system & 0x3FFF_FFFF != 0 {
+        crate::world::remove_player(cx, system, session);
+        if let Some(slot) = cx.logic.players.get_mut(session) {
+            crate::player::flush_pending_visits(slot);
+        }
+        if cx
+            .logic
+            .players
+            .get(session)
+            .is_some_and(|s| s.system_id != 0)
+        {
+            if let Some(slot) = cx.logic.players.get_mut(session) {
+                slot.system_id = 0;
+            }
+            let _ = cx.dispatch(
+                neuron_server::controller::ControllerId::BROADCAST,
+                &mut crate::events::ControllerMessage::SystemExit {
+                    system,
+                    destination: 0,
+                    player: session,
+                },
+            );
+        }
+    }
+    // PlayerDB_LeaveBase.
+    let (base, location) = cx
+        .logic
+        .players
+        .get(session)
+        .map_or((0, 0), |s| (s.current_base, s.current_location));
+    if base & 0x3FFF_FFFF != 0 {
+        if location & 0x3FFF_FFFF != 0 {
+            crate::bases::exit_location(cx, session, location);
+        }
+        crate::bases::unload_base(cx, base);
+    }
+    if let Some(slot) = cx.logic.players.get_mut(session) {
+        slot.current_base = 0;
+        slot.current_location = 0;
+    }
+    // The vestigial SystemExit of a system id still set: LeaveSystem
+    // cleared it, so it never fires.
+    let _ = cx.dispatch(
+        neuron_server::controller::ControllerId::BROADCAST,
+        &mut crate::events::ControllerMessage::PlayerLogout { player: session },
+    );
+    cx.logic.stats.logouts += 1;
+    if let Some(group) = cx.logic.players.get(session).and_then(|s| s.group) {
+        crate::group::handle_client_logout(cx, group, session);
+    }
+    let selected = cx
+        .logic
+        .players
+        .get(session)
+        .is_some_and(|s| s.selected_character.is_valid());
+    if !cx.logic.multiplayer_server || selected {
+        for other in 1..=max {
+            if other == session || cx.logic.players.get(other).is_none_or(|s| s.client_id == 0) {
+                continue;
+            }
+            crate::client::player_list_remove(cx, other, session);
+        }
+    }
+    let name = cx
+        .logic
+        .players
+        .get(session)
+        .map(|s| s.account_name.clone())
+        .unwrap_or_default();
+    let account = cx.logic.accounts.find_by_name(&name);
+    if let Some(id) = account
+        && !single_player
+    {
+        let dir = cx
+            .logic
+            .accounts
+            .get(id)
+            .map(|a| a.directory_path.display().to_string())
+            .unwrap_or_default();
+        let shown = String::from_utf16_lossy(&name);
+        cx.logic
+            .reports
+            .push("", 0, format!("LOG: Logout on account {shown} (\"{dir}\")"));
+    }
+    teardown(cx, session);
+}
+
+/// `PlayerData_Teardown` without the trade requests (trades are not
+/// ported). The C++ fills the account name and the costumes with 0xcd;
+/// the port empties them.
+fn teardown(cx: &mut Cx<'_>, session: u32) {
+    let vibe = cx.logic.players.get(session).map_or(-1, |s| s.rep_vibe);
+    if vibe != -1 {
+        let _ = cx.world.vibes().0.free(vibe);
+    }
+    let no_where = create_id(b"NO WHERE");
+    let Some(slot) = cx.logic.players.get_mut(session) else {
+        return;
+    };
+    let account = slot.account;
+    slot.rep_vibe = -1;
+    slot.account_name.clear();
+    slot.saved_characters.clear();
+    slot.ship_archetype = 0;
+    slot.relative_health = 0.0;
+    slot.equipment.clear();
+    slot.collision_groups.clear();
+    slot.com_costume = game_sim::data::costume::Costume::default();
+    slot.voice.clear();
+    slot.costume = game_sim::data::costume::Costume::default();
+    slot.initial_pos = [0.0; 3];
+    slot.initial_orient = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    slot.cash = 0x29a;
+    slot.num_kills = 0;
+    slot.num_mission_successes = 0;
+    slot.num_mission_failures = 0;
+    slot.skip_next_autosave = false;
+    slot.save_failure_count = 0;
+    slot.client_id = 0;
+    slot.cheat_reported = false;
+    slot.equip_ids.reset();
+    slot.system_id = 0;
+    slot.ship_object_id = 0;
+    slot.created_ship_id = 0;
+    slot.current_base = 0;
+    slot.entered_base_id = 0;
+    slot.last_base_id = 0;
+    slot.current_location = 0;
+    slot.field_3fc = 0;
+    slot.exited_base_id = 0;
+    slot.starting_ring = no_where;
+    slot.selected_character.clear();
+    slot.group = None;
+    slot.group_mission_set_by = 0;
+    slot.visits.clear();
+    if let Some(registered) = account.and_then(|id| cx.logic.accounts.get_mut(id)) {
+        registered.client_id = 0;
+    }
 }

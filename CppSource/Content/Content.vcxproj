@@ -176,6 +176,13 @@
     <ClCompile Include="MissionSave.cpp" />
     <ClCompile Include="SpawnPlacement.cpp" />
     <ClCompile Include="PatrolGuides.cpp" />
+    <ClCompile Include="oracle_content_tables.cpp" />
+    <ClCompile Include="oracle_content_systems.cpp" />
+    <ClCompile Include="oracle_content_dump.cpp" />
+    <ClCompile Include="oracle_content_npc.cpp" />
+    <ClCompile Include="oracle_save_dump.cpp" />
+    <ClCompile Include="oracle_random_missions.cpp" />
+    <ClCompile Include="oracle_mission_trace.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Content.def" />

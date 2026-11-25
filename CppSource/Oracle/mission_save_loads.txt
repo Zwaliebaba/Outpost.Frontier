@@ -1,0 +1,10 @@
+# Oracle.exe sim session (P3.5b, decision record 0008 point 10, Gate G3): not a scenario. After the
+# multiplayer start-up of mission_saves.txt, Content.dll loads the saves the Rust port wrote into
+# the out folder's rust folder (crates/game-logic/tests/mission_saves.rs) into newly made story
+# missions and one Story, and writes what each restored as loaded_<mission>_<state>.txt and
+# story_loaded_<n>.txt (OracleLoadMissionSaves). The data job runs it between the port's two
+# steps (design/reference-build.md). No system loads and nothing is stepped.
+
+system he01
+ticks 1
+dump mission_save_loads

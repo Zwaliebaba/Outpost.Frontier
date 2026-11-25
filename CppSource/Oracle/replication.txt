@@ -1,0 +1,43 @@
+# Oracle.exe sim session (P3.3, decision record 0007 point 11): the replication scenario. Not
+# one of scenarios\ (CI runs it on its own, twice, into outpost-replication\replication\run_NN).
+# Two players join he01 after the objects are spawned (`player`, Server.dll's
+# OracleSimAddPlayer: the session's slot takes the ship's id and the system, then
+# StarSystem::add_player); `dump replication` writes every packet of the comparison each client
+# receives to replication.jsonl (SimClientStub). The players' ships are the harness's ships,
+# owned by nobody and flown by the scenario's commands: no client sends updates, so the
+# observers follow server-side ships. crates/game-logic/tests/replication_oracle.rs runs the
+# same file through game-logic's server and compares the packets (design/sim-records.md).
+#
+#   police, rogue  the skirmish (scenarios\skirmish.txt): two hostile AI fighters 1500 m apart,
+#                  the rogue at 400 hull points; the police kills it (tick 880 without players),
+#                  the rogue's death fuse burns and its loot is dropped
+#   p1             player 1's ship, without behaviour, still 1200 m east of the fight
+#   passer         a ship without behaviour flying south (-Z) at 80 m/s 2000 m east of p1: it
+#                  comes into player 1's 2500 m view at about tick 75 and leaves it at about
+#                  tick 1275
+#   p2, pilot      player 2's ship 1170 m from a fighter that takes the instant trade lane from
+#                  ring 16 to ring 18 (scenarios\trade_lane.txt): player 2 sees the lane begin
+#                  (tick 12) and the fighter leave its view along the lane
+
+system he01
+ticks 1500
+stepping mp
+# As the G2 fights: Content's comm system off (its combat-comm rolls draw rand()).
+comms off
+dump replication
+
+ship police he_fighter li_p_he_fighter_loadout01 15000 3000 -25000 ai FIGHTER pilot pilot_police_med faction he_p_grp
+ship rogue pi_fighter fc_lr_pi_fighter_loadout01 15000 3000 -26500 heading 180 ai FIGHTER pilot pilot_pirate_med faction fc_lr_grp hp 400
+ship p1 he_fighter li_p_he_fighter_loadout01 16200 3000 -25750
+ship passer he_fighter li_p_he_fighter_loadout01 18200 3000 -24050 vel 0 0 -80
+
+solar ring16 he01_Trade_Lane_Ring_16
+solar ring18 he01_Trade_Lane_Ring_18
+ship pilot he_fighter li_p_he_fighter_loadout01 3778 0 -52104 ai FIGHTER
+ship p2 he_fighter li_p_he_fighter_loadout01 3778 600 -51104
+
+player 1 p1
+player 2 p2
+
+at 1 passer throttle 1
+at 1 pilot tradelane ring16 ring18

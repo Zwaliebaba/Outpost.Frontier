@@ -16,21 +16,25 @@
 //! - **Stepping** (`Server_StepSystems`, `Server/IServerImpl.cpp:4155`):
 //!   each distinct system of the active players, in session order;
 //!   `StarSystem_Update` (`:3863`) runs the world's sub-steps with the
-//!   server's hooks: the dock queue after each sub-step's deferred
-//!   deletes, and the physics only while the system has players.
+//!   server's hooks: the solars near the players from the system's solar
+//!   BSP (`StarSystem_UpdateNearShips`, [`near_solars`]), the dock queue
+//!   after each sub-step's deferred deletes, and the physics only while
+//!   the system has players.
 //! - **Unloading**: single player unloads a system when its player
 //!   leaves or lands (`player_switched_out`, `shutdown`); a multiplayer
 //!   server keeps every system.
-//! - **Transfer** (`remove_ship`, `add_ship`, `:10334-10417`): the ship
-//!   leaves its system's lists and body, is in transit, and enters the
-//!   next. `arrive_ship` (an NPC's jump-in or airlock animation and the
-//!   players' switch-in packets) comes with the replication part.
+//! - **Transfer** (`remove_ship`, `add_ship`, `arrive_ship`,
+//!   `:10286-10417`): the ship leaves its system's lists and body, is in
+//!   transit, and enters the next; the other players hear of it
+//!   ([`crate::replication`]); arriving through a jump object an NPC's
+//!   ship jumps in or comes out of the airlock and the players who can
+//!   see it get the switch-in. The callers (a player's gate jump, `pub::
+//!   SpaceObj::JumpIn` and `Relocate`) are [`crate::transfer`]'s and
+//!   [`crate::api::space_obj`]'s.
 //!
-//! The observers' own work (tracking, creates, the per-frame update, the
-//! changed affiliations, the creates `add_player` sends) is P3.3's
-//! replication part; the wrappers' server state (`GameObject::destroy`,
-//! fuses, `on_object_left_system`) is its object part. Their call sites
-//! here are marked.
+//! The observers (`Observer`, their tracking, creates, destroys, fan-outs,
+//! the per-frame update and the changed affiliations after it) are
+//! [`crate::replication`]'s.
 
 use std::collections::BTreeMap;
 
@@ -44,14 +48,7 @@ use neuron_server::controller::ControllerId;
 use crate::events::ControllerMessage;
 use crate::server::{Cx, Logic};
 
-/// One player's view of a system (`Observer`, `server_sysdb.h:240`). The
-/// replication part fills in the tracked objects, the pending damage and
-/// the clock (record 0007, point 7).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Observer {
-    /// The session (`PlayerId`).
-    pub player: u32,
-}
+pub use crate::replication::Observer;
 
 /// A ship of the dock queue (`FSystemDockEntry`): the ship, what it docks
 /// with (none for a forced landing), the base and whether it lands.
@@ -68,7 +65,7 @@ pub struct DockEntry {
 }
 
 /// A star system's server state (`StarSystem`, `server_sysdb.h:744`).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct StarSystem {
     /// The Universe system (`SystemInfo->NicknameId`).
     pub id: u32,
@@ -98,7 +95,7 @@ impl StarSystem {
 }
 
 /// `SysDB::SysMap`: one entry per Universe system.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ServerWorld {
     /// The systems, by id.
     pub systems: BTreeMap<u32, StarSystem>,
@@ -106,6 +103,10 @@ pub struct ServerWorld {
     /// order (a ship may be in it more than once), announced after the
     /// frame ([`physics_update`]).
     pub dying_ships: Vec<ObjHandle>,
+    /// `!GbAllowPvp`: damage between players' ships is not applied
+    /// ([`crate::munitions::pvp_blocked`]). False (PvP allowed) until the
+    /// startup sets it, as the C++'s initial 1.
+    pub forbid_pvp: bool,
     initialized: bool,
 }
 
@@ -154,9 +155,9 @@ pub fn has_player(logic: &Logic, system: u32, session: u32) -> bool {
 
 /// `StarSystem::load`: the physics world (`PhySys::Startup`), the solars
 /// and asteroid fields, the loaded flag, then `SystemLoaded` to the bus.
-/// A loaded or unknown system is left alone. The C++'s solar BSP
-/// (`NewSpatial("BSP")`) is not built: nothing reads it until the
-/// replication part.
+/// A loaded or unknown system is left alone. The solar BSP
+/// (`NewSpatial("BSP")`) is built after the solars
+/// ([`crate::api::system::build_solar_tree`]).
 pub fn load(cx: &mut Cx<'_>, system: u32) {
     match system_mut(cx, system) {
         Some(s) if !s.loaded => {}
@@ -186,6 +187,7 @@ pub fn load(cx: &mut Cx<'_>, system: u32) {
         let _ = cx.logic.objects.entry(cx.world, h);
         crate::fuses::check_fuses(cx, h);
     }
+    crate::api::system::build_solar_tree(cx, system);
     if let Some(s) = system_mut(cx, system) {
         s.loaded = true;
     }
@@ -197,9 +199,9 @@ pub fn load(cx: &mut Cx<'_>, system: u32) {
 
 /// `StarSystem::add_player`: the system loads first; a session id whose
 /// low 30 bits are 0 is then refused; otherwise the player's observer
-/// joins the list, and on a multiplayer server every session hears the
-/// player's system (`PlayerDB::SendSystemID`). The creates the C++ then
-/// sends the player (solars, ships, loot) are the replication part's.
+/// joins the list, on a multiplayer server every session hears the
+/// player's system (`PlayerDB::SendSystemID`), and the player gets the
+/// system's objects ([`crate::replication::add_player`]).
 pub fn add_player(cx: &mut Cx<'_>, system: u32, session: u32) {
     let Some(s) = system_mut(cx, system) else {
         return;
@@ -213,10 +215,12 @@ pub fn add_player(cx: &mut Cx<'_>, system: u32, session: u32) {
     let Some(s) = system_mut(cx, system) else {
         return;
     };
-    s.observers.push(Observer { player: session });
+    s.observers.push(Observer::new(session));
+    let index = s.observers.len() - 1;
     if !cx.world.config().single_player {
         send_system_id(cx, session, system);
     }
+    crate::replication::add_player(cx, system, index);
 }
 
 /// `PlayerDB::SendSystemID`: every session in use hears the player's
@@ -306,6 +310,7 @@ fn unload(cx: &mut Cx<'_>, system: u32) {
     if let Some(s) = system_mut(cx, system) {
         s.observers.clear();
     }
+    cx.logic.solar_trees.remove(system);
     cx.world.unload_system(system);
 }
 
@@ -332,7 +337,9 @@ pub fn queue_dock(
 /// `StarSystem_Update`'s dock queue. Each entry in order, including any
 /// queued while the queue is worked through (the C++ list walk sees them):
 /// the target's id goes with the message only when the target is not
-/// itself a base's (`DockingBaseId == 0`); a landing ship's message
+/// itself a base's (`DockingBaseId == 0`); a landing ship is first
+/// announced to every player of the system
+/// ([`crate::replication::ship_landed`]); a landing ship's message
 /// (`Msg0x27`) is followed by its destruction when it has no owner, or its
 /// owner's removal from the system after the walk (pending visits flushed,
 /// and in single player the system shut down); a ship that docks without
@@ -356,7 +363,9 @@ fn work_dock_queue(cx: &mut Cx<'_>, system: u32) {
             .world
             .get(ship)
             .map_or((0, 0), |o| (o.simple.id, o.simple.owner_player));
-        // The observers' `OnObjectLanded` comes with the replication part.
+        if entry.land {
+            crate::replication::ship_landed(cx, system, ship, target, entry.base_id);
+        }
         let _ = cx.dispatch(
             ControllerId::BROADCAST,
             &mut ControllerMessage::Msg0x27 {
@@ -448,7 +457,6 @@ impl ServerHooks for Hooks<'_> {
     }
 
     fn after_damage_list(&mut self, world: &mut World, object: ObjHandle, list: &mut DamageList) {
-        // `StarSystem_DamageObject` (the observers) comes with replication.
         let mut cx = Cx {
             world,
             logic: self.logic,
@@ -460,6 +468,8 @@ impl ServerHooks for Hooks<'_> {
         {
             crate::loot::apply_contents(&mut cx, object, list);
         }
+        // `StarSystem_DamageObject`: the players hear of the damage.
+        crate::replication::damage_object(&mut cx, object, list);
         crate::objects::end_damage_list(&mut cx, object, list);
     }
 
@@ -472,6 +482,7 @@ impl ServerHooks for Hooks<'_> {
         match kind {
             Some(ObjectKind::Loot) => crate::loot::after_update(&mut cx, object, dt),
             Some(ObjectKind::Ship) => crate::ship::after_update(&mut cx, object, dt),
+            Some(ObjectKind::Mine) => crate::munitions::mine_after_update(&mut cx, object, dt),
             _ => {}
         }
     }
@@ -505,6 +516,36 @@ impl ServerHooks for Hooks<'_> {
         crate::dock::server_requests(&mut cx, requests);
     }
 
+    fn content_answer(
+        &mut self,
+        world: &mut World,
+        _ship: ObjHandle,
+        handle: u32,
+    ) -> Option<game_sim::ai::content::FleeAnswer> {
+        let cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        let take = crate::content::NoDispatch::begin(&cx.logic.content);
+        let answer = crate::content::callbacks::flee_answer(&cx, handle);
+        take.end(&cx.logic.content);
+        answer
+    }
+
+    fn directive_complete(
+        &mut self,
+        world: &mut World,
+        ship: ObjHandle,
+        handle: u32,
+        result: (i32, i32),
+    ) {
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        crate::content::callbacks::directive_complete(&mut cx, ship, handle, result);
+    }
+
     fn after_reap(&mut self, world: &mut World, system: u32) {
         self.logic.objects.sweep(world);
         let queued = self
@@ -522,6 +563,77 @@ impl ServerHooks for Hooks<'_> {
         }
     }
 
+    fn phantom_event(
+        &mut self,
+        world: &mut World,
+        system: u32,
+        event: &neuron_core::physics::PhantomEvent,
+    ) {
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        crate::munitions::phantom_event(&mut cx, system, event);
+    }
+
+    fn pvp_blocked(
+        &mut self,
+        world: &World,
+        inflictor: Option<ObjHandle>,
+        target: ObjHandle,
+    ) -> bool {
+        crate::munitions::pvp_blocked(self.logic.server_world.forbid_pvp, world, inflictor, target)
+    }
+
+    fn equip_event(
+        &mut self,
+        world: &mut World,
+        object: ObjHandle,
+        equip: game_sim::equip::SubObjId,
+        event: game_sim::equip::EquipEvent,
+    ) {
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        crate::equip_fire::equip_event(&mut cx, object, equip, event);
+    }
+
+    fn cargo_stack_rule(&mut self, world: &World, object: ObjHandle) -> bool {
+        // `EqObj::apply_equip_entry`: the server's equipped objects.
+        world.get(object).is_some_and(|o| {
+            matches!(o.kind, ObjectKind::Ship | ObjectKind::Solar) && o.equipped.is_some()
+        })
+    }
+
+    fn jump_in_complete(&mut self, world: &mut World, object: ObjHandle, system: u32) {
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        crate::transfer::slot_74(&mut cx, object, system);
+    }
+
+    fn guided_target_lost(&mut self, world: &mut World, missile: ObjHandle) {
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        crate::munitions::target_lost(&mut cx, missile);
+    }
+
+    fn launch_complete(&mut self, world: &mut World, object: ObjHandle, base: u32) {
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        let _ = crate::ship::launch_complete(&mut cx, object, base);
+    }
+
+    fn near_solars(&mut self, world: &World, system: u32) -> Option<Vec<ObjHandle>> {
+        near_solars(world, self.logic, system)
+    }
+
     fn steps_physics(&mut self, world: &World, system: u32) -> bool {
         !world.config().single_player
             && self
@@ -533,6 +645,54 @@ impl ServerHooks for Hooks<'_> {
     }
 }
 
+/// The radius of `StarSystem_UpdateNearShips`' query around each player's
+/// ship (`0x461c4000`).
+pub const NEAR_SOLAR_RADIUS: f32 = 10000.0;
+
+/// `StarSystem_UpdateNearShips`' scan list before the always-updated
+/// entries: `None` when the system has no solar BSP (`GetBucket` null:
+/// not loaded), which skips the pass. Otherwise, for each player of the
+/// system in arrival order (the observers), the ship
+/// (`Players[...].ship_object_id`, looked up by id; a player without one
+/// is skipped) gives the sphere of [`NEAR_SOLAR_RADIUS`] around its
+/// position, and the BSP appends the solars it overlaps to the one list
+/// of at most 0x800 entries, so a solar near two players is in it twice.
+#[must_use]
+pub fn near_solars(world: &World, logic: &Logic, system: u32) -> Option<Vec<ObjHandle>> {
+    let tree = logic.solar_trees.get(system)?;
+    let mut scan = game_sim::data::spatial::QueryResult::default();
+    let observers = logic
+        .server_world
+        .systems
+        .get(&system)
+        .map(|s| s.observers.as_slice())
+        .unwrap_or_default();
+    for view in observers {
+        let ship = logic
+            .players
+            .get(view.player)
+            .map_or(0, |p| p.ship_object_id);
+        let Some(position) = world
+            .find(ship)
+            .and_then(|h| world.get(h))
+            .map(|o| o.engine.position)
+        else {
+            continue;
+        };
+        let sphere = game_sim::data::zone::query::Sphere {
+            center: position,
+            radius: NEAR_SOLAR_RADIUS,
+        };
+        tree.query_sphere(&sphere, &mut scan);
+    }
+    Some(
+        scan.items
+            .into_iter()
+            .filter_map(|item| tree.solar(item))
+            .collect(),
+    )
+}
+
 /// `GameObject::destroy(kind, killer)` through the server's hooks.
 pub fn destroy_object(cx: &mut Cx<'_>, object: ObjHandle, kind: i32, killer: u32) {
     let mut hooks = Hooks {
@@ -541,14 +701,122 @@ pub fn destroy_object(cx: &mut Cx<'_>, object: ObjHandle, kind: i32, killer: u32
     cx.world.destroy_hooked(object, kind, killer, &mut hooks);
 }
 
+/// `GameObject::is_destroyed`: the server's latch, or an object the world
+/// has marked dead.
+fn is_destroyed(cx: &Cx<'_>, h: ObjHandle) -> bool {
+    cx.logic.objects.get(h).is_some_and(|o| o.destroyed) || cx.world.get(h).is_none_or(|o| o.dead)
+}
+
+/// What a client reports of a munition's hit (`SSPMunitionCollisionInfo`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MunitionHit {
+    /// `Field_0x00`: the munition's archetype.
+    pub munition: u32,
+    /// `Field_0x04`: the shooter.
+    pub shooter: u32,
+    /// `ObjectId`: the object hit.
+    pub object: u32,
+    /// `Field_0x0c`: the sub-object hit.
+    pub sub_obj: game_sim::equip::SubObjId,
+    /// `Field_0x10` to `Field_0x18`: where.
+    pub position: Vector,
+}
+
+/// `StarSystem::find_object`: the object with the id in the system's lists,
+/// which an object in transit has left.
+fn system_object(world: &World, system: u32, id: u32) -> Option<ObjHandle> {
+    crate::replication::find_in_system(world, system, id).filter(|&h| !world.in_transit(h))
+}
+
+/// `StarSystem::munition_collision(Info)` (`Server/server_classes.cpp:
+/// 9188`) for a client's report: the object hit and the shooter are the
+/// system's (`find_object`); a target that is missing or destroyed takes
+/// nothing. A shooter that has left the system is no shooter: the PvP gate
+/// does not hold the damage and the list names no owner player. The
+/// world's `munition_collision_from` (the PvP gate, `munition_hit` in a
+/// list of the munition's cause from the shooter's id, applied) does the
+/// rest. A munition archetype the data lacks, which the C++ reads through
+/// null, deals nothing (D932).
+pub fn munition_collision(cx: &mut Cx<'_>, system: u32, hit: &MunitionHit) {
+    let Some(target) = system_object(cx.world, system, hit.object) else {
+        return;
+    };
+    let shooter = system_object(cx.world, system, hit.shooter);
+    if is_destroyed(cx, target) {
+        return;
+    }
+    let mut hooks = Hooks {
+        logic: &mut *cx.logic,
+    };
+    cx.world.munition_collision_from(
+        target,
+        hit.shooter,
+        shooter,
+        hit.munition,
+        hit.sub_obj,
+        hit.position,
+        &mut hooks,
+    );
+}
+
+/// `StarSystem::collision_damage(Rec, Target)` (`server_classes.cpp:9782`)
+/// for a client's report: the source is the system's (`find_object`), none
+/// when it has left the system; unless the PvP gate holds it, a live
+/// target's `damage_sub_obj` takes `damage` on `target_sub` in a cause-1
+/// list from `source`, owned by the source object's owner player (none
+/// without a source object), which is then applied
+/// ([`World::collision_damage_hooked`]).
+pub fn collision_damage(
+    cx: &mut Cx<'_>,
+    system: u32,
+    source: u32,
+    target: ObjHandle,
+    target_sub: game_sim::equip::SubObjId,
+    damage: f32,
+) {
+    let source_object = system_object(cx.world, system, source);
+    if is_destroyed(cx, target) {
+        return;
+    }
+    let mut hooks = Hooks {
+        logic: &mut *cx.logic,
+    };
+    cx.world.collision_damage_hooked(
+        source,
+        source_object,
+        target,
+        target_sub,
+        damage,
+        &mut hooks,
+    );
+}
+
+/// `StarSystem::badlands_collision(Info)` (`server_classes.cpp:9833`): the
+/// system's object, unless destroyed or invincible (`is_invincible`, the
+/// protect flag), is destroyed (kind 1) by `killer`.
+pub fn badlands_collision(cx: &mut Cx<'_>, system: u32, object: u32, killer: u32) {
+    let Some(h) = system_object(cx.world, system, object) else {
+        return;
+    };
+    if is_destroyed(cx, h) || cx.logic.objects.get(h).is_some_and(|o| o.invincible) {
+        return;
+    }
+    destroy_object(cx, h, 1, killer);
+}
+
 /// `StarSystem_Update`: the world's frame of the system with the server's
-/// hooks. Returns the number of sub-steps. The observers' update and the
-/// changed affiliations that follow come with the replication part.
+/// hooks, then each observer's update with the frame's whole time
+/// ([`crate::replication::update_observers`]), then the changed
+/// affiliations ([`crate::replication::send_changed_affiliations`]).
+/// Returns the number of sub-steps.
 pub fn step_system(cx: &mut Cx<'_>, system: u32, dt: f32) -> u32 {
     let mut hooks = Hooks {
         logic: &mut *cx.logic,
     };
-    cx.world.step_with(system, dt, &mut hooks)
+    let iterations = cx.world.step_with(system, dt, &mut hooks);
+    crate::replication::update_observers(cx, system, f64::from(dt));
+    crate::replication::send_changed_affiliations(cx, system);
+    iterations
 }
 
 /// `Server_StepSystems`: each distinct system of the active players, in
@@ -576,10 +844,12 @@ pub fn step_systems(cx: &mut Cx<'_>, dt: f32) {
 /// `Server_PhysicsUpdate`: [`step_systems`], then each ship of the
 /// dying-ship list that still exists is announced (`Msg0x25` with its
 /// system, id and death-sequence object, which the update zeroed when it
-/// queued the ship), and the list is emptied. The phantoms' events
-/// between them come with `pub::Phantom`.
+/// queued the ship), and the list is emptied. The server phantoms' events
+/// go to the controllers between them
+/// ([`crate::api::phantom::pump_events`]).
 pub fn physics_update(cx: &mut Cx<'_>, dt: f32) {
     step_systems(cx, dt);
+    crate::api::phantom::pump_events(cx);
     let dying = std::mem::take(&mut cx.logic.server_world.dying_ships);
     for h in dying {
         let Some(o) = cx.world.get(h) else {
@@ -603,20 +873,28 @@ pub fn physics_update(cx: &mut Cx<'_>, dt: f32) {
     }
 }
 
-/// `StarSystem::remove_ship`: the ship out of its system's lists, its body
-/// destroyed and its parameters returned (`GameObject::leave_system`).
-/// The other players' `OnObjectDestroyed`, `notify_object_left` and the
-/// lookup cache are the replication and object parts'.
+/// `StarSystem::remove_ship`: every other player of the system hears of
+/// the ship as destroyed (kind 0, [`crate::replication::ship_removed`]),
+/// then the ship leaves its system's lists, a player's ship on a
+/// multiplayer server stops following its client (`PhySys::RCEnd`), its
+/// body is destroyed and its parameters returned
+/// (`GameObject::leave_system`). `notify_object_left`'s behaviour events
+/// are the behaviour manager's server link; the lookup cache is not
+/// ported (record 0007 point 4).
 pub fn remove_ship(cx: &mut Cx<'_>, ship: ObjHandle) -> Option<CreateParms> {
+    crate::replication::ship_removed(cx, ship);
+    crate::replication::end_remote_control(cx, ship);
     cx.world.leave_system(ship)
 }
 
 /// `StarSystem::add_ship`: the ship at `position` and `orientation` in
 /// `system` with a body rebuilt from its saved parameters
-/// (`Ship::enter_system`, which also ends a death sequence), appended to
-/// the ship list. The creates for the system's players are the
-/// replication part's. False when the ship is not in transit or the
-/// system is not loaded.
+/// (`Ship::enter_system`, which also ends a death sequence; a player's
+/// ship on a multiplayer server follows its client, `PhySys::RCBegin`),
+/// appended to
+/// the ship list; then every player of the system gets the ship's create
+/// ([`crate::replication::ship_arrived`]). False when the ship is not in
+/// transit or the system is not loaded.
 pub fn add_ship(
     cx: &mut Cx<'_>,
     system: u32,
@@ -627,6 +905,7 @@ pub fn add_ship(
     if !cx.world.enter_system(ship, system, position, orientation) {
         return false;
     }
+    crate::replication::begin_remote_control(cx, ship);
     if let Some(s) = cx
         .logic
         .objects
@@ -635,5 +914,40 @@ pub fn add_ship(
     {
         s.death_sequence_obj_id = 0;
     }
+    crate::replication::ship_arrived(cx, system, ship);
     true
+}
+
+/// The type bits of a jump gate and a jump hole.
+const GATE_BITS: u32 = 0x40 | 0x800;
+/// The type bits of an airlock.
+const AIRLOCK_BITS: u32 = 0x400;
+
+/// `StarSystem::arrive_ship(Obj, JumpObj, Pos, Orient)`: an NPC's ship
+/// (no owner) arriving through a jump gate or hole jumps in over 0.5 s
+/// (`CShip::jump_in`, [`World::jump_in`]), through an airlock comes out of
+/// it (`airlock_in`); then every player of the system who can see the ship
+/// gets the switch-in with the jump object's type bits (0 without one,
+/// [`crate::replication::ship_switched_in`]). A player's ship only
+/// switches in: its client plays the arrival.
+pub fn arrive_ship(
+    cx: &mut Cx<'_>,
+    system: u32,
+    ship: ObjHandle,
+    jump_object: Option<ObjHandle>,
+    position: Vector,
+    orientation: Matrix,
+) {
+    let bits = jump_object
+        .and_then(|h| cx.world.get(h))
+        .map_or(0, |o| o.simple.type_bits);
+    let owner = cx.world.get(ship).map_or(0, |o| o.simple.owner_player);
+    if owner == 0 {
+        if bits & GATE_BITS != 0 {
+            cx.world.jump_in(ship, position, orientation, 0.5);
+        } else if bits & AIRLOCK_BITS != 0 {
+            cx.world.airlock_in(ship, position, orientation);
+        }
+    }
+    crate::replication::ship_switched_in(cx, system, ship, bits, position, &orientation);
 }

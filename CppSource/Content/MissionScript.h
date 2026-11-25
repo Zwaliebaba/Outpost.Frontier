@@ -24,6 +24,32 @@ struct FMissionScript;
 // (StoryMissions.cpp) derive from it.
 // ---------------------------------------------------------------------------------------
 
+// Oracle instrumentation (design/migration-plan.md, Phase 0; work package P3.5c1, decision
+// record 0008 question 9): the trigger engine's trace of the Tier B mission trace. A game run
+// never sets the hook; only Content.dll's OracleDumpMissionTrace (oracle_mission_trace.cpp) does,
+// for the Oracle.exe sim session CppSource/Oracle/mission_trace.txt. The engine calls it with:
+//   Activate     ActivateMissionTrigger set the trigger ACTIVE (after the already-listed test);
+//   Fire         a condition matched, A the event id (0xffffffff for the activation probe);
+//   Action       an action of the firing trigger is about to run, A its place in the list;
+//   Timer        a delayed action is about to run from the timer list, Action the action;
+//   Rearm        a repeatable trigger is ACTIVE again;
+//   Deactivate   DeactivateMissionTrigger erased an active entry;
+//   State        ApplyDesiredMissionState applies a new state, A the previous, B the new one.
+enum EOracleMissionTrace
+{
+    OracleMissionTraceActivate = 1,
+    OracleMissionTraceFire = 2,
+    OracleMissionTraceAction = 3,
+    OracleMissionTraceTimer = 4,
+    OracleMissionTraceRearm = 5,
+    OracleMissionTraceDeactivate = 6,
+    OracleMissionTraceState = 7,
+};
+typedef void(__cdecl* FOracleMissionTraceHook)(int Kind, FMissionScript const* Script,
+                                               unsigned int TriggerId, unsigned int A, int B,
+                                               Act const* Action);
+extern FOracleMissionTraceHook GOracleMissionTraceHook;
+
 // TU21's math engine, created on first use (the routine) by
 // Cnd_DistCircle::OnActivate and the Act_* classes that transform vectors.
 extern I3DMathEngine* GTriggerMathEngine;

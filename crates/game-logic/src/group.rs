@@ -7,9 +7,8 @@
 //! id. Group notices travel as chat messages from the group-control id
 //! (`0x00010004`): a type and a player, eight bytes.
 //!
-//! When a player's ship joins or leaves a group the C++ also tells the
-//! ship's system (`StarSystem_SendGroupChange`); the system database comes
-//! with P3.4, so the port sets the ship's group id and stops there.
+//! When a player's ship joins or leaves a group its system's players hear
+//! of it (`StarSystem_SendGroupChange`, [`crate::replication`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -129,15 +128,26 @@ pub fn send_group_id(cx: &mut Cx<'_>, player: u32, group: u32) {
 }
 
 /// The player's ship takes the group id (`CShip::GroupId`), when the player
-/// has a ship in the world.
+/// has a ship in the world; then the players of the slot's system hear of
+/// it (`StarSystem_SendGroupChange`, [`crate::replication::group_changed`]).
 fn set_ship_group(cx: &mut Cx<'_>, player: u32, group: u32) {
-    let Some(ship) = cx.logic.players.get(player).map(|s| s.ship_object_id) else {
+    let Some((ship, system)) = cx
+        .logic
+        .players
+        .get(player)
+        .map(|s| (s.ship_object_id, s.system_id))
+    else {
         return;
     };
-    if let Some(h) = cx.world.find(ship)
-        && let Some(data) = cx.world.get_mut(h).and_then(|o| o.as_ship_mut())
-    {
-        data.group_id = group;
+    let Some(h) = cx.world.find(ship) else {
+        return;
+    };
+    let Some(data) = cx.world.get_mut(h).and_then(|o| o.as_ship_mut()) else {
+        return;
+    };
+    data.group_id = group;
+    if cx.logic.server_world.systems.contains_key(&system) {
+        crate::replication::group_changed(cx, system, ship);
     }
 }
 

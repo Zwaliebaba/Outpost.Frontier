@@ -39,7 +39,18 @@ const ALLOWED: &[(&str, &[&str])] = &[
 /// Workspace crates a member may use in its tests only: edges allowed in
 /// `dev-dependencies` (plain or target-specific) and refused anywhere
 /// else.
-const DEV_ONLY: &[(&str, &[&str])] = &[("neuron-client", &["lua32-compiler"])];
+///
+/// - `neuron-client` compiles saved scene scripts with `lua32-compiler` in
+///   its scene-script tests (decision O18).
+/// - `neuron-client` runs its QUIC transport against `neuron-server`'s host
+///   in its end-to-end test (P3.8, owner 2026-11-25).
+/// - `outpost-server` drives Gate G3's scripted test client, a
+///   `neuron-client` QUIC connection, against the real server (P3.9,
+///   owner 2026-11-25).
+const DEV_ONLY: &[(&str, &[&str])] = &[
+    ("neuron-client", &["lua32-compiler", "neuron-server"]),
+    ("outpost-server", &["neuron-client"]),
+];
 
 const DEPENDENCY_TABLES: &[&str] = &["dependencies", "dev-dependencies", "build-dependencies"];
 
@@ -181,9 +192,11 @@ mod tests {
     const NAMES: &[&str] = &[
         "neuron-core",
         "neuron-client",
+        "neuron-server",
         "game-logic",
         "game-app",
         "lua32-compiler",
+        "outpost-server",
     ];
 
     const HEADER: &str = "[package]\nname = \"x\"\nrust-version.workspace = true\n\
@@ -261,6 +274,58 @@ mod tests {
             &format!("{HEADER}[dev-dependencies]\nlua32-compiler.workspace = true\n"),
         );
         assert_eq!(findings(&m).len(), 1);
+    }
+
+    #[test]
+    fn the_client_may_test_against_the_server_only() {
+        let m = member(
+            "neuron-client",
+            &format!("{HEADER}[dev-dependencies]\nneuron-server.workspace = true\n"),
+        );
+        assert!(findings(&m).is_empty());
+        for table in ["dependencies", "build-dependencies"] {
+            let m = member(
+                "neuron-client",
+                &format!("{HEADER}[{table}]\nneuron-server.workspace = true\n"),
+            );
+            let found = findings(&m);
+            assert_eq!(found.len(), 1, "{table}");
+            assert!(
+                found[0]
+                    .message
+                    .contains("may not depend on `neuron-server`")
+            );
+        }
+        // The edge has one direction.
+        for table in ["dependencies", "dev-dependencies"] {
+            let m = member(
+                "neuron-server",
+                &format!("{HEADER}[{table}]\nneuron-client.workspace = true\n"),
+            );
+            assert_eq!(findings(&m).len(), 1, "{table}");
+        }
+    }
+
+    #[test]
+    fn the_server_executable_may_test_with_the_client_only() {
+        let m = member(
+            "outpost-server",
+            &format!("{HEADER}[dev-dependencies]\nneuron-client.workspace = true\n"),
+        );
+        assert!(findings(&m).is_empty());
+        for table in ["dependencies", "build-dependencies"] {
+            let m = member(
+                "outpost-server",
+                &format!("{HEADER}[{table}]\nneuron-client.workspace = true\n"),
+            );
+            let found = findings(&m);
+            assert_eq!(found.len(), 1, "{table}");
+            assert!(
+                found[0]
+                    .message
+                    .contains("may not depend on `neuron-client`")
+            );
+        }
     }
 
     #[test]

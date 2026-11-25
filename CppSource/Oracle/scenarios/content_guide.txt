@@ -1,0 +1,19 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): a guide directive to
+# Content's NPC ship (P3.6c). As `guide`, but the guide is made by Content.dll (`content`:
+# FSystemInfo::CreateNpcShip through OracleSimCreateNpcShip), so its guide events (1 to 8,
+# GuideBehavior::NotifyManagerGuideEvent while its attack state is not 0) reach
+# FContentNpcShip::lead_object_event: the ship has no voice (no line, no rand()), each event
+# mutes it for a second or queues itself again in 30 s on SpaceSupport's timers, and
+# LeadObject goes to its controller. The ship's vibe is of he_p_grp, its state submitted with
+# the default personality. Multiplayer stepping.
+
+# rust: server Content makes the guide (content)
+
+system he01
+ticks 1500
+stepping mp
+
+ship guided he_fighter li_p_he_fighter_loadout01 15000 3000 -25000 psi
+ship guide he_fighter li_p_he_fighter_loadout01 15100 3000 -24900 ai FIGHTER faction he_p_grp content psi
+
+at 1 guide guide guided 15000 3000 -28000 offset 0 0 150

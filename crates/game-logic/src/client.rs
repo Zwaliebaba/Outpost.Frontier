@@ -13,8 +13,9 @@ use game_sim::protocol::common::{
 use game_sim::protocol::fmtstr::FmtStr;
 use game_sim::protocol::records::{CollisionGroup, EquipRecord};
 use game_sim::protocol::to_client::{
-    Launch, MiscObjUpdate, PlayerList, RequestCreateShipResp, RequestReturned, SetAddItem, SetCash,
-    SetCollisionGroups, SetEquipment, SetHullStatus, SetRemoveItem, SetShipArch,
+    Directive, Launch, MiscObjUpdate, PlayerList, RequestCreateShipResp, RequestReturned,
+    ScanNotify, SetAddItem, SetCash, SetCollisionGroups, SetDirective, SetEquipment, SetHullStatus,
+    SetRemoveItem, SetShipArch,
 };
 
 use crate::character_file::CollisionGroupDesc;
@@ -123,6 +124,43 @@ pub fn set_equipment(cx: &mut Cx<'_>, client: u32, items: &[EquipDesc]) {
         })
         .collect();
     send(cx, client, SetEquipment { records });
+}
+
+/// `SendServerRemoteObjectCargoUpdate` (slot +0x154, ch2 0x3d): another
+/// ship's cargo, with the flag byte; only the items not equipped travel
+/// (`RpcEquipHandleFromVector` with `bAll` clear), each hardpoint as in
+/// [`set_equipment`].
+pub fn remote_object_cargo_update(
+    cx: &mut Cx<'_>,
+    client: u32,
+    object: u32,
+    items: &[EquipDesc],
+    flag: u8,
+) {
+    let strings = cx.world.strings();
+    let records = items
+        .iter()
+        .filter(|item| item.equipped == 0)
+        .map(|item| EquipRecord {
+            count: item.count,
+            health: item.health,
+            arch_id: item.arch_id,
+            id: item.id,
+            equipped: item.equipped,
+            field_0f: 0,
+            hardpoint: if item.is_internal(strings) {
+                Vec::new()
+            } else {
+                hardpoint_bytes(item, strings)
+            },
+        })
+        .collect();
+    let message = game_sim::protocol::to_client::RemoteObjectCargoUpdate {
+        object_id: object,
+        flag,
+        records,
+    };
+    send(cx, client, message);
 }
 
 fn send_common(
@@ -357,6 +395,49 @@ pub fn misc_obj_update_affiliation(cx: &mut Cx<'_>, client: u32, object: u32, af
         flags: 0x08 | 0x20,
         field_28: object,
         field_54: affiliation,
+        ..MiscObjUpdate::default()
+    };
+    send(cx, client, message);
+}
+
+/// `SendServerObjectCargoUpdate` (slot +0x158, ch2 0x55): the object and
+/// one stack (its id, archetype, the count's low word, health and the raw
+/// mission byte).
+pub fn object_cargo_update(cx: &mut Cx<'_>, client: u32, object: u32, desc: &EquipDesc) {
+    let message = game_sim::protocol::to_client::ObjectCargoUpdate {
+        object_id: object,
+        arch_id: desc.arch_id,
+        equip_id: desc.id,
+        count: desc.count as u16,
+        status: desc.health,
+        mission: u8::from(desc.mission),
+    };
+    send(cx, client, message);
+}
+
+/// `SendServerSetDirective` (slot +0x190, ch2 0x4e): the directive record
+/// as the server built it, sent to the client by reference.
+pub fn set_directive(cx: &mut Cx<'_>, client: u32, directive: Directive) {
+    send(cx, client, SetDirective { directive });
+}
+
+/// `SendServerScanNotify` (slot +0x1b4, ch2 0x39): the scanner and the
+/// good scanned for.
+pub fn scan_notify(cx: &mut Cx<'_>, client: u32, scanner: u32, good: u32) {
+    let message = ScanNotify {
+        field_00: scanner,
+        field_04: good,
+    };
+    send(cx, client, message);
+}
+
+/// `SendServerMiscObjUpdateFormation` (slot +0x1e0, ch2 0x54, mask 0x100):
+/// the formation's members. The marshaller raises the flag once per
+/// member, so an empty list goes out with no flag and no list.
+pub fn misc_obj_update_formation(cx: &mut Cx<'_>, client: u32, ids: &[u32]) {
+    let message = MiscObjUpdate {
+        flags: if ids.is_empty() { 0 } else { 0x100 },
+        ids: ids.to_vec(),
         ..MiscObjUpdate::default()
     };
     send(cx, client, message);
