@@ -1,0 +1,10 @@
+# Oracle.exe sim session (P3.5b, decision record 0008 point 10, Gate G3): not a scenario. The
+# server starts as a multiplayer server (GameSupport's tables, then LoadGame's system records),
+# then Content.dll writes the player-save sections of the fourteen story missions, each made for
+# a synthetic player on a fixed seed, in three states, and Story's, as save_<mission>_<state>.ini
+# and story_constructed.ini (OracleDumpMissionSaves). No system loads and nothing is stepped;
+# the parser still wants `system` and `ticks`.
+
+system he01
+ticks 1
+dump mission_saves

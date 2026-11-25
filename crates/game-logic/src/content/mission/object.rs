@@ -28,6 +28,7 @@ use super::dialog::{self, MissionDialog};
 use super::field::record;
 use super::meta_behavior::{self, MetaBehavior};
 use super::obj_list::{self, ObjListDirective};
+use super::object_save::{Invulnerable, RandEncRespawn, VibeInfo};
 use super::objective::{self, Objective};
 use super::rand_enc::{self, MissionRandEnc};
 use super::{base_id_of, f32_at, nickname_id, system_id_into, tstring, value_tstring};
@@ -67,7 +68,7 @@ record! {
 record! {
     /// One ship slot of a `[MsnShip]` / `[MsnFormation]` record
     /// (`FMissionShip`, `MissionObject.h:73`). Its directives and guide are
-    /// empty after the parse and are not kept.
+    /// empty after the parse and are not dumped.
     MissionShip {
         /// The record's `nickname`.
         nickname: Vec<u8> = Vec::new(),
@@ -95,6 +96,16 @@ record! {
         field_0x80: i32 = -1,
         /// `radius` (7); `arrival_obj` zeroes every slot's.
         radius: f32 = 7.0,
+    }
+    kept {
+        /// `Directives` (+0x58): empty after the parse; a respawn record's
+        /// copy of its ship's directives, or a restored `[MObjective]`
+        /// (P3.5b), written back as `[MObjective]`.
+        directives: Vec<ObjListDirective> = Vec::new(),
+        /// `Guide` (+0x68): none after the parse; a restored ship's guide,
+        /// kept as the `[MetaBehavior]` object `CreateGuide` made it from
+        /// (P3.5b; the guide objects are P3.6c's). The save writes its line.
+        guide: Option<MetaBehavior> = None,
     }
 }
 
@@ -287,6 +298,30 @@ pub struct MissionObject {
     /// `MetaBehaviors` (+0x114): each `[MetaBehavior]`'s objects by its
     /// nickname's id (the first list of an id stays).
     pub meta_behaviors: BTreeMap<u32, Vec<MetaBehavior>>,
+    /// `bTriggerSavePending` (+0x18): `Act_Save` asked for a save of one
+    /// trigger (P3.5c); the save then writes only its `[TriggerSave]`.
+    pub trigger_save_pending: bool,
+    /// `bPendingDestroy` (+0x19).
+    pub pending_destroy: bool,
+    /// `RespawnShips` (+0x128): the `[MsnShip]` records to create again,
+    /// taken by the snapshot (P3.5c) or restored from `[MsnWingSave]`.
+    pub respawn_ships: Vec<ShipGroup>,
+    /// `RandEncRespawns` (+0x8c): the random-encounter formations to create
+    /// again, from the snapshot or `[MsnRandEncSave]`.
+    pub rand_enc_respawns: Vec<RandEncRespawn>,
+    /// `RespawnSolars` (+0x134): the `[MsnSolar]` names to create again.
+    pub respawn_solars: Vec<Vec<u8>>,
+    /// `MarkObjNames` (+0x140): `[MarkObj]`.
+    pub mark_obj_names: Vec<Vec<u8>>,
+    /// `Invulnerables` (+0x14c): `[Invulnerables]`.
+    pub invulnerables: Vec<Invulnerable>,
+    /// `DecloakedNames` (+0x158): `[Decloaked]`.
+    pub decloaked: Vec<Vec<u8>>,
+    /// `VibeInfos` (+0x164): the attitudes the snapshot took, `[MsnVibeInfo]`.
+    pub vibe_infos: Vec<VibeInfo>,
+    /// `SolarReps` (+0x174): the reputations of the unnamed vibe parties,
+    /// each once.
+    pub solar_reps: Vec<i32>,
 }
 
 impl MissionObject {
@@ -311,6 +346,16 @@ impl MissionObject {
             players: BTreeMap::new(),
             obj_lists: BTreeMap::new(),
             meta_behaviors: BTreeMap::new(),
+            trigger_save_pending: false,
+            pending_destroy: false,
+            respawn_ships: Vec::new(),
+            rand_enc_respawns: Vec::new(),
+            respawn_solars: Vec::new(),
+            mark_obj_names: Vec::new(),
+            invulnerables: Vec::new(),
+            decloaked: Vec::new(),
+            vibe_infos: Vec::new(),
+            solar_reps: Vec::new(),
         }
     }
 

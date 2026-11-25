@@ -92,6 +92,30 @@ DOUBLES = [
     f64(5e-324 * 3), f64(100.0), f64(1e15), f64(1e16), f64(1e17), f64(0.00001),
 ]
 
+# P3.5b: %f as the saves write it (fprintf "%f" of a float widened to double, and
+# of the doubles the statistics keep): ties at each precision, values just
+# around them, negative zero and values that round to it, carries into a new
+# digit, the float range's ends and doubles far beyond it.
+FORMAT_F = [
+    f64(0.0), f64(-0.0), f64(1.0), f64(-1.0), f64(0.5), f64(1.5), f64(2.5), f64(-2.5),
+    f64(0.25), f64(0.75), f64(0.125), f64(0.375), f64(0.0625), f64(0.0078125),
+    f64(0.0234375), f64(-0.0234375), f64(0.0390625), f64(2.0 ** -20), f64(2.0 ** -21),
+    f64(5e-7), f64(6e-7), f64(-4e-7), f64(1e-6), f64(0.9999995), f64(9.9999995),
+    f64(999999.9999995), f64(0.1), f64(0.3), f64(2 / 3), f64(-1 / 3), f64(123.456),
+    f32_widened(0.1), f32_widened(-0.6), f32_widened(0.6), f32_widened(0.2), f32_widened(1.1),
+    f32_widened(123.456), f32_widened(12345.678), f32_widened(-31476.25), f32_widened(16777217.0),
+    f32_widened(1e-7), f32_widened(-1e-7), f32_widened(3.4028234663852886e38),
+    f32_widened(1.1754943508222875e-38), f32_widened(2500.0), f32_widened(0.017453292),
+    f64(1e15), f64(1e16), f64(1e17), f64(1e22), f64(1e23), f64(9007199254740993.0),
+    f64(9223372036854775808.0), f64(18446744073709551616.0), f64(1e100), f64(-1e300),
+    bytes.fromhex('7fefffffffffffff'), bytes.fromhex('0000000000000001'),
+    bytes.fromhex('000fffffffffffff'), f64(1e-300), f64(float('inf')), f64(float('-inf')),
+    bytes.fromhex('7ff8000000000000'), bytes.fromhex('fff8000000000000'),
+    bytes.fromhex('7ff0000000000001'), bytes.fromhex('fff8000000000001'),
+    f64(4294967295.0), f64(2147483647.5), f64(-2147483648.5), f64(0.05), f64(0.005),
+    f64(0.45), f64(1.45), f64(2.675), f64(1.0000005), f64(1.00000050000001),
+]
+
 SEEDS = [1, 0, 7, 12345, 0xFFFFFFFF, 0x80000000]
 
 ENGINE = {
@@ -185,6 +209,7 @@ def main():
     write('wide.hex', ('# UTF-16 texts for _wtoi: four hex digits per code unit.\n' +
                        ''.join(''.join('%04x' % u for u in w) + '\n' for w in WIDE)).encode())
     hex_lines('doubles.hex', DOUBLES, 'Doubles as big-endian bit patterns for %g and conversions.')
+    hex_lines('format_f.hex', FORMAT_F, 'Doubles as big-endian bit patterns for %f (P3.5b).')
     write('rand.hex', ('# Seeds for srand.\n' + ''.join('%08x\n' % s for s in SEEDS)).encode())
     for name, data in ENGINE.items():
         write(name, data)

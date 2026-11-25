@@ -609,6 +609,28 @@ any order. The data job runs the ensemble of
 .\bin\Oracle.exe sim "$PWD\outdir" CppSource\Oracle\scenarios\dogfight.txt "$env:TEMP\ens\seed_3985226492\dogfight" --seed 3985226492
 ```
 
+**Rust saves loaded by the C++ build** (P3.5b, Gate G3). One session reads
+what the port wrote, so its run sits between two runs of the port's tests
+and is not part of the cached oracle outputs. The data job's step "Load
+the port's saves with the oracle" runs, on every run:
+
+```powershell
+$env:OUTPOST_DATA_DIR = "$env:RUNNER_TEMP\outpost-data"
+$env:OUTPOST_SAVE_LOADS_DIR = "$env:RUNNER_TEMP\outpost-save-loads"
+cargo test --release -p game-logic --test mission_saves -- rust_saves_for_the_oracle --nocapture
+.\bin\Oracle.exe sim "$PWD\outdir" CppSource\Oracle\mission_save_loads.txt "$env:RUNNER_TEMP\outpost-save-loads"
+$env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-save-loads"
+cargo test --release -p game-logic --test mission_saves -- oracle_loads_of_rust_saves --nocapture
+```
+
+The first test writes the port's saves into the folder's `rust` folder
+through the text-mode translation the server's save path makes; the
+session restores them; the second test restores them in the port and
+compares (summary `rust-mission-save-loads.txt`). The step needs the C++
+build when the oracle's outputs come from the cache, so the data job keeps
+`bin` in a cache of its own, keyed on the C++ and the toolset only ("Restore
+the C++ build"), and builds only when that misses.
+
 ### Start-up
 
 As `OutpostServer.exe` (`OutpostServer.cpp:437`, `:523`, `:731-745`,
@@ -709,6 +731,7 @@ is zero, which only `Oracle.exe sim` changes:
 | `Content\oracle_content_tables.cpp` (new), `PilotPersonalities.cpp`, `LootProps.cpp`, `Support.cpp` | `OracleDumpContentTables`, a new export (P3.4b) that only `dump content_tables` calls: Content's static tables as `LoadContentGameTables` left them, one `content_<table>.txt` per table; the three other files write the tables they keep file-static (`OracleContentDumpPilots`, with each pilot's personality from `GetPilotPersonality`, `OracleContentDumpLoot`, `OracleContentDumpToughness`) |
 | `Content\oracle_content_systems.cpp` (new), `Content.vcxproj`, `Oracle\oracle_sim.cpp`, `Oracle\system_loads.txt` (P3.4d) | `OracleDumpContentSystems`, a new export that only `dump content_systems` calls after `dump system_loads`' loads: Content's system records as SpaceSupport's `SystemLoaded` left them (counts, jumps, trade lanes with their attack zones, solar NPCs with their vibes' affiliations), `SaveContentGateLocks`' text, and `FContentPlayerState::Save` and `LoadContentPlayerState` on a synthetic local state; the read-back registers the synthetic player with the gates its text locks, after the gate locks were written, and nothing reaches a player |
 | `Content\oracle_content_dump.cpp` (new), `Content.vcxproj`, `Oracle\oracle_sim.cpp`, `Oracle\mission_scripts.txt` (new) (P3.5a) | `OracleDumpMissionScripts`, a new export that only `dump mission_scripts` calls right after the start-up: it registers a synthetic player 7 in he01 (`ReplaceContentPlayerState`), makes each of the fourteen story missions through `CreateInstance` on a fixed seed and on a controller id no controller has, counts the parse's `rand()` draws, writes every field of its triggers, conditions, actions, sections, objectives and dialogs (the classes told apart by `dynamic_cast`) and destroys it (`DestroyInstance`), emptying `GMissionDialogs` before each mission and at the end and removing the player; nothing reaches a player and no message is sent; with P3.5a2 it also writes the mission object's `[ObjList]` directives (each class and its `pub::AI` op) and `[MetaBehavior]` objects into four more files, also told apart by `dynamic_cast`, through `MissionObjList.h` and `Guides.h` |
+| `Content\oracle_save_dump.cpp` (new), `Content.vcxproj`, `Oracle\oracle_sim.cpp`, `Oracle\mission_saves.txt` (new), `Oracle\mission_save_loads.txt` (new) (P3.5b) | `OracleDumpMissionSaves` and `OracleLoadMissionSaves`, two new exports that only `dump mission_saves` and `dump mission_save_loads` call right after the start-up. Both register player 7 in he01 and make each story mission as `OracleDumpMissionScripts` does. The first writes each mission's `PlayerSave` body without the message's gates (`SaveMissionState`, `SaveMission`, `SaveRandEncs` between the `[MissionState]` and `[BStoryMissionDone]` headers) in three states, setting the members of the advanced and pending states directly (`design/sim-records.md`, mission saves), and a new Story's `PlayerSave`; the second restores the port's saves from the out folder's `rust` folder (`LoadMissionState`, then `LoadMissionSave`, the generator seeded before) into new missions, and six Story saves into one Story through its `PlayerLoad`, and writes what each restored and its save of it. The six clamps a save writes are put back after each mission; the missions are destroyed and the player removed at the end. Nothing reaches a player except a restore's `SetMissionObjectives` to player 7, who has no slot |
 | `Content\oracle_content_tables.cpp`, `BaseDB.cpp` (P3.4c) | `OracleDumpContentTables` also writes the other loaders' tables: the `mBases.ini` records (`OracleContentDumpBases` in `BaseDB.cpp`, whose table is file-static, from fresh records loaded with `FContentBase::Load(nullptr)`, so the live records keep their load counts), the specific NPCs (StoryLauncher's loop into a local table), the three system path tables, and each system's encounter parameters, zones and patrol paths read into a local `FSystemInfo` as `LoadFromReader` reads them, with every ship line's factions and archetypes; nothing it writes reaches the live state |
 
 `srand`, the frame time and the control words need no hook: the harness
@@ -781,6 +804,8 @@ the trade lanes).
 | `comms on\|off` | default `on`; `off` sets Content's comm clamp before the load, so `IsGcsCommAllowed` refuses every comm before its `rand()` roll (owner, 2026-11-19; record 0003: the G2 fights run with comms off) |
 | `dump content_systems` | with `dump system_loads` (P3.4d, `CppSource\Oracle\system_loads.txt`): after every system has loaded, Content.dll's `OracleDumpContentSystems` writes its system records, gate locks and a synthetic `[mPlayer]` into the output folder as `content_<table>.txt` |
 | `dump mission_scripts` | (P3.5a, `CppSource\Oracle\mission_scripts.txt`): right after the start-up, Content.dll's `OracleDumpMissionScripts` writes the fourteen story missions' parse into the output folder as `mission_<table>.txt`; no system loads and the run ends |
+| `dump mission_saves` | (P3.5b, `CppSource\Oracle\mission_saves.txt`): right after the start-up, Content.dll's `OracleDumpMissionSaves` writes the save sections of the fourteen story missions in three states and Story's into the output folder as `save_<mission>_<state>.ini` and `story_constructed.ini`; no system loads and the run ends |
+| `dump mission_save_loads` | (P3.5b, `CppSource\Oracle\mission_save_loads.txt`): right after the start-up, Content.dll's `OracleLoadMissionSaves` restores the saves the port wrote into the output folder's `rust` folder and writes `loaded_<mission>_<state>.txt` and `story_loaded_<n>.txt`; the run fails (exit code 3) when a save is missing. The data job writes the port's saves first and compares after (below, "Rust saves loaded by the C++ build") |
 | `dump content_tables` | not a scenario (P3.4b, `CppSource\Oracle\content_tables.txt`): right after the server starts, Content.dll's `OracleDumpContentTables` writes its static tables into the output folder as `content_<table>.txt`, and the run ends; no system loads. P3.4c adds the other loaders' twelve tables to the same run |
 | `seed <n>` | `srand` after start-up; default `0x4f524143`; also the start-up seed |
 | `clock <seconds>` | the fixed clock at tick 0; default 1000 |
