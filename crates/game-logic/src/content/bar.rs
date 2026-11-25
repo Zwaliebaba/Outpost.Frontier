@@ -1119,3 +1119,163 @@ pub(crate) mod mission_data {
         pub description: FmtStr,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use game_sim::data::config::GameData;
+    use game_sim::object::World;
+    use game_sim::object::world::WorldConfig;
+
+    use super::*;
+    use crate::content::tables::ranks::RankDifficulty;
+    use crate::server::{Logic, RecordingSink};
+
+    fn with_cx(run: impl FnOnce(&mut Cx<'_>)) {
+        let mut world = World::new(Arc::new(GameData::new()), WorldConfig::default());
+        let mut logic = Logic::new(Box::new(RecordingSink::default()), 1, true);
+        let mut cx = Cx {
+            world: &mut world,
+            logic: &mut logic,
+        };
+        run(&mut cx);
+    }
+
+    fn character(key: u32, role: &[u8], player: u32, id: u32) -> BarCharacter {
+        BarCharacter {
+            key,
+            use_count: 1,
+            behavior: u32::MAX,
+            character_id: id,
+            room: 9,
+            affiliation: u32::MAX,
+            placement: 0,
+            role: role.to_vec(),
+            player,
+            gender: 1,
+            voice: 0,
+            nickname: 0,
+            talk_count: 0,
+            offer: BarOffer::None,
+        }
+    }
+
+    #[test]
+    fn the_room_state_counts_locks_and_finds_roles_without_case() {
+        let mut state = RoomState::default();
+        state.add_lock(7, 3);
+        state.add_lock(7, 3);
+        state.add_lock(8, 3);
+        assert_eq!(state.locks.len(), 2);
+        assert_eq!(state.locks[0].count, 2);
+        assert!(state.has_lock(7, 3) && !state.has_lock(7, 4));
+        state.characters.push(character(1, b"Bartender", 7, 11));
+        state.characters.push(character(2, b"trader", 8, 12));
+        assert_eq!(state.find_character(b"bartender", 7).map(|c| c.key), Some(1));
+        assert!(state.find_character(b"bartender", 8).is_none());
+        assert_eq!(state.count_characters(7), 1);
+        assert!(state.has_character(8, 0));
+    }
+
+    #[test]
+    fn a_rumor_weighs_by_its_bounds_and_level() {
+        with_cx(|cx| {
+            let mut state = PlayerState::new(cx, 7);
+            state.mission_number = 5;
+            let mut rumor = BaseNpcRumor {
+                from_stage: 0,
+                to_stage: 0x2a,
+                rep_level: 1,
+                ids: [100, 0, 0, 0, 0, 0, 0, 0],
+            };
+            // An open range: (level + 1) * 5, once the feeling reaches 0.2.
+            assert_eq!(rumor_weight(&rumor, &state, 0.2), 10);
+            assert_eq!(rumor_weight(&rumor, &state, 0.1), 0);
+            assert_eq!(rumor_weight(&rumor, &state, f32::NAN), 0);
+            // Bounded on both ends: 0x40.
+            rumor.from_stage = 1;
+            rumor.to_stage = 9;
+            assert_eq!(rumor_weight(&rumor, &state, 0.5), 0x40);
+            // Heard already, or out of the stage range: 0.
+            state.add_rumor(100);
+            assert_eq!(rumor_weight(&rumor, &state, 0.5), 0);
+            rumor.ids[0] = 101;
+            state.mission_number = 10;
+            assert_eq!(rumor_weight(&rumor, &state, 0.5), 0);
+            // A level past the thresholds weighs nothing (D1001).
+            state.mission_number = 5;
+            rumor.rep_level = 4;
+            assert_eq!(rumor_weight(&rumor, &state, 1.0), 0);
+        });
+    }
+
+    #[test]
+    fn a_weighted_pick_takes_the_first_total_the_roll_does_not_pass() {
+        with_cx(|cx| {
+            cx.world.rng().seed(1);
+            // rand() = 41 from seed 1: 41 / 32768 * 65 = 0.0813...
+            let (picked, slot) = pick_weighted(cx, &[30.0, 20.0, 15.0]);
+            assert_eq!(picked, Some(0));
+            assert!(slot > 0.08 && slot < 0.09, "{slot}");
+            assert_eq!(pick_weighted(cx, &[0.0, 0.0]), (None, 0.0));
+            assert_eq!(pick_random(cx, 0), None);
+            let before = cx.world.rng().clone();
+            assert_eq!(pick_random(cx, 1), Some(0));
+            assert_eq!(*cx.world.rng(), before, "one choice draws nothing");
+        });
+    }
+
+    #[test]
+    fn a_scenes_release_keeps_the_roles_and_unlocks_the_placements() {
+        with_cx(|cx| {
+            let mut record = ContentBase::new(5);
+            let mut state = RoomState::default();
+            let mut actor = character(1, b"actor", 7, 0);
+            actor.use_count = 2;
+            state.characters.push(actor);
+            state.add_lock(7, 4);
+            state.add_lock(7, 4);
+            record.room_states.insert(9, state);
+            record.bar_scenes.push(BarScene {
+                scene_id: 3,
+                player: 7,
+                room: 9,
+                placements: vec![4],
+                characters: vec![1],
+            });
+            cx.logic.content.state.bases.insert(5, record);
+            cx.logic.content.state.bar_scene_bases.insert(3, 5);
+            remove_bar_scene(cx, 5, 3, Some(&[b"actor".to_vec()]));
+            let record = &cx.logic.content.state.bases[&5];
+            assert!(record.bar_scenes.is_empty());
+            let state = &record.room_states[&9];
+            assert_eq!(state.characters[0].use_count, 1);
+            assert_eq!(state.locks[0].count, 1);
+            assert!(cx.logic.content.state.bar_scene_bases.is_empty());
+        });
+    }
+
+    #[test]
+    fn the_offer_difficulty_is_judged_against_the_stage_window() {
+        with_cx(|cx| {
+            let mut tables = (*cx.logic.content.tables).clone();
+            tables.rank_difficulties = vec![
+                RankDifficulty {
+                    stage: 0,
+                    difficulty: 1.0,
+                },
+                RankDifficulty {
+                    stage: 10,
+                    difficulty: 10.0,
+                },
+            ];
+            cx.logic.content.tables = Arc::new(tables);
+            // Stage 5 reads stage 0's difficulty; the tolerance is 1.18445.
+            assert_eq!(compare_rm_offer_difficulty(cx, 5, 0.5), -1);
+            assert_eq!(compare_rm_offer_difficulty(cx, 5, 1.0), 0);
+            assert_eq!(compare_rm_offer_difficulty(cx, 5, 1.2), 1);
+            assert_eq!(compare_rm_offer_difficulty(cx, 10, 10.0), 0);
+        });
+    }
+}

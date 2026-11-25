@@ -637,6 +637,61 @@ fn the_base_session_runs_on_outdir() {
     assert!(!trace.lines.iter().any(|l| l.contains("\"found\":0")), "{summary}");
 }
 
+/// D1000 and D1001 on the shipped data: every `script` line of the generic
+/// scripts lands in the table, and every GF_NPC rumor's level indexes the
+/// thresholds and leaves a 0 among its ids.
+#[test]
+fn the_shipped_data_stays_inside_the_tables() {
+    let root = outdir();
+    let Some((mut world, mut logic)) = started(&root, &root.join("data")) else {
+        println!("notice: outdir/OutpostFrontier.ini is missing; nothing was checked");
+        return;
+    };
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    let text = Host::new(&root.join("data"))
+        .read(generic_scripts::FILE)
+        .expect("the generic scripts");
+    let lines = String::from_utf8_lossy(&text)
+        .lines()
+        .filter(|l| {
+            let l = l.trim_start().to_ascii_lowercase();
+            l.starts_with("script") && l[6..].trim_start().starts_with('=')
+        })
+        .count();
+    let loaded: usize = cx
+        .logic
+        .content
+        .state
+        .generic_scripts
+        .slots
+        .iter()
+        .map(Vec::len)
+        .sum();
+    assert_eq!(loaded, lines, "a generic script fell outside the table");
+
+    let bases: Vec<u32> = cx.logic.content.state.bases.keys().copied().collect();
+    let mut rumors = 0;
+    for base in bases {
+        game_logic::content::bases::load_base(&mut cx, base);
+        let record = &cx.logic.content.state.bases[&base];
+        for npc in record.npcs.values() {
+            for rumor in &npc.rumors {
+                rumors += 1;
+                assert!((0..4).contains(&rumor.rep_level), "{rumor:?}");
+                assert!(rumor.ids.contains(&0), "{rumor:?}");
+            }
+            for know in &npc.knows {
+                assert!(know.rep_level < 4, "{know:?}");
+            }
+        }
+        game_logic::content::bases::unload_base(&mut cx, base);
+    }
+    assert!(rumors > 1000, "{rumors} rumors");
+}
+
 #[test]
 fn the_db_events_print_in_the_oracles_form() {
     let event = DbEvent::Create {

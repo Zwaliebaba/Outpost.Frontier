@@ -662,3 +662,103 @@ pub fn start_bar_character_script(cx: &mut Cx<'_>, base: u32, key: u32) {
     let behavior = build_bar_behavior(cx, base, key);
     bar::set_behavior(cx, base, key, behavior);
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use game_sim::data::config::GameData;
+    use game_sim::object::World;
+    use game_sim::object::world::WorldConfig;
+
+    use super::*;
+    use crate::server::{Logic, RecordingSink};
+
+    const TEXT: &str = "[GenericScripts]\n\
+        set_segment = fidget\n\
+        set_gender = male\n\
+        set_posture = stand\n\
+        script = a.thn\n\
+        script = b.thn\n\
+        set_gender = female\n\
+        set_posture = sitlow\n\
+        script = c.thn\n\
+        set_segment = W04cP\n\
+        script = d.thn\n\
+        set_segment = nothing\n\
+        script = lost.thn\n\
+        [GenericScripts]\n\
+        script = lost_too.thn\n";
+
+    #[test]
+    fn the_loader_files_scripts_by_segment_gender_and_posture() {
+        let mut table = GenericScripts::default();
+        let mut reader = IniReader::new();
+        reader.open_memory(TEXT.as_bytes());
+        load_generic_scripts(&mut table, &mut reader);
+        // Male (0), stand (0), fidget (0).
+        assert_eq!(table.slots[0], vec![b"a.thn".to_vec(), b"b.thn".to_vec()]);
+        // Female (1), sitlow (1): 1 + 2 * 1.
+        assert_eq!(table.slots[3], vec![b"c.thn".to_vec()]);
+        assert_eq!(table.slots[1 + 2 * (1 + 2 * 0x41)], vec![b"d.thn".to_vec()]);
+        // An unknown segment and a section's defaults land outside (D1000).
+        let total: usize = table.slots.iter().map(Vec::len).sum();
+        assert_eq!(total, 4);
+        table.unload();
+        assert!(table.slots.iter().all(Vec::is_empty));
+        assert_eq!(table.slots.len(), SLOTS);
+    }
+
+    #[test]
+    fn the_pick_skips_the_voices_exclusions_and_draws_only_for_a_choice() {
+        let mut world = World::new(Arc::new(GameData::new()), WorldConfig::default());
+        let mut logic = Logic::new(Box::new(RecordingSink::default()), 1, true);
+        let mut cx = Cx {
+            world: &mut world,
+            logic: &mut logic,
+        };
+        let mut reader = IniReader::new();
+        reader.open_memory(TEXT.as_bytes());
+        load_generic_scripts(&mut cx.logic.content.state.generic_scripts, &mut reader);
+        let mut tables = (*cx.logic.content.tables).clone();
+        tables.gcs_exclusions.insert(9, vec![b"A.THN".to_vec()]);
+        cx.logic.content.tables = Arc::new(tables);
+        // Gender 1 is the male lists, posture 0 the stand lists.
+        let before = cx.world.rng().clone();
+        assert_eq!(
+            pick_generic_script(&mut cx, 0, 1, 0, 9),
+            Some(b"b.thn".to_vec())
+        );
+        assert_eq!(*cx.world.rng(), before, "one candidate draws nothing");
+        assert!(pick_generic_script(&mut cx, 0, 1, 0, 0).is_some());
+        assert_ne!(*cx.world.rng(), before, "two candidates draw");
+        assert_eq!(
+            pick_fidget_script(&mut cx, 0, 1),
+            Some(b"c.thn".to_vec())
+        );
+        assert_eq!(pick_generic_script(&mut cx, 5, 1, 0, 0), None);
+    }
+
+    #[test]
+    fn a_description_maps_onto_the_script_behaviour() {
+        let mut b = BehaviorDescription {
+            field_00: 77,
+            field_21c: 3,
+            field_220: 12,
+            field_224: 1,
+            field_258: 9,
+            ..BehaviorDescription::default()
+        };
+        b.append_text(Some(b"one.thn"), 2);
+        b.append_text(Some(b""), 3);
+        b.append_text(None, 4);
+        let s = b.script_behavior();
+        assert_eq!(s.behavior_id, -1);
+        assert_eq!(s.field_04, 77);
+        assert!(s.flag_08 && !s.flag_09 && s.flag_0a && s.flag_14);
+        assert_eq!(s.words, vec![(Some(b"one.thn".to_vec()), 2)]);
+        assert_eq!((s.field_220, s.field_224, s.field_228, s.field_25c), (3, 12, 1, 9));
+        assert!(is_shop_role(b"ShipDealer") && is_shop_role(b"EQUIPMENT"));
+        assert!(is_bartender_role(b"Bartender") && !is_shop_role(b"bartender"));
+    }
+}

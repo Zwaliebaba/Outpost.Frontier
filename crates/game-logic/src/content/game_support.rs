@@ -75,8 +75,16 @@ pub fn construct(cx: &mut Cx<'_>, id: ControllerId) -> Instance {
 pub fn destruct(cx: &mut Cx<'_>, _id: ControllerId) {
     cx.logic.content.tables = Arc::new(ContentTables::default());
     // `UnloadContentGameTables` also empties the base records
-    // (`UnloadContentBases`) and the system records (`ClearSystemInfos`).
-    cx.logic.content.state.bases.clear();
+    // (`UnloadContentBases`) and the system records (`ClearSystemInfos`);
+    // the records' bar characters release their offers as they go.
+    let bases = std::mem::take(&mut cx.logic.content.state.bases);
+    for record in bases.into_values() {
+        for state in record.room_states.into_values() {
+            for character in state.characters {
+                super::bar::release_offer(cx, character.offer);
+            }
+        }
+    }
     cx.logic.content.state.systems.clear();
     cx.logic.content.state.router = None;
 }

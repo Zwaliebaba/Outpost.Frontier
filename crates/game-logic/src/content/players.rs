@@ -807,6 +807,28 @@ mod tests {
     }
 
     #[test]
+    fn a_vnpc_talk_counts_and_clears_value_3_unless_it_is_1() {
+        let mut s = state();
+        s.record_vnpc_talk(5, 0);
+        assert!(s.vnpcs.is_empty());
+        s.record_vnpc_talk(5, 9);
+        assert_eq!(s.vnpcs, vec![[5, 9, 1, 0]]);
+        s.vnpcs[0][3] = 2;
+        s.record_vnpc_talk(5, 9);
+        assert_eq!(s.vnpcs, vec![[5, 9, 2, 0]]);
+        s.vnpcs[0][3] = 1;
+        s.record_vnpc_talk(5, 9);
+        assert_eq!(s.vnpcs, vec![[5, 9, 3, 1]]);
+        assert_eq!(s.vnpc_value2(5, 9), 3);
+        assert_eq!(s.find_vnpc_value3(5, 9), Some(1));
+        assert_eq!(s.find_vnpc_value3(5, 8), None);
+        // A record whose count is 0 gets a new one after it.
+        s.vnpcs[0][2] = 0;
+        s.record_vnpc_talk(5, 9);
+        assert_eq!(s.vnpcs.len(), 2);
+    }
+
+    #[test]
     fn the_route_check_follows_the_exception_pairs() {
         let mut s = state();
         let lane = [10, 11, 12, 13, 14];
