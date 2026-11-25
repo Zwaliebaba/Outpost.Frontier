@@ -21,7 +21,8 @@
 use neuron_core::math::{Matrix, Vector, transform_matrix};
 
 use super::behavior::{
-    AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, DockOp, EvaluateResult, GotoOp, LaneEvent,
+    AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, DockEvent, DockOp, EvaluateResult, GotoOp,
+    LaneEvent,
 };
 use super::content::CombatEvent;
 use super::dock::DockBehavior;
@@ -192,6 +193,15 @@ impl FollowerBase {
     /// request_exit_tradelane`) and a ship out of it stops the dock
     /// delegate; the own ship leaving a lane marks it, and without the
     /// dock delegate cancels the lane request (`slot_60(2, &0, 0)`).
+    /// Slot 22 (`BaseFollowerBehavior::Slot22`, `common_basefollowerbehavior.cpp:670-676`)
+    /// with the manager's type-3 event: only the running dock delegate
+    /// hears it (the rest of the slot reads a type-4 event).
+    fn dock_event<W: AiEnv + ?Sized>(&mut self, cx: &mut Cx<'_, W>, event: &DockEvent) {
+        if self.dock_running != 0 && self.delegates {
+            cx.with_peer(super::behavior::ids::DOCK, |b, cx| b.dock_event(cx, event));
+        }
+    }
+
     fn lane_event<W: AiEnv + ?Sized>(&mut self, cx: &mut Cx<'_, W>, event: &LaneEvent) {
         if self.dock_running != 0 && self.delegates {
             cx.with_peer(super::behavior::ids::DOCK, |b, cx| b.lane_event(cx, event));
@@ -834,6 +844,11 @@ impl<W: AiEnv + ?Sized> Behavior<W> for FollowBehavior {
     fn lane_event(&mut self, cx: &mut Cx<'_, W>, event: &LaneEvent) {
         self.f.lane_event(cx, event);
     }
+
+    /// Slot 22 with the manager's type-3 event: the base's.
+    fn dock_event(&mut self, cx: &mut Cx<'_, W>, event: &DockEvent) {
+        self.f.dock_event(cx, event);
+    }
 }
 
 /// `FormationBehavior` (behaviour 10, 0x2b8 bytes).
@@ -1148,6 +1163,11 @@ impl<W: AiEnv + ?Sized> Behavior<W> for FormationBehavior {
     /// Slot 22: the base's.
     fn lane_event(&mut self, cx: &mut Cx<'_, W>, event: &LaneEvent) {
         self.f.lane_event(cx, event);
+    }
+
+    /// Slot 22 with the manager's type-3 event: the base's.
+    fn dock_event(&mut self, cx: &mut Cx<'_, W>, event: &DockEvent) {
+        self.f.dock_event(cx, event);
     }
 }
 

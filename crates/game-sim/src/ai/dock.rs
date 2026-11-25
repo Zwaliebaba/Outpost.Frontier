@@ -27,7 +27,8 @@ use neuron_core::math::{Matrix, Transform, Vector, transform_matrix, transpose_t
 use neuron_core::util::spline::CrSplineSegment;
 
 use super::behavior::{
-    AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, DockOp, EvaluateResult, GotoOp, LaneEvent, ids,
+    AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, DockEvent, DockOp, EvaluateResult, GotoOp,
+    LaneEvent, ids,
 };
 use super::face_idea::FaceIdea;
 use super::fp::{add, column0, column1, column2, e, len_sq_xyz, neg, normalize3, r, scale, sub};
@@ -1271,6 +1272,16 @@ impl<W: AiEnv + ?Sized> Behavior<W> for DockBehavior {
             return;
         }
         self.flag_399 = 1;
+        self.enter_state(cx, 0xc);
+    }
+
+    /// (22) `Slot22` with the manager's type-3 event
+    /// (`common_dockbehavior.cpp:851-862`): the own ship docked, so the
+    /// dock ends with state 0xc (`Flag399` stays as it is).
+    fn dock_event(&mut self, cx: &mut Cx<'_, W>, event: &DockEvent) {
+        if cx.own().map(|v| v.id) != Some(event.ship) {
+            return;
+        }
         self.enter_state(cx, 0xc);
     }
 

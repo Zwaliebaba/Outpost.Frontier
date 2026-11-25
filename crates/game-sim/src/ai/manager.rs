@@ -26,7 +26,7 @@ use std::sync::Arc;
 use neuron_core::math::Vector;
 
 use super::behavior::{
-    AiEnv, Behavior, CancelRequest, Cx, DirectiveOp, EvaluateResult, LaneEvent, ids,
+    AiEnv, Behavior, CancelRequest, Cx, DirectiveOp, DockEvent, EvaluateResult, LaneEvent, ids,
 };
 use super::behaviors::{UnportedBehavior, create_behavior};
 use super::fp::{e, r};
@@ -739,6 +739,63 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
         }
         let index = self.state.behavior;
         let _ = self.with(world, ship, index, |b, cx| b.lane_event(cx, event));
+    }
+
+    /// `IBehaviorManager::Slot00` case 3 (`common_behaviormanager.cpp:2240-2306`,
+    /// a ship of the system completed its dock, `StarSystem::complete_dock`):
+    /// nothing without a current behaviour; else
+    /// - the guns' targets are cleared (`ClearGunTargets`);
+    /// - (the own ship's `CShip::leaving_system_update` is the world's,
+    ///   [`crate::object::World::dock_event`], before this call);
+    /// - the docked ship being the own ship clears the formation block's
+    ///   parked value (`SetValueB0(0)`);
+    /// - the formation block's leader watchers let go of the docked ship
+    ///   (`ClearGunConvergenceStateWatcherIfTarget`);
+    /// - every behaviour's slot 21 hears that the ship left;
+    /// - for a dock with type bits `0xc40` (a gate, a hole, an airlock): the
+    ///   docked ship being the own ship's formation leader (and not the own
+    ///   ship) parks the dock (`SetValueB0(dock)`), and the current
+    ///   behaviour's slot 22 hears the event;
+    /// - a player's ship in its formation behaviour that went through a
+    ///   gate or a hole (`0x840`) takes behaviour `Field120` again
+    ///   (`complete_dock` sends the event to NPC ships only).
+    pub fn dock_event(&mut self, world: &mut W, ship: W::Handle, event: &DockEvent) {
+        if self.state.behavior == -1 {
+            return;
+        }
+        self.state.sys.guns.clear_gun_targets(world, ship);
+        let own = world.inspect(ship);
+        let own_id = own.as_ref().map(|v| v.id);
+        if own_id == Some(event.ship) {
+            self.state.sys.formation.value_b0 = None;
+        }
+        let formation = &mut self.state.sys.formation;
+        if formation.formation_leader == Some(event.ship) {
+            formation.formation_leader = None;
+        }
+        if formation.follow_leader == Some(event.ship) {
+            formation.follow_leader = None;
+        }
+        for index in 0..BEHAVIOR_COUNT as i32 {
+            let _ = self.with(world, ship, index, |b, cx| b.object_left(cx, event.ship));
+        }
+        if event.dock_type & 0xc40 != 0 {
+            let leader = world.inspect(ship).and_then(|v| v.formation_leader);
+            if leader == Some(event.ship) && leader != own_id {
+                self.state.sys.formation.value_b0 = (event.dock != 0).then_some(event.dock);
+            }
+            let index = self.state.behavior;
+            let _ = self.with(world, ship, index, |b, cx| b.dock_event(cx, event));
+        }
+        if event.dock_type & 0x840 == 0
+            || !Self::is_player(world, ship)
+            || self.state.behavior != ids::FORMATION
+            || own_id != Some(event.ship)
+        {
+            return;
+        }
+        let fallback = self.state.f120;
+        self.set_current_behavior(world, ship, fallback, true, None);
     }
 
     /// `IBehaviorManager::Slot00` case 2 (a player's manoeuvre,
