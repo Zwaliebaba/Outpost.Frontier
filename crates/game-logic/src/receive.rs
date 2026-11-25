@@ -412,7 +412,7 @@ pub fn munition_collision(cx: &mut Cx<'_>, session: u32, packet: &MunCollision) 
         return;
     }
     let health = f64::from(slot.relative_health);
-    if health < 0.0001 || health == 0.0001 {
+    if health <= 0.0001 {
         return;
     }
     let Some((_, system)) = object_in_system(cx, packet.object_id) else {

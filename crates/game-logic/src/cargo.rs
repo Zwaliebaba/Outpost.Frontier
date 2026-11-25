@@ -30,6 +30,8 @@
 //! [`crate::replication::cargo_updated`]) are replication's; their call
 //! sites are in this module.
 
+use std::cmp::Ordering;
+
 use game_sim::data::equip_desc::EquipDesc;
 use game_sim::equip::{EquipKind, Fate, SubObjId, types};
 use game_sim::object::damage::{self, DamageList};
@@ -754,7 +756,7 @@ pub fn use_repair_kits(cx: &mut Cx<'_>, h: ObjHandle, per_kit: f32, count: i32) 
     let Some(o) = cx.world.get(h) else {
         return 0;
     };
-    if !(o.simple.relative_health() < 1.0) {
+    if o.simple.relative_health().partial_cmp(&1.0) != Some(Ordering::Less) {
         return 0;
     }
     let (id, owner, hit_pts, max) = (
@@ -800,10 +802,10 @@ pub fn use_shield_batteries(cx: &mut Cx<'_>, h: ObjHandle, per_battery: f32, cou
             continue;
         };
         let relative = item.relative_health();
-        if !(relative < e(lowest)) {
+        if relative.partial_cmp(&e(lowest)) != Some(Ordering::Less) {
             continue;
         }
-        if !(item.max_hit_points() > 0.0) {
+        if item.max_hit_points().partial_cmp(&0.0) != Some(Ordering::Greater) {
             continue;
         }
         lowest = r(relative);
