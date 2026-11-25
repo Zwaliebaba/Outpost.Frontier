@@ -425,7 +425,7 @@ pub fn run_with(
     }
     if s.comms_off {
         println!(
-            "{}: comms off: the oracle's comm system is clamped (no comm rolls); the Rust world has none",
+            "{}: comms off: the oracle's comm system is clamped (no comm rolls); the server's is clamped the same way, the world alone has none",
             s.name
         );
     }
