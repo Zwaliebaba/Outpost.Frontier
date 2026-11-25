@@ -2,26 +2,26 @@
 //! (`Content/MissionScript.cpp`, TU21; work package P3.5c1, decision
 //! record 0008 point 6).
 //!
-//! - [`activate_trigger`] (`ActivateMissionTrigger`, `:358-402`): a trigger
+//! - [`activate_trigger`] (`ActivateMissionTrigger`, `:373-423`): a trigger
 //!   not yet listed becomes active, its condition's `OnActivate` runs, and
 //!   the activation probe `Matches(-1, null)` fires it at once when it
 //!   holds; it joins the active list unless it completed.
-//! - [`deactivate_trigger`] (`:404-430`): the first listed entry of the id
+//! - [`deactivate_trigger`] (`:426-452`): the first listed entry of the id
 //!   that is not complete goes inactive and leaves the list; its pending
 //!   activations go too.
-//! - [`dispatch`] (`DispatchMissionTriggerEvent`, `:433-487`): the active
+//! - [`dispatch`] (`DispatchMissionTriggerEvent`, `:455-514`): the active
 //!   list in order. A listening, active trigger whose condition matches
 //!   completes, runs its actions in line order, is armed again when
 //!   repeatable, and leaves the list when it stays complete. Then the
 //!   pending activations are drained in key order.
-//! - [`tick_timers`] (`TickMissionTimers`, `:490-506`): the delayed actions.
+//! - [`tick_timers`] (`TickMissionTimers`, `:517-537`): the delayed actions.
 //! - [`handle_message`], `FMissionObject::HandleMessage`
 //!   (`MissionObject.cpp:129-142`) over `FMissionScript::HandleMissionMessage`
-//!   (`MissionScript.cpp:1011-1250`), its tail and `ApplyDesiredMissionState`.
+//!   (`MissionScript.cpp:1046-1314`), its tail and `ApplyDesiredMissionState`.
 //!
 //! **Order within a frame.** A heartbeat adds the frame time to the
 //! mission's clock, runs the timers, dispatches `Heartbeat` with the frame
-//! time, then `TetherObject` with no parameters (`:1124-1135`); every other
+//! time, then `TetherObject` with no parameters (`:1167-1178`); every other
 //! case dispatches once at most, the activations it queued are drained at
 //! the end of each dispatch, and the desired mission state is applied after
 //! the tail.
@@ -199,7 +199,7 @@ fn run_actions(cx: &mut Cx<'_>, id: ControllerId, trigger: u32) -> bool {
     }
 }
 
-/// `RearmTrigger` (`MissionScript.cpp:337-342`), when the trigger is
+/// `RearmTrigger` (`MissionScript.cpp:351-357`), when the trigger is
 /// repeatable: active again, its condition's `OnActivate`.
 fn rearm_if_repeatable(cx: &mut Cx<'_>, id: ControllerId, trigger: u32) {
     let repeatable = script(cx, id)
@@ -213,7 +213,7 @@ fn rearm_if_repeatable(cx: &mut Cx<'_>, id: ControllerId, trigger: u32) {
     condition_on_activate(cx, id, trigger);
 }
 
-/// `ActivateMissionTrigger` (`MissionScript.cpp:358-402`).
+/// `ActivateMissionTrigger` (`MissionScript.cpp:373-423`).
 pub fn activate_trigger(cx: &mut Cx<'_>, id: ControllerId, trigger: u32) {
     let Some(s) = script_mut(cx, id) else { return };
     if !s.triggers.contains_key(&trigger) || s.active_triggers.contains(&trigger) {
@@ -243,7 +243,7 @@ pub fn activate_trigger(cx: &mut Cx<'_>, id: ControllerId, trigger: u32) {
     }
 }
 
-/// `DeactivateMissionTrigger` (`MissionScript.cpp:404-430`).
+/// `DeactivateMissionTrigger` (`MissionScript.cpp:426-452`).
 pub fn deactivate_trigger(cx: &mut Cx<'_>, id: ControllerId, trigger: u32) {
     let Some(s) = script_mut(cx, id) else { return };
     let at = s.active_triggers.iter().position(|&t| {
@@ -268,7 +268,7 @@ pub fn deactivate_trigger(cx: &mut Cx<'_>, id: ControllerId, trigger: u32) {
     }
 }
 
-/// `DispatchMissionTriggerEvent` (`MissionScript.cpp:433-487`).
+/// `DispatchMissionTriggerEvent` (`MissionScript.cpp:455-514`).
 pub fn dispatch(cx: &mut Cx<'_>, id: ControllerId, event: u32, parms: &Parms<'_, '_>) {
     let Some(s) = script_mut(cx, id) else { return };
     s.walks.push(0);
@@ -335,7 +335,7 @@ fn advance(cx: &mut Cx<'_>, id: ControllerId, depth: usize) {
     }
 }
 
-/// `TickMissionTimers` (`MissionScript.cpp:490-506`): every timer counts
+/// `TickMissionTimers` (`MissionScript.cpp:517-537`): every timer counts
 /// down; one at or below 0 runs its action and goes. An action whose
 /// trigger is gone is dropped without running (D972).
 pub fn tick_timers(cx: &mut Cx<'_>, id: ControllerId, dt: f32) {
@@ -372,7 +372,7 @@ pub fn activate_initial(cx: &mut Cx<'_>, id: ControllerId) {
     }
 }
 
-/// `SetDesiredMissionState` (`MissionScript.cpp:520-527`): a FAIL is
+/// `SetDesiredMissionState` (`MissionScript.cpp:552-558`): a FAIL is
 /// dropped while `Field_0x2b0` is set.
 pub fn set_desired_state(s: &mut MissionScript, state: i32, mad_lib: u32) {
     if s.field_0x2b0 && state == MISSION_STATE_FAIL {
@@ -408,7 +408,7 @@ fn live_player(cx: &Cx<'_>, id: ControllerId) -> Option<u32> {
     player_state(cx, s).map(|_| s.object.player)
 }
 
-/// `FMissionScript::HandleMissionMessage` (`MissionScript.cpp:1011-1250`).
+/// `FMissionScript::HandleMissionMessage` (`MissionScript.cpp:1046-1314`).
 #[allow(clippy::too_many_lines)]
 pub fn handle_mission_message(
     cx: &mut Cx<'_>,
@@ -641,7 +641,7 @@ pub fn handle_mission_message(
     apply_desired_state(cx, id);
 }
 
-/// `FMissionObject::HandleMissionMessage` (`MissionObject.cpp:1496-1880`),
+/// `FMissionObject::HandleMissionMessage` (`MissionObject.cpp:1496-1926`),
 /// the cases P3.5c1 ports (D973).
 fn mission_object_body(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMessage<'_>) {
     use ControllerMessage as M;
@@ -678,7 +678,7 @@ fn mission_object_body(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMe
     }
 }
 
-/// `OnBaseEnter` (`MissionScript.cpp:1253-1295`): the objectives' renumber
+/// `OnBaseEnter` (`MissionScript.cpp:1317-1355`): the objectives' renumber
 /// flag is cleared (the renumber, the NN path's rebuild, the cut scenes
 /// and the ambient scenes are later increments', D973), then `BaseEnter`.
 fn on_base_enter(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMessage<'_>) {
@@ -690,7 +690,7 @@ fn on_base_enter(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMessage<
     dispatch(cx, id, message.id(), &Parms::Message(message));
 }
 
-/// `OnSpaceEnter` (`MissionScript.cpp:1534-1566`): `SpaceEnter`, then the
+/// `OnSpaceEnter` (`MissionScript.cpp:1522-1556`): `SpaceEnter`, then the
 /// renumber flag cleared (the costume hints and the objectives are later
 /// increments', D973).
 fn on_space_enter(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMessage<'_>) {
@@ -700,7 +700,7 @@ fn on_space_enter(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMessage
     }
 }
 
-/// `OnObjectDestroyed` (`MissionScript.cpp:1569-1592`).
+/// `OnObjectDestroyed` (`MissionScript.cpp:1559-1579`).
 fn on_object_destroyed(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMessage<'_>) {
     let ControllerMessage::ObjectDestroyed(d) = message else {
         return;
@@ -727,7 +727,7 @@ fn on_object_destroyed(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMe
     }
 }
 
-/// `OnSystemEnter` and `OnSystemEnterPopUp` (`MissionScript.cpp:1595-1630`).
+/// `OnSystemEnter` and `OnSystemEnterPopUp` (`MissionScript.cpp:1582-1615`).
 fn on_system_enter(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMessage<'_>) {
     let ControllerMessage::SystemEnter {
         system,
@@ -774,7 +774,7 @@ fn on_system_enter(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMessag
 }
 
 /// The `PopUpDialog` case's answer to the reputation pop-up
-/// (`MissionScript.cpp:1166-1182`).
+/// (`MissionScript.cpp:1204-1222`).
 fn on_pop_up_answer(cx: &mut Cx<'_>, id: ControllerId, player: u32, button: u32) {
     let Some(s) = script(cx, id) else { return };
     if !s.rep_pop_up_shown {
@@ -795,7 +795,7 @@ fn on_pop_up_answer(cx: &mut Cx<'_>, id: ControllerId, player: u32, button: u32)
     }
 }
 
-/// `OnOfferResponse` (`MissionScript.cpp:1475-1531`): a refusal only
+/// `OnOfferResponse` (`MissionScript.cpp:1478-1519`): a refusal only
 /// dispatches; an acceptance shows the empty type-10 message, dispatches,
 /// resets the pop-up, sets the clamps and joins the player's group to the
 /// mission. Story's event and the end of another live mission are P3.5d's
@@ -823,7 +823,7 @@ fn on_offer_response(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMess
     crate::content::players::join_mission_as_group(cx, player, id.0, 0, 0, true, notify_arg);
 }
 
-/// `OnMessage24` (`MissionScript.cpp:1633-1648`), after the mission
+/// `OnMessage24` (`MissionScript.cpp:1618-1631`), after the mission
 /// object's `AbortMission`.
 fn on_abort(cx: &mut Cx<'_>, id: ControllerId, aborting: u32) {
     let Some(s) = script(cx, id) else { return };
@@ -841,7 +841,7 @@ fn on_abort(cx: &mut Cx<'_>, id: ControllerId, aborting: u32) {
     }
 }
 
-/// `OnMessage1005` (`MissionScript.cpp:1651-1683`): the player's ship
+/// `OnMessage1005` (`MissionScript.cpp:1634-1668`): the player's ship
 /// provoking a victim that no friendly-fire label excuses fails the
 /// mission when its attitude towards the ship is above -0.2.
 fn on_damage_reputation(cx: &mut Cx<'_>, id: ControllerId, kind: u32, ship: u32, victim: u32) {
@@ -875,7 +875,7 @@ fn on_damage_reputation(cx: &mut Cx<'_>, id: ControllerId, kind: u32, ship: u32,
     }
 }
 
-/// `ApplyDesiredMissionState` (`MissionScript.cpp:626-642`). Story's
+/// `ApplyDesiredMissionState` (`MissionScript.cpp:846-865`). Story's
 /// `OnMissionEvent` after a success is P3.5d's (D973).
 pub fn apply_desired_state(cx: &mut Cx<'_>, id: ControllerId) {
     let Some(s) = script_mut(cx, id) else { return };
@@ -896,8 +896,8 @@ pub fn apply_desired_state(cx: &mut Cx<'_>, id: ControllerId) {
     }
 }
 
-/// `FMissionScript::OnMissionSucceed` (`MissionScript.cpp:647-662`) and the
-/// mission object's (`MissionObject.cpp:1890-1903`): the success message,
+/// `FMissionScript::OnMissionSucceed` (`MissionScript.cpp:870-885`) and the
+/// mission object's (`MissionObject.cpp:1932-1945`): the success message,
 /// then `EndMission`. The completion count, the mission objects' teardown,
 /// the reward, the objectives and the end of the live mission are later
 /// increments' (D973).
@@ -915,8 +915,8 @@ fn on_mission_succeed(cx: &mut Cx<'_>, id: ControllerId) {
     end_mission(cx, id);
 }
 
-/// `FMissionScript::OnMissionFail` (`MissionScript.cpp:665-682`) and the
-/// mission object's (`MissionObject.cpp:1908-1919`): the failure message,
+/// `FMissionScript::OnMissionFail` (`MissionScript.cpp:888-905`) and the
+/// mission object's (`MissionObject.cpp:1950-1961`): the failure message,
 /// the NPCs muted, then `EndMission` (the rest as for the success, D973).
 fn on_mission_fail(cx: &mut Cx<'_>, id: ControllerId) {
     let Some(s) = script_mut(cx, id) else { return };
@@ -934,8 +934,8 @@ fn on_mission_fail(cx: &mut Cx<'_>, id: ControllerId) {
     end_mission(cx, id);
 }
 
-/// `FMissionScript::EndMission` (`MissionScript.cpp:685-733`) and the
-/// mission object's (`MissionObject.cpp:1292-1323`). The nags, the cut
+/// `FMissionScript::EndMission` (`MissionScript.cpp:908-956`) and the
+/// mission object's (`MissionObject.cpp:1292-1322`). The nags, the cut
 /// scenes and the players' objectives are later increments' (D973).
 pub fn end_mission(cx: &mut Cx<'_>, id: ControllerId) {
     let Some(s) = script_mut(cx, id) else { return };

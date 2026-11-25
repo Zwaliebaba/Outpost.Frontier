@@ -1191,7 +1191,7 @@ fn dist_vec_lbl(
     c.tick_timer <= 0.0
 }
 
-/// `Cnd_NPCSystemEnter::Matches` (`MissionCnd.cpp:1740-1847`).
+/// `Cnd_NPCSystemEnter::Matches` (`MissionCnd.cpp:1740-1846`).
 fn npc_system_enter(
     cx: &Cx<'_>,
     s: &MissionScript,
@@ -1292,7 +1292,7 @@ fn npc_system_enter(
     false
 }
 
-/// `Cnd_TetherBroke::Matches` (`MissionCnd.cpp:2520-2580`) with
+/// `Cnd_TetherBroke::Matches` (`MissionCnd.cpp:2521-2571`) with
 /// `GetObjectDistanceSq`.
 fn tether_broke(cx: &Cx<'_>, s: &MissionScript, c: &mut TetherBroke, w: Option<[u32; 9]>) -> bool {
     let Some(p) = player_state(cx, s) else {
