@@ -30,6 +30,8 @@
 pub mod action;
 pub mod condition;
 pub mod dialog;
+pub mod engine;
+pub mod execute;
 pub mod field;
 pub mod meta_behavior;
 pub mod obj_list;
@@ -37,7 +39,9 @@ pub mod object;
 pub mod object_save;
 pub mod objective;
 pub mod rand_enc;
+pub mod runtime;
 pub mod save;
+pub mod trace;
 pub mod trigger;
 
 use std::collections::BTreeMap;
@@ -289,6 +293,29 @@ pub struct MissionScript {
     pub friendly_fire_excused: Vec<Vec<u8>>,
     /// `AmbientScenes` (+0x310).
     pub ambient_scenes: Vec<save::AmbientScene>,
+    /// `Timers` (+0x1f8): the delayed actions, each by its trigger and its
+    /// place there, with the seconds left (P3.5c1).
+    pub timers: Vec<engine::MissionTimer>,
+    /// `NagClamp` (+0x218).
+    pub nag_clamp: bool,
+    /// `Field_0x2c8` (+0x2c8): a static camera is up.
+    pub field_0x2c8: bool,
+    /// `bRepPopUpShown` (+0x2cc).
+    pub rep_pop_up_shown: bool,
+    /// `bRepPopUpArmed` (+0x2cd).
+    pub rep_pop_up_armed: bool,
+    /// `RepPopUpSystemId` (+0x2d0).
+    pub rep_pop_up_system: u32,
+    /// `RepPopUpGroups` (+0x2d4).
+    pub rep_pop_up_groups: Vec<u32>,
+    /// `CurrentLocationId` (+0x308): the player's last location on a base.
+    pub current_location: u32,
+    /// The places of the trigger walks in progress, innermost last (the
+    /// cursor walk of [`engine::dispatch`]; not the C++'s, which walks with
+    /// list iterators).
+    pub walks: Vec<usize>,
+    /// The Tier B trace ([`trace`]), off unless a session turns it on.
+    pub trace: Option<trace::Trace>,
 }
 
 impl MissionScript {
@@ -503,6 +530,16 @@ pub fn construct_script(
         rtc_scripts: Vec::new(),
         friendly_fire_excused: Vec::new(),
         ambient_scenes: Vec::new(),
+        timers: Vec::new(),
+        nag_clamp: false,
+        field_0x2c8: false,
+        rep_pop_up_shown: false,
+        rep_pop_up_armed: false,
+        rep_pop_up_system: 0,
+        rep_pop_up_groups: Vec::new(),
+        current_location: 0,
+        walks: Vec::new(),
+        trace: None,
     };
     let Some(chapter) = chapter(kind) else {
         // GenericMission: the file its parameters name.

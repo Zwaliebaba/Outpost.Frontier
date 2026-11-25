@@ -34,6 +34,7 @@ use super::rand_enc::{self, MissionRandEnc};
 use super::{base_id_of, f32_at, nickname_id, system_id_into, tstring, value_tstring};
 use crate::api;
 use crate::content::tables::{self, NpcShipArch};
+use crate::events::NpcShipKey;
 use crate::server::Cx;
 
 /// The heartbeat of a mission object (`MissionObject.cpp:88`): 1/30 s.
@@ -322,6 +323,18 @@ pub struct MissionObject {
     /// `SolarReps` (+0x174): the reputations of the unnamed vibe parties,
     /// each once.
     pub solar_reps: Vec<i32>,
+    /// `bDestroyed` (+0x81): the mission asked for its own teardown and
+    /// ignores every message until it comes (P3.5c1).
+    pub destroyed: bool,
+    /// `NpcObjects` (+0xa4): the mission's live NPC ships by space object
+    /// id, registered on `NpcShipCreated` (the spawns are P3.5c2's).
+    pub npc_objects: BTreeMap<u32, NpcShipKey>,
+    /// `FormationMembers` (+0xec): label id to the space object of each
+    /// object carrying it, in insertion order within a label (the
+    /// multimap's order).
+    pub formation_members: BTreeMap<u32, Vec<u32>>,
+    /// `DeadPlayerIds` (+0xdc).
+    pub dead_players: Vec<u32>,
 }
 
 impl MissionObject {
@@ -356,7 +369,17 @@ impl MissionObject {
             decloaked: Vec::new(),
             vibe_infos: Vec::new(),
             solar_reps: Vec::new(),
+            destroyed: false,
+            npc_objects: BTreeMap::new(),
+            formation_members: BTreeMap::new(),
+            dead_players: Vec::new(),
         }
+    }
+
+    /// `FormationMembers.count(label)`.
+    #[must_use]
+    pub fn label_count(&self, label: u32) -> usize {
+        self.formation_members.get(&label).map_or(0, Vec::len)
     }
 
     /// `FindMissionShip`: the first ship slot of any record named

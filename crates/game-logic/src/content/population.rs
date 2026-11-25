@@ -216,3 +216,36 @@ pub fn collect_space_pop_zones(
     }
     out
 }
+
+/// `SpacePopAddExclusionSphere` (`Content/Populators.cpp:1161-1184`): a
+/// sphere is kept unless one within 0.01 of each coordinate (squared
+/// differences at most `0.0001f`) and less than 1 apart in radius is there.
+pub fn add_exclusion_sphere(cx: &mut Cx<'_>, sphere: [f32; 4]) {
+    let spheres = &mut cx.logic.content.state.exclusion_spheres;
+    if spheres.iter().any(|s| same_sphere(s, &sphere)) {
+        return;
+    }
+    spheres.push(sphere);
+}
+
+/// `SpacePopRemoveExclusionSphere` (`Content/Populators.cpp:1186-1209`):
+/// the first sphere [`add_exclusion_sphere`] would call the same.
+pub fn remove_exclusion_sphere(cx: &mut Cx<'_>, sphere: [f32; 4]) {
+    let spheres = &mut cx.logic.content.state.exclusion_spheres;
+    if let Some(at) = spheres.iter().position(|s| same_sphere(s, &sphere)) {
+        spheres.remove(at);
+    }
+}
+
+/// The sphere test the two share, in `f64` as the x87 runs it.
+fn same_sphere(known: &[f32; 4], sphere: &[f32; 4]) -> bool {
+    let limit = f64::from(0.0001f32);
+    for axis in 0..3 {
+        let d = f64::from(known[axis]) - f64::from(sphere[axis]);
+        if !(d * d <= limit) {
+            return false;
+        }
+    }
+    let d = f64::from(known[3]) - f64::from(sphere[3]);
+    d < 1.0 && d > -1.0
+}
