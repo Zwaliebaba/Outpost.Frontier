@@ -77,14 +77,17 @@ namespace
     // The synthetic player.
     unsigned int const OracleRmPlayerId = 7u;
 
-    // The bases, spread over the houses, the border worlds and the edge systems.
+    // The bases, spread over the houses, the border worlds and the edge systems. The last three
+    // have no object docking with them in their system's file (D954). They come last, so that
+    // the counters their cases can move (the ship group serial, the name pools' uses, the offer
+    // ids, the save numbers) reach no case of the other bases.
     char const* const OracleRmBases[] = {
         "he01_01_Base", "he01_02_Base", "he01_10_Base", "he02_01_Base", "he03_01_Base",
         "he04_01_Base", "ve01_01_Base", "ve01_08_Base", "ve02_01_Base", "ve04_06_Base",
         "ve05_01_Base", "ve06_01_Base", "or01_03_Base", "or02_04_Base", "or05_02_Base",
         "dm01_04_Base", "dm02_01_Base", "dm03_01_Base", "dm05_01_Base", "fc03_01_Base",
         "fc04_02_Base", "fr01_04_Base", "fr03_01_Base", "fr07_01_Base", "oe01_01_Base",
-        "pe01_01_Base",
+        "pe01_01_Base", "fr01_01_Base", "he01_15_Base", "ve05_02_Base",
     };
 
     // The difficulties: below the first windows, low, middle and high.

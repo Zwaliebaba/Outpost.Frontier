@@ -1233,8 +1233,11 @@ fn the_ring_bound_takes_only_the_target_position() {
 // P3.7c: missions the port creates, and the `[RandomMission]` saves.
 // ---------------------------------------------------------------------------
 
-/// `OracleRmBases`.
-const BASES: [&str; 26] = [
+/// `OracleRmBases`. The last three are [`D954_BASES`], at the end so
+/// that the counters their cases can move (the ship group serial, the
+/// name pools' uses, the offer ids, the save numbers) reach no case of
+/// the other bases, which stay exact.
+const BASES: [&str; 29] = [
     "he01_01_Base",
     "he01_02_Base",
     "he01_10_Base",
@@ -1261,6 +1264,9 @@ const BASES: [&str; 26] = [
     "fr07_01_Base",
     "oe01_01_Base",
     "pe01_01_Base",
+    "fr01_01_Base",
+    "he01_15_Base",
+    "ve05_02_Base",
 ];
 
 /// `OracleRmDifficulties`.

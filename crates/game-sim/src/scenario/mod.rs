@@ -6,7 +6,7 @@
 //! * [`Scenario`] and [`parse`]: the scenario files of
 //!   `CppSource/Oracle/scenarios` ([`scenarios_dir`], [`scenario_files`]),
 //!   and [`needs_ai`], why one cannot run yet, and [`needs_server`], why
-//!   one runs only through the server's hooks.
+//!   one is judged only through the server's hooks.
 //! * [`run`]: the driver. It spawns the scenario's objects in a world made
 //!   with [`world_config`], applies its commands and steps the system
 //!   through the given [`ServerHooks`](crate::object::world::ServerHooks)
@@ -27,8 +27,10 @@
 //!   [`judge_contact`] and [`judge_fight`], bit for bit
 //!   ([`same_state`]) up to the first contact or munition impact
 //!   ([`first_event`]); [`report_object_errors`] and [`report_guided`],
-//!   which report and judge; and [`judge`], which applies all of them as
-//!   `scenario_replay` does.
+//!   which report and judge; [`report_first_divergence`], which says of
+//!   each object whether it is bit-exact over the run and where it first
+//!   differs, and judges nothing; and [`judge`], which applies all of them
+//!   as `scenario_replay` does.
 
 pub mod ai_records;
 pub mod directives;
@@ -48,8 +50,9 @@ pub use file::{
     spawn_orientation,
 };
 pub use judge::{
-    EXACT_SCENARIOS, GROSS_POSITION, dist, first_event, first_event_of, fmt_contact, judge,
-    judge_contact, judge_exact, judge_fight, report_guided, report_object_errors, same_state,
+    EXACT_SCENARIOS, GROSS_POSITION, dist, first_event, first_event_of, first_judged, fmt_contact,
+    fmt_state_bits, judge, judge_contact, judge_exact, judge_fight, report_first_divergence,
+    report_first_divergence_from, report_guided, report_object_errors, same_state,
 };
 pub use oracle::{
     AiInputs, oracle_ai_inputs, oracle_guided, oracle_guided_cores, oracle_hits, oracle_run,

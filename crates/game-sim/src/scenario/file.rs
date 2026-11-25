@@ -91,7 +91,7 @@ pub struct Scenario {
     pub rust_skip: Option<String>,
     /// The file is marked `# rust: server <reason>`: the scenario needs
     /// the server's (or Content's) answers, so only a run through the
-    /// server's hooks can run it ([`needs_server`]).
+    /// server's hooks is judged ([`needs_server`]).
     pub rust_server: Option<String>,
     /// The `srand` seed (`seed`).
     pub seed: u32,
@@ -307,9 +307,11 @@ pub fn parse(path: &Path) -> Option<Scenario> {
     Some(s)
 }
 
-/// Why a scenario cannot run without a server: the file is marked
-/// `# rust: server <reason>` (the world alone would wait for an answer
-/// nobody gives).
+/// Why a scenario is judged only through the server's hooks: the file is
+/// marked `# rust: server <reason>` (the world alone would wait for an
+/// answer nobody gives). `scenario_replay` still runs one without
+/// Content's ships without a server, reported and not judged, for its
+/// first divergence (owner, 2026-11-25).
 #[must_use]
 pub fn needs_server(s: &Scenario) -> Option<String> {
     s.rust_server.clone()

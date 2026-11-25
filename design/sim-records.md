@@ -929,7 +929,8 @@ The random missions' tables, vignette tree and offers (P3.7a, decision
 record 0008 point 8, Gate G3; `Content/oracle_random_missions.cpp`), read by
 `crates/game-logic/tests/random_missions.rs`. After the multiplayer start-up
 the tables and the tree are written as the generator object loaded them with
-Content.dll. Then one case per base of the export's list (26 bases), per
+Content.dll. Then one case per base of the export's list (29 bases, the
+last three those without a dock object, D954), per
 `[BaseFaction]` of it with a `mission_type` and with faction properties and
 names, per difficulty (0.2, 1.5, 8, 30, 85) and per seed (1, 0x4f524143):
 `GRmObjectiveZones` emptied, player 7 put in the base's system,
