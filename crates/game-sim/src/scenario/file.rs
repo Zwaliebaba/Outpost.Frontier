@@ -42,6 +42,13 @@ pub struct ObjDesc {
     pub faction: Option<String>,
     /// The `escort` option: the state graph's escort variant.
     pub escort: bool,
+    /// The `content` option (P3.6c): the ship is Content's NPC ship, made
+    /// by the server (`FSystemInfo::CreateNpcShip`) and its manager's
+    /// callbacks ([`super::driver::ScenarioServer::spawn_content_ship`]).
+    pub content: bool,
+    /// The `flee X Y Z DISTANCE` option of a `content` ship: its flee
+    /// position (`FContentNpcShip::SetFleePosition`).
+    pub flee: Option<(Vector, f32)>,
 }
 
 /// One command (`at TICK OBJECT VERB ARGS`; a tick range expands to one
@@ -220,6 +227,8 @@ pub fn parse(path: &Path) -> Option<Scenario> {
                     pilot: None,
                     faction: None,
                     escort: false,
+                    content: false,
+                    flee: None,
                 };
                 let mut at = if ship { 7 } else { 3 };
                 while at < t.len() {
@@ -256,6 +265,15 @@ pub fn parse(path: &Path) -> Option<Scenario> {
                         "escort" => {
                             o.escort = true;
                             at += 1;
+                        }
+                        "content" => {
+                            o.content = true;
+                            at += 1;
+                        }
+                        "flee" => {
+                            let point = vec3(&t, at + 1)?;
+                            o.flee = Some((point, num(t.get(at + 4)?)? as f32));
+                            at += 5;
                         }
                         _ => at += 1,
                     }

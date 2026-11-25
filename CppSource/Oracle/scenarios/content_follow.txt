@@ -1,0 +1,20 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): a follow directive to
+# Content's NPC ship (P3.6c). As `follow`, but the follower is made by Content.dll
+# (`content`: FSystemInfo::CreateNpcShip through OracleSimCreateNpcShip), so its manager has
+# Content's FContentNpcShip as its directive and content callback: the follow behaviour's range
+# crossings reach the callback (IBehaviorManager::NotifyFollowEvent; FContentNpcShip keeps the
+# empty follow_event) and the end of the directive reaches the ship's OnDirectiveComplete. The
+# ship's vibe is of he_p_grp, whose faction properties the NPC ship's constructor reads, and its
+# state is submitted with the default personality. Multiplayer stepping.
+
+# rust: server Content makes the follower (content)
+
+system he01
+ticks 1500
+stepping mp
+
+ship leader he_fighter li_p_he_fighter_loadout01 15000 3000 -25000 ai FIGHTER psi
+ship follower he_fighter li_p_he_fighter_loadout01 15000 3000 -24700 ai FIGHTER faction he_p_grp content psi
+
+at 1 leader goto 15300 3000 -29000 range 100
+at 1 follower follow leader distance 150 offset 60 0 120

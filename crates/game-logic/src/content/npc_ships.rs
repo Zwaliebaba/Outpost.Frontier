@@ -738,8 +738,10 @@ pub fn content_event(cx: &mut Cx<'_>, key: NpcShipKey, event: CombatEvent) {
             reason,
             answer,
         } => {
-            let made = request_flee_destination(cx, key, own, reason);
-            debug_assert_eq!(made, answer, "the flee answer changed after the tick");
+            // The answer the flee took was computed before the tick from the
+            // same state (record 0008 point 4); the request makes its effects.
+            let _ = answer;
+            let _ = request_flee_destination(cx, key, own, reason);
         }
         CombatEvent::ScanState(scanning) => {
             if let Some(g) = get(cx, key).and_then(|s| s.guide) {

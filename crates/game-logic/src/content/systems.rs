@@ -22,10 +22,10 @@
 //!
 //! Where the C++ holds a pointer the record holds an index: a zone's patrol
 //! path, a lane's attack zones and a ring's lane. The players of a system
-//! are their ids. The NPC ships (`SpaceObjs`), the mission objects' run
-//! time, the zones' population validation (`Validate`, which draws
-//! `rand()`) and the solar NPCs' personality states are P3.5's and P3.6's
-//! (D802, D803).
+//! are their ids; the NPC ships (`SpaceObjs`, P3.6c) are their keys in
+//! Content's arena. The mission objects' run time and the zones'
+//! population validation (`Validate`, which draws `rand()`) are P3.5's
+//! and P3.6d's (D802).
 //!
 //! A handler that loads a record takes it out of the table for calls that
 //! cannot dispatch, as record 0008 point 1 allows ([`with_system_taken`]).
