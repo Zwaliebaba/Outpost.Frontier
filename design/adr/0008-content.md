@@ -699,6 +699,12 @@ Paths are relative to `CppSource/`.
     P3.6c for the ships its actions spawn. P3.7 comes last, because it
     builds on P3.5's mission object.
 
+    The owner re-sequenced Phase 3 on 2026-11-25 (decision O48): P3.7a and
+    P3.7c, which Gate G3 needs, come before P3.5c, P3.5d, P3.6b, P3.6d,
+    P3.6e, P3.7b and the rest of P3.6c (guide types 2 to 6, the name
+    builder, `GenerateCargo`). Where P3.7a or P3.7c needs P3.5c's run time,
+    it takes the part it needs and the record says so.
+
 ## Alternatives considered
 
 - **A separate `game-content` crate.** AGENTS.md puts missions and
