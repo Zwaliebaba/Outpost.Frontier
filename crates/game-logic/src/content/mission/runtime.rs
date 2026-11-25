@@ -953,8 +953,9 @@ pub fn matches(
             c.count += 1;
             c.count >= c.needed
         }
-        // A started cut scene's sequence id comes with the bar scenes
-        // (P3.5c4, P3.6e; D977): no script of the list is started before.
+        // A started cut scene's sequence id comes with the cut scenes'
+        // start (P3.5c4, over P3.6e's bar scenes; D977): no script of the
+        // list is started before.
         Condition::RtcDone(_) => false,
         Condition::RumorHeard(c) => {
             let Parms::Message(ControllerMessage::RumorHeard { player, role }) = parms else {
