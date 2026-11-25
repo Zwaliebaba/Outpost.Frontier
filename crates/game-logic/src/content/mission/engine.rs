@@ -1010,3 +1010,194 @@ pub fn finish_trace(cx: &mut Cx<'_>, id: ControllerId) {
         pending,
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use game_sim::data::config::GameData;
+    use game_sim::object::World;
+    use game_sim::object::world::WorldConfig;
+    use neuron_core::id::create_id;
+    use neuron_core::ini::IniReader;
+
+    use super::*;
+    use crate::content::Instance;
+    use crate::content::mission::action::Action;
+    use crate::content::players::PlayerState;
+    use crate::server::{ControllerKind, CreateParams, Logic, RecordingSink};
+
+    const ID: ControllerId = ControllerId(0x00ff_0001);
+
+    /// A mission of `text`'s triggers for player 7, who has a state and no
+    /// ship, with its trace on; `run` gets the context.
+    fn with_mission(text: &str, run: impl FnOnce(&mut Cx<'_>)) {
+        let mut world = World::new(Arc::new(GameData::new()), WorldConfig::default());
+        let mut logic = Logic::new(Box::new(RecordingSink::default()), 1, true);
+        let mut cx = Cx {
+            world: &mut world,
+            logic: &mut logic,
+        };
+        let state = PlayerState::new(&cx, 7);
+        cx.logic.content.state.players.insert(7, state);
+        let params = CreateParams::StoryMission {
+            player: 7,
+            story: ControllerId::BROADCAST,
+        };
+        let mut script =
+            super::super::construct_script(&mut cx, ID, ControllerKind::GenericMission, &params);
+        let mut reader = IniReader::new();
+        reader.open_memory(text.as_bytes());
+        super::super::load_mission(&mut cx, &mut reader, &mut script);
+        script.trace = Some(super::super::trace::Trace::new());
+        cx.logic
+            .content
+            .instances
+            .insert(ID, Instance::Mission(Box::new(script)));
+        run(&mut cx);
+    }
+
+    fn send(cx: &mut Cx<'_>, tick: u32, mut message: ControllerMessage<'_>) {
+        if let Some(t) = script_mut(cx, ID).and_then(|s| s.trace.as_mut()) {
+            t.tick = tick;
+        }
+        handle_message(cx, ID, &mut message);
+    }
+
+    fn records(cx: &Cx<'_>) -> Vec<TraceRecord> {
+        script(cx, ID)
+            .and_then(|s| s.trace.as_ref())
+            .map(|t| t.records.clone())
+            .unwrap_or_default()
+    }
+
+    fn fires(cx: &Cx<'_>, name: &[u8]) -> Vec<u32> {
+        let trigger = create_id(name);
+        records(cx)
+            .into_iter()
+            .filter_map(|r| match r {
+                TraceRecord::Fire {
+                    tick, trigger: t, ..
+                } if t == trigger => Some(tick),
+                _ => None,
+            })
+            .collect()
+    }
+
+    const ENGINE: &str = "\
+[Trigger]
+nickname = start
+InitState = ACTIVE
+Cnd_True = no_params
+Act_ActTrig = slow
+Act_ActTrig = fast
+
+[Trigger]
+nickname = slow
+Cnd_Timer = 1
+Act_DeactTrig = watcher
+Act_ChangeState = SUCCEED
+
+[Trigger]
+nickname = fast
+Cnd_Timer = 0.5
+repeatable = true
+Act_DebugMsg = again
+
+[Trigger]
+nickname = watcher
+InitState = ACTIVE
+Cnd_SpaceEnter = no_params
+Act_DebugMsg = never
+";
+
+    #[test]
+    fn the_engine_fires_rearms_deactivates_and_ends_the_mission() {
+        with_mission(ENGINE, |cx| {
+            send(cx, 0, ControllerMessage::MissionStart);
+            // The probe fires the initial trigger; its activations wait for
+            // the next dispatch.
+            assert_eq!(fires(cx, b"start"), [0]);
+            let s = script(cx, ID).unwrap();
+            assert_eq!(s.active_triggers, [create_id(b"watcher")]);
+            assert_eq!(s.pending_activations.len(), 2);
+            for tick in 1..=6 {
+                send(cx, tick, ControllerMessage::Heartbeat { elapsed: 0.25 });
+            }
+            // The first heartbeat drains them; the timers count from the
+            // second. The repeatable one fires every second heartbeat, its
+            // walk not upset by the other's deactivation.
+            assert_eq!(fires(cx, b"fast"), [3, 5]);
+            assert_eq!(fires(cx, b"slow"), [5]);
+            let rec = records(cx);
+            assert!(rec.contains(&TraceRecord::Rearm {
+                tick: 3,
+                trigger: create_id(b"fast")
+            }));
+            assert!(rec.contains(&TraceRecord::Deactivate {
+                tick: 5,
+                trigger: create_id(b"watcher")
+            }));
+            assert!(rec.contains(&TraceRecord::State {
+                tick: 5,
+                from: 2,
+                to: MISSION_STATE_SUCCEED
+            }));
+            // The success ended the mission, which asked for its teardown
+            // and ignores what follows.
+            let s = script(cx, ID).unwrap();
+            assert!(s.object.destroyed);
+            let before = records(cx).len();
+            send(cx, 7, ControllerMessage::Heartbeat { elapsed: 0.25 });
+            assert_eq!(records(cx).len(), before);
+        });
+    }
+
+    #[test]
+    fn a_delayed_dialog_runs_from_the_timer_list() {
+        let text = "\
+[Trigger]
+nickname = talk
+InitState = ACTIVE
+Cnd_True = no_params
+Act_StartDialog = some_dialog, 2
+";
+        with_mission(text, |cx| {
+            send(cx, 0, ControllerMessage::MissionStart);
+            let s = script(cx, ID).unwrap();
+            assert_eq!(s.timers.len(), 1);
+            let Some(Action::StartDialog(a)) = s.triggers[&create_id(b"talk")].actions.first()
+            else {
+                panic!("the dialog action");
+            };
+            // The flag the action keeps in itself is written back.
+            assert!(!a.delay_pending);
+            send(cx, 1, ControllerMessage::Heartbeat { elapsed: 1.0 });
+            send(cx, 2, ControllerMessage::Heartbeat { elapsed: 1.0 });
+            assert!(records(cx).contains(&TraceRecord::Timer {
+                tick: 2,
+                trigger: create_id(b"talk"),
+                index: 0
+            }));
+            let s = script(cx, ID).unwrap();
+            assert!(s.timers.is_empty());
+            let Some(Action::StartDialog(a)) = s.triggers[&create_id(b"talk")].actions.first()
+            else {
+                panic!("the dialog action");
+            };
+            assert!(a.delay_pending, "the delay is armed again for the next run");
+        });
+    }
+
+    #[test]
+    fn a_logout_tears_the_triggers_down() {
+        with_mission(ENGINE, |cx| {
+            send(cx, 0, ControllerMessage::MissionStart);
+            send(cx, 1, ControllerMessage::PlayerLogout { player: 7 });
+            let s = script(cx, ID).unwrap();
+            assert!(s.triggers.is_empty() && s.active_triggers.is_empty());
+            // The player still has a state, so the mission lives on.
+            assert!(!s.object.pending_destroy);
+        });
+    }
+}
