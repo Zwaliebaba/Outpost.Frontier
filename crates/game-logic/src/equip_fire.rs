@@ -756,6 +756,170 @@ pub fn activate_equip(
     result
 }
 
+/// A source of -1 is 0 (the AI's requests are the server's own).
+const fn own_source(source_client: i32) -> i32 {
+    if source_client == -1 {
+        0
+    } else {
+        source_client
+    }
+}
+
+/// `Ship::set_target(Target, SubTarget, SourceClient)`
+/// (`Server/server_gameobject.cpp:5802`): -5 outside a system or
+/// destroyed; a source of -1 is 0. Unless a client's request in single
+/// player (which is only relayed): a target or sub-target other than the
+/// ship's becomes its own (`CShip::set_target`, `set_sub_target`); the
+/// server's own request that changed nothing answers 0 at once. Then the
+/// observers hear of it (`notify_set_target` with `SUBOBJ_ID_NONE`,
+/// [`crate::replication::target_changed`]). The caller has narrowed the
+/// object to a ship.
+pub fn set_target(
+    cx: &mut Cx<'_>,
+    h: ObjHandle,
+    target: Option<ObjHandle>,
+    sub_target: SubObjId,
+    source_client: i32,
+) -> i32 {
+    let Some(system) = owner_system(cx, h) else {
+        return -5;
+    };
+    if is_destroyed(cx, h) {
+        return -5;
+    }
+    let source = own_source(source_client);
+    if !(cx.world.config().single_player && source != 0) {
+        let current = cx
+            .world
+            .get(h)
+            .and_then(|o| o.as_ship())
+            .map(|s| (s.target, s.sub_target));
+        let changed = current != Some((target, sub_target));
+        if changed {
+            cx.world.command(h, Command::SetTarget(target, sub_target));
+        }
+        if source == 0 && !changed {
+            return 0;
+        }
+    }
+    let id = cx.world.get(h).map_or(0, |o| o.simple.id);
+    crate::replication::target_changed(cx, system, id, SUBOBJ_ID_NONE, target, sub_target, source);
+    0
+}
+
+/// `EqObj::slot_44(&EquipId, Target, SubTarget, SourceClient)`
+/// (`server_gameobject.cpp:2091`), a gun's target: -5 outside a system or
+/// destroyed; a source of -1 is 0. Unless a client's request in single
+/// player: a missing or destroyed item is -2, an item that is not a gun
+/// -4; otherwise the gun locks the target narrowed to a simple object (or
+/// none) and its sub-object (`CEGun::SetTarget`). The server's own request
+/// that changed nothing or failed answers at once; otherwise the observers
+/// hear of it (`notify_set_target` with the gun, the target unnarrowed).
+pub fn set_gun_target(
+    cx: &mut Cx<'_>,
+    h: ObjHandle,
+    equip: SubObjId,
+    target: Option<ObjHandle>,
+    sub_target: SubObjId,
+    source_client: i32,
+) -> i32 {
+    let Some(system) = owner_system(cx, h) else {
+        return -5;
+    };
+    if is_destroyed(cx, h) {
+        return -5;
+    }
+    let source = own_source(source_client);
+    let mut result = 0;
+    if !cx.world.config().single_player || source == 0 {
+        let item = cx
+            .world
+            .get(h)
+            .and_then(|o| o.equipped.as_deref())
+            .and_then(|eq| eq.equipment.by_id(equip))
+            .filter(|e| !e.is_destroyed())
+            .map(|e| matches!(e.kind, EquipKind::Gun(_)));
+        let mut changed = false;
+        match item {
+            None => result = -2,
+            Some(false) => result = -4,
+            Some(true) => {
+                let simple = target.filter(|&t| {
+                    cx.world
+                        .get(t)
+                        .is_some_and(|o| o.is(game_sim::object::class::SIMPLE))
+                });
+                changed = cx.world.gun_set_target(h, equip, simple, sub_target);
+            }
+        }
+        if source == 0 && (!changed || result != 0) {
+            return result;
+        }
+    }
+    let id = cx.world.get(h).map_or(0, |o| o.simple.id);
+    crate::replication::target_changed(cx, system, id, equip, target, sub_target, source);
+    result
+}
+
+/// `EqObj::slot_3c(&EquipId, Targets, SourceClient)`
+/// (`server_gameobject.cpp:2030`), a tractor beam on several objects: -5
+/// outside a system or destroyed; a source of -1 is 0. Unless a client's
+/// request in single player: an item that is not a tractor is -2;
+/// otherwise each target is added (`CETractor::AddTarget` of the target
+/// narrowed to loot, which refuses anything else and reports it), and none
+/// taken is -4. The server's own request that failed answers at once;
+/// otherwise the system's other players hear of it
+/// ([`crate::replication::tractor_objects`]).
+pub fn tractor_objects(
+    cx: &mut Cx<'_>,
+    h: ObjHandle,
+    equip: SubObjId,
+    targets: &[ObjHandle],
+    source_client: i32,
+) -> i32 {
+    let Some(system) = owner_system(cx, h) else {
+        return -5;
+    };
+    if is_destroyed(cx, h) {
+        return -5;
+    }
+    let source = own_source(source_client);
+    let mut result = 0;
+    if !cx.world.config().single_player || source == 0 {
+        let tractor = cx
+            .world
+            .get(h)
+            .and_then(|o| o.equipped.as_deref())
+            .and_then(|eq| eq.equipment.by_id(equip))
+            .is_some_and(|e| matches!(e.kind, EquipKind::Tractor(_)));
+        if tractor {
+            let mut took = 0;
+            for &t in targets {
+                if cx.world.tractor_add_target(h, equip, t)
+                    == game_sim::equip::misc::TractorFailure::Ok
+                {
+                    took += 1;
+                }
+            }
+            if took == 0 {
+                result = -4;
+            }
+        } else {
+            result = -2;
+        }
+        if source == 0 && result != 0 {
+            return result;
+        }
+    }
+    let id = cx.world.get(h).map_or(0, |o| o.simple.id);
+    let target_ids: Vec<u32> = targets
+        .iter()
+        .map(|&t| cx.world.get(t).map_or(0, |o| o.simple.id))
+        .collect();
+    crate::replication::tractor_objects(cx, system, id, equip, &target_ids, source);
+    result
+}
+
 /// The server's part of an AI's `Ship::set_target`, `EqObj::slot_44`,
 /// `Ship::slot_50`, `slot_54` or `EqObj::slot_4c` (the world's
 /// `ServerRequest::Changed`, after the behaviour tick; the world made the

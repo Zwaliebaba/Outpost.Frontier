@@ -477,11 +477,17 @@ pub trait ServerHooks {
         let _ = (world, system, event);
     }
 
-    /// The server's PvP gate (`GbAllowPvp`) on damage that `inflictor` (an
-    /// object id) deals to `target`: `StarSystem::explode`'s damage pass,
+    /// The server's PvP gate (`GbAllowPvp`) on damage that `inflictor` (the
+    /// object the caller found for the inflictor's id, none when it found
+    /// none) deals to `target`: `StarSystem::explode`'s damage pass,
     /// `munition_collision` and `collision_damage` skip the target when it
     /// answers true. False without a server.
-    fn pvp_blocked(&mut self, world: &World, inflictor: u32, target: ObjHandle) -> bool {
+    fn pvp_blocked(
+        &mut self,
+        world: &World,
+        inflictor: Option<ObjHandle>,
+        target: ObjHandle,
+    ) -> bool {
         let _ = (world, inflictor, target);
         false
     }

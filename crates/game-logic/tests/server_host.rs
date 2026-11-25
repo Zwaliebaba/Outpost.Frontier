@@ -164,12 +164,15 @@ fn a_connection_hears_its_id_and_the_news_and_logs_in() {
     assert_eq!(host.logic.stats.logins, 1);
 
     // A message no entry point takes yet is counted.
-    let dock = ToServer::Client(ClientMessage::Dock(game_sim::protocol::to_server::Dock {
-        value: 5,
-    }));
-    client.send(LOOPBACK_CONNECTION, dock).unwrap();
+    let scale = ToServer::Client(ClientMessage::ReqDifficultyScale(
+        game_sim::protocol::to_server::ReqDifficultyScale { value: 0.5 },
+    ));
+    client.send(LOOPBACK_CONNECTION, scale).unwrap();
     host.frame(0.0, 0.0);
-    assert_eq!(host.unrouted.get("FLPACKET_CLIENT_DOCK"), Some(&1));
+    assert_eq!(
+        host.unrouted.get("FLPACKET_CLIENT_REQDIFFICULTYSCALE"),
+        Some(&1)
+    );
 
     // The client goes: the session logs out and its slot is free.
     drop(client);

@@ -650,18 +650,38 @@ impl World {
             damage: amount,
         });
         let _ = sub;
-        // `StarSystem::collision_damage`.
-        if hooks.pvp_blocked(self, id, other) {
+        self.collision_damage_hooked(id, Some(h), other, other_sub, amount, hooks);
+    }
+
+    /// `StarSystem::collision_damage`: unless the PvP gate holds it, a live
+    /// target's `damage_sub_obj` takes `amount` on `other_sub` in a cause-1
+    /// list from `source`, owned by the source object's owner player (0
+    /// without one), which is then applied. `source_object` is the object
+    /// the caller found for the id (`find_object` in the target's system):
+    /// the colliding object in the world's collision pass, the system's
+    /// object or none for a client's report (`IServerImpl::SPObjCollision`).
+    pub fn collision_damage_hooked(
+        &mut self,
+        source: u32,
+        source_object: Option<ObjHandle>,
+        other: ObjHandle,
+        other_sub: SubObjId,
+        amount: f32,
+        hooks: &mut dyn ServerHooks,
+    ) {
+        if hooks.pvp_blocked(self, source_object, other) {
             return;
         }
+        let inflictor_owner = source_object
+            .and_then(|s| self.objects.get(s))
+            .map_or(0, |o| o.simple.owner_player);
         let Some(target) = self.objects.get(other) else {
             return;
         };
         if target.dead {
             return;
         }
-        let inflictor_owner = self.objects.get(h).map_or(0, |o| o.simple.owner_player);
-        let mut list = DamageList::new(CAUSE_GUN, id, inflictor_owner);
+        let mut list = DamageList::new(CAUSE_GUN, source, inflictor_owner);
         match target.kind {
             // `Bullet::damage_sub_obj` does nothing.
             ObjectKind::Beam => return,
@@ -696,7 +716,8 @@ impl World {
         self.munition_collision_hooked(target, shooter, munition, sub, point, &mut NoServerHooks);
     }
 
-    /// [`World::munition_collision`] with the server's hooks.
+    /// [`World::munition_collision`] with the server's hooks; the shooter is
+    /// the world's object with the id ([`World::munition_collision_from`]).
     pub fn munition_collision_hooked(
         &mut self,
         target: ObjHandle,
@@ -706,7 +727,27 @@ impl World {
         point: Vector,
         hooks: &mut dyn ServerHooks,
     ) {
-        if hooks.pvp_blocked(self, shooter, target) {
+        let shooter_object = self.find(shooter);
+        self.munition_collision_from(target, shooter, shooter_object, munition, sub, point, hooks);
+    }
+
+    /// [`World::munition_collision_hooked`] with the shooter's object as the
+    /// caller found it (`find_object` in the target's system for a client's
+    /// report, `IServerImpl::SPMunitionCollision`): none is no shooter, so
+    /// the PvP gate does not hold the damage and the list names no owner
+    /// player; the list's inflictor is the id either way.
+    #[allow(clippy::too_many_arguments)]
+    pub fn munition_collision_from(
+        &mut self,
+        target: ObjHandle,
+        shooter: u32,
+        shooter_object: Option<ObjHandle>,
+        munition: u32,
+        sub: SubObjId,
+        point: Vector,
+        hooks: &mut dyn ServerHooks,
+    ) {
+        if hooks.pvp_blocked(self, shooter_object, target) {
             return;
         }
         let Some(t) = self.objects.get(target) else {
@@ -724,8 +765,7 @@ impl World {
             0x100_0000 => damage::CAUSE_MINE,
             _ => CAUSE_GUN,
         };
-        let inflictor_owner = self
-            .find(shooter)
+        let inflictor_owner = shooter_object
             .and_then(|s| self.objects.get(s))
             .map_or(0, |s| s.simple.owner_player);
         let mut list = DamageList::new(cause, shooter, inflictor_owner);
@@ -1177,7 +1217,7 @@ impl World {
             .and_then(|i| self.objects.get(i))
             .map_or(0, |o| o.simple.owner_player);
         for h in candidates {
-            if hooks.pvp_blocked(self, inflictor, h) {
+            if hooks.pvp_blocked(self, self.find(inflictor), h) {
                 continue;
             }
             let hull = self.body_sphere(h);
