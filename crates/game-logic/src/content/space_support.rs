@@ -16,10 +16,11 @@
 //!      ([`super::tradelane_requests`]), the loot preparation
 //!      ([`prepare_loot`]), the solar attitudes of a multiplayer launch
 //!      ([`sync_solar_attitudes`]), the system records' parts (P3.4d) and
-//!      the music. The parts of later packages are named stubs: the comm
-//!      system (P3.6b), the NPC ships, their guides, lives and hostile
-//!      contacts, the faction-name timers and the combat reputation
-//!      (P3.6c), and the message router (P3.7b);
+//!      the music, the NPC ships, their lives and hostile contacts, the
+//!      combat reputation and the faction-name timers (P3.6c,
+//!      [`super::npc_names::handle_faction_name_timer`]). The parts of
+//!      later packages are named stubs: the comm system (P3.6b) and the
+//!      message router (P3.7b);
 //!   4. the tail: the comm system again on load and unload (P3.6b), the
 //!      dock terminal states except on `JumpgateAct`
 //!      ([`super::dock_queues::apply_terminal_states`]), and each guided
@@ -407,11 +408,12 @@ fn main_switch(cx: &mut Cx<'_>, message: &mut ControllerMessage<'_>) {
             let (param1, param2) = (*param1, *param2);
             if param1 == cx.logic.content.state.load_ids.music_timer {
                 let _ = api::audio::cancel_music(cx, param2);
+            } else {
+                // The faction-name queues, then the message router
+                // (`GMessageRouter->OnTimerExpired`, P3.7b), which sets no
+                // timer yet.
+                super::npc_names::handle_faction_name_timer(cx, param1, param2);
             }
-            // The faction-name queues (`HandleFactionNameTimer`, P3.6c with
-            // the NPC name builder) and the message router
-            // (`GMessageRouter->OnTimerExpired`, P3.7b): neither sets a
-            // timer yet.
         }
         ControllerMessage::DamageReputation {
             provoked,

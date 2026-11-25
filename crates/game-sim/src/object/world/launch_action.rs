@@ -409,7 +409,8 @@ impl World {
 /// launch orientation. `X` stays unrounded; the y and z steps are stored
 /// as floats before the add, the x step joins the position unrounded.
 pub(crate) fn launch_controller(obj: &mut Object, dt: f32, context: &mut ControllerContext<'_>) {
-    let KindData::Ship(ship) = &mut obj.data else {
+    let Object { data, engine, .. } = obj;
+    let KindData::Ship(ship) = data else {
         return;
     };
     let Some(l) = ship.launch.as_mut() else {
@@ -419,7 +420,7 @@ pub(crate) fn launch_controller(obj: &mut Object, dt: f32, context: &mut Control
         l.coast_elapsed = r(e(l.coast_elapsed) + e(dt));
     }
     if l.no_docking_camera {
-        context.beam(l.position, l.orientation);
+        super::jump::beam(context, engine, l.position, l.orientation);
         l.complete = true;
         return;
     }
@@ -440,5 +441,5 @@ pub(crate) fn launch_controller(obj: &mut Object, dt: f32, context: &mut Control
         r(e(step_y) + e(p.y)),
         r(e(step_z) + e(p.z)),
     );
-    context.beam(at, l.orientation);
+    super::jump::beam(context, engine, at, l.orientation);
 }

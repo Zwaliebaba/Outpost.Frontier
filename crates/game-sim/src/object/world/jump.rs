@@ -23,7 +23,7 @@ use neuron_core::physics::ControllerContext;
 
 use crate::equip::types;
 use crate::object::ship::JumpIn;
-use crate::object::{Command, KindData, ObjHandle, Object};
+use crate::object::{Command, EngineObject, KindData, ObjHandle, Object};
 
 use super::{ControllerRef, ServerHooks, TickList, World, WorldEvent};
 
@@ -214,7 +214,8 @@ impl World {
 /// (none without one).
 pub(crate) fn jump_in_controller(obj: &mut Object, dt: f32, context: &mut ControllerContext<'_>) {
     let system = obj.simple.system;
-    let KindData::Ship(ship) = &mut obj.data else {
+    let Object { data, engine, .. } = obj;
+    let KindData::Ship(ship) = data else {
         return;
     };
     let Some(j) = ship.jump_in.as_mut() else {
@@ -238,12 +239,30 @@ pub(crate) fn jump_in_controller(obj: &mut Object, dt: f32, context: &mut Contro
             (f64::from(m[1][2]) * blend + f64::from(p.y)) as f32,
             (f64::from(off_z) + f64::from(p.z)) as f32,
         );
-        context.beam(at, j.orientation);
+        beam(context, engine, at, j.orientation);
         return;
     }
     j.complete = true;
     j.activate_engine = true;
     j.arrived = system;
-    context.beam(j.position, j.orientation);
+    beam(context, engine, j.position, j.orientation);
     ship.flight.throttle = 0.0;
+}
+
+/// `PhySys::BeamR(Object, Position, Orientation, false)` from inside a
+/// controller: the body is put at the pose when the controller returns
+/// ([`ControllerContext::beam`]), and the object's `Orientation` and
+/// `WorldPosition` are written at once (`PhySys_BeamObject`,
+/// `Common/common_physys_query.cpp:599`), so the controllers that run after
+/// this one in the PSI (the engine's push along the third column) read the
+/// beamed pose, not the pose of the last step.
+pub(crate) fn beam(
+    context: &mut ControllerContext<'_>,
+    engine: &mut EngineObject,
+    position: Vector,
+    orientation: Matrix,
+) {
+    context.beam(position, orientation);
+    engine.orientation = orientation;
+    engine.position = position;
 }
