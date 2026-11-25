@@ -165,8 +165,12 @@ Phase 4 (client engine) depends only on Phase 1 and runs alongside Phases 2
 and 3.
 
 The owner started Phase 5 beside the rest of Phase 3 on 2026-11-25 (decision
-O50): Gate G5 still needs the whole of Phase 3, and P5.9 and P5.10 wait for
-P3.6e and P3.7b on their server side.
+O50), in a separate session that the owner runs; the session carrying Phase 3
+does no Phase 5 work. Phase 5 begins with its own design record and with the
+check whether the C++ client's `+oracle` mode runs in CI. Gate G5 still needs
+the whole of Phase 3, and P5.9 and P5.10 wait for P3.6e and P3.7b on their
+server side. O50 sets which session owns which crates and how the two keep the
+divergence and decision registers apart.
 
 ### Phase 0 — make the migration verifiable
 
