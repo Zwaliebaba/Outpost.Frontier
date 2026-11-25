@@ -353,6 +353,10 @@ Gate G3 needs (P3.7a, P3.7c, P3.8, P3.9) come first, P3.8 and P3.9 on their
 own branches beside Content, and the other Content packages finish the phase
 after the milestone.
 
+The owner signed off Gate G3 on 2026-11-25, on the data run of #165
+(run 45614252212): every criterion above is met, the three scenarios bit for
+bit equal to the oracle through the Rust server.
+
 ### Phase 4 — client engine (`neuron-client`)
 
 | ID | C++ source | Rust destination | Size | Tier |
