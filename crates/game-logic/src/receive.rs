@@ -49,9 +49,10 @@
 //! requests of channel 3 (work package P3.10b) are [`crate::session`]'s
 //! and [`crate::trade`]'s.
 //!
-//! The other packets reach the server functions that exist as those
-//! functions' callers arrive; until then [`deliver`] answers false for them.
-//! `FLPACKET_CLIENT_SAVEGAME` is one of them: its decoded form carries only
+//! [`deliver`] answers false for the packets the session's entry points,
+//! the chat and the player-state requests take ([`crate::session::route`],
+//! [`crate::session::route_common`]). In single player
+//! `FLPACKET_CLIENT_SAVEGAME` reaches none of them: its decoded form carries only
 //! the description, while `IServerImpl::SaveGame` names the save by the
 //! character id that rpclocal's single-player payload holds and the wire
 //! leaves out; [`crate::saves::server_save_game`] takes it from the caller.

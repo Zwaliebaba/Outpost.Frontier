@@ -22,10 +22,10 @@
 //! block shorter than what a handler reads is taken only as far as it
 //! goes (D881).
 
+use game_sim::data::equip_desc::EquipDesc;
 use game_sim::protocol::common::CommonMessage;
 use game_sim::protocol::costume::Costume as WireCostume;
 use game_sim::protocol::fmtstr::FmtStr;
-use game_sim::data::equip_desc::EquipDesc;
 use game_sim::protocol::records::{CollisionGroup, EquipRecord};
 use game_sim::protocol::to_client::{
     CharSelectVerified, CharacterInfo, CharacterRecord, LoginResponse, MiscObjUpdate, Relation,
@@ -1038,7 +1038,10 @@ pub fn set_visited_state(cx: &mut Cx<'_>, session: u32, data: &[u8]) {
     };
     let (records, _) = data[4..].as_chunks::<5>();
     for &[a, b, c, d, flags] in records.iter().take(count) {
-        *slot.visits.entry(u32::from_le_bytes([a, b, c, d])).or_insert(0) |= flags;
+        *slot
+            .visits
+            .entry(u32::from_le_bytes([a, b, c, d]))
+            .or_insert(0) |= flags;
     }
 }
 

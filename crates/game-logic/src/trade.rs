@@ -409,10 +409,23 @@ fn settle(cx: &mut Cx<'_>, session: u32, partner: u32, offer: &TradeOffer, their
     }
 
     let as_int = |v: u32| i32::from_ne_bytes(v.to_ne_bytes());
-    crate::player::adjust_cash(cx, session, as_int(theirs.money.wrapping_sub(offer.money)), true);
-    crate::player::adjust_cash(cx, partner, as_int(offer.money.wrapping_sub(theirs.money)), true);
+    crate::player::adjust_cash(
+        cx,
+        session,
+        as_int(theirs.money.wrapping_sub(offer.money)),
+        true,
+    );
+    crate::player::adjust_cash(
+        cx,
+        partner,
+        as_int(offer.money.wrapping_sub(theirs.money)),
+        true,
+    );
     let bay = cx.world.strings().cargo_bay();
-    for (from, to, items) in [(session, partner, &offer.items), (partner, session, &theirs.items)] {
+    for (from, to, items) in [
+        (session, partner, &offer.items),
+        (partner, session, &theirs.items),
+    ] {
         for item in items {
             crate::player::remove_cargo(cx, from, item.arch_id, item.count, item.health, true);
             crate::player::add_equipment(
@@ -648,11 +661,7 @@ pub fn deliver_player_trade(cx: &mut Cx<'_>, session: u32, packet: &PlayerTrade)
     match packet.action {
         0x01 => initiate_trade(cx, session, packet.target_player),
         0x02 => terminate_trade(cx, session, i32::from(packet.reason)),
-        0x04 => set_trade_money(
-            cx,
-            session,
-            u32::from_ne_bytes(packet.money.to_ne_bytes()),
-        ),
+        0x04 => set_trade_money(cx, session, u32::from_ne_bytes(packet.money.to_ne_bytes())),
         0x08 => {
             let equip = item(cx, Some(packet.equip_health));
             add_trade_equip(cx, session, &equip);
