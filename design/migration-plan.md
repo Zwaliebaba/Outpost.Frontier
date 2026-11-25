@@ -343,6 +343,11 @@ the port's saves as the port does (the data job's "Load the port's saves
 with the oracle"), and the port's saves round-trip; the `[RandomMission]`
 sections follow with P3.7c.
 
+The owner re-sequenced Phase 3 on 2026-11-25 (decision O48): the packages
+Gate G3 needs (P3.7a, P3.7c, P3.8, P3.9) come first, P3.8 and P3.9 on their
+own branches beside Content, and the other Content packages finish the phase
+after the milestone.
+
 ### Phase 4 — client engine (`neuron-client`)
 
 | ID | C++ source | Rust destination | Size | Tier |
