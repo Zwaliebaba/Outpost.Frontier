@@ -120,11 +120,7 @@ fn load_steps(seed: u32, marks: &[DrawMark]) -> Vec<(&'static str, usize, usize)
 /// The port's draws while system `name` loads through the server, from
 /// `seed` set and `skip` draws made just before (the oracle's controller
 /// phase): the total and the steps, indices counted from the load.
-fn port_load(
-    name: &str,
-    seed: u32,
-    skip: usize,
-) -> Option<(usize, Vec<Step>)> {
+fn port_load(name: &str, seed: u32, skip: usize) -> Option<(usize, Vec<Step>)> {
     let mut world = world()?;
     let mut logic = Logic::new(Box::new(RecordingSink::default()), 16, true);
     let mut cx = Cx {
