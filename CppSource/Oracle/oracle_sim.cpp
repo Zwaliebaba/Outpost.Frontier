@@ -172,6 +172,12 @@ namespace
         // 0008 point 10, Gate G3).
         bool bDumpMissionSaves = false;
         bool bDumpMissionSaveLoads = false;
+        // `dump random_missions`: right after the server starts, Content.dll writes its
+        // random-mission tables and vignette tree and the offers its generator builds for a fixed
+        // set of bases, factions, difficulties and seeds as rm_<table>.txt through its
+        // OracleDumpRandomMissions; no system loads and no scenario runs (P3.7a, decision record
+        // 0008 point 8, Gate G3).
+        bool bDumpRandomMissions = false;
         unsigned int Seed = 0x4f524143u;
         double ClockStart = 1000.0;
         std::vector<FObjectDesc> Objects;
@@ -479,6 +485,10 @@ namespace
             {
                 Out.bDumpMissionSaveLoads = true;
             }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "random_missions")
+            {
+                Out.bDumpRandomMissions = true;
+            }
             else if (Key == "seed" && T.size() == 2 && ParseUnsigned(T[1], Value))
             {
                 Out.Seed = (unsigned int)Value;
@@ -548,10 +558,12 @@ namespace
         if (Out.System.empty() || !bTicks)
             return Error = "a scenario needs `system` and `ticks`", false;
         // A dump session needs no object: every `dump` line but `replication`, which records
-        // the objects the session spawns (P3.6a: `content_systems` joins the list).
+        // the objects the session spawns (P3.6a: `content_systems` joins the list; P3.7a:
+        // `random_missions`).
         bool const bObjectlessDump = Out.bDumpSystemLoads || Out.bDumpContentTables ||
                                      Out.bDumpContentSystems || Out.bDumpMissionScripts ||
-                                     Out.bDumpMissionSaves || Out.bDumpMissionSaveLoads;
+                                     Out.bDumpMissionSaves || Out.bDumpMissionSaveLoads ||
+                                     Out.bDumpRandomMissions;
         if (Out.Objects.empty() && !bObjectlessDump)
             return Error = "a scenario needs at least one object", false;
         std::stable_sort(Out.Commands.begin(), Out.Commands.end(),
@@ -2891,6 +2903,30 @@ namespace oracle
             Write(FileSession, J);
             EndProcess(Files < 0 ? 3 : 0);
             return Files < 0 ? 3 : 0;
+        }
+
+        // `dump random_missions` (P3.7a): the random-mission tables, the vignette tree and the
+        // offers built from a seed after the start-up, through Content.dll's Oracle export, then
+        // the end of the run.
+        if (GScenario.bDumpRandomMissions)
+        {
+            typedef int(__cdecl * FDumpRandomMissions)(char const*);
+            HMODULE const Content = GetModuleHandleA("Content.dll");
+            FDumpRandomMissions const DumpRandomMissions =
+                Content != nullptr ? (FDumpRandomMissions)GetProcAddress(Content, "OracleDumpRandomMissions")
+                                   : nullptr;
+            int const Lines = DumpRandomMissions != nullptr ? DumpRandomMissions(OutDir.c_str()) : -1;
+            if (DumpRandomMissions == nullptr)
+                SessionNote("error", "dump random_missions: Content.dll is not loaded or lacks OracleDumpRandomMissions");
+            else if (Lines < 0)
+                SessionNote("error", "OracleDumpRandomMissions failed: a file could not be opened or the "
+                                     "generator or a random-mission loader is missing");
+            FOracleJson J;
+            J.Str("rec", "random_missions");
+            J.Int("lines", Lines);
+            Write(FileSession, J);
+            EndProcess(Lines < 0 ? 3 : 0);
+            return Lines < 0 ? 3 : 0;
         }
 
         // `comms off`: the GCS clamp through Content.dll's Oracle export, before the load.
