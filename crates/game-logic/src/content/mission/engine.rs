@@ -51,7 +51,7 @@ use super::execute;
 use super::runtime::{self, ID_MASK, Parms, label_object_id, player_state, script, script_mut};
 use super::trace::TraceRecord;
 use super::trigger::{STATE_ACTIVE, STATE_COMPLETE, STATE_INACTIVE};
-use super::{MissionScript, save};
+use super::{MissionScript, save, spawn};
 use crate::api;
 use crate::content::NoDispatch;
 use crate::events::ControllerMessage;
@@ -449,9 +449,18 @@ pub fn handle_mission_message(
         | M::TetherObject { .. } => dispatch(cx, id, event, &Parms::Message(message)),
         M::PlayerSave { client, file } => {
             // P3.5b's writer, with the case's gates and the mission
-            // object's body; nothing else of the mission runs.
+            // object's body; nothing else of the mission runs. The
+            // mission object's snapshot of a player with a ship comes
+            // first (it changes nothing `[MissionState]` writes).
             base_body = false;
             let client = *client;
+            let snapshot = client == player
+                && api::misc::single_player(cx)
+                && script(cx, id).is_some_and(|s| !s.object.trigger_save_pending)
+                && spawn::player_ship_id(cx, id) != 0;
+            if snapshot {
+                spawn::snapshot_mission_objects(cx, id);
+            }
             let _ = crate::content::with_instance_taken(cx, id, |cx, instance| {
                 if let crate::content::Instance::Mission(s) = instance {
                     let _ = save::player_save(cx, s, client, &mut **file);
@@ -485,6 +494,20 @@ pub fn handle_mission_message(
                     s.player = 0;
                     base_body = false;
                 }
+            }
+        }
+        M::NpcShipCreated { ship } => {
+            let ship = *ship;
+            let ours = cx
+                .logic
+                .content
+                .state
+                .npc_ships
+                .get(&ship)
+                .is_some_and(|n| n.controller == id.0);
+            if ours {
+                spawn::register_and_submit(cx, id, ship);
+                dispatch(cx, id, event, &Parms::Message(message));
             }
         }
         M::LootAcquired {
@@ -623,19 +646,6 @@ pub fn handle_mission_message(
         // OnMessage100b: the cut scenes and the objectives (P3.5c4,
         // P3.5c5; D973).
         M::PlayerMissionChanged { .. } => {}
-        M::NpcShipCreated { ship } => {
-            let ours = cx
-                .logic
-                .content
-                .state
-                .npc_ships
-                .get(ship)
-                .is_some_and(|n| n.controller == id.0);
-            if ours {
-                // RegisterNpc and SubmitNpcPersonality are P3.5c2's (D973).
-                dispatch(cx, id, event, &Parms::Message(message));
-            }
-        }
         _ => {}
     }
     if base_body {
@@ -645,14 +655,56 @@ pub fn handle_mission_message(
     apply_desired_state(cx, id);
 }
 
-/// `FMissionObject::HandleMissionMessage` (`MissionObject.cpp:1496-1926`),
-/// the cases P3.5c1 ports (D973).
+/// `FMissionObject::HandleMissionMessage` (`MissionObject.cpp:1496-1926`):
+/// the mission object's cases (P3.5c1's abort and dead players, P3.5c2's
+/// objects, jumpers, respawns and snapshot). The random encounters'
+/// `NotifyRandEncs` (P3.6d), the group members' cases, the formation
+/// leader's objectives and the objective timer of the tail (P3.5c5) wait
+/// (D973).
+#[allow(clippy::too_many_lines)]
 fn mission_object_body(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMessage<'_>) {
     use ControllerMessage as M;
     let Some(player) = live_player(cx, id) else {
         return;
     };
     match message {
+        M::PlayerLaunch { player: p, .. } => {
+            if !api::misc::single_player(cx) || *p != player {
+                return;
+            }
+            let names = script_mut(cx, id)
+                .map(|s| std::mem::take(&mut s.object.respawn_solars))
+                .unwrap_or_default();
+            for name in names {
+                spawn::spawn_solar(cx, id, &name, None);
+            }
+        }
+        M::PlayerLogout { player: p } | M::GroupMemberLeft { player: p } => {
+            let p = *p;
+            // `RemovePlayerById`: the record's objectives are P3.5c5's
+            // (D973); the record goes.
+            if let Some(s) = script_mut(cx, id) {
+                s.object.players.remove(&p);
+                if let Some(at) = s.object.dead_players.iter().position(|d| *d == p) {
+                    s.object.dead_players.remove(at);
+                }
+            }
+            if p == player {
+                // `Slot15` is false: the first remaining record's player,
+                // else none.
+                if let Some(s) = script_mut(cx, id) {
+                    let next = s.object.players.keys().next().copied().unwrap_or(0);
+                    s.object.player = next;
+                    s.player = next;
+                }
+            }
+            // A group member's `Slot16` is false (the group cases, D973).
+            let gone = script(cx, id).is_none_or(|s| player_state(cx, s).is_none());
+            if gone && let Some(s) = script_mut(cx, id) {
+                s.object.pending_destroy = true;
+            }
+        }
+        M::Heartbeat { elapsed } => spawn::update_jumpers(cx, id, *elapsed),
         M::AbortMission { player: p, .. } => {
             let live = cx
                 .logic
@@ -665,6 +717,8 @@ fn mission_object_body(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMe
                 on_mission_fail(cx, id);
             }
         }
+        M::Msg0x25 { ship, .. } => spawn::on_ship_jump(cx, id, *ship),
+        M::JumpInComplete { .. } => spawn::jump_in_complete(cx, id),
         M::Msg0x27 { ship, .. } => {
             let dead =
                 crate::content::players::find_by_ship(&cx.logic.content.state.players, *ship);
@@ -672,15 +726,81 @@ fn mission_object_body(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMe
                 s.object.dead_players.push(dead);
             }
         }
-        M::SpaceEnter { player: p, .. } => {
+        M::SpaceEnter {
+            player: p,
+            launch_object,
+            ..
+        } => {
             if let Some(s) = script_mut(cx, id)
                 && let Some(at) = s.object.dead_players.iter().position(|d| d == p)
             {
                 s.object.dead_players.remove(at);
             }
+            if *p != player || !api::misc::single_player(cx) {
+                return;
+            }
+            let mut keep = true;
+            if launch_object & ID_MASK != 0 {
+                let kind = api::space_obj::object_type(cx, *launch_object).unwrap_or(0);
+                if kind & 0x20 != 0 || kind & 0x100 != 0 {
+                    keep = false;
+                }
+            }
+            spawn::respawn_mission_objects(cx, id, keep);
+            spawn::apply_vibe_infos(cx, id);
+        }
+        M::SpaceExit { player: p, .. } => {
+            if api::misc::single_player(cx) && *p == player {
+                spawn::snapshot_mission_objects(cx, id);
+            }
+        }
+        M::ObjectDestroyed(d) => {
+            let (object, system, owner) = (d.id, d.system, d.owner_player);
+            spawn::object_destroyed(cx, id, object, system);
+            let Some(s) = script(cx, id) else { return };
+            if s.object.dead_players.contains(&owner) {
+                return;
+            }
+            let Some(state) = player_state(cx, s) else {
+                return;
+            };
+            let ship = state.ship.as_ref().map_or(0, |p| p.ship);
+            // `Slot12` is true; a group member's `Slot13` false; the third
+            // test is reached only after the first.
+            if s.object.player == owner && ship == object {
+                on_mission_fail(cx, id);
+            }
+        }
+        M::SystemEnter {
+            system, arrival, ..
+        } => spawn::place_jumpers_at_launch(cx, id, *system, *arrival),
+        M::Msg0x1006 { directive_word, .. } => {
+            if *directive_word == 0 {
+                on_mission_fail(cx, id);
+            }
+        }
+        M::NpcShipCreated { ship } => {
+            let ours = cx
+                .logic
+                .content
+                .state
+                .npc_ships
+                .get(ship)
+                .is_some_and(|n| n.controller == id.0);
+            if ours {
+                spawn::npc_ship_created(cx, id, *ship);
+            }
         }
         _ => {}
     }
+}
+
+/// `FMissionScript::Slot28(Parms)` (`MissionScript.cpp:836-840`): a jumper
+/// that arrived dispatches `NpcSystemEnter` with `{ship, system, object}`
+/// (`UpdateJumpers` passes two words; the condition reads the third only
+/// for the player's ship).
+pub fn slot28(cx: &mut Cx<'_>, id: ControllerId, words: [u32; 3]) {
+    dispatch(cx, id, NPC_SYSTEM_ENTER, &Parms::NpcEnter(words));
 }
 
 /// `OnBaseEnter` (`MissionScript.cpp:1317-1355`): the objectives' renumber
@@ -901,10 +1021,10 @@ pub fn apply_desired_state(cx: &mut Cx<'_>, id: ControllerId) {
 }
 
 /// `FMissionScript::OnMissionSucceed` (`MissionScript.cpp:870-885`) and the
-/// mission object's (`MissionObject.cpp:1932-1945`): the success message,
-/// then `EndMission`. The completion count, the mission objects' teardown,
-/// the reward, the objectives and the end of the live mission are later
-/// increments' (D973).
+/// mission object's (`MissionObject.cpp:1932-1945`): the success message
+/// and the mission objects' teardown, then `EndMission`. The completion
+/// count, the reward, the objectives and the end of the live mission are
+/// P3.5c5's (D973).
 fn on_mission_succeed(cx: &mut Cx<'_>, id: ControllerId) {
     let Some(s) = script_mut(cx, id) else { return };
     let player = s.object.player;
@@ -915,13 +1035,16 @@ fn on_mission_succeed(cx: &mut Cx<'_>, id: ControllerId) {
         }
         let text = FmtStr::new(s.field_0x2e8);
         let _ = api::player::display_mission_message(cx, player, &text, 1, true);
+        // `CountRandomMissionCompleted(7)` is P3.5c5's (D973).
+        spawn::destroy_mission_objects(cx, id);
     }
     end_mission(cx, id);
 }
 
 /// `FMissionScript::OnMissionFail` (`MissionScript.cpp:888-905`) and the
 /// mission object's (`MissionObject.cpp:1950-1961`): the failure message,
-/// the NPCs muted, then `EndMission` (the rest as for the success, D973).
+/// the NPCs muted, the mission objects' teardown, then `EndMission` (the
+/// rest as for the success, D973).
 fn on_mission_fail(cx: &mut Cx<'_>, id: ControllerId) {
     let Some(s) = script_mut(cx, id) else { return };
     if s.field_0x2e8 == 1 {
@@ -935,6 +1058,7 @@ fn on_mission_fail(cx: &mut Cx<'_>, id: ControllerId) {
             npc.muted = true;
         }
     }
+    spawn::destroy_mission_objects(cx, id);
     end_mission(cx, id);
 }
 
@@ -987,8 +1111,11 @@ pub fn end_mission(cx: &mut Cx<'_>, id: ControllerId) {
     s.object.offer = 0;
     s.object.npcs.clear();
     s.object.npc_objects.clear();
+    s.object.npc_names.clear();
     s.object.ships.clear();
     s.object.obj_lists.clear();
+    spawn::release_obj_lists(cx, id);
+    let Some(s) = script_mut(cx, id) else { return };
     s.object.meta_behaviors.clear();
     s.object.solars.clear();
     s.object.rand_encs.clear();

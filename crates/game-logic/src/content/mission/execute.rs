@@ -16,16 +16,25 @@
 //!   `Act_EnableManeuver`, `Act_LockManeuvers`, `Act_PlayerEnemyClamp`,
 //!   `Act_DisableTradelane`.
 //!
-//! The other 58 classes (and `Act_StartDialog` but for its delay) run
-//! without an effect until their increment
-//! (D970): P3.5c2 the mission object's spawns and objects, P3.5c3 the AI
-//! and reputation actions, P3.5c4 the comms, cameras, cut scenes and bases,
+//! P3.5c2 ports the 22 classes of the mission object's spawns and objects
+//! ([`objects`]): `Act_SpawnShip`, `Act_SpawnShipRel`, `Act_SpawnFormation`,
+//! `Act_SpawnSolar`, `Act_SpawnLoot`, `Act_Destroy`, `Act_Jumper`,
+//! `Act_RelocateShip`, `Act_RelocateForm`, `Act_SetOrient`,
+//! `Act_MovePlayer`, `Act_SetShipAndLoadout`, `Act_RemoveCargo`,
+//! `Act_AdjHealth`, `Act_LightFuse`, `Act_Invulnerable`, `Act_Cloak`,
+//! `Act_MarkObj`, `Act_SetLifeTime`, `Act_LockDock`, `Act_DockRequest` and
+//! `Act_PobjIdle`.
+//!
+//! The other 36 classes (and `Act_StartDialog` but for its delay) run
+//! without an effect until their increment (D970): P3.5c3 the AI and
+//! reputation actions, P3.5c4 the comms, cameras, cut scenes and bases,
 //! P3.5c5 the objectives, nags and the NN path. The trace records each of
 //! them as it runs, as the C++'s does.
 //!
 //! An action is cloned out of its trigger before it runs and written back
 //! after it (the engine, [`super::engine`]): `Act_StartDialog` keeps its
-//! delay flag in itself (`MissionAct.cpp:4697-4708`).
+//! delay flag in itself (`MissionAct.cpp:4697-4708`), and `Act_SpawnSolar`
+//! keeps the record's orientation it read (`:4570-4572`).
 
 use game_sim::protocol::fmtstr::FmtStr;
 use neuron_core::hash::c_str;
@@ -37,6 +46,8 @@ use super::runtime::{ID_MASK, player_state, script, script_mut};
 use crate::api;
 use crate::api::audio::Tryptich;
 use crate::server::Cx;
+
+mod objects;
 
 /// The actions P3.5c1 runs with their effect; the rest run without one
 /// until their increment (D970).
@@ -71,6 +82,29 @@ pub fn is_ported(action: &Action) -> bool {
             | Action::LockManeuvers(_)
             | Action::PlayerEnemyClamp(_)
             | Action::DisableTradelane(_)
+            // P3.5c2.
+            | Action::SpawnShip(_)
+            | Action::SpawnShipRel(_)
+            | Action::SpawnFormation(_)
+            | Action::SpawnSolar(_)
+            | Action::SpawnLoot(_)
+            | Action::Destroy(_)
+            | Action::Jumper(_)
+            | Action::RelocateShip(_)
+            | Action::RelocateForm(_)
+            | Action::SetOrient(_)
+            | Action::MovePlayer(_)
+            | Action::SetShipAndLoadout(_)
+            | Action::RemoveCargo(_)
+            | Action::AdjHealth(_)
+            | Action::LightFuse(_)
+            | Action::Invulnerable(_)
+            | Action::Cloak(_)
+            | Action::MarkObj(_)
+            | Action::SetLifeTime(_)
+            | Action::LockDock(_)
+            | Action::DockRequest(_)
+            | Action::PobjIdle(_)
     )
 }
 
@@ -296,7 +330,6 @@ pub fn execute(
             let _ = api::space_obj::drain_shields(cx, a.ring_id);
             true
         }
-        // The other classes come with their increments (D970).
-        _ => true,
+        _ => objects::execute(cx, id, action),
     }
 }
