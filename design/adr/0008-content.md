@@ -643,7 +643,7 @@ Paths are relative to `CppSource/`.
    | P3.6 | D194 | Rewritten: the directive results reach Content's handles after the tick |
    | P3.6 | — | Items left to Content by the P3.3 row: `LaunchQueuedShips`, the descriptions' `init` and `EnumerateCharacterPlacementIni`; and the population draws and the flee, loot and other behaviour scenarios that the P2.5 row defers to P3.6 |
    | — | D750 | Not Content's: P3.9 |
-   | — | D760 | Not on `main` (proposed on `claude/amazing-planck-8951ba`); it concerns the AI's requests, not Content |
+   | P3.6c | D760 | Removed: the AI's target, cruise, thruster and equipment changes reach the server as requests after the behaviour tick, and the replication comparison judges the four packets in its exact window (owner, 2026-11-25) |
 
 10. **Increments.** Each increment below is one reviewable pull request,
     merged on green under O41 unless it carries new divergence rows or a
@@ -662,7 +662,7 @@ Paths are relative to `CppSource/`.
     | P3.5d | The story shell and `StoryMissions.cpp`'s overrides | Tier B story trace |
     | P3.6a | SpaceSupport's core: handler order, loot preparation, the players' formations, dock queues (with the dock-list half of `SystemEnter` and `SystemExit`); the trade lanes moved in | `dock_at_station` through the server; scenarios with SpaceSupport on both sides |
     | P3.6b | GCS and voices | D734 removed; a scenario without `comms off` |
-    | P3.6c | NPC ships, callback handles, guides, the NPC name builder (moved from P3.4c), `GenerateCargo` (moved from P3.4c), the NPC formations (`PromoteFormationLeader`, `PickFormationLeader`, `BreakFormationAtDock`'s NPC part; moved from P3.6a), the combat reputation of TU56 and the players' hostile contacts (D845) | D168, D184 removed; D194 rewritten; flee, follow and guide scenarios driven by Content |
+    | P3.6c | NPC ships, callback handles, guides, the NPC name builder (moved from P3.4c), `GenerateCargo` (moved from P3.4c), the NPC formations (`PromoteFormationLeader`, `PickFormationLeader`, `BreakFormationAtDock`'s NPC part; moved from P3.6a), the combat reputation of TU56 and the players' hostile contacts (D845), the AI's target, cruise, thruster and equipment requests to the server (D760) | D168, D184, D760 removed; D194 rewritten; flee, follow and guide scenarios driven by Content |
     | P3.6d | SpacePop, BasePop, encounters, spawn placement, random encounters | Population draws in `load_rand.jsonl`; a populated scenario |
     | P3.6e | BaseSupport | Tier B base session trace |
     | P3.7a | Random-mission tables, vignette tree, generator | Tier A offers from a seed (Gate G3) |
@@ -682,6 +682,10 @@ Paths are relative to `CppSource/`.
     The owner gave the combat reputation (TU56), which point 7 listed
     without an increment, and the NPC-only formation functions to P3.6c on
     2026-11-25 (with P3.6a).
+
+    The owner gave D760 to P3.6c on 2026-11-25: the AI's target, cruise,
+    thruster and equipment changes had no increment, and the replication
+    comparison cannot judge the combat scenario's NPCs without them.
 
     The owner moved `format_f` from P3.5b, SpaceSupport's system-load cases
     and the system-record half of `SystemEnter` and `SystemExit` from P3.6a,

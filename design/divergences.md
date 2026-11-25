@@ -312,7 +312,7 @@ row that the executables' local clock (P3.9) removes.
 With P3.3's replication comparison (`game-logic/tests/replication_oracle.rs`,
 record 0007 point 11) D760 was proposed; the owner accepted it on 2026-11-22
 as a temporary row that the wiring of the AI's target, cruise, thruster and
-equipment changes to the server removes. D761 was added after the comparison's
+equipment changes to the server removes. The owner gave its removal to P3.6c on 2026-11-25. D761 was added after the comparison's
 first CI run, and the owner accepted it on 2026-11-22 as a temporary row that
 P3.4 (Content's system records) removes.
 
