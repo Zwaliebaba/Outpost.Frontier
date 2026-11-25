@@ -512,7 +512,7 @@ pub fn finish_docking(cx: &mut Cx<'_>, key: u64) -> Option<u64> {
             );
             if response == RESPONSE_PROCEED {
                 // The comm system's "now cleared" event (type 2, waited in
-                // the queue) is P3.6b's; its terminal type reads nothing.
+                // the queue).
                 super::space_support::gcs_dock_granted_event(cx, &wait, index, response, true);
                 let dock_type = object_type(cx, wait.target);
                 let _ = api::space_obj::dock(cx, wait.ship, wait.target, index, RESPONSE_PROCEED);
@@ -917,7 +917,7 @@ pub fn dock_type_for_classes(cx: &Cx<'_>, target: u32, classes: &[u32]) -> i32 {
 /// `HandleDockRequest(&Request)` (`:1380-1460`), SpaceSupport's
 /// `DockRequest`: a docking ring asks for terminal 0, anything else for
 /// any; the answer of [`try_start_docking`] goes to the comm system (any
-/// answer but 5; P3.6b) and to the ship: 4 docks it (a gate, a hole or an
+/// answer but 5, a type 2 event) and to the ship: 4 docks it (a gate, a hole or an
 /// airlock takes its followers along, anything else breaks its formation,
 /// releasing the players at a station or a planet), 3 puts it in the
 /// waiting list (behind the players already waiting when a player is in
@@ -1205,8 +1205,9 @@ pub fn queue_dock_launch(
 /// The C++'s loop steps once more after an erase: the block after a made
 /// one waits for the next pass, and the last one wraps to the queue's
 /// first (kept). The terminal locals carry over between blocks, as the
-/// C++'s function-scope locals do. The comm system's hail silence and
-/// launch conversation are P3.6b's (D844).
+/// C++'s function-scope locals do. A ship launched from a station
+/// (`0x200100`) is not hailed for 30 s, and its launch conversation (type
+/// 3) is queued with the terminal's type.
 #[allow(clippy::too_many_lines)]
 pub fn launch_queued_ships(cx: &mut Cx<'_>) -> Option<crate::events::NpcShipKey> {
     let mut result = None;
@@ -1345,11 +1346,17 @@ pub fn launch_queued_ships(cx: &mut Cx<'_>) -> Option<crate::events::NpcShipKey>
                 entry.ship = ship_id;
                 entry.inside = true;
                 q.docking.entries.push(entry);
-                // The dock hail's silence and the launch conversation (the
-                // terminal info read again): P3.6b (D844).
+                if target_type & 0x20_0100 != 0 {
+                    super::gcs::suppress_hail(cx, ship_id, None, 0x1e);
+                }
+                // The launch conversation reads the terminal again into the
+                // local the permission's case shares.
                 if let Ok(i) = api::space_obj::terminal_info(cx, target, index) {
                     info = i;
                 }
+                super::space_support::gcs_launch_event(
+                    cx, system, target, ship_id, index, info.value,
+                );
                 if target_type & 0x100 == 0 {
                     let _ = api::space_obj::launch(cx, ship_id, target, 0);
                 }

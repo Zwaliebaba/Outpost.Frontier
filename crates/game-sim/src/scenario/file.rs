@@ -81,7 +81,8 @@ pub struct Scenario {
     pub sp_collisions: bool,
     /// `comms off`: the oracle clamps Content's comm system (GCS), so its
     /// `rand()` sequence holds no comm rolls (owner, 2026-11-19). The Rust
-    /// world has no comm system until P3.6 and draws none either way.
+    /// world alone has no comm system; a run through the server's hooks
+    /// clamps Content's the same way (P3.6b).
     pub comms_off: bool,
     /// The file is marked `# ci: expect collision`: a contact scenario,
     /// judged to its first contact ([`judge_contact`](super::judge_contact)).
