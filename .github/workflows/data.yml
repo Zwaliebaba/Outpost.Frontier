@@ -232,6 +232,20 @@ jobs:
             exit $code
           }
           "mission_trace: $(@(Get-Content "$trace\mission.jsonl").Count) records" | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+          # P3.5c2 (record 0008 question 9): the Tier B mission session with a ship, Mission_01a's
+          # space part on the bus for a scenario's player (CppSource/Oracle/mission_session.txt,
+          # Content.dll's OracleSimMission* exports), into outpost-oracle\mission_session
+          # (mission.jsonl, mission_objects.jsonl and the run's dispatch.jsonl), which game-logic's
+          # data_dump_mission_session reads.
+          $session = "$env:RUNNER_TEMP\outpost-oracle\mission_session"
+          & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\mission_session.txt" $session | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+          $code = $LASTEXITCODE
+          "Oracle.exe sim mission_session.txt exited with $code" | Add-Content "$env:RUNNER_TEMP\oracle-dump.log"
+          if ($code -ne 0) {
+            Get-Content "$session\session.jsonl" -Tail 20 -ErrorAction SilentlyContinue | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+            exit $code
+          }
+          "mission_session: $(@(Get-Content "$session\mission.jsonl").Count) trace records, $(@(Get-Content "$session\mission_objects.jsonl").Count) object records, $(@(Get-Content "$session\dispatch.jsonl").Count) deliveries" | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
       - name: Run the scenario oracle
         # Work package P2.3 (design/adr/0003-simulation-oracle.md, design/reference-build.md
         # section 10): every scenario in CppSource/Oracle/scenarios three times, each run in a
@@ -566,7 +580,11 @@ jobs:
           # and the C++ restores of its own saves (against outpost-oracle\random_mission_saves;
           # summary rust-random-mission-saves.txt), and P3.5c1's Tier B mission trace
           # (crates/game-logic/tests/mission_trace.rs, against outpost-oracle\mission_trace;
-          # summary rust-mission-trace.txt, exact to the first divergence).
+          # summary rust-mission-trace.txt, exact to the first divergence), and P3.5c2's mission
+          # session with a ship (crates/game-logic/tests/mission_session.rs, against
+          # outpost-oracle\mission_session; summary rust-mission-session.txt: the trigger trace and
+          # the dispatch order exact and the objects within the gross bound up to the first action
+          # without effect, the first divergences reported).
           cmd /c "cargo test --locked --release -p game-logic --tests -- data_dump_ --nocapture 2>&1" | Tee-Object -FilePath $log -Append
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Keep the summaries
@@ -783,6 +801,7 @@ jobs:
             "$env:RUNNER_TEMP\outpost-oracle\rust-created-random-missions.txt",
             "$env:RUNNER_TEMP\outpost-oracle\rust-random-mission-saves.txt",
             "$env:RUNNER_TEMP\outpost-oracle\rust-mission-trace.txt",
+            "$env:RUNNER_TEMP\outpost-oracle\rust-mission-session.txt",
             "$env:RUNNER_TEMP\outpost-sim-summaries\rust-mission-save-loads.txt",
             "$env:RUNNER_TEMP\outpost-sim-summaries\rust-random-mission-save-loads.txt",
             "$env:RUNNER_TEMP\outpost-sim-summaries\rust-system-loads.txt",

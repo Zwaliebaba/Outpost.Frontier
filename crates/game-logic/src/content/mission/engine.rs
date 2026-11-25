@@ -35,13 +35,14 @@
 //! the next one is looked up again. When the trigger is gone after an
 //! action (a nested `PlayerLogout` tore the map down) the pass stops (D972).
 //!
-//! What waits for later increments (D973): the mission object's body
-//! (`FMissionObject::HandleMissionMessage`) but for `AbortMission`,
-//! `Msg0x27` and the dead players of `SpaceEnter`; the random encounters'
-//! messages (P3.6d); the cut scenes, ambient scenes and costume hints of
-//! the base, location and space cases (P3.5c4, P3.6e); the objectives, the
-//! NN path and the nags of the tail (P3.5c5); and the NPC registration of
-//! `NpcShipCreated` (P3.5c2).
+//! The mission object's body (`FMissionObject::HandleMissionMessage`) came
+//! with P3.5c2: the NPC registration of `NpcShipCreated`, the jumpers, the
+//! respawns, the snapshot and the vibes, `ObjectDestroyed` and the logouts
+//! ([`super::spawn`]). What waits for later increments (D973): the random
+//! encounters' messages (P3.6d); the cut scenes, ambient scenes and costume
+//! hints of the base, location and space cases (P3.5c4, P3.6e); the
+//! objectives, the objective timer, the group members, the NN path and the
+//! nags of the tail (P3.5c5).
 
 use game_sim::protocol::fmtstr::FmtStr;
 use neuron_server::controller::ControllerId;

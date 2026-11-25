@@ -34,7 +34,7 @@
 //! An action is cloned out of its trigger before it runs and written back
 //! after it (the engine, [`super::engine`]): `Act_StartDialog` keeps its
 //! delay flag in itself (`MissionAct.cpp:4697-4708`), and `Act_SpawnSolar`
-//! keeps the record's orientation it read (`:4570-4572`).
+//! keeps the record's orientation it read (`:4560-4566`).
 
 use game_sim::protocol::fmtstr::FmtStr;
 use neuron_core::hash::c_str;
