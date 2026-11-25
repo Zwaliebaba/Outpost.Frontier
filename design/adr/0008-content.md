@@ -898,7 +898,11 @@ and 5 to 10 as recommended on 2026-11-22; 4 stays open until P3.6:
    `mission.jsonl`, exact to the first difference). A player with a ship
    would run the C++'s unported spawns and comms, which feed back through
    the bus. The session with a ship and `dispatch.jsonl` comes with P3.5c2,
-   once the spawns are ported.
+   once the spawns are ported. Its judged window (the owner's rule of
+   2026-11-25: to the first action without an effect) ended at tick 2
+   with P3.5c2 and P3.5c3; with P3.5c4's comms, dialogs and scene scripts
+   no action of a later increment runs in the session's 900 ticks on
+   `outdir/`, so the whole session is judged.
 10. **Order of the packages.** P3.4, then P3.5 and P3.6 interleaved as in
     point 10, then P3.7, each increment a pull request merged on green
     under O41. *Recommended as written.*

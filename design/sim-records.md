@@ -1106,8 +1106,15 @@ without effect (D970) in the port's trace, at tick `J`: the trace through
 that record, the deliveries before `J`, the objects within the gross bound
 (500 m) through `J`; reported after (rule accepted by the owner on 2026-11-25). The port's records are kept as
 `rust-mission-session.jsonl` and `rust-mission-objects.jsonl`. On `outdir/`, `J`
-is tick 2: with P3.5c2 at `Act_SetVibe` (18 records), with P3.5c3 at
-`Act_CallSceneScript` (30 records), a P3.5c4 action.
+was tick 2: with P3.5c2 at `Act_SetVibe` (18 records), with P3.5c3 at
+`Act_CallSceneScript` (30 records), a P3.5c4 action. With P3.5c4 no action
+without effect runs in the 900 ticks (the first P3.5c5 or P3.6d action of
+`Mission_01a` comes later), so the whole session is judged: the 1051 trace
+records, every delivery and every object over the 900 ticks. The port
+clamps Content's comm system for the scenario's `comms off` before the
+system's load, as the oracle's `OracleSimSetGcsClamp`. The comms and
+dialogs of the session go to the player's client and feed nothing back
+through the bus; their scripted `CommComplete`s stay the session's own.
 ## `base.jsonl` (`dump base_session`)
 The Tier B base session trace (P3.6e, decision record 0008 points 7 and 10;
 `Content/oracle_base_session.cpp`, the hook `OracleBaseDbTrace` of
