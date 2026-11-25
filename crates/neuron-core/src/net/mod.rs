@@ -8,7 +8,12 @@
 //!   and the implicit compression, and the connection handshake.
 //! - [`transport`]: the [`transport::Transport`] trait the QUIC transports
 //!   implement, and the loopback transport of single player.
+//! - [`pin`]: the server certificate's fingerprint a client pins (T16).
+//! - [`wake`]: the queue from a polling thread to a transport's I/O
+//!   thread (P3.8).
 
 pub mod frame;
+pub mod pin;
 pub mod transport;
+pub mod wake;
 pub mod wire;
