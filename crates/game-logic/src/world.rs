@@ -516,6 +516,36 @@ impl ServerHooks for Hooks<'_> {
         crate::dock::server_requests(&mut cx, requests);
     }
 
+    fn content_answer(
+        &mut self,
+        world: &mut World,
+        _ship: ObjHandle,
+        handle: u32,
+    ) -> Option<game_sim::ai::content::FleeAnswer> {
+        let cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        let take = crate::content::NoDispatch::begin(&cx.logic.content);
+        let answer = crate::content::callbacks::flee_answer(&cx, handle);
+        take.end(&cx.logic.content);
+        answer
+    }
+
+    fn directive_complete(
+        &mut self,
+        world: &mut World,
+        ship: ObjHandle,
+        handle: u32,
+        result: (i32, i32),
+    ) {
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        crate::content::callbacks::directive_complete(&mut cx, ship, handle, result);
+    }
+
     fn after_reap(&mut self, world: &mut World, system: u32) {
         self.logic.objects.sweep(world);
         let queued = self

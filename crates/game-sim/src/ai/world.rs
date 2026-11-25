@@ -781,6 +781,23 @@ pub trait AiWorld {
         let _ = h;
         false
     }
+
+    /// A report to the content callback `handle` of `h`'s manager
+    /// (`pub::AI::ContentCallback`, D710): the world queues it with the
+    /// AI's requests of the server, in the order they come
+    /// (`ServerRequest::Content`), for after the tick. The default drops
+    /// it, as a world without a server has no callback.
+    fn content_event(&mut self, h: Self::Handle, handle: u32, event: super::content::CombatEvent) {
+        let _ = (h, handle, event);
+    }
+
+    /// The answer of `h`'s content callback to `request_flee_destination`
+    /// (`None` for false), which the server gave before the ship's
+    /// behaviour tick (record 0008 point 4). The default has none.
+    fn content_answer(&self, h: Self::Handle) -> Option<super::content::FleeAnswer> {
+        let _ = h;
+        None
+    }
 }
 
 /// What `get_dock_hardpoints` answers: the result and the outputs it

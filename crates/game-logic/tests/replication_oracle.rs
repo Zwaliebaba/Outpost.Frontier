@@ -37,9 +37,9 @@
 //!   multiset: kind, labels and discrete fields equal, the floats within
 //!   their tolerance. The order within a tick is reported, not judged: the
 //!   AI's fire, requests and lanes reach the server after the behaviour
-//!   tick (D622, D651, D730). A difference here is a gross divergence and
-//!   fails the test. The fan-outs of the AI's target, cruise, thruster and
-//!   equipment switches are left out of the judgement (D760). A solar's
+//!   tick (D622, D651, D730), and so do the players' notices of its target,
+//!   cruise, thruster and equipment changes (D857), which are judged too.
+//!   A difference here is a gross divergence and fails the test. A solar's
 //!   affiliation in `SETREPUTATION` is judged (fact F17: Content gives it
 //!   on `SystemLoaded`).
 //! - **An object the port does not have** (a packet about an id that is
@@ -104,7 +104,7 @@ const HP: f32 = 1e-3;
 const AIM: f32 = 1.0;
 
 /// The kinds the exact window judges.
-const JUDGED: [&str; 21] = [
+const JUDGED: [&str; 25] = [
     "SendServerCreateShip",
     "SendServerCreateSolar",
     "SendServerCreateLoot",
@@ -126,11 +126,6 @@ const JUDGED: [&str; 21] = [
     "SendCommonGoTradeLane",
     "SendCommonStopTradeLane",
     "SendCommonJettisonCargo",
-];
-
-/// The fan-outs the port sends only from the callers it has (proposed
-/// D760): reported in the exact window, not judged.
-const TOLERATED: [&str; 4] = [
     "SendCommonSetTarget",
     "SendCommonActivateCruise",
     "SendCommonActivateThrusters",
@@ -1132,23 +1127,14 @@ fn replication_against_the_oracle() {
     type Group<'a> = BTreeMap<(u32, u32), Vec<&'a Pkt>>;
     let mut ours_g: Group = BTreeMap::new();
     let mut theirs_g: Group = BTreeMap::new();
-    let mut tolerated = (0usize, 0usize);
     for p in &ours.pkts {
-        if p.tick < exact_until(p, &our_labels) {
-            if JUDGED.contains(&p.m.as_str()) {
-                ours_g.entry((p.client, p.tick)).or_default().push(p);
-            } else if TOLERATED.contains(&p.m.as_str()) {
-                tolerated.0 += 1;
-            }
+        if p.tick < exact_until(p, &our_labels) && JUDGED.contains(&p.m.as_str()) {
+            ours_g.entry((p.client, p.tick)).or_default().push(p);
         }
     }
     for p in &theirs.pkts {
-        if p.tick < exact_until(p, &their_labels) {
-            if JUDGED.contains(&p.m.as_str()) {
-                theirs_g.entry((p.client, p.tick)).or_default().push(p);
-            } else if TOLERATED.contains(&p.m.as_str()) {
-                tolerated.1 += 1;
-            }
+        if p.tick < exact_until(p, &their_labels) && JUDGED.contains(&p.m.as_str()) {
+            theirs_g.entry((p.client, p.tick)).or_default().push(p);
         }
     }
     let unknown_in = |pkts: &[Pkt], labels: &Labels| -> Vec<String> {
@@ -1232,7 +1218,7 @@ fn replication_against_the_oracle() {
     }
     let _ = writeln!(
         summary,
-        "exact window: {matched} packets equal, {} differ, {order_differs} of {} client ticks in another order (reported: D622, D651, D730)",
+        "exact window: {matched} packets equal, {} differ, {order_differs} of {} client ticks in another order (reported: D622, D651, D730, D857)",
         mismatched.len(),
         groups.len()
     );
@@ -1264,11 +1250,6 @@ fn replication_against_the_oracle() {
             mismatched[0]
         ));
     }
-    let _ = writeln!(
-        summary,
-        "exact window, not judged (D760): {} target, cruise, thruster and equipment packets from the port, {} from the oracle",
-        tolerated.0, tolerated.1
-    );
     for (side, list) in [("port", &unknown.0), ("oracle", &unknown.1)] {
         if !list.is_empty() {
             let shown: Vec<&str> = list.iter().take(10).map(String::as_str).collect();

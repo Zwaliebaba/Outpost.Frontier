@@ -585,6 +585,19 @@ of kind `request`; their terminal states reach the docking points through
 `game-logic/tests/scenario_hooks.rs` runs it through the server's hooks and
 judges its `tick.jsonl` as the other scenarios.
 
+A `content` ship (P3.6c: `content_follow`, `content_guide`, `content_flee`)
+is made by Content.dll's `OracleSimCreateNpcShip` (`FSystemInfo::CreateNpcShip`)
+instead of `pub::SpaceObj::Create`, so its `spawn` record in `session.jsonl`
+has `content` true and the ship's `id`, its state graph and, with `pilot`, the
+pilot's lookup, but no `submit_state` (the NPC ship's constructor submits its
+state with the personality and both callbacks itself); with `flee`, `flee`
+true and the `flee_distance` f. The ship's manager reports to Content, whose
+reactions (the lead and tether events' timers on SpaceSupport, `LeadObject`,
+`FleeRequest`) the scenario records do not show; `tick.jsonl` records the
+ship as any other. `scenario_hooks` makes the ship through the server's
+record (`npc_ships::create_in_system`) and judges `tick.jsonl` as for the
+other scenarios.
+
 ## `run_rand.jsonl`
 
 Only with the environment variable `OUTPOST_ORACLE_RUN_RAND` set (the cross-runner

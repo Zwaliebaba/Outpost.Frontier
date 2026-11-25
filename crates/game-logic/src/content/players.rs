@@ -105,6 +105,12 @@ pub struct PlayerShip {
     pub calm_since: f64,
     /// `HostileContactCount` (`+0x18c`).
     pub hostile_contact_count: i32,
+    /// `HostileContacts` (TU46): the hostile NPC ships near the ship
+    /// ([`super::combat_reputation::update_hostile_contacts`], P3.6c).
+    pub hostile_contacts: Vec<super::combat_reputation::HostileContact>,
+    /// `Attackers` (TU20 `+0x14`): the ship's hits on each victim
+    /// ([`super::combat_reputation`], P3.6c).
+    pub attackers: [super::combat_reputation::Attacker; 8],
 }
 
 impl PlayerShip {
@@ -129,6 +135,8 @@ impl PlayerShip {
             target: 0,
             calm_since: -1.0,
             hostile_contact_count: 0,
+            hostile_contacts: Vec::new(),
+            attackers: [super::combat_reputation::Attacker::default(); 8],
         }
     }
 }

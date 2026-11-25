@@ -327,6 +327,21 @@ pub trait ScenarioServer {
         let _ = (world, system, objects);
     }
 
+    /// A `content` ship (P3.6c): the server makes it as Content's NPC ship
+    /// (`FSystemInfo::CreateNpcShip`, which submits its state graph,
+    /// personality and callbacks) and answers its handle; `None` (the
+    /// default, without a server) makes it as any other ship.
+    fn spawn_content_ship(
+        &mut self,
+        world: &mut World,
+        system: u32,
+        object: &super::file::ObjDesc,
+        personality: Option<crate::ai::personality::Personality>,
+    ) -> Option<Option<ObjHandle>> {
+        let _ = (world, system, object, personality);
+        None
+    }
+
     /// After tick `tick`'s step of `dt` seconds, before the global time
     /// advances: the server's per-frame work after the system's step (the
     /// observers' updates of `StarSystem_Update`).
@@ -419,7 +434,29 @@ pub fn run_with(
     // The seed ensemble replaces the seed here only (owner, 2026-11-19).
     world.rng().seed(s.reseed.unwrap_or(s.seed));
     for o in &s.objects {
-        let h = if o.ship {
+        let personality_of = |o: &super::file::ObjDesc| {
+            o.pilot
+                .as_ref()
+                .and_then(|_| ai.personalities.get(&o.name).copied())
+        };
+        let content = if o.ship && o.content {
+            server.spawn_content_ship(&mut world, system, o, personality_of(o))
+        } else {
+            None
+        };
+        let h = if let Some(h) = content {
+            if let Some(m) = h.and_then(|h| world.behavior_manager(h)) {
+                let pf = &m.state.pathfind;
+                pathfind_phases.get_or_insert([pf.timer_1e0, pf.timer_1e8, pf.timer_20c]);
+                managers.push(format!(
+                    "{}: manager timers {:08x?} pathfind {:08x?}",
+                    o.name,
+                    m.state.timers().map(f32::to_bits),
+                    [pf.timer_1e0, pf.timer_1e8, pf.timer_20c].map(f32::to_bits)
+                ));
+            }
+            h
+        } else if o.ship {
             let mut spawn = ShipSpawn::new(
                 create_id(o.archetype.as_bytes()),
                 create_id(o.loadout.as_bytes()),

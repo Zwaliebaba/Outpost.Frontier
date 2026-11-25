@@ -28,7 +28,7 @@ use neuron_server::controller::ControllerId;
 
 /// A Content NPC ship (`FContentNpcShip`, `FContentShipBase`): the key the
 /// content side gives it (P3.6).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NpcShipKey(pub u32);
 
 /// A server phantom (`ServerPhantom*`, carried as a dword by
