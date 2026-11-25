@@ -347,9 +347,159 @@ pub struct BaseEntry {
     pub news: Vec<Record<NewsBroadcastProperties>>,
 }
 
+/// The kinds of record the base database keeps (the oracle's numbering of
+/// `OracleBaseDbTrace`, `Server/server_basedb.cpp`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecordKind {
+    /// A character (`CharacterRecord`).
+    Character = 1,
+    /// A scripted behaviour (`BehaviorRecord`).
+    Behavior = 2,
+    /// An ambient script (`AmbientScriptRecord`).
+    Ambient = 3,
+    /// A mission vendor offer (`MissionComputerRecord`).
+    Vendor = 4,
+    /// A news broadcast (`NewsBroadcastRecord`).
+    News = 5,
+}
+
+impl RecordKind {
+    /// The name the trace writes.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Character => "character",
+            Self::Behavior => "behavior",
+            Self::Ambient => "ambient",
+            Self::Vendor => "vendor",
+            Self::News => "news",
+        }
+    }
+}
+
+/// One event of the base database's trace (the Tier B base session trace
+/// of work package P3.6e; the C++ side is the oracle's `OracleBaseDbTrace`
+/// hook in `Server/server_basedb.cpp`). Nothing records them in a game
+/// run: [`BaseDb::trace`] is `None` there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DbEvent {
+    /// A record made: its handle, its session filter and its properties as
+    /// they are marshalled to a client (the key, posture and type set).
+    Create {
+        /// The record's kind.
+        kind: RecordKind,
+        /// The handle the creator returns.
+        handle: u32,
+        /// The session filter.
+        filter: u32,
+        /// The marshalled properties.
+        data: Vec<u8>,
+    },
+    /// A destroy of a handle, `found` when the handle's map had it.
+    Destroy {
+        /// The record's kind.
+        kind: RecordKind,
+        /// The handle.
+        handle: u32,
+        /// Whether the record was found.
+        found: bool,
+    },
+    /// `set_character_behavior`, `found` when the character's record was
+    /// changed.
+    SetBehavior {
+        /// The character's handle.
+        character: u32,
+        /// The behaviour's handle.
+        behavior: u32,
+        /// Whether the record was found.
+        found: bool,
+    },
+    /// `mission_vendor_acceptance`: the answer as it is marshalled.
+    Acceptance {
+        /// The offer's handle.
+        handle: u32,
+        /// Accepted.
+        accepted: bool,
+        /// The session it goes to.
+        session: u32,
+        /// The marshalled `MissionVendorAcceptance`.
+        data: Vec<u8>,
+    },
+    /// `pub::GF::ReportWhyMissionVendorEmpty`.
+    WhyEmpty {
+        /// The client.
+        client: u32,
+        /// The reason.
+        reason: u32,
+    },
+}
+
+/// Lower-case hexadecimal of bytes.
+fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        let _ = write!(out, "{b:02x}");
+    }
+    out
+}
+
+impl DbEvent {
+    /// The event as one line of the base session trace, after the step's
+    /// number: `{"rec":..,"step":N,..}` in the oracle's field order.
+    #[must_use]
+    pub fn to_json(&self, step: u32) -> String {
+        match self {
+            Self::Create {
+                kind,
+                handle,
+                filter,
+                data,
+            } => format!(
+                "{{\"rec\":\"create\",\"step\":{step},\"kind\":\"{}\",\"handle\":{handle},\"filter\":{filter},\"data\":\"{}\"}}",
+                kind.name(),
+                hex(data)
+            ),
+            Self::Destroy {
+                kind,
+                handle,
+                found,
+            } => format!(
+                "{{\"rec\":\"destroy\",\"step\":{step},\"kind\":\"{}\",\"handle\":{handle},\"found\":{}}}",
+                kind.name(),
+                u8::from(*found)
+            ),
+            Self::SetBehavior {
+                character,
+                behavior,
+                found,
+            } => format!(
+                "{{\"rec\":\"set_behavior\",\"step\":{step},\"character\":{character},\"behavior\":{behavior},\"found\":{}}}",
+                u8::from(*found)
+            ),
+            Self::Acceptance {
+                handle,
+                accepted,
+                session,
+                data,
+            } => format!(
+                "{{\"rec\":\"acceptance\",\"step\":{step},\"handle\":{handle},\"accepted\":{},\"session\":{session},\"data\":\"{}\"}}",
+                u8::from(*accepted),
+                hex(data)
+            ),
+            Self::WhyEmpty { client, reason } => format!(
+                "{{\"rec\":\"why_empty\",\"step\":{step},\"client\":{client},\"reason\":{reason}}}"
+            ),
+        }
+    }
+}
+
 /// The base database (`BaseDB`).
 #[derive(Clone, Debug, Default)]
 pub struct BaseDb {
+    /// The trace of the base session comparison (P3.6e): `Some` only while
+    /// a test records it ([`start_trace`], [`take_trace`]).
+    pub trace: Option<Vec<DbEvent>>,
     /// The bases, in the base list's order.
     pub bases: Vec<BaseEntry>,
     base_map: BTreeMap<u32, usize>,
@@ -429,6 +579,33 @@ pub(crate) fn base_db<'c>(cx: &'c mut Cx<'_>) -> &'c mut BaseDb {
         cx.logic.bases = Some(BaseDb::new(&cx.world.data().bases));
     }
     cx.logic.bases.get_or_insert_with(BaseDb::default)
+}
+
+/// Starts recording the base database's events (the base session trace;
+/// never in a game run).
+pub fn start_trace(cx: &mut Cx<'_>) {
+    base_db(cx).trace = Some(Vec::new());
+}
+
+/// The events recorded since the last call, the recording kept on.
+pub fn take_trace(cx: &mut Cx<'_>) -> Vec<DbEvent> {
+    base_db(cx)
+        .trace
+        .as_mut()
+        .map(std::mem::take)
+        .unwrap_or_default()
+}
+
+/// Stops recording.
+pub fn stop_trace(cx: &mut Cx<'_>) {
+    base_db(cx).trace = None;
+}
+
+/// One event, when the trace is on.
+pub(crate) fn trace_event(cx: &mut Cx<'_>, event: impl FnOnce() -> DbEvent) {
+    if let Some(trace) = base_db(cx).trace.as_mut() {
+        trace.push(event());
+    }
 }
 
 fn invalid_base(cx: &mut Cx<'_>, id: u32) {
@@ -874,6 +1051,12 @@ pub fn create_character(cx: &mut Cx<'_>, props: &CharacterProperties, filter: u3
     record.props.char_type = 0;
     record.props.posture = posture;
     let sessions = db.bases[bi].rooms[ri].sessions.clone();
+    trace_event(cx, || DbEvent::Create {
+        kind: RecordKind::Character,
+        handle: handle as u32,
+        filter,
+        data: marshalled(|w| record.props.marshal(w)),
+    });
     broadcast(cx, &sessions, &record);
     record.dirty = false;
     let db = base_db(cx);
@@ -916,6 +1099,12 @@ fn not_found(cx: &mut Cx<'_>, line: u32, what: &str, key: u32) {
 
 /// `BaseDB::destroy_character`.
 pub fn destroy_character(cx: &mut Cx<'_>, handle: u32) {
+    let found = base_db(cx).character_map.contains_key(&handle);
+    trace_event(cx, || DbEvent::Destroy {
+        kind: RecordKind::Character,
+        handle,
+        found,
+    });
     match base_db(cx).character_map.get(&handle).copied() {
         None => {
             not_found(cx, 0x720, "npc character", handle);
@@ -938,8 +1127,14 @@ pub fn destroy_character(cx: &mut Cx<'_>, handle: u32) {
 pub fn set_character_behavior(cx: &mut Cx<'_>, handle: u32, behavior: u32) {
     let Some((bi, ri)) = base_db(cx).character_map.get(&handle).copied() else {
         not_found(cx, 0x720, "npc character", handle);
+        trace_event(cx, || DbEvent::SetBehavior {
+            character: handle,
+            behavior,
+            found: false,
+        });
         return;
     };
+    let mut found = false;
     if let Some(record) = base_db(cx).bases[bi].rooms[ri]
         .characters
         .iter_mut()
@@ -947,7 +1142,13 @@ pub fn set_character_behavior(cx: &mut Cx<'_>, handle: u32, behavior: u32) {
     {
         record.props.behavior_id = behavior;
         record.dirty = true;
+        found = true;
     }
+    trace_event(cx, || DbEvent::SetBehavior {
+        character: handle,
+        behavior,
+        found,
+    });
 }
 
 /// `BaseDB::create_behavior`: a scripted behaviour in the room `field_04`
@@ -967,6 +1168,12 @@ pub fn create_behavior(cx: &mut Cx<'_>, props: &ScriptBehavior, filter: u32) -> 
     };
     record.props.behavior_id = handle as i32;
     let sessions = db.bases[bi].rooms[ri].sessions.clone();
+    trace_event(cx, || DbEvent::Create {
+        kind: RecordKind::Behavior,
+        handle,
+        filter,
+        data: marshalled(|w| record.props.marshal(w)),
+    });
     broadcast(cx, &sessions, &record);
     record.dirty = false;
     let db = base_db(cx);
@@ -977,6 +1184,12 @@ pub fn create_behavior(cx: &mut Cx<'_>, props: &ScriptBehavior, filter: u32) -> 
 
 /// `BaseDB::destroy_behavior`.
 pub fn destroy_behavior(cx: &mut Cx<'_>, handle: u32) {
+    let found = base_db(cx).behavior_map.contains_key(&handle);
+    trace_event(cx, || DbEvent::Destroy {
+        kind: RecordKind::Behavior,
+        handle,
+        found,
+    });
     match base_db(cx).behavior_map.get(&handle).copied() {
         None => {
             not_found(cx, 0x774, "behavior", handle);
@@ -1009,6 +1222,12 @@ pub fn create_ambient_script(cx: &mut Cx<'_>, props: &AmbientScriptProperties, f
     };
     record.props.key = handle as i32;
     let sessions = db.bases[bi].rooms[ri].sessions.clone();
+    trace_event(cx, || DbEvent::Create {
+        kind: RecordKind::Ambient,
+        handle,
+        filter,
+        data: marshalled(|w| record.props.marshal(w)),
+    });
     broadcast(cx, &sessions, &record);
     record.dirty = false;
     let db = base_db(cx);
@@ -1019,6 +1238,12 @@ pub fn create_ambient_script(cx: &mut Cx<'_>, props: &AmbientScriptProperties, f
 
 /// `BaseDB::destroy_ambient_script`.
 pub fn destroy_ambient_script(cx: &mut Cx<'_>, handle: u32) {
+    let found = base_db(cx).ambient_map.contains_key(&handle);
+    trace_event(cx, || DbEvent::Destroy {
+        kind: RecordKind::Ambient,
+        handle,
+        found,
+    });
     match base_db(cx).ambient_map.get(&handle).copied() {
         None => {
             not_found(cx, 0x84a, "ambient script", handle);
@@ -1052,6 +1277,12 @@ pub fn create_mission_vendor(cx: &mut Cx<'_>, props: &MissionVendorProperties, f
     };
     record.props.key = handle as i32;
     let sessions = db.bases[bi].sessions.clone();
+    trace_event(cx, || DbEvent::Create {
+        kind: RecordKind::Vendor,
+        handle,
+        filter,
+        data: marshalled(|w| record.props.marshal(w)),
+    });
     broadcast(cx, &sessions, &record);
     record.dirty = false;
     let db = base_db(cx);
@@ -1062,6 +1293,12 @@ pub fn create_mission_vendor(cx: &mut Cx<'_>, props: &MissionVendorProperties, f
 
 /// `BaseDB::destroy_mission_vendor`.
 pub fn destroy_mission_vendor(cx: &mut Cx<'_>, handle: u32) {
+    let found = base_db(cx).vendor_map.contains_key(&handle);
+    trace_event(cx, || DbEvent::Destroy {
+        kind: RecordKind::Vendor,
+        handle,
+        found,
+    });
     match base_db(cx).vendor_map.get(&handle).copied() {
         None => {
             not_found(cx, 0x7b2, "mission vendor offer", handle);
@@ -1115,6 +1352,12 @@ pub fn mission_vendor_acceptance(
         reason: reason.clone(),
     };
     let data = marshalled(|w| acceptance.marshal(w));
+    trace_event(cx, || DbEvent::Acceptance {
+        handle,
+        accepted,
+        session,
+        data: data.clone(),
+    });
     send(cx, session, GfMissionVendorAcceptance { data });
 }
 
@@ -1134,6 +1377,12 @@ pub fn create_news_broadcast(cx: &mut Cx<'_>, props: &NewsBroadcastProperties, f
     };
     record.props.key = handle as i32;
     let sessions = db.bases[bi].sessions.clone();
+    trace_event(cx, || DbEvent::Create {
+        kind: RecordKind::News,
+        handle,
+        filter,
+        data: marshalled(|w| record.props.marshal(w)),
+    });
     broadcast(cx, &sessions, &record);
     record.dirty = false;
     let db = base_db(cx);
@@ -1144,6 +1393,12 @@ pub fn create_news_broadcast(cx: &mut Cx<'_>, props: &NewsBroadcastProperties, f
 
 /// `BaseDB::destroy_news_broadcast`.
 pub fn destroy_news_broadcast(cx: &mut Cx<'_>, handle: u32) {
+    let found = base_db(cx).news_map.contains_key(&handle);
+    trace_event(cx, || DbEvent::Destroy {
+        kind: RecordKind::News,
+        handle,
+        found,
+    });
     match base_db(cx).news_map.get(&handle).copied() {
         None => {
             not_found(cx, 0x809, "news broadcast", handle);

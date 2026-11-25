@@ -470,3 +470,27 @@ pub fn load_faction_goods(cx: &Cx<'_>, factions: &mut Factions, reader: &mut Ini
         }
     }
 }
+
+/// `GetFactionHostileGroups(Group, Out, Count)` (`FactionProps.cpp:1077-1097`):
+/// the groups of `group`'s empathy rates from the lowest while their rate is
+/// below zero, `0xffffffff` after them, into `out`. Without an empathy entry
+/// for the group `out` is left as it is.
+pub fn faction_hostile_groups(
+    empathy: &BTreeMap<u32, FactionEmpathy>,
+    group: u32,
+    out: &mut [u32],
+) {
+    let Some(entry) = empathy.get(&group) else {
+        return;
+    };
+    let mut rates = entry.empathy_rates.iter().peekable();
+    for slot in out.iter_mut() {
+        match rates.peek() {
+            Some(rate) if rate.rate < 0.0 => {
+                *slot = rate.group;
+                rates.next();
+            }
+            _ => *slot = u32::MAX,
+        }
+    }
+}

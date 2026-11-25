@@ -400,6 +400,7 @@ pub fn mission_vendor_acceptance(
 /// `ReportWhyMissionVendorEmpty`: `SendServerGFMissionVendorWhyEmpty`, the
 /// reason in its byte. Always 0.
 pub fn report_why_mission_vendor_empty(cx: &mut Cx<'_>, client: u32, reason: u32) -> i32 {
+    bases::trace_event(cx, || bases::DbEvent::WhyEmpty { client, reason });
     cx.logic.client.send(
         client,
         ToClient::Server(
