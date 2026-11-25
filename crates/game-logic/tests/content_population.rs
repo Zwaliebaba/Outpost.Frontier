@@ -395,3 +395,85 @@ fn space_pop_populates_he01_around_a_player() {
     assert!(first.1 >= first.0);
     assert_eq!(run(), Some(first), "the population does not repeat");
 }
+
+#[test]
+fn the_shipped_encounters_stay_in_bounds() {
+    // The reads the C++ makes without a test (D1060, D1061, D1063): after
+    // every system's full load, each validated zone has a current
+    // permutation, every permutation entry names a formation, a formation
+    // tied to another names one, a line's npc archetype exists, and a
+    // patrol formation's zone has a path with segments in the zone.
+    let Some(mut world) = world() else {
+        println!("outdir/ is missing: the encounters were not checked");
+        return;
+    };
+    let mut logic = Logic::new(Box::new(RecordingSink::default()), 16, true);
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    start(&mut cx, &[]);
+    let systems: Vec<u32> = cx.logic.server_world.systems.keys().copied().collect();
+    for &system in &systems {
+        world::load(&mut cx, system);
+    }
+    let tables = cx.logic.content.tables.clone();
+    let mut problems = Vec::new();
+    let mut encounters = 0;
+    for (id, record) in &cx.logic.content.state.systems {
+        for zone in &record.zones {
+            for e in &zone.population.encounters {
+                encounters += 1;
+                let p = &e.parameters;
+                let at = format!("system {id:#x} zone {:#x} encounter {:#x}", zone.zone_id, p.nickname);
+                if zone.population.valid && p.current_permutation.is_none() {
+                    problems.push(format!("{at}: no current permutation"));
+                }
+                if p.formations.is_empty() {
+                    problems.push(format!("{at}: no formation"));
+                }
+                for perm in &p.permutations {
+                    for entry in &perm.entries {
+                        if usize::try_from(entry.formation_index)
+                            .ok()
+                            .is_none_or(|i| i >= p.formations.len())
+                        {
+                            problems.push(format!("{at}: entry {}", entry.formation_index));
+                        }
+                    }
+                }
+                for f in &p.formations {
+                    if f.feeling_to_formation == 1
+                        && usize::try_from(f.feeling_value)
+                            .ok()
+                            .is_none_or(|i| i >= p.formations.len())
+                    {
+                        problems.push(format!("{at}: feeling_to_formation {}", f.feeling_value));
+                    }
+                    for line in &f.ships {
+                        if line.npc_arch != 0 && tables.npc_ship(line.npc_arch).is_none() {
+                            problems.push(format!("{at}: npc arch {:#x}", line.npc_arch));
+                        }
+                    }
+                    if f.behavior == 3 {
+                        let segments = zone
+                            .path
+                            .and_then(|i| record.paths.get(i))
+                            .and_then(|path| path.zone_segments(zone.zone_id))
+                            .unwrap_or_default();
+                        if segments.is_empty() {
+                            problems.push(format!("{at}: a patrol without a path"));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    println!(
+        "{} systems, {encounters} zone encounters, {} problems",
+        systems.len(),
+        problems.len()
+    );
+    assert!(encounters > 0);
+    assert!(problems.is_empty(), "{problems:#?}");
+}
