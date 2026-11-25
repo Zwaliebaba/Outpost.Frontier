@@ -364,6 +364,9 @@ pub struct World {
     pub(crate) time: f64,
     pub(crate) events: Vec<WorldEvent>,
     behavior: Option<Box<dyn BehaviorHook>>,
+    /// The content callback's flee answer for the ship whose behaviour
+    /// tick runs (`ServerHooks::content_answer`, asked before it).
+    pub(crate) content_answer: Option<(ObjHandle, Option<crate::ai::content::FleeAnswer>)>,
     pub(crate) behavior_managers: BTreeMap<ObjHandle, crate::ai::manager::BehaviorManager<World>>,
     /// `GAvoidIndexTableShuffled`: the first obstacle probe of the process
     /// has drawn its 50 `rand()` values.
@@ -494,6 +497,7 @@ impl World {
             time: 0.0,
             events: Vec::new(),
             behavior: None,
+            content_answer: None,
             behavior_managers: BTreeMap::new(),
             avoid_table_shuffled: false,
             attitudes: BTreeMap::new(),

@@ -174,6 +174,8 @@ pub struct SystemInfo {
     pub flagged_objects: Vec<u32>,
     /// The players in the system (`+0xb8`), by id, added once each.
     pub players: Vec<u32>,
+    /// `SpaceObjs` (`+0xdc`): the system's NPC ships (P3.6c).
+    pub space_objs: Vec<crate::events::NpcShipKey>,
     /// The trade lanes (`+0xe8`).
     pub trade_lanes: Vec<TradeLane>,
     /// `TradeLaneByRing` (`+0xf8`): a ring to its lane's index. The full
@@ -203,6 +205,7 @@ impl SystemInfo {
             mission_objects: Vec::new(),
             flagged_objects: Vec::new(),
             players: Vec::new(),
+            space_objs: Vec::new(),
             trade_lanes: Vec::new(),
             lane_by_ring: BTreeMap::new(),
             jumps: Vec::new(),
@@ -582,8 +585,8 @@ pub fn load_solar_npcs(cx: &mut Cx<'_>, record: &mut SystemInfo, reader: &mut In
 /// `FSystemInfo::LoadFull` (`:367-380`), SpaceSupport's `SystemLoaded`:
 /// the system file's solar NPCs, in single player SpacePop's solar
 /// detection from the record, the load with encounters over the same
-/// reader, then the trade lanes from the live rings. The solar NPCs'
-/// personality states (`SubmitPersonalityState(true)`) are P3.6c's (D803).
+/// reader, then the trade lanes from the live rings, then each solar NPC's
+/// personality state (`SubmitPersonalityState(true)`).
 /// Nothing for a system without a record, where the C++ dereferences null
 /// (D801).
 pub fn load_full(cx: &mut Cx<'_>, system: u32) {
@@ -599,16 +602,42 @@ pub fn load_full(cx: &mut Cx<'_>, system: u32) {
         load_from_reader(cx, record, Some(&mut reader), true);
         rebuild_trade_lanes(cx, record);
     });
+    // `SubmitPersonalityState(true)` of every solar NPC, after the record is
+    // back in its slot (the submit reaches Content's callbacks).
+    let count = cx
+        .logic
+        .content
+        .state
+        .systems
+        .get(&system)
+        .map_or(0, |r| r.solar_npcs.len());
+    for at in 0..count {
+        super::solar_npcs::submit_personality_state(cx, system, at, true);
+    }
 }
 
 /// `FSystemInfo::UnloadFull` (`:383-398`), SpaceSupport's
 /// `SystemUnloaded`: the solar NPCs, mission objects and flagged objects
 /// emptied (the NPCs' reputation handles go; their vibes keep the
 /// faction), in single player SpacePop's solar detection on again, then
-/// [`unload`]. The C++ first destroys the NPC ships and mission objects
-/// when no player there has a ship, which P3.5 and P3.6 bring. Nothing for
-/// a system without a record (D801).
+/// [`unload`]. First the NPC ships and mission objects are destroyed when
+/// no player there has a ship ([`destroy_objects_if_unoccupied`]). Nothing
+/// for a system without a record (D801).
 pub fn unload_full(cx: &mut Cx<'_>, system: u32) {
+    if !cx.logic.content.state.systems.contains_key(&system) {
+        return;
+    }
+    destroy_objects_if_unoccupied(cx, system);
+    let Some(record) = cx.logic.content.state.systems.get_mut(&system) else {
+        return;
+    };
+    // `SubmitPersonalityState(false)` does nothing; the solars' callback
+    // handles name nothing once they go (D850).
+    for npc in &record.solar_npcs {
+        if npc.callback != 0 {
+            cx.logic.content.state.callbacks.release(npc.callback);
+        }
+    }
     let Some(record) = cx.logic.content.state.systems.get_mut(&system) else {
         return;
     };
@@ -915,7 +944,7 @@ pub fn destroy_flagged_objects_away_from_players(cx: &mut Cx<'_>, system: u32) {
 
 /// `FSystemInfo::DestroyObjectsIfUnoccupied` (`:436-462`), single player's
 /// `RemovePlayer` and `OnPlayerChanged`: with no player of the record in a
-/// ship, the record's NPC ships (P3.6c: none yet) and then its mission
+/// ship, the record's NPC ships (`DESTROY_NORMAL`) and then its mission
 /// objects (`DESTROY_NORMAL`, then `RemoveMissionObject`) are destroyed.
 pub fn destroy_objects_if_unoccupied(cx: &mut Cx<'_>, system: u32) {
     let state = &cx.logic.content.state;
@@ -929,10 +958,37 @@ pub fn destroy_objects_if_unoccupied(cx: &mut Cx<'_>, system: u32) {
     {
         return;
     }
+    // `DestroySpaceObj` of a copy of the space objects, then the mission
+    // objects.
+    let ships: Vec<u32> = record
+        .space_objs
+        .iter()
+        .filter_map(|k| state.npc_ships.get(k).map(|s| s.base.ship))
+        .collect();
     let objects = record.mission_objects.clone();
+    for ship in ships {
+        let _ = api::space_obj::destroy(cx, ship, 0);
+    }
     for object in objects {
         let _ = api::space_obj::destroy(cx, object, 0);
         remove_mission_object(cx, system, object);
+    }
+}
+
+/// `FSystemInfo::RemoveSpaceObj(Id, bDelete)` (`SystemInfo.cpp:543-556`):
+/// the first NPC ship with the id leaves the record's space objects, and
+/// with `delete` the ship is destroyed ([`super::npc_ships::destroy`]).
+pub fn remove_space_obj(cx: &mut Cx<'_>, system: u32, object: u32, delete: bool) {
+    let Some(key) = super::ships::find_space_obj(&cx.logic.content.state, system, object) else {
+        return;
+    };
+    if delete {
+        super::npc_ships::destroy(cx, key);
+    }
+    if let Some(record) = cx.logic.content.state.systems.get_mut(&system)
+        && let Some(at) = record.space_objs.iter().position(|k| *k == key)
+    {
+        record.space_objs.remove(at);
     }
 }
 

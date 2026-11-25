@@ -49,14 +49,22 @@
 //! core ([`space_support`]): its handler's order, the dock queues
 //! ([`dock_queues`]), the formations ([`formations`]) over Content's ships
 //! ([`ships`]), the loot preparation, and the trade-lane requests
-//! ([`tradelane_requests`]) moved in from `crate::tradelane`.
+//! ([`tradelane_requests`]) moved in from `crate::tradelane`. P3.6c brings
+//! the NPC ships ([`npc_ships`]) with their callback handles
+//! ([`callbacks`]), directives ([`directives`]), reputation handles
+//! ([`rep_handles`]) and guides ([`guides`]).
 
 pub mod base_support;
 /// `missions\mBases.ini` (TU17, TU22; P3.4c).
 pub mod bases;
+/// Content's callback objects as handles (record 0008 point 4; P3.6c).
+pub mod callbacks;
 /// The faction, archetype and cargo helpers (TU44; P3.4c).
 pub mod cargo;
 pub mod counter;
+/// The `[ObjList]` directive objects Content's ships run (TU40, TU50;
+/// P3.6c).
+pub mod directives;
 /// The dock queues (TU53 `DockQueues.cpp`; P3.6a).
 pub mod dock_queues;
 /// The encounter parameters (TU29; P3.4c).
@@ -66,15 +74,23 @@ pub mod formations;
 pub mod game_support;
 /// The gate locks (TU53; P3.4d).
 pub mod gate_locks;
+/// The NPC guides (TU37; P3.6c).
+pub mod guides;
 pub mod mission;
 /// The NPC character descriptions and the specific NPCs (TU42; P3.4c).
 pub mod npc_desc;
+/// The NPC name builder (TU42; P3.6c).
+pub mod npc_names;
+/// The NPC ships and their event list (TU43, TU53; P3.6c).
+pub mod npc_ships;
 /// The patrol paths (TU45; P3.4c).
 pub mod patrol_paths;
 /// The player states (TU46; P3.4d).
 pub mod players;
 pub mod population;
 pub mod random_mission;
+/// The reputation handles of Content's space objects (TU19; P3.6c).
+pub mod rep_handles;
 pub mod router;
 /// Content's ships, the ship base of TU50 (P3.6a).
 pub mod ships;
@@ -185,6 +201,18 @@ pub struct ContentState {
     /// `GLastFormationId` (`Content/GameSupport.cpp:770`): the last
     /// formation id handed out (P3.6a, [`formations::allocate_id`]).
     pub last_formation_id: u32,
+    /// The NPC ships (`FContentNpcShip`, P3.6c, [`npc_ships`]), by key.
+    pub npc_ships: BTreeMap<crate::events::NpcShipKey, npc_ships::NpcShip>,
+    /// The last NPC ship key handed out.
+    pub next_npc_ship: u32,
+    /// The callback handles (record 0008 point 4, [`callbacks`]).
+    pub callbacks: callbacks::CallbackHandles,
+    /// The reputation handles of the NPC ships ([`rep_handles`]).
+    pub rep_handles: rep_handles::RepHandles,
+    /// The directive objects of Content's ships ([`directives`]).
+    pub directives: directives::DirectiveArena,
+    /// `GNpcShipEvents` (`Content/NpcShip.cpp:950`, [`npc_ships`]).
+    pub npc_ship_events: npc_ships::NpcShipEvents,
 }
 
 impl ContentState {
@@ -217,6 +245,12 @@ impl ContentState {
             story_debug: 0,
             dock_queues: dock_queues::DockQueues::default(),
             last_formation_id: 0,
+            npc_ships: BTreeMap::new(),
+            next_npc_ship: 0,
+            callbacks: callbacks::CallbackHandles::default(),
+            rep_handles: rep_handles::RepHandles::default(),
+            directives: directives::DirectiveArena::default(),
+            npc_ship_events: npc_ships::NpcShipEvents::default(),
         }
     }
 }

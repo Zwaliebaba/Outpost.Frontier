@@ -1121,3 +1121,15 @@ mod tests {
         assert!((root - 5.0).abs() < 0.05, "{root}");
     }
 }
+
+/// `QueueDockLaunch(Params, DockTarget, OutShip)` (TU53): the block queued
+/// to launch from the dock target. P3.6c4 brings the launch queues; until
+/// then nothing is queued (no caller passes a dock target yet).
+pub fn queue_dock_launch(
+    cx: &mut Cx<'_>,
+    params: &super::npc_ships::NpcShipParams,
+    dock_target: u32,
+) -> (bool, Option<crate::events::NpcShipKey>) {
+    let _ = (cx, params, dock_target);
+    (false, None)
+}

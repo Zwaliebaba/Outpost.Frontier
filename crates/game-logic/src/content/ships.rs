@@ -4,25 +4,28 @@
 //! share, as the dock queues, the formations and the loot preparation read
 //! it.
 //!
-//! A ship is named by a [`ShipKey`]. Until the NPC ships come (P3.6c) the
-//! only Content ships are the players' ship objects
-//! ([`PlayerShip`](super::players::PlayerShip)), so every lookup of a
-//! system record's space objects (`FSystemInfo::SpaceObjs`) finds nothing
-//! and every ship's vtable slot 1 (`Slot04`, true for an NPC ship) is false.
+//! A ship is named by a [`ShipKey`]: the players' ship objects
+//! ([`PlayerShip`](super::players::PlayerShip)) and, with P3.6c, the NPC
+//! ships of Content's arena ([`super::npc_ships`]), which embed the same
+//! TU50 base. A system record's space objects (`FSystemInfo::SpaceObjs`)
+//! are its NPC ships, and vtable slot 1 (`Slot04`) is true for those.
 
 use neuron_core::math::Vector;
 
 use super::ContentState;
 use super::players::{self, PlayerShip};
 use crate::api;
+use crate::events::NpcShipKey;
 use crate::server::Cx;
 
-/// A Content ship: the ship object of a player (by the player's id). The
-/// NPC ships of P3.6c join as a second variant.
+/// A Content ship: the ship object of a player (by the player's id) or an
+/// NPC ship of Content's arena.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShipKey {
     /// `FContentPlayerState::ShipObject` of this player.
     Player(u32),
+    /// An NPC ship (`FContentNpcShip`).
+    Npc(NpcShipKey),
 }
 
 /// The ship base of `key`, `None` when it is gone.
@@ -30,6 +33,7 @@ pub enum ShipKey {
 pub fn base(state: &ContentState, key: ShipKey) -> Option<&PlayerShip> {
     match key {
         ShipKey::Player(player) => state.players.get(&player)?.ship.as_ref(),
+        ShipKey::Npc(npc) => state.npc_ships.get(&npc).map(|s| &s.base),
     }
 }
 
@@ -37,6 +41,7 @@ pub fn base(state: &ContentState, key: ShipKey) -> Option<&PlayerShip> {
 pub fn base_mut(state: &mut ContentState, key: ShipKey) -> Option<&mut PlayerShip> {
     match key {
         ShipKey::Player(player) => state.players.get_mut(&player)?.ship.as_mut(),
+        ShipKey::Npc(npc) => state.npc_ships.get_mut(&npc).map(|s| &mut s.base),
     }
 }
 
@@ -88,17 +93,29 @@ pub fn set_formation(
 /// Vtable slot 1 (`Slot04`): true for an NPC ship, false for a player's.
 #[must_use]
 pub fn is_npc(key: ShipKey) -> bool {
-    match key {
-        ShipKey::Player(_) => false,
-    }
+    matches!(key, ShipKey::Npc(_))
 }
 
 /// `ReputationHandle->GetReputation()`: a player ship's handle is its
-/// player state, so the player's vibe; -1 for a ship that is gone.
+/// player state, so the player's vibe, an NPC ship's its reputation
+/// handle's; -1 for a ship that is gone.
 #[must_use]
 pub fn reputation(state: &ContentState, key: ShipKey) -> i32 {
     match key {
         ShipKey::Player(player) => state.players.get(&player).map_or(-1, |p| p.reputation),
+        ShipKey::Npc(npc) => state
+            .npc_ships
+            .get(&npc)
+            .map_or(-1, |s| state.rep_handles.vibe(s.reputation)),
+    }
+}
+
+/// `ControllerId` (`+0x170`): the owning controller; 0 for a player's ship.
+#[must_use]
+pub fn controller(state: &ContentState, key: ShipKey) -> u32 {
+    match key {
+        ShipKey::Player(_) => 0,
+        ShipKey::Npc(npc) => state.npc_ships.get(&npc).map_or(0, |s| s.controller),
     }
 }
 
@@ -194,11 +211,26 @@ pub fn top_damagers(state: &ContentState, key: ShipKey) -> (u32, u32) {
 
 /// `FSystemInfo::FindShip(Id)` (`Content/SystemInfo.cpp:560-574`): the ship
 /// of a player in the record's players, then the record's space objects
-/// (the NPC ships, P3.6c). `None` without the record.
+/// (its NPC ships). `None` without the record.
 #[must_use]
 pub fn find_in_system(cx: &Cx<'_>, system: u32, ship: u32) -> Option<ShipKey> {
     let record = cx.logic.content.state.systems.get(&system)?;
-    super::systems::find_player_ship(cx, record, ship).map(ShipKey::Player)
+    if let Some(p) = super::systems::find_player_ship(cx, record, ship) {
+        return Some(ShipKey::Player(p));
+    }
+    find_space_obj(&cx.logic.content.state, system, ship).map(ShipKey::Npc)
+}
+
+/// `FSystemInfo::FindSpaceObj(Id)` (`SystemInfo.cpp:592-601`): the first of
+/// the record's NPC ships with the space object id.
+#[must_use]
+pub fn find_space_obj(state: &ContentState, system: u32, ship: u32) -> Option<NpcShipKey> {
+    let record = state.systems.get(&system)?;
+    record
+        .space_objs
+        .iter()
+        .copied()
+        .find(|k| state.npc_ships.get(k).is_some_and(|s| s.base.ship == ship))
 }
 
 /// `FContentShipBase::GetFormationLeader` (`:192-199`): a wingman's

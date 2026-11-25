@@ -1124,9 +1124,7 @@ impl<W: AiEnv + ?Sized> Behavior<W> for DockBehavior {
             return 1;
         }
         self.prox.recompute_zone_flags(&*cx, target.position);
-        // `ProxWatcherNotifyZoneChange`: the tether event needs the
-        // content callback, which the port does not have (as in goto).
-        let _ = self.prox.zone_change();
+        self.prox.notify_zone_change(cx, target.position);
         self.update_approach_tail(cx)
     }
 

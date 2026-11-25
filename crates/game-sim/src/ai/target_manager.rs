@@ -324,26 +324,7 @@ pub fn subtarget_value(
     value
 }
 
-/// A report to the content callback (`pub::AI::ContentCallback`), queued
-/// for the manager's owner; only made while a callback is installed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CombatEvent {
-    /// `combat_state_notification(kind, owner, target)`: kind 0 for
-    /// attack state 0 (with the ship's target id or 0), 2 for state 1, 4
-    /// for state 2.
-    State {
-        /// The `CSNType`.
-        kind: i32,
-        /// The ship's id.
-        owner: u32,
-        /// The target id, 0 for none.
-        target: u32,
-    },
-    /// `combat_drift_event`: the ship drifted too far from its anchor.
-    Drift,
-    /// `ship_in_sights_event(target)`.
-    InSights(u32),
-}
+pub use super::content::CombatEvent;
 
 /// The AI target list (`SystemManagerTimerTable::Targets` with its
 /// `bBuilt` and `bKeepCache` flags): the ids of the objects of the ship's

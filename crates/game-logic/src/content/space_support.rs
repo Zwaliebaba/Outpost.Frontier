@@ -64,9 +64,11 @@ pub fn construct(cx: &mut Cx<'_>, id: ControllerId) -> Instance {
 fn gcs_handlers(_cx: &mut Cx<'_>, _message: &mut ControllerMessage<'_>) {}
 
 /// Step 2 (`:590-592`): the NPC ship events (`GNpcShipEvents`) of
-/// `CommComplete`, `ObjectDestroyed` and `TimerExpired`. P3.6c: Content has
-/// no NPC ship yet, so no event is waiting.
-fn npc_ship_events(_cx: &mut Cx<'_>, _message: &mut ControllerMessage<'_>) {}
+/// `CommComplete`, `ObjectDestroyed` and `TimerExpired`
+/// ([`super::npc_ships::handle_events_message`]).
+fn npc_ship_events(cx: &mut Cx<'_>, message: &mut ControllerMessage<'_>) {
+    super::npc_ships::handle_events_message(cx, message);
+}
 
 /// The tail's guided ships (`GSpaceSupportGuidedShips`, `:970-983`): each
 /// forwards the message to its guide, then the emptied entries go. P3.6c:
@@ -241,10 +243,13 @@ fn main_switch(cx: &mut Cx<'_>, message: &mut ControllerMessage<'_>) {
             }
         }
         ControllerMessage::Heartbeat { .. } => heartbeat(cx),
-        ControllerMessage::Msg0x25 { .. } => {
-            // An object of the system record's space objects
-            // (`FindSpaceObj`, the NPC ships of P3.6c) is destroyed: the
-            // record holds none yet.
+        ControllerMessage::Msg0x25 { ship, system, .. } => {
+            // An NPC ship of the record's space objects left the system: it
+            // is destroyed (`DESTROY_NORMAL`).
+            let (ship, system) = (*ship, *system);
+            if ships::find_space_obj(&cx.logic.content.state, system, ship).is_some() {
+                let _ = api::space_obj::destroy(cx, ship, 0);
+            }
         }
         ControllerMessage::Msg0x27 { ship, land, .. } => {
             let (ship, land) = (*ship, *land);
@@ -405,8 +410,9 @@ fn main_switch(cx: &mut Cx<'_>, message: &mut ControllerMessage<'_>) {
                 formations::remove_from_formation(cx, ship);
             }
         }
-        ControllerMessage::NpcShipCreated { .. } => {
-            // `ResetFormationState` of the new NPC ship: P3.6c.
+        ControllerMessage::NpcShipCreated { ship } => {
+            let ship = *ship;
+            formations::reset_formation_state(cx, ships::ShipKey::Npc(ship));
         }
         _ => {}
     }
@@ -728,7 +734,7 @@ fn object_destroyed(cx: &mut Cx<'_>, event: &mut ObjectDestroyed) {
     state.gate_locks.remove_npc(object);
     state.gate_locks.unregister(0, object, single_player);
     if has_record {
-        // `RemoveSpaceObj(Id, true)`: the record's NPC ships (P3.6c).
+        systems::remove_space_obj(cx, event.system, object, true);
         systems::remove_mission_object(cx, event.system, object);
     }
     dock_queues::cancel_ship_docking(cx, object, 0, false);

@@ -801,6 +801,20 @@ impl AiWorld for World {
         self.config.single_player
     }
 
+    fn content_event(&mut self, h: ObjHandle, handle: u32, event: crate::ai::content::CombatEvent) {
+        self.push_server_request(super::ServerRequest::Content {
+            ship: h,
+            handle,
+            event,
+        });
+    }
+
+    fn content_answer(&self, h: ObjHandle) -> Option<crate::ai::content::FleeAnswer> {
+        self.content_answer
+            .filter(|(ship, _)| *ship == h)
+            .and_then(|(_, answer)| answer)
+    }
+
     fn command(&mut self, h: ObjHandle, command: AiCommand<ObjHandle>) -> i32 {
         let typed = match command {
             AiCommand::SetThrottle(t) => Command::SetThrottle(t),

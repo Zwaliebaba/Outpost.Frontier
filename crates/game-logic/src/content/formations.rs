@@ -84,16 +84,29 @@ pub fn collect_members(state: &ContentState, formation_id: u32) -> Vec<ShipKey> 
     if formation_id == u32::MAX {
         return Vec::new();
     }
-    let mut out: Vec<ShipKey> = state
-        .players
-        .iter()
-        .filter(|(_, p)| {
-            p.ship
-                .as_ref()
-                .is_some_and(|s| s.formation_id == formation_id)
-        })
-        .map(|(&id, _)| ShipKey::Player(id))
-        .collect();
+    let mut out: Vec<ShipKey> = Vec::new();
+    for record in state.systems.values() {
+        for &k in &record.space_objs {
+            if state
+                .npc_ships
+                .get(&k)
+                .is_some_and(|s| s.base.formation_id == formation_id)
+            {
+                out.push(ShipKey::Npc(k));
+            }
+        }
+    }
+    out.extend(
+        state
+            .players
+            .iter()
+            .filter(|(_, p)| {
+                p.ship
+                    .as_ref()
+                    .is_some_and(|s| s.formation_id == formation_id)
+            })
+            .map(|(&id, _)| ShipKey::Player(id)),
+    );
     let slots: Vec<(ShipKey, i32)> = out
         .iter()
         .map(|&k| (k, ships::formation_slot(state, k) as i32))
@@ -110,19 +123,24 @@ pub fn collect_members(state: &ContentState, formation_id: u32) -> Vec<ShipKey> 
 /// system loop, so without any system record there is no leader.
 #[must_use]
 pub fn find_leader(state: &ContentState, formation_id: u32) -> Option<ShipKey> {
-    if state.systems.is_empty() {
-        return None;
+    let leads = |s: &super::players::PlayerShip| {
+        s.formation_id == formation_id && (s.formation_slot == 0 || s.formation_id == u32::MAX)
+    };
+    for record in state.systems.values() {
+        for &k in &record.space_objs {
+            if state.npc_ships.get(&k).is_some_and(|s| leads(&s.base)) {
+                return Some(ShipKey::Npc(k));
+            }
+        }
+        if let Some((&id, _)) = state
+            .players
+            .iter()
+            .find(|(_, p)| p.ship.as_ref().is_some_and(leads))
+        {
+            return Some(ShipKey::Player(id));
+        }
     }
-    state
-        .players
-        .iter()
-        .find(|(_, p)| {
-            p.ship.as_ref().is_some_and(|s| {
-                s.formation_id == formation_id
-                    && (s.formation_slot == 0 || s.formation_id == u32::MAX)
-            })
-        })
-        .map(|(&id, _)| ShipKey::Player(id))
+    None
 }
 
 /// `CancelDockingBehindLeader(Ship, FormationId)` (`:258-279`): when the

@@ -243,8 +243,10 @@ pub fn request_returned(cx: &mut Cx<'_>, ship: ObjHandle, kind: i32, response: i
 
 /// The AI's requests of a behaviour tick (`ServerHooks::server_requests`):
 /// each a `slot_5c` with the behaviour as its callback, a `slot_60`, the
-/// server's part of a shot ([`crate::equip_fire::ai_fired`]) or of a
-/// trade lane's start or end ([`crate::tradelane::server_request`]).
+/// server's part of a shot ([`crate::equip_fire::ai_fired`]), of a
+/// trade lane's start or end ([`crate::tradelane::server_request`]), or a
+/// report to Content's content callback
+/// ([`crate::content::callbacks::content_event`]).
 pub fn server_requests(cx: &mut Cx<'_>, requests: Vec<ServerRequest>) {
     for r in requests {
         match r {
@@ -274,6 +276,11 @@ pub fn server_requests(cx: &mut Cx<'_>, requests: Vec<ServerRequest>) {
             lane @ (ServerRequest::GoTradeLane { .. } | ServerRequest::StopTradeLane { .. }) => {
                 crate::tradelane::server_request(cx, lane);
             }
+            ServerRequest::Content {
+                ship,
+                handle,
+                event,
+            } => crate::content::callbacks::content_event(cx, ship, handle, event),
         }
     }
 }

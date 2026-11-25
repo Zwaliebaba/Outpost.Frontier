@@ -6,9 +6,7 @@
 //! `+0x370` and the formation envelope of the system manager.
 //!
 //! The proximity watcher's tether events go to the content callback
-//! (`IBehaviorManager::NotifyTetherEvent`), which the port does not have:
-//! the zone flags are kept and the event is dropped, as the reference does
-//! without a callback.
+//! (`IBehaviorManager::NotifyTetherEvent`), queued for after the tick.
 
 use neuron_core::math::{Vector, transform_matrix};
 use neuron_core::util::spline::CrSplineSegment;
@@ -299,6 +297,32 @@ impl ProxWatcher {
         }
     }
 
+    /// `ProxWatcherNotifyZoneChange(Watcher, NavHelper, BehaviorMgr,
+    /// RefPoint)`: a zone change of a watched object that is still there
+    /// goes to `IBehaviorManager::NotifyTetherEvent` with the reference
+    /// point, which reports it while the ship is in an attack state and its
+    /// current behaviour is the goto (2) or the dock (7).
+    pub(crate) fn notify_zone_change<W: super::behavior::AiEnv + ?Sized>(
+        &self,
+        cx: &mut Cx<'_, W>,
+        ref_point: Vector,
+    ) {
+        let Some(code) = self.zone_change() else {
+            return;
+        };
+        let Some(watched) = cx.view_of(self.watched).map(|v| v.id) else {
+            return;
+        };
+        let own = cx.own().map_or(0, |v| v.id);
+        let event = super::content::CombatEvent::Tether {
+            own,
+            watched,
+            status: code,
+            position: ref_point,
+        };
+        let _ = cx.notify_content(&[2, 7], event);
+    }
+
     /// `ProxWatcherNotifyZoneChange`: the tether event code (1 entered the
     /// near zone, 2 entered the far zone, 3 left it), or none.
     pub(crate) fn zone_change(&self) -> Option<i32> {
@@ -584,10 +608,7 @@ impl GotoBehavior {
 
         let lead = self.lead;
         self.prox.recompute_zone_flags(&*cx, lead);
-        // `ProxWatcherNotifyZoneChange`: `NotifyTetherEvent` needs an
-        // attack state and the content callback, neither of which the
-        // port has, so the event is dropped.
-        let _ = self.prox.zone_change();
+        self.prox.notify_zone_change(cx, lead);
 
         if self.kind == 2 {
             if let Some(spline) = &self.spline {
