@@ -332,11 +332,7 @@ impl PlayerState {
         if npc == 0 {
             return;
         }
-        match self
-            .vnpcs
-            .iter_mut()
-            .find(|r| r[0] == base && r[1] == npc)
-        {
+        match self.vnpcs.iter_mut().find(|r| r[0] == base && r[1] == npc) {
             Some(record) if record[2] != 0 => {
                 if record[3] != 1 {
                     record[3] = 0;

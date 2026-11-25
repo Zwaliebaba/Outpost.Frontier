@@ -137,7 +137,14 @@ pub fn pick_generic_script(
     voice: u32,
 ) -> Option<Vec<u8>> {
     let slot = usize::from(posture != 0) + 2 * (usize::from(gender != 1) + 2 * segment);
-    let scripts = cx.logic.content.state.generic_scripts.slots.get(slot)?.clone();
+    let scripts = cx
+        .logic
+        .content
+        .state
+        .generic_scripts
+        .slots
+        .get(slot)?
+        .clone();
     let tables = std::sync::Arc::clone(&cx.logic.content.tables);
     match tables.gcs_exclusions.get(&voice) {
         Some(excluded) => {
@@ -444,8 +451,8 @@ impl Built<'_> {
                 self.append(cx, b, 8, 1);
                 self.append(cx, b, 0x32, 2);
                 self.append(cx, b, 0x34, 3);
-                let cash = api::player::inspect_cash(cx, self.character.player)
-                    .unwrap_or(self.posture);
+                let cash =
+                    api::player::inspect_cash(cx, self.character.player).unwrap_or(self.posture);
                 let short = (cash as u32) < (bribe.price as u32);
                 self.append(cx, b, if short { 0x35 } else { 0x39 }, 2);
                 self.append(cx, b, tail, 3);
@@ -554,7 +561,14 @@ fn build_bar_behavior(cx: &mut Cx<'_>, base: u32, key: u32) -> u32 {
         filter: character.player,
         ..BehaviorDescription::default()
     };
-    let Some(state) = cx.logic.content.state.players.get(&character.player).cloned() else {
+    let Some(state) = cx
+        .logic
+        .content
+        .state
+        .players
+        .get(&character.player)
+        .cloned()
+    else {
         return u32::MAX;
     };
     // A failed lookup leaves the C++'s posture at 0.
@@ -732,10 +746,7 @@ mod tests {
         assert_eq!(*cx.world.rng(), before, "one candidate draws nothing");
         assert!(pick_generic_script(&mut cx, 0, 1, 0, 0).is_some());
         assert_ne!(*cx.world.rng(), before, "two candidates draw");
-        assert_eq!(
-            pick_fidget_script(&mut cx, 0, 1),
-            Some(b"c.thn".to_vec())
-        );
+        assert_eq!(pick_fidget_script(&mut cx, 0, 1), Some(b"c.thn".to_vec()));
         assert_eq!(pick_generic_script(&mut cx, 5, 1, 0, 0), None);
     }
 
@@ -757,7 +768,10 @@ mod tests {
         assert_eq!(s.field_04, 77);
         assert!(s.flag_08 && !s.flag_09 && s.flag_0a && s.flag_14);
         assert_eq!(s.words, vec![(Some(b"one.thn".to_vec()), 2)]);
-        assert_eq!((s.field_220, s.field_224, s.field_228, s.field_25c), (3, 12, 1, 9));
+        assert_eq!(
+            (s.field_220, s.field_224, s.field_228, s.field_25c),
+            (3, 12, 1, 9)
+        );
         assert!(is_shop_role(b"ShipDealer") && is_shop_role(b"EQUIPMENT"));
         assert!(is_bartender_role(b"Bartender") && !is_shop_role(b"bartender"));
     }

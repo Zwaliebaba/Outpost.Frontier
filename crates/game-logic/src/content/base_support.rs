@@ -69,8 +69,8 @@ pub fn destruct(cx: &mut Cx<'_>, _id: ControllerId) {
 /// `NewsBroadcastProperties::init` (`Common/common_baseproperties.cpp:352-365`)
 /// of a news item's description for `base`: the key's names follow the
 /// C++'s fields (`category` the headline, `headline` the body, `text` the
-/// logo), the `logo` string the texture and `CreateID` of the `audio`
-/// string its id.
+/// logo), the `logo` string the texture (none without a `logo` line) and
+/// `CreateID` of the `audio` string its id (0 without an `audio` line).
 #[must_use]
 pub fn news_properties(item: &NewsItem, base: u32) -> NewsBroadcastProperties {
     NewsBroadcastProperties {
@@ -82,8 +82,13 @@ pub fn news_properties(item: &NewsItem, base: u32) -> NewsBroadcastProperties {
         headline: item.category.clone(),
         body: item.headline.clone(),
         logo: item.text.clone(),
-        logo_texture: (!item.logo.is_empty()).then(|| item.logo.clone()),
-        logo_texture_id: create_id(&item.audio),
+        logo_texture: item.has_logo.then(|| item.logo.clone()),
+        // `CreateID(nullptr)` is 0.
+        logo_texture_id: if item.has_audio {
+            create_id(&item.audio)
+        } else {
+            0
+        },
     }
 }
 
@@ -106,13 +111,19 @@ pub fn start_room_character_scripts(cx: &mut Cx<'_>, player: u32) {
 /// player's room offering the teller's rumor (`Ids[0]`) restarts its
 /// script; the others among them first lose their offer.
 fn on_rumor_told(cx: &mut Cx<'_>, player: u32, base: u32, teller: u32, rumor: i32) {
-    let Some(room) = cx.logic.content.state.players.get(&player).map(|s| s.location) else {
+    let Some(room) = cx
+        .logic
+        .content
+        .state
+        .players
+        .get(&player)
+        .map(|s| s.location)
+    else {
         return;
     };
     for key in bar::room_character_keys(cx, base, room) {
-        let same = bar::character(cx, base, key).is_some_and(|c| {
-            matches!(c.offer, BarOffer::Rumor(Some(r)) if r.ids[0] == rumor)
-        });
+        let same = bar::character(cx, base, key)
+            .is_some_and(|c| matches!(c.offer, BarOffer::Rumor(Some(r)) if r.ids[0] == rumor));
         if !same {
             continue;
         }
@@ -210,7 +221,14 @@ fn base_exit(cx: &mut Cx<'_>, base: u32, player: u32) {
 /// controller and the rumor's tellers in the room are handled
 /// ([`on_rumor_told`]); any other offer restarts the room's scripts.
 fn obj_select(cx: &mut Cx<'_>, object: u32, player: u32) {
-    let Some(base) = cx.logic.content.state.players.get(&player).and_then(|s| s.base) else {
+    let Some(base) = cx
+        .logic
+        .content
+        .state
+        .players
+        .get(&player)
+        .and_then(|s| s.base)
+    else {
         return;
     };
     let Some((_, key)) = cx

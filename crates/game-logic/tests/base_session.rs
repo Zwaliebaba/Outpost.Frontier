@@ -170,7 +170,12 @@ impl Trace {
     }
 
     /// The `message` record, then GameSupport's handler and BaseSupport's.
-    fn deliver(&mut self, cx: &mut Cx<'_>, ids: (ControllerId, ControllerId), mut message: ControllerMessage<'_>) {
+    fn deliver(
+        &mut self,
+        cx: &mut Cx<'_>,
+        ids: (ControllerId, ControllerId),
+        mut message: ControllerMessage<'_>,
+    ) {
         self.lines.push(format!(
             "{{\"rec\":\"message\",\"step\":{},\"msg\":{}}}",
             self.step,
@@ -293,7 +298,14 @@ fn run_session(cx: &mut Cx<'_>) -> Trace {
         names: Vec::new(),
     };
     t.begin(cx, "base_enter");
-    t.deliver(cx, ids, ControllerMessage::BaseEnter { base, player: PLAYER });
+    t.deliver(
+        cx,
+        ids,
+        ControllerMessage::BaseEnter {
+            base,
+            player: PLAYER,
+        },
+    );
     t.end(cx, base);
 
     t.begin(cx, "vendor_offers");
@@ -310,8 +322,22 @@ fn run_session(cx: &mut Cx<'_>) -> Trace {
         .unwrap_or_default();
     for room in rooms {
         t.begin(cx, "room");
-        t.deliver(cx, ids, ControllerMessage::LocationEnter { location: room, player: PLAYER });
-        t.deliver(cx, ids, ControllerMessage::LocationExit { location: room, player: PLAYER });
+        t.deliver(
+            cx,
+            ids,
+            ControllerMessage::LocationEnter {
+                location: room,
+                player: PLAYER,
+            },
+        );
+        t.deliver(
+            cx,
+            ids,
+            ControllerMessage::LocationExit {
+                location: room,
+                player: PLAYER,
+            },
+        );
         t.end(cx, base);
     }
 
@@ -333,11 +359,25 @@ fn run_session(cx: &mut Cx<'_>) -> Trace {
         })
         .unwrap_or((0, 0));
     t.begin(cx, "bar");
-    t.deliver(cx, ids, ControllerMessage::LocationEnter { location: bar_room, player: PLAYER });
+    t.deliver(
+        cx,
+        ids,
+        ControllerMessage::LocationEnter {
+            location: bar_room,
+            player: PLAYER,
+        },
+    );
     t.end(cx, base);
 
     t.begin(cx, "select_bartender");
-    t.deliver(cx, ids, ControllerMessage::GfObjSelect { object: bartender, player: PLAYER });
+    t.deliver(
+        cx,
+        ids,
+        ControllerMessage::GfObjSelect {
+            object: bartender,
+            player: PLAYER,
+        },
+    );
     t.end(cx, base);
 
     let offer = cx
@@ -362,8 +402,22 @@ fn run_session(cx: &mut Cx<'_>) -> Trace {
     t.end(cx, base);
 
     t.begin(cx, "base_exit");
-    t.deliver(cx, ids, ControllerMessage::LocationExit { location: bar_room, player: PLAYER });
-    t.deliver(cx, ids, ControllerMessage::BaseExit { base, player: PLAYER });
+    t.deliver(
+        cx,
+        ids,
+        ControllerMessage::LocationExit {
+            location: bar_room,
+            player: PLAYER,
+        },
+    );
+    t.deliver(
+        cx,
+        ids,
+        ControllerMessage::BaseExit {
+            base,
+            player: PLAYER,
+        },
+    );
     t.end(cx, base);
 
     base_db::stop_trace(cx);
@@ -437,8 +491,14 @@ fn compare(rust: &[String], oracle: &[String], names: &[&str]) -> (Vec<String>, 
         ));
         for i in at.saturating_sub(REPORT_WINDOW)..=at + REPORT_WINDOW {
             let mark = if i == at { ">" } else { " " };
-            lines.push(format!("{mark} {i}: rust   {}", rs.get(i).copied().unwrap_or("-")));
-            lines.push(format!("{mark} {i}: oracle {}", os.get(i).copied().unwrap_or("-")));
+            lines.push(format!(
+                "{mark} {i}: rust   {}",
+                rs.get(i).copied().unwrap_or("-")
+            ));
+            lines.push(format!(
+                "{mark} {i}: oracle {}",
+                os.get(i).copied().unwrap_or("-")
+            ));
         }
         if failed {
             break;
@@ -634,7 +694,10 @@ fn the_base_session_runs_on_outdir() {
     let last = exit.last().expect("the state record");
     assert!(last.contains("\"visit\":null,\"rooms\":[]"), "{last}");
     // Every destroy found its record.
-    assert!(!trace.lines.iter().any(|l| l.contains("\"found\":0")), "{summary}");
+    assert!(
+        !trace.lines.iter().any(|l| l.contains("\"found\":0")),
+        "{summary}"
+    );
 }
 
 /// D1000 and D1001 on the shipped data: every `script` line of the generic
@@ -651,7 +714,7 @@ fn the_shipped_data_stays_inside_the_tables() {
         world: &mut world,
         logic: &mut logic,
     };
-    let text = Host::new(&root.join("data"))
+    let text = Host::new(root.join("data"))
         .read(generic_scripts::FILE)
         .expect("the generic scripts");
     let lines = String::from_utf8_lossy(&text)

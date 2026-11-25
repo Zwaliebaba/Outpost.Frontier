@@ -25,6 +25,12 @@ pub struct NewsItem {
     pub audio: Vec<u8>,
     /// `logo` (as `audio`).
     pub logo: Vec<u8>,
+    /// Whether an `audio` line set the string: the C++'s pointer is null
+    /// without one, which `CreateID` maps to 0 where an empty string is not.
+    pub has_audio: bool,
+    /// Whether a `logo` line set the string (the texture is null without
+    /// one).
+    pub has_logo: bool,
     /// `breaking` (`bFlag1`).
     pub breaking: bool,
     /// `autoselect` (`bFlag2`).
@@ -49,6 +55,8 @@ impl Default for NewsItem {
             to_stage: 0x2a,
             audio: Vec::new(),
             logo: Vec::new(),
+            has_audio: false,
+            has_logo: false,
             breaking: false,
             autoselect: false,
             icon: 0,
@@ -112,8 +120,10 @@ pub fn load_news_items(cx: &mut Cx<'_>, table: &mut Vec<NewsItem>, reader: &mut 
                 }
             } else if reader.is_value(b"logo") {
                 item.logo = c_str(&reader.value_string()).to_vec();
+                item.has_logo = true;
             } else if reader.is_value(b"audio") {
                 item.audio = c_str(&reader.value_string()).to_vec();
+                item.has_audio = true;
             }
         }
         table.push(item);

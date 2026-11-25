@@ -78,9 +78,9 @@ pub mod encounter_params;
 /// The formation helpers (TU53 `DockQueues.cpp`; P3.6a).
 pub mod formations;
 pub mod game_support;
-pub mod generic_scripts;
 /// The gate locks (TU53; P3.4d).
 pub mod gate_locks;
+pub mod generic_scripts;
 /// The NPC guides (TU37; P3.6c).
 pub mod guides;
 pub mod mission;

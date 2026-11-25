@@ -31,15 +31,13 @@ use game_sim::protocol::costume::Costume as WireCostume;
 use neuron_core::hash::{c_str, stricmp};
 use neuron_core::num::trunc_to_i32;
 
-use super::bases::{
-    BaseNpc, BaseNpcBribe, BaseNpcKnow, BaseNpcRumor, ContentBase, REP_THRESHOLDS,
-};
+use super::bases::{BaseNpc, BaseNpcBribe, BaseNpcKnow, BaseNpcRumor, ContentBase, REP_THRESHOLDS};
+use super::generic_scripts;
 use super::npc_desc::NpcCharacterDesc;
 use super::players::PlayerState;
 use super::random_mission::tables::round_money;
 use super::random_mission::vendor::{self, BarOffer, BribeOffer};
 use super::tables::factions::faction_hostile_groups;
-use super::generic_scripts;
 use crate::api;
 use crate::server::Cx;
 
@@ -217,7 +215,10 @@ impl RoomState {
     /// `CountCharacters(PlayerId)` (`:999-1008`).
     #[must_use]
     pub fn count_characters(&self, player: u32) -> i32 {
-        self.characters.iter().filter(|c| c.player == player).count() as i32
+        self.characters
+            .iter()
+            .filter(|c| c.player == player)
+            .count() as i32
     }
 }
 
@@ -312,11 +313,7 @@ pub fn character<'a>(cx: &'a Cx<'_>, base: u32, key: u32) -> Option<&'a BarChara
 }
 
 /// The character `key` of `base`, to change between call-outs.
-pub fn character_mut<'a>(
-    cx: &'a mut Cx<'_>,
-    base: u32,
-    key: u32,
-) -> Option<&'a mut BarCharacter> {
+pub fn character_mut<'a>(cx: &'a mut Cx<'_>, base: u32, key: u32) -> Option<&'a mut BarCharacter> {
     let record = cx.logic.content.state.bases.get_mut(&base)?;
     let (room, at) = locate(record, key)?;
     record
@@ -541,28 +538,29 @@ pub fn on_player_enter(cx: &mut Cx<'_>, base: u32, player: u32) {
     let rooms = record.rooms.clone();
     for room in &rooms {
         for fixture in &room.fixtures {
-            let reused = {
-                let Some(record) = cx.logic.content.state.bases.get_mut(&base) else {
-                    return;
-                };
-                match record.room_states.get_mut(&room.room_id) {
-                    None => false,
-                    Some(state) if state.has_lock(player, fixture.placement) => true,
-                    Some(state) => {
-                        match state.characters.iter_mut().find(|c| {
-                            stricmp(&fixture.role, &c.role).is_eq() && c.player == player
-                        }) {
-                            Some(c) => {
-                                c.use_count += 1;
-                                let key = c.key;
-                                state.character_refs.push(key);
-                                true
+            let reused =
+                {
+                    let Some(record) = cx.logic.content.state.bases.get_mut(&base) else {
+                        return;
+                    };
+                    match record.room_states.get_mut(&room.room_id) {
+                        None => false,
+                        Some(state) if state.has_lock(player, fixture.placement) => true,
+                        Some(state) => {
+                            match state.characters.iter_mut().find(|c| {
+                                stricmp(&fixture.role, &c.role).is_eq() && c.player == player
+                            }) {
+                                Some(c) => {
+                                    c.use_count += 1;
+                                    let key = c.key;
+                                    state.character_refs.push(key);
+                                    true
+                                }
+                                None => false,
                             }
-                            None => false,
                         }
                     }
-                }
-            };
+                };
             if reused {
                 continue;
             }
@@ -648,8 +646,9 @@ fn pick_weighted(cx: &mut Cx<'_>, weights: &[f32]) -> (Option<usize>, f32) {
     if sum == 0.0 {
         return (None, sum_value);
     }
-    let roll = (f64::from(cx.world.rng().rand()) * f64::from(1.0f32 / 32768.0) * f64::from(sum_value))
-        as f32;
+    let roll = (f64::from(cx.world.rng().rand())
+        * f64::from(1.0f32 / 32768.0)
+        * f64::from(sum_value)) as f32;
     let mut running = 0.0f64;
     for (index, &w) in weights.iter().enumerate() {
         running += f64::from(w);
@@ -1045,16 +1044,10 @@ fn release_scene(cx: &mut Cx<'_>, base: u32, scene: &BarScene, keep_roles: Optio
 /// first scene of the id released and erased, then the id forgotten
 /// whether or not a scene was found.
 pub fn remove_bar_scene(cx: &mut Cx<'_>, base: u32, scene_id: i32, keep_roles: Option<&[Vec<u8>]>) {
-    let scene = cx
-        .logic
-        .content
-        .state
-        .bases
-        .get_mut(&base)
-        .and_then(|b| {
-            let at = b.bar_scenes.iter().position(|s| s.scene_id == scene_id)?;
-            Some(b.bar_scenes.remove(at))
-        });
+    let scene = cx.logic.content.state.bases.get_mut(&base).and_then(|b| {
+        let at = b.bar_scenes.iter().position(|s| s.scene_id == scene_id)?;
+        Some(b.bar_scenes.remove(at))
+    });
     if let Some(scene) = scene {
         release_scene(cx, base, &scene, keep_roles);
     }
@@ -1172,7 +1165,10 @@ mod tests {
         assert!(state.has_lock(7, 3) && !state.has_lock(7, 4));
         state.characters.push(character(1, b"Bartender", 7, 11));
         state.characters.push(character(2, b"trader", 8, 12));
-        assert_eq!(state.find_character(b"bartender", 7).map(|c| c.key), Some(1));
+        assert_eq!(
+            state.find_character(b"bartender", 7).map(|c| c.key),
+            Some(1)
+        );
         assert!(state.find_character(b"bartender", 8).is_none());
         assert_eq!(state.count_characters(7), 1);
         assert!(state.has_character(8, 0));
