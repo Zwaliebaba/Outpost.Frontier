@@ -343,7 +343,10 @@ P3.5b checks the save item for the story missions' and Story's sections
 equals the port's for every mission in three states, the C++ build restores
 the port's saves as the port does (the data job's "Load the port's saves
 with the oracle"), and the port's saves round-trip; the `[RandomMission]`
-sections follow with P3.7c.
+sections follow with P3.7c. The owner decided on 2026-11-25 that the
+two-client scripted test (`apps/outpost-server/tests/g3_client.rs`) meets
+the scripted client criterion; NPC population (P3.6d) comes after the
+milestone.
 
 The owner re-sequenced Phase 3 on 2026-11-25 (decision O48): the packages
 Gate G3 needs (P3.7a, P3.7c, P3.8, P3.9) come first, P3.8 and P3.9 on their

@@ -576,7 +576,8 @@ jobs:
         # inputs (ctl) against the recorded pushes, the munition hits and collision damages of
         # calls.jsonl against the recorded damage lists, and the scenarios run through the Rust
         # world against tick.jsonl (differences reported; only gross divergence fails, the
-        # envelopes being unapproved); the asteroid field walk and the docking points replayed
+        # envelopes being unapproved; the scenarios marked "# rust: server" run without a server,
+        # reported and not judged); the asteroid field walk and the docking points replayed
         # from the oracle's own inputs against asteroids.jsonl and dock.jsonl (field_replay).
         # Summaries rust-controller-replay.txt, rust-damage-replay.txt, rust-scenario-replay.txt,
         # rust-field-replay.txt and rust-dock-replay.txt.
@@ -775,8 +776,28 @@ jobs:
             if (Test-Path $summary) { "--- $(Split-Path $summary -Leaf) (start) ---"; Get-Content $summary -TotalCount 40 }
             else { "--- $(Split-Path $summary -Leaf): not written ---" }
           }
-          # Gate G3's scenarios through the server's hooks (dock_at_station, trade_lane,
-          # dock_trade_lane and the others), each with its judgement, for the gate's review.
+          # Gate G3's scenarios (dock_at_station, trade_lane, dock_trade_lane), for the gate's
+          # review: through the server's hooks (rust-scenario-hooks.txt, judged) and without a
+          # server (rust-scenario-replay.txt, reported and not judged; owner, 2026-11-25), each
+          # object's line saying whether it is bit-exact and, if not, its first divergence bit for
+          # bit. The first divergences of the two runs set side by side tell a server-side cause
+          # from a game-sim one. Then every scenario's verdict through the server's hooks.
+          $g3 = '^(dock_at_station|trade_lane|dock_trade_lane): '
+          foreach ($file in 'rust-scenario-hooks.txt', 'rust-scenario-replay.txt') {
+            $path = "$env:RUNNER_TEMP\outpost-sim-summaries\$file"
+            if (Test-Path $path) {
+              "--- $file (Gate G3's scenarios) ---"
+              $keep = $false
+              foreach ($line in Get-Content $path) {
+                # An indented line belongs to the scenario of the line above it.
+                if ($line -notmatch '^\s') { $keep = $line -match $g3 }
+                if ($keep) { $line }
+              }
+            }
+            else { "--- ${file}: not written ---" }
+          }
           $hooks = "$env:RUNNER_TEMP\outpost-sim-summaries\rust-scenario-hooks.txt"
-          if (Test-Path $hooks) { "--- rust-scenario-hooks.txt (start) ---"; Get-Content $hooks -TotalCount 200 }
-          else { "--- rust-scenario-hooks.txt: not written ---" }
+          if (Test-Path $hooks) {
+            "--- rust-scenario-hooks.txt (every scenario's verdict) ---"
+            Get-Content $hooks | Where-Object { $_ -match '^\S+: (bit-exact objects|exact|contact scenario|fight|skipped)|^gross divergences' }
+          }

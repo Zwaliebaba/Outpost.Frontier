@@ -28,12 +28,17 @@
 //! first contact or munition impact, the guided munitions' launches and
 //! ends, the gross bound, and the outcome after it reported. The fights
 //! take the pilots' personalities and the ships' attitudes from the
-//! oracle's `ai.jsonl`. The summary goes to `rust-scenario-hooks.txt` in
-//! the oracle folder; the test fails only on what `scenario_replay` fails
-//! on. Without the variable only the [`SMOKE`] scenarios run, without a
+//! oracle's `ai.jsonl`. Every object's line says whether it is bit-exact
+//! over the run and, if not, gives its first divergence bit for bit
+//! (`game_sim::scenario::report_first_divergence`, reported, not judged).
+//! The summary goes to `rust-scenario-hooks.txt` in the oracle folder; the
+//! test fails only on what `scenario_replay` fails on. Without the
+//! variable only the [`SMOKE`] scenarios run, without the oracle's
 //! comparison: they need no oracle input, their collision damage goes
 //! through the server's damage hooks, and they are quick in a debug build
-//! (where `fire_at_target`'s bullets alone take minutes).
+//! (where `fire_at_target`'s bullets alone take minutes). Each is then set
+//! beside its run without a server, whose first divergence shows where
+//! the server's part first changes the run (reported).
 
 use std::fmt::Write as _;
 use std::fs;
@@ -45,11 +50,11 @@ use game_logic::server::{CreateParams, Cx, Logic, RecordingSink};
 use game_logic::world::Hooks;
 use game_sim::data::config::{DataConfig, GameData};
 use game_sim::object::damage::DamageList;
-use game_sim::object::world::{Assets, DamageState, ServerHooks, ServerRequest};
+use game_sim::object::world::{Assets, DamageState, NoServerHooks, ServerHooks, ServerRequest};
 use game_sim::object::{ObjHandle, World};
 use game_sim::scenario::{
     self, ScenarioServer, dist, judge, needs_ai, oracle_ai_inputs, oracle_run, parse,
-    report_guided, scenario_files, world_config,
+    report_first_divergence_from, report_guided, scenario_files, world_config,
 };
 use neuron_core::ini::IniReader;
 use neuron_core::math::Vector;
@@ -336,6 +341,26 @@ fn scenarios_through_the_server_hooks() {
             }
         }
         let Some(dir) = &oracle else {
+            // Without the oracle, the run beside the same scenario's run
+            // without a server (game-sim's `NoServerHooks`, no Content):
+            // the first divergence is where the server's part first
+            // changes the run (reported, not judged).
+            let world = World::new(data.clone(), world_config(&s))
+                .with_assets(Assets::new(outdir().join("data")));
+            let alone = scenario::run(world, &s, &ai, &mut NoServerHooks);
+            let _ = writeln!(
+                summary,
+                "{}: through the server's hooks against the run without a server (no oracle; reported):",
+                s.name
+            );
+            report_first_divergence_from(
+                &mut summary,
+                &s,
+                &ours,
+                &alone,
+                None,
+                ("hooks", "no-server"),
+            );
             continue;
         };
         let Some(theirs) = oracle_run(dir, &s.name) else {
