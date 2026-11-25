@@ -33,8 +33,15 @@ flate2 = { version = "1.1", default-features = false, features = ["rust_backend"
 md-5 = { version = "0.10", default-features = false }
 parry3d = { version = "0.25.3", default-features = false, features = ["required-features", "std", "alloc"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
+# The QUIC transport (P3.8, decisions O6, T16, T17): quinn on tokio's
+# current-thread runtime, rustls with the ring provider, and rcgen for the
+# server's self-signed certificate.
+quinn = { version = "0.11.12", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "ring"] }
+rustls = { version = "0.23.46", default-features = false, features = ["std", "ring"] }
 # MPEG Layer III decoding of the game's MP3-in-WAV sounds (P4.10).
 symphonia = { version = "0.6.1", default-features = false, features = ["mp3"] }
+tokio = { version = "1.54.1", default-features = false, features = ["rt", "net", "time"] }
 toml = "0.9"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 # Direct3D 12, DXGI, the window, known-folder, registry and DPAPI FFI of

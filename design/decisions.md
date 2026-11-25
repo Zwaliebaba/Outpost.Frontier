@@ -210,8 +210,10 @@ The permitted licences are listed in `deny.toml`. In use so far:
   `neuron-core::util::md5` (P1.5). The C++ MD5 was checked against RFC 1321
   and is standard.
 - `tracing` 0.1 (MIT; `std` feature only, no attribute macros):
-  `neuron-core::diag` (P1.5). `tracing-subscriber` is not used; the
-  channel subscriber is written in `diag`.
+  `neuron-core::diag` (P1.5), and the transports' notices in
+  `neuron-server::net` and `neuron-client::net` (P3.8).
+  `tracing-subscriber` is not used; the channel subscriber is written in
+  `diag`.
 - `parry3d` 0.25.3 (Apache-2.0; default features off, `required-features`,
   `std`, `alloc`): `neuron-core::physics` (P2.3), collision geometry, shape
   casts, rays and intersection tests. It is the last release on `nalgebra`
@@ -257,6 +259,21 @@ The permitted licences are listed in `deny.toml`. In use so far:
   `[profile.dev.package]` `opt-level = 3` for `symphonia-core` and
   `symphonia-bundle-mp3` so the data tests decode all shipped sounds in
   seconds.
+- `quinn` 0.11.12 (MIT or Apache-2.0; default features off,
+  `runtime-tokio` and `rustls-ring`), with `quinn-proto` and `quinn-udp`:
+  `neuron-server::net` and `neuron-client::net`, the QUIC transport (P3.8).
+  `tokio` 1.54.1 (MIT; default features off, `rt`, `net`, `time`: one
+  current-thread runtime on each transport's I/O thread; the hand-over to
+  the polling thread is `neuron-core::net::wake`, so `sync` is not
+  enabled). `rustls` 0.23.46 (Apache-2.0, ISC or MIT; default features off,
+  `std` and `ring`: TLS 1.3 only, the `ring` provider, no TLS 1.2, no root
+  store; the client's verifier pins the server's certificate, T16).
+  `rcgen` 0.14.10 (MIT or Apache-2.0; default features off, `crypto` and
+  `ring`): the server's self-signed certificate, and a dev-dependency of
+  `neuron-client` for its tests' stand-in server. The `ring` 0.17 provider
+  (Apache-2.0 and ISC) needs a C compiler and no assembler; `aws-lc-rs`,
+  which needs CMake and NASM on Windows, is not in the tree. Proposed
+  2026-11-25 (P3.8); `deny.toml` needed no change.
 
 Math types are the project's own (`neuron-core::math`) so operation order
 stays under control; conversion to `nalgebra` happens at the `parry3d`

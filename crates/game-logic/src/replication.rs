@@ -23,8 +23,9 @@
 //!   records now in range; the destroys of those out of range and the
 //!   sync checks of the unowned rest; the updates, the record longest
 //!   without one first; the deferred damage. Each phase stops once the
-//!   client's link saturation reaches 0.9 ([`ClientSink::link_saturation`]),
-//!   which the loopback reports as 0 until P3.8.
+//!   client's link saturation reaches 0.9 ([`ClientSink::link_saturation`]):
+//!   the QUIC host's governor through [`TransportSink`]; 0 on the
+//!   loopback.
 //! - **Creates** for ships, solars, loot, mines, counter-measures and
 //!   guided munitions, from the object (`*CreateInfo_Fill`,
 //!   `Server/server_createinfo.cpp`) or from the creator's record, each
@@ -64,6 +65,7 @@
 //! ([`crate::tradelane`]).
 //!
 //! [`ClientSink::link_saturation`]: crate::server::ClientSink::link_saturation
+//! [`TransportSink`]: crate::server::TransportSink
 
 use std::collections::BTreeSet;
 

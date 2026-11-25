@@ -7,11 +7,14 @@
 //!   file and flags, the folder scan and the server's `accounts.cfg` (P3.1).
 //! - [`session`]: the session slots, addressed by 1-based ids (P3.1).
 //! - [`tick`]: the server frame's order and the server clock (P3.1).
+//! - [`net`]: the QUIC host, its handshake, batching and saturation
+//!   governor, and the server's certificate (P3.8).
 #![forbid(unsafe_code)]
 
 pub mod account;
 pub mod chat_space;
 pub mod controller;
+pub mod net;
 pub mod registry;
 pub mod save;
 pub mod session;

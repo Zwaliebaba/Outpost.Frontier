@@ -52,7 +52,8 @@
 //!
 //! The channel enums are not [`neuron_core::net::wire::WireMessage`]s:
 //! their codecs need a [`WireContext`], which that trait has no place for.
-//! The transports take an adapter that binds one (P3.8).
+//! The QUIC transports carry [`MultiplayerToClient`] and
+//! [`MultiplayerToServer`], which bind the multiplayer contexts (P3.8).
 //!
 //! # Differences from the C++
 //!
@@ -296,6 +297,48 @@ impl ToServer {
     }
 }
 
+/// A [`ToClient`] as the QUIC transports carry it: encoded and decoded in
+/// the multiplayer server's form ([`WireContext::SERVER`]) at both ends.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MultiplayerToClient(pub ToClient);
+
+impl From<ToClient> for MultiplayerToClient {
+    fn from(message: ToClient) -> Self {
+        Self(message)
+    }
+}
+
+impl neuron_core::net::wire::WireMessage for MultiplayerToClient {
+    fn encode(&self, writer: &mut WireWriter) -> Result<(), WireError> {
+        self.0.encode(&WireContext::SERVER, writer)
+    }
+
+    fn decode(reader: &mut WireReader<'_>) -> Result<Self, WireError> {
+        ToClient::decode(&WireContext::SERVER, reader).map(Self)
+    }
+}
+
+/// A [`ToServer`] as the QUIC transports carry it: the multiplayer
+/// client's form ([`WireContext::CLIENT`]) at both ends.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MultiplayerToServer(pub ToServer);
+
+impl From<ToServer> for MultiplayerToServer {
+    fn from(message: ToServer) -> Self {
+        Self(message)
+    }
+}
+
+impl neuron_core::net::wire::WireMessage for MultiplayerToServer {
+    fn encode(&self, writer: &mut WireWriter) -> Result<(), WireError> {
+        self.0.encode(&WireContext::CLIENT, writer)
+    }
+
+    fn decode(reader: &mut WireReader<'_>) -> Result<Self, WireError> {
+        ToServer::decode(&WireContext::CLIENT, reader).map(Self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,6 +356,23 @@ mod tests {
             [0, 0x81, 63, 127]
         );
         assert_eq!(expand_orientation([0, 0, 0, 127]), [1.0, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn multiplayer_adapters_bind_their_context() {
+        use neuron_core::net::wire::WireMessage;
+        let message = MultiplayerToClient::from(ToClient::Server(
+            to_client::ConnectResponse { value: 3 }.into(),
+        ));
+        let bytes = message.to_wire().unwrap();
+        assert_eq!(bytes, [0x01, 0x02, 3, 0, 0, 0]);
+        assert_eq!(MultiplayerToClient::from_wire(&bytes).unwrap(), message);
+        assert!(MultiplayerToServer::from_wire(&bytes).is_err());
+        let message = MultiplayerToServer::from(ToServer::Common(
+            common::RequestPlayerStats::default().into(),
+        ));
+        let bytes = message.to_wire().unwrap();
+        assert_eq!(MultiplayerToServer::from_wire(&bytes).unwrap(), message);
     }
 
     #[test]
