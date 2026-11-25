@@ -26,6 +26,8 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use game_logic::api;
+use game_logic::content::Instance;
 use game_logic::content::players::{PlayerShip, PlayerState};
 use game_logic::content::systems::DrawMark;
 use game_logic::events::ControllerMessage;
@@ -42,7 +44,7 @@ use neuron_core::ini::IniReader;
 use neuron_core::math::{Matrix, Vector};
 use neuron_core::rng::CrtRand;
 use neuron_core::vfs::Host;
-use neuron_server::controller::{self, Priority};
+use neuron_server::controller::{self, ControllerId, Priority};
 
 fn outdir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../outdir")
@@ -400,7 +402,8 @@ fn space_pop_populates_he01_around_a_player() {
 
 #[test]
 fn the_shipped_encounters_stay_in_bounds() {
-    // The reads the C++ makes without a test (D1060, D1061, D1063): after
+    // The reads the C++ makes without a test (D1060, D1061, D1063, D1067,
+    // D1068): after
     // every system's full load, each validated zone has a current
     // permutation, every permutation entry names a formation, a formation
     // tied to another names one, a line's npc archetype exists, and a
@@ -460,6 +463,10 @@ fn the_shipped_encounters_stay_in_bounds() {
                             problems.push(format!("{at}: npc arch {:#x}", line.npc_arch));
                         }
                     }
+                    // D1067: a formation without `arrival` keeps method 0.
+                    if f.arrival[0] != 0 {
+                        problems.push(format!("{at}: a formation without arrival"));
+                    }
                     if f.behavior == 3 {
                         let segments = zone
                             .path
@@ -474,6 +481,24 @@ fn the_shipped_encounters_stay_in_bounds() {
             }
         }
     }
+    // D1068: every GF_NPC a base's faction lists is one of the base's
+    // (each base loaded as BaseSupport loads it).
+    let bases: Vec<u32> = cx.logic.content.state.bases.keys().copied().collect();
+    for &base in &bases {
+        game_logic::content::bases::load_base(&mut cx, base);
+    }
+    let mut npcs = 0;
+    for (id, base) in &cx.logic.content.state.bases {
+        for faction in &base.factions {
+            for npc in &faction.npcs {
+                npcs += 1;
+                if !base.npcs.contains_key(npc) {
+                    problems.push(format!("base {id:#x}: faction npc {npc:#x} unknown"));
+                }
+            }
+        }
+    }
+    assert!(npcs > 0);
     println!(
         "{} systems, {encounters} zone encounters, {} problems",
         systems.len(),
@@ -481,4 +506,88 @@ fn the_shipped_encounters_stay_in_bounds() {
     );
     assert!(encounters > 0);
     assert!(problems.is_empty(), "{problems:#?}");
+}
+
+#[test]
+fn base_pop_fills_a_room_and_empties_it() {
+    // BasePop (P3.6d, D1003 removed): player 7 enters he01_01_Base through
+    // the bus (GameSupport and BaseSupport load the base), then each room;
+    // BasePop's patrons of a room are the player's characters beyond the
+    // fixtures' and leave with him.
+    let Some(mut world) = world() else {
+        println!("outdir/ is missing: BasePop was not run");
+        return;
+    };
+    let mut logic = Logic::new(Box::new(RecordingSink::default()), 16, true);
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    start(&mut cx, &["BasePop"]);
+    let player = 7;
+    let base = api::misc::base_id(&mut cx, b"he01_01_Base").unwrap_or(0);
+    assert_ne!(base, 0);
+    let system = api::misc::base_system(&mut cx, base).ok();
+    let mut state = PlayerState::new(&cx, player);
+    state.system = system;
+    cx.logic.content.state.players.insert(player, state);
+    if let Some(host) = cx.world.data_host() {
+        game_logic::bases::load_base(&mut cx, &host, base);
+    }
+    let _ = cx.dispatch(
+        ControllerId::BROADCAST,
+        &mut ControllerMessage::BaseEnter { base, player },
+    );
+    let pop = cx.logic.content.state.base_pop.expect("BasePop runs");
+    let rooms: Vec<u32> = cx
+        .logic
+        .content
+        .state
+        .bases
+        .get(&base)
+        .map(|b| b.rooms.iter().map(|r| r.room_id).collect())
+        .unwrap_or_default();
+    let count = |cx: &Cx<'_>, room: u32| {
+        cx.logic
+            .content
+            .state
+            .bases
+            .get(&base)
+            .and_then(|b| b.room_states.get(&room))
+            .map_or(0, |s| s.count_characters(player))
+    };
+    let mut patrons = 0;
+    for room in rooms {
+        let before = count(&cx, room);
+        let _ = cx.dispatch(
+            ControllerId::BROADCAST,
+            &mut ControllerMessage::LocationEnter {
+                location: room,
+                player,
+            },
+        );
+        let inside = count(&cx, room);
+        let kept = match cx.logic.content.instance(pop) {
+            Some(Instance::BasePop(p)) => p.player_npcs.get(&player).map_or(0, Vec::len),
+            _ => 0,
+        };
+        let _ = cx.dispatch(
+            ControllerId::BROADCAST,
+            &mut ControllerMessage::LocationExit {
+                location: room,
+                player,
+            },
+        );
+        let after = count(&cx, room);
+        println!(
+            "room {room:#x}: {before} before, {inside} inside ({kept} BasePop's), {after} after"
+        );
+        assert!(inside >= before);
+        assert_eq!(inside - before, kept as i32);
+        patrons += kept;
+        assert!(!game_logic::content::population::base_pop_has_player(
+            &cx, player
+        ));
+    }
+    assert!(patrons > 0, "BasePop placed no patron at he01_01_Base");
 }
