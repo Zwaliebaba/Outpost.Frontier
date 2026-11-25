@@ -15,8 +15,12 @@
 //! and end at he01's rings 16 and 17, and a dock request at the ring it
 //! launched from, which Content answers; the first client hears the shot
 //! (`FIREWEAPON`), the thrusters (`ACTIVATETHRUSTERS`), the cruise
-//! (`ACTIVATECRUISE`) and the lane (`GOTRADELANE`, `STOPTRADELANE`). The
-//! console's `status`, `kick` and `quit` end the run.
+//! (`ACTIVATECRUISE`) and the lane (`GOTRADELANE`, `STOPTRADELANE`).
+//! Before that the two players trade (P3.10b): the second asks the first,
+//! the first starts the trade, the second offers a shield battery and
+//! money, the first money, both accept, and each client hears the end of
+//! the trade (`PLAYER_TRADE`) and its new cash (`SETCASH`). The console's
+//! `status`, `kick` and `quit` end the run.
 //!
 //! The data is the committed `outdir/`, as the other data tests of the
 //! workspace read it; the test returns early with a notice when it is
@@ -30,9 +34,10 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use game_sim::protocol::common::{
-    ActivateCruise, ActivateThrusters, CommonMessage, FireWeapon, GoTradeLane, StopTradeLane,
-    UpdateObject,
+    ActivateCruise, ActivateThrusters, CommonMessage, FireWeapon, GoTradeLane, PlayerTrade,
+    StopTradeLane, UpdateObject,
 };
+use game_sim::protocol::records::EquipRecord;
 use game_sim::protocol::to_client::ServerMessage;
 use game_sim::protocol::to_server::{
     CreateNewChar, EnterBase, ExitBase, Login, RequestCharInfo, RequestCreateShip, RequestEvent,
@@ -197,13 +202,14 @@ fn name(message: &ToClient) -> &'static str {
 }
 
 /// A pilot in space: its connection, what it received, its ship, the
-/// ring it launched from and its mounted equipment.
+/// ring it launched from, its mounted equipment and its cargo.
 struct Pilot {
     client: Client,
     seen: Vec<ToClient>,
     ship: u32,
     ring: u32,
     equipped: Vec<u16>,
+    cargo: Vec<EquipRecord>,
 }
 
 /// One client from the handshake to the launch: the client id and the
@@ -327,12 +333,19 @@ fn join(address: SocketAddr, fingerprint: &str, account: &str, name: &str, id: u
         .filter(|e| e.equipped != 0)
         .map(|e| e.id)
         .collect();
+    let cargo = record
+        .equipment
+        .iter()
+        .filter(|e| e.equipped == 0)
+        .cloned()
+        .collect();
     Pilot {
         client,
         seen,
         ship,
         ring,
         equipped,
+        cargo,
     }
 }
 
@@ -421,6 +434,7 @@ fn scripted_clients_log_in_create_characters_launch_and_see_each_other() {
     assert!(moved[0] > position[0], "{moved:?} after {position:?}");
     while second.client.poll().is_some() {}
 
+    trade(&mut first, &mut second);
     flight_and_combat(&mut first, &mut second, moved);
 
     // The console sees both players, then saves them and stops.
@@ -434,6 +448,126 @@ fn scripted_clients_log_in_create_characters_launch_and_see_each_other() {
     let status = server.child.wait().expect("the server ends");
     assert!(status.success());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn player_trade(action: u8) -> PlayerTrade {
+    PlayerTrade {
+        action,
+        ..PlayerTrade::default()
+    }
+}
+
+/// The next `PLAYER_TRADE` of `action` naming `ship` (0 for the end of a
+/// trade, which names none) the pilot hears.
+fn heard_trade(pilot: &mut Pilot, action: u8, ship: u32, what: &str) -> PlayerTrade {
+    expect(&mut pilot.client, &mut pilot.seen, what, |m| match m {
+        ToClient::Common(CommonMessage::PlayerTrade(t))
+            if t.action == action && t.target_player == ship =>
+        {
+            Some(t.clone())
+        }
+        _ => None,
+    })
+}
+
+/// The pilot's next cash (`SETCASH`).
+fn heard_cash(pilot: &mut Pilot) -> u32 {
+    expect(&mut pilot.client, &mut pilot.seen, "SETCASH", |m| match m {
+        ToClient::Server(ServerMessage::SetCash(c)) => Some(c.value),
+        _ => None,
+    })
+}
+
+/// A trade between the two pilots (P3.10b), each starting with the
+/// package's 2000: the second (client 2) asks the first (client 1), who
+/// starts it; the second offers one shield battery and 500, the first
+/// 100; both accept and the trade ends with reason 1, the second with
+/// 1600 and the first with 2400.
+fn trade(first: &mut Pilot, second: &mut Pilot) {
+    let (one, two) = (first.ship, second.ship);
+    send_common(
+        &mut second.client,
+        PlayerTrade {
+            target_player: 1,
+            ..player_trade(0x20)
+        },
+    );
+    heard_trade(first, 0x20, two, "the trade request");
+    send_common(
+        &mut first.client,
+        PlayerTrade {
+            target_player: 2,
+            ..player_trade(0x01)
+        },
+    );
+    heard_trade(first, 0x01, two, "the first's trade");
+    heard_trade(second, 0x01, one, "the second's trade");
+
+    let battery = create_id(b"ge_s_battery_01");
+    let item = second
+        .cargo
+        .iter()
+        .find(|e| e.arch_id == battery)
+        .cloned()
+        .expect("the package's shield batteries");
+    send_common(
+        &mut second.client,
+        PlayerTrade {
+            equip_arch_id: battery,
+            equip_count: 1,
+            equip_health: item.health,
+            equip_id: item.id,
+            ..player_trade(0x08)
+        },
+    );
+    let offered = heard_trade(first, 0x08, two, "the offered battery");
+    assert_eq!(
+        (offered.equip_arch_id, offered.equip_count, offered.equip_id),
+        (battery, 1, item.id)
+    );
+    send_common(
+        &mut second.client,
+        PlayerTrade {
+            money: 500,
+            ..player_trade(0x04)
+        },
+    );
+    assert_eq!(
+        heard_trade(first, 0x04, two, "the second's money").money,
+        500
+    );
+    send_common(
+        &mut first.client,
+        PlayerTrade {
+            money: 100,
+            ..player_trade(0x04)
+        },
+    );
+    assert_eq!(
+        heard_trade(second, 0x04, one, "the first's money").money,
+        100
+    );
+
+    send_common(
+        &mut second.client,
+        PlayerTrade {
+            accepted: true,
+            ..player_trade(0x40)
+        },
+    );
+    assert!(heard_trade(first, 0x40, two, "the second's acceptance").accepted);
+    send_common(
+        &mut first.client,
+        PlayerTrade {
+            accepted: true,
+            ..player_trade(0x40)
+        },
+    );
+    assert_eq!(heard_cash(second), 1600);
+    assert_eq!(heard_cash(first), 2400);
+    for pilot in [&mut *first, &mut *second] {
+        assert_eq!(heard_trade(pilot, 0x02, 0, "the trade's end").reason, 1);
+    }
 }
 
 /// The second pilot's flight and combat requests (P3.10a) and what the

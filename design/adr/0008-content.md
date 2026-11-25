@@ -223,7 +223,10 @@ Paths are relative to `CppSource/`.
   mission's own lookups. Actions dispatch freely.
 
   The survey found no action that writes its own fields in `Execute`; the
-  assignments there are to locals. Conditions do keep run-time state: a
+  assignments there are to locals. Two do (found with P3.5c1, amended by the
+  owner on 2026-11-25): `ActStartDialog` writes `bDelayPending`
+  (`MissionAct.cpp:4697-4708`) and `ActAddAmbient` writes `Handle` (`:2430`),
+  so the pass writes the run action back (below). Conditions do keep run-time state: a
   timer's elapsed time, a circle's last position, `Cnd_NPCSystemEnter`'s
   pending list. That state is saved through `Cnd::Save` and `Load`
   (`MissionCnd.h:51-53`).
@@ -620,11 +623,15 @@ Paths are relative to `CppSource/`.
      after its heartbeat draws, so the draws come in the C++ order.
    - **The trigger pass.**
      - The condition is taken out for `matches` (point 1).
-     - Each action is cloned from `(trigger id, index)` before it runs, and
-       the next one is looked up again afterwards.
-     - If the mission ended or its triggers were torn down during the
-       action, the pass stops. The C++ goes on through freed actions; this
-       is a divergence row under record 0006 point 7's held-pointer rule.
+     - Each action is cloned from `(trigger id, index)` before it runs and
+       written back after it, because two actions write their own fields;
+       the next one is looked up again afterwards (amended with P3.5c1).
+     - If the trigger was torn down during the action, the pass stops. The
+       C++ goes on through freed actions; this is a divergence row (D972)
+       under record 0006 point 7's held-pointer rule. `EndMission` frees no
+       trigger (`MissionScript.cpp:908-956`; only `PlayerLogout` and the
+       destructor do), so a mission that ended goes on as the C++ does
+       (amended by the owner on 2026-11-25 with P3.5c1).
      - `Act_ChangeState` takes effect at the end of `handle_mission_message`,
        as in the C++.
      - A mission that destroyed itself ignores every message until its
@@ -884,6 +891,14 @@ and 5 to 10 as recommended on 2026-11-22; 4 stays open until P3.6:
    `mission.jsonl`, and be judged by dispatch order to the first difference
    and by position envelopes. *Recommended: yes*, starting with M01a's
    space part. The client-driven `single_player.txt` run needs P5.
+   *Answered by the owner on 2026-11-25 with P3.5c1:* P3.5c1 is judged on an
+   object-less engine trace (`dump mission_trace`: a shipless player 7 in
+   `RELAYSEVEN_system`, M01a's opening over 900 heartbeats; activations,
+   firings, actions, timers, rearms, deactivations and states in
+   `mission.jsonl`, exact to the first difference). A player with a ship
+   would run the C++'s unported spawns and comms, which feed back through
+   the bus. The session with a ship and `dispatch.jsonl` comes with P3.5c2,
+   once the spawns are ported.
 10. **Order of the packages.** P3.4, then P3.5 and P3.6 interleaved as in
     point 10, then P3.7, each increment a pull request merged on green
     under O41. *Recommended as written.*

@@ -40,15 +40,20 @@
 //! applies the request (on a multiplayer server; in single player the
 //! client already did) and tells every other player that can see the
 //! object. An object of a class without the slot answers -3 and does
-//! nothing (`GameObject`'s defaults). `FireWeapon`, `JettisonCargo` and
-//! `SPRequestUseItem` end the player's trade first
-//! (`PlayerData_TerminateTrade`); no trade can be open before P3.10b ports
-//! them (D918).
+//! nothing (`GameObject`'s defaults). `FireWeapon` and `JettisonCargo`
+//! end the player's trade first, `SPRequestUseItem` after a use that
+//! succeeded (`PlayerData_TerminateTrade`,
+//! [`crate::trade::player_terminate_trade`]).
 //!
-//! The other packets reach the server functions that exist as those
-//! functions' callers arrive; until then [`deliver`] answers false for them.
-//! `FLPACKET_CLIENT_SAVEGAME` is one of them: its decoded form carries only
-//! the description, while `IServerImpl::SaveGame` names the save by the
+//! The player-state requests and the trades of channel 1 and the item
+//! requests of channel 3 (work package P3.10b) are [`crate::session`]'s
+//! and [`crate::trade`]'s.
+//!
+//! [`deliver`] answers false for the packets the session's entry points,
+//! the chat and the player-state requests take ([`crate::session::route`],
+//! [`crate::session::route_common`]). In single player
+//! `FLPACKET_CLIENT_SAVEGAME` reaches none of them: its decoded form
+//! carries only the description, while `IServerImpl::SaveGame` names the save by the
 //! character id that rpclocal's single-player payload holds and the wire
 //! leaves out; [`crate::saves::server_save_game`] takes it from the caller.
 
@@ -209,8 +214,9 @@ fn slot_ship(cx: &Cx<'_>, session: u32) -> Option<u32> {
 // ---------------------------------------------------------------------------
 // The handlers.
 
-/// `IServerImpl::FireWeapon(Session, Info)` (`IServerImpl.cpp:412`): a
-/// live object's `EqObj::slot_34` with the hardpoints, the aim point and
+/// `IServerImpl::FireWeapon(Session, Info)` (`IServerImpl.cpp:412`): for
+/// a live object, the session's trade ends, then the object's
+/// `EqObj::slot_34` with the hardpoints, the aim point and
 /// the session ([`crate::equip_fire::fire_weapons`]; a client's shot pays
 /// its ammunition and launches only its seeking munitions on a
 /// multiplayer server, and the other players hear of the unguided ones).
@@ -220,6 +226,7 @@ pub fn fire_weapon(cx: &mut Cx<'_>, session: u32, packet: &FireWeapon) {
     let Some(h) = live_object(cx, packet.object_id) else {
         return;
     };
+    crate::trade::player_terminate_trade(cx, session);
     let [x, y, z] = packet
         .target
         .map(game_sim::protocol::common::FireComponent::value);
@@ -383,13 +390,15 @@ pub fn stop_tradelane(cx: &mut Cx<'_>, session: u32, packet: &StopTradeLane) {
     );
 }
 
-/// `IServerImpl::JettisonCargo(Session, Info)` (`IServerImpl.cpp:562`): a
-/// live ship's `Ship::slot_38` with the item and the count as an `int`
+/// `IServerImpl::JettisonCargo(Session, Info)` (`IServerImpl.cpp:562`):
+/// for a live object, the session's trade ends, then a ship's
+/// `Ship::slot_38` with the item and the count as an `int`
 /// ([`crate::cargo::jettison`]).
 pub fn jettison_cargo(cx: &mut Cx<'_>, session: u32, packet: &JettisonCargo) {
     let Some(h) = live_object(cx, packet.object_id) else {
         return;
     };
+    crate::trade::player_terminate_trade(cx, session);
     if is_ship(cx, h) {
         let count = i32::from_ne_bytes(packet.count.to_ne_bytes());
         crate::cargo::jettison(cx, h, packet.item_id, count, source(session));
@@ -515,17 +524,18 @@ pub fn set_maneuver(cx: &mut Cx<'_>, session: u32, packet: &SetManeuver) {
 
 /// `IServerImpl::SPRequestUseItem(Info, Session)` (`IServerImpl.cpp:1766`):
 /// a live object's `EqObj::slot_58` with the item and the count
-/// ([`crate::cargo::use_item`]); the player's trade ends only when the use
-/// succeeded.
+/// ([`crate::cargo::use_item`]); the session's trade ends only when the
+/// use succeeded (0).
 pub fn request_use_item(cx: &mut Cx<'_>, session: u32, packet: &RequestUseItem) {
-    let _ = session;
     let Some(h) = live_object(cx, packet.object_id) else {
         return;
     };
     if !is_eq_obj(cx, h) {
         return;
     }
-    let _ = crate::cargo::use_item(cx, h, packet.item_id, u32::from(packet.count));
+    if crate::cargo::use_item(cx, h, packet.item_id, u32::from(packet.count)) == 0 {
+        crate::trade::player_terminate_trade(cx, session);
+    }
 }
 
 /// `IServerImpl::SPRequestInvincibility(Ship, On, Reason, Session)`
