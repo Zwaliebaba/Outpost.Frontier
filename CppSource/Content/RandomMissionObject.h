@@ -92,6 +92,11 @@ public:
     // Slot 44, the routine (RET 8): slot 42 for every player of the map.
     virtual void ChangeGroupReputationAlways(unsigned int Group, float Delta);
 
+    // Oracle instrumentation (P3.7b, OracleDumpRmSession; not a slot, no game module calls it):
+    // InPlayerId mapped, listed and named as SetPlayer does for each member of the player's group,
+    // which a player without a server slot does not have.
+    void OracleJoinPlayer(unsigned int InPlayerId);
+
 protected:
     // StateMachine slot 2, the routine (RET 8): the "any state" handler of the controller
     // messages. Called directly by the DestroyMission override (06eef740) with State -1.

@@ -204,6 +204,12 @@ namespace
         // base.jsonl through its OracleDumpBaseSession; no system loads and no scenario runs
         // (P3.6e, decision record 0008 points 7 and 10).
         bool bDumpBaseSession = false;
+        // `dump rm_session`: right after the server starts, Content.dll accepts a vendor random
+        // mission for a synthetic player, runs its DestroyMission controller and runtime machines
+        // over the session's ticks, aborts and tears it down, and writes the router's and the
+        // machines' trace as rm.jsonl through its OracleDumpRmSession; no system loads and no
+        // scenario runs (P3.7b, decision record 0008 point 10).
+        bool bDumpRmSession = false;
         unsigned int Seed = 0x4f524143u;
         double ClockStart = 1000.0;
         std::vector<FObjectDesc> Objects;
@@ -554,6 +560,10 @@ namespace
             {
                 Out.bDumpBaseSession = true;
             }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "rm_session")
+            {
+                Out.bDumpRmSession = true;
+            }
             else if (Key == "seed" && T.size() == 2 && ParseUnsigned(T[1], Value))
             {
                 Out.Seed = (unsigned int)Value;
@@ -625,13 +635,13 @@ namespace
         // A dump session needs no object: every `dump` line but `replication`, which records
         // the objects the session spawns (P3.6a: `content_systems` joins the list; P3.7a:
         // `random_missions`; P3.7c: `random_mission_saves` and `random_mission_save_loads`; P3.5c1:
-        // `mission_trace`; P3.6e: `base_session`).
+        // `mission_trace`; P3.6e: `base_session`; P3.7b: `rm_session`).
         bool const bObjectlessDump = Out.bDumpSystemLoads || Out.bDumpContentTables ||
                                      Out.bDumpContentSystems || Out.bDumpMissionScripts ||
                                      Out.bDumpMissionSaves || Out.bDumpMissionSaveLoads ||
                                      Out.bDumpRandomMissions || Out.bDumpRandomMissionSaves ||
                                      Out.bDumpRandomMissionSaveLoads || Out.bDumpMissionTrace ||
-                                     Out.bDumpBaseSession;
+                                     Out.bDumpBaseSession || Out.bDumpRmSession;
         if (Out.Objects.empty() && !bObjectlessDump)
             return Error = "a scenario needs at least one object", false;
         std::stable_sort(Out.Commands.begin(), Out.Commands.end(),
@@ -3103,6 +3113,28 @@ namespace oracle
                                      "unknown or Server.dll lacks OracleSetBaseDbTrace");
             FOracleJson J;
             J.Str("rec", "base_session");
+            J.Int("records", Records);
+            Write(FileSession, J);
+            EndProcess(Records < 0 ? 3 : 0);
+            return Records < 0 ? 3 : 0;
+        }
+
+        // `dump rm_session` (P3.7b): a vendor random mission accepted, run, aborted and torn down
+        // after the start-up, through Content.dll's Oracle export, then the end of the run.
+        if (GScenario.bDumpRmSession)
+        {
+            typedef int(__cdecl * FDumpRmSession)(char const*);
+            HMODULE const Content = GetModuleHandleA("Content.dll");
+            FDumpRmSession const DumpRmSession =
+                Content != nullptr ? (FDumpRmSession)GetProcAddress(Content, "OracleDumpRmSession") : nullptr;
+            int const Records = DumpRmSession != nullptr ? DumpRmSession(OutDir.c_str()) : -1;
+            if (DumpRmSession == nullptr)
+                SessionNote("error", "dump rm_session: Content.dll is not loaded or lacks OracleDumpRmSession");
+            else if (Records < 0)
+                SessionNote("error", "OracleDumpRmSession failed: rm.jsonl could not be opened, the base is "
+                                     "unknown, no mission was accepted or Server.dll lacks its bus exports");
+            FOracleJson J;
+            J.Str("rec", "rm_session");
             J.Int("records", Records);
             Write(FileSession, J);
             EndProcess(Records < 0 ? 3 : 0);

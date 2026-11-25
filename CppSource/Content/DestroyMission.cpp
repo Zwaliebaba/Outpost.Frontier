@@ -28,6 +28,7 @@
 #include "common_text.h"
 #include "common_weighted_vector.h"
 #include "x86math.h"
+#include "oracle_rm_trace.h"       // P3.7b oracle instrumentation, inert outside OracleDumpRmSession
 
 #include <algorithm>
 #include <cmath>
@@ -219,6 +220,7 @@ bool FDestroyMission::Slot12()
 // then JMP thunk_FUN_06f0fc40 (the TU38 body).
 void FDestroyMission::EndMission()
 {
+    OracleRmTraceMission("end", 0);
     for (int Index = 0; Index < static_cast<int>(RunningMachines.size()); ++Index)
         DmLookupMachine(RunningMachines[Index])->Shutdown();
     FMissionObject::EndMission();
@@ -227,6 +229,7 @@ void FDestroyMission::EndMission()
 // +0x10 (the reward the TU38 body splits) = +0x240 +0x3c, then JMP the routine.
 void FDestroyMission::OnMissionSucceed()
 {
+    OracleRmTraceMission("succeed", static_cast<long long>(static_cast<unsigned int>(MissionData->Reward)));
     Reward = static_cast<unsigned int>(MissionData->Reward);
     FRandomMissionObject::OnMissionSucceed();
 }
@@ -236,6 +239,7 @@ void FDestroyMission::OnMissionSucceed()
 // then the TU47 body the routine.
 void FDestroyMission::FailMission(int Reason)
 {
+    OracleRmTraceMission("fail", Reason);
     FmtStr Text;
     Text.begin_mad_lib(GetReasonIds(Reason));
     if (!PlayerStates.empty())
@@ -250,6 +254,7 @@ void FDestroyMission::FailMission(int Reason)
 // not broadcast), then the TU47 body the routine.
 void FDestroyMission::RemoveMissionPlayer(unsigned int InPlayerId, int Reason)
 {
+    OracleRmTraceMission("remove_player", InPlayerId);
     FmtStr Text;
     Text.begin_mad_lib(GetReasonIds(Reason));
     pub::Player::DisplayMissionMessage(InPlayerId, Text, static_cast<MissionMessageType>(2), false);
@@ -328,6 +333,7 @@ void FDestroyMission::CreateRuntimeMachines()
 // State 3: enter -> slot 23. State 4: enter -> slot 35 with +0x23c.
 bool FDestroyMission::Slot2(SMEventData const* Event, int const& State)
 {
+    OracleRmTraceSm(static_cast<MessageHandler*>(this)->get_id(), "mission", Event, State);
     if (State < 0)
     {
         using pub::Controller::EMessage;
@@ -528,7 +534,11 @@ IDLL* CreateDestroyMission(char const* /*Name*/, unsigned int ControllerId, void
 {
     pub::Controller::CreateParms* Base =
         const_cast<pub::Controller::CreateParms*>(static_cast<pub::Controller::CreateParms const*>(Parms));
-    return new (std::nothrow) FDestroyMission(&ControllerId, static_cast<FRandomMissionData*>(Base));
+    FDestroyMission* const Mission =
+        new (std::nothrow) FDestroyMission(&ControllerId, static_cast<FRandomMissionData*>(Base));
+    // Oracle instrumentation (P3.7b): the session's mission.
+    OracleRmNoteMission(Mission, ControllerId);
+    return Mission;
 }
 
 // =======================================================================================

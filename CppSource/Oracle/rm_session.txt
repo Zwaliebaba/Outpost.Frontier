@@ -1,0 +1,12 @@
+# Oracle.exe sim session (P3.7b, decision record 0008 points 3 and 10): not a scenario. The server
+# starts as a multiplayer server (GameSupport's tables, then LoadGame's system records and bases),
+# then Content.dll runs a vendor random mission for a synthetic player at he01_01_Base: the base
+# entered, the vendor offers built, the first one accepted (BaseSupport makes its DestroyMission
+# controller), the player joined to it, twelve ticks of a second (the game time, the mission's
+# heartbeat, the bus's timers, which carry the message router's), then the mission aborted and
+# torn down, and writes the router's and the machines' trace as rm.jsonl (OracleDumpRmSession).
+# No system loads and nothing is stepped; the parser still wants `system` and `ticks`.
+
+system he01
+ticks 1
+dump rm_session

@@ -6,6 +6,7 @@
 #include "ContentMessageRouter.h"
 #include "ContentInternal.h"
 #include "ContentStaticIds.h" // TU36 static IDs 06f056d0..06f058b0 (the field..the field)
+#include "oracle_rm_trace.h"   // P3.7b oracle instrumentation, inert outside OracleDumpRmSession
 
 FContentMessageRouter* GMessageRouter = nullptr;
 
@@ -55,7 +56,9 @@ void FContentMessageRouter::RouteMessage(StateMachineMessage* Msg, float Delay,
         // this->vtbl[+0xc](Msg->Receiver); on a hit bDelivered = 1 and
         // handler->vtbl[+4](Msg) (receive_message).
         Msg->set_delivery_options(0.0f, Sender, Target, Scope);
+        OracleRmTraceRoute(Msg);
         MessageHandler* Handler = LookupHandlerById(Msg->Receiver);
+        OracleRmTraceDeliver(Msg, Handler != nullptr);
         if (Handler == nullptr)
             return;
         Msg->bDelivered = 1;
@@ -79,6 +82,7 @@ void FContentMessageRouter::RouteMessage(StateMachineMessage* Msg, float Delay,
     // insert before Where, then ++size (+0xc).
     StateMachineMessage* Copy = Msg->clone();
     Copy->set_delivery_options(DeliveryTime, Sender, Target, Scope);
+    OracleRmTraceRoute(Copy);
     PendingMessages.insert(Where, Copy);
 
     // pub::SetTimer(&the field, {TimerId, 0}, Delay).
@@ -93,6 +97,7 @@ unsigned int FContentMessageRouter::RegisterHandler(MessageHandler* Handler)
 {
     Handlers.push_back(Handler);
     ++LastHandlerId;
+    OracleRmTraceHandler("register", LastHandlerId);
     return LastHandlerId;
 }
 
@@ -105,6 +110,7 @@ void FContentMessageRouter::UnregisterHandler(MessageHandler* Handler)
         if (*It == Handler)
         {
             Handlers.erase(It);
+            OracleRmTraceHandler("unregister", Handler->get_id());
             return;
         }
     }
@@ -136,6 +142,7 @@ void FContentMessageRouter::OnTimerExpired(pub::Controller::TimerExpired const* 
     std::list<StateMachineMessage*>::iterator First = PendingMessages.begin();
     StateMachineMessage* Msg = *First;
     MessageHandler* Handler = LookupHandlerById(Msg->Receiver);
+    OracleRmTraceDeliver(Msg, Handler != nullptr);
     if (Handler != nullptr)
     {
         Msg->bDelivered = 1;
