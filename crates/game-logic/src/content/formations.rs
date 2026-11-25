@@ -21,10 +21,12 @@ use neuron_core::math::Vector;
 
 use super::ContentState;
 use super::dock_queues;
+use super::mission::obj_list::DirectiveKind;
 use super::players;
 use super::ships::{self, ShipKey};
 use crate::api;
 use crate::api::ai::{BaseOp, Op, SetPersonalityParams};
+use crate::events::NpcShipKey;
 use crate::server::Cx;
 
 /// `AllocateFormationId` (`Content/GameSupport.cpp:774-777`): the counter
@@ -283,7 +285,7 @@ pub fn release_members(cx: &mut Cx<'_>, ship: ShipKey, out: &mut Vec<ShipKey>) {
 pub fn form_formation(
     cx: &mut Cx<'_>,
     list: &mut Vec<ShipKey>,
-    formation: u32,
+    formation: Option<u32>,
     release_leader_followers: bool,
 ) {
     let Some(&first) = list.first() else {
@@ -292,7 +294,6 @@ pub fn form_formation(
     if ships::formation_id(&cx.logic.content.state, first) != u32::MAX && ships::is_npc(first) {
         release_members(cx, first, list);
     }
-    let formation = Some(formation);
     let id = allocate_id(&mut cx.logic.content.state);
     let mut slot = 0_i32;
     let mut at = 0;
@@ -627,11 +628,11 @@ pub fn dock_formation_followers(cx: &mut Cx<'_>, system: u32, ship: u32, target:
 /// bReleasePlayers)` (`:1475-1543`): a leader (or a ship without a
 /// formation) of a formation of more than one member that docks at a
 /// station breaks it up. The NPC members leave it, take the leader's
-/// directives and a clone of its guide (P3.6c: none yet). With either flag
-/// the players' ships leave it too, and with `redirect_players` each is
-/// sent to dock: the leader's first directive when it is a dock directive
-/// (a player's ship leads with no directive), else at its own docking
-/// entry's terminal.
+/// directives (`FollowDirectivesOf`) and a clone of its guide. With either
+/// flag the players' ships leave it too, and with `redirect_players` each
+/// is sent to dock: the leader's first directive when it is a dock
+/// directive (at its own docking entry's terminal when it has one), and
+/// with no directive at that terminal.
 pub fn break_formation_at_dock(
     cx: &mut Cx<'_>,
     system: u32,
@@ -652,8 +653,40 @@ pub fn break_formation_at_dock(
         return;
     }
     // Members after the first that the record's space objects hold are the
-    // NPC members (P3.6c); the rest are players' ships.
-    let player_members: Vec<ShipKey> = members[1..].to_vec();
+    // NPC members; the rest are players' ships.
+    let mut npc_members: Vec<NpcShipKey> = Vec::new();
+    let mut player_members: Vec<ShipKey> = Vec::new();
+    for &m in &members[1..] {
+        let id = ships::id(state, m);
+        if let Some(k) = ships::find_space_obj(state, system, id) {
+            npc_members.push(k);
+        } else if let Some(p) = players::find_by_ship(&state.players, id) {
+            player_members.push(ShipKey::Player(p));
+        }
+    }
+    for member in npc_members {
+        remove_from_formation(cx, ShipKey::Npc(member));
+        super::npc_ships::follow_directives_of(cx, ShipKey::Npc(member), leader);
+        // A player's ship as leader has no guide (the C++ reads one at its
+        // `+0x178` all the same, D854).
+        let ShipKey::Npc(lead) = leader else {
+            continue;
+        };
+        let Some(guide) = cx
+            .logic
+            .content
+            .state
+            .npc_ships
+            .get(&lead)
+            .and_then(|s| s.guide)
+        else {
+            continue;
+        };
+        if let Some(copy) = super::guides::clone_guide(cx, guide) {
+            super::guides::set_guide(cx, member, Some(copy), true, false);
+            super::guides::release(cx, copy);
+        }
+    }
     if !release_players && !redirect_players {
         return;
     }
@@ -664,22 +697,165 @@ pub fn break_formation_at_dock(
         return;
     }
     for member in player_members {
-        // A player's ship as leader has no directives (its list stays
-        // empty), so only the docking entry can send the member.
+        let mut directives = super::npc_ships::copy_directives(cx, leader);
         let id = ships::id(&cx.logic.content.state, member);
-        let Some(entry) = dock_queues::docking_entry_of(&cx.logic.content.state, id) else {
+        let entry = dock_queues::docking_entry_of(&cx.logic.content.state, id);
+        let op = if let Some(&first) = directives.first() {
+            match cx
+                .logic
+                .content
+                .state
+                .directives
+                .get(first)
+                .map(|d| &d.kind)
+            {
+                Some(DirectiveKind::Dock(dock)) => {
+                    let mut op = dock.op.clone();
+                    if let Some(entry) = &entry {
+                        op.dock_object = entry.target;
+                        op.field_14 = 1;
+                        op.port = entry.index;
+                    }
+                    Some((dock.priority, op))
+                }
+                // A first directive of another type (an instant trade lane
+                // answers 0x13 too, D854) sends nothing.
+                _ => None,
+            }
+        } else {
+            entry.map(|entry| {
+                (
+                    1,
+                    DockOp {
+                        dock_object: entry.target,
+                        field_14: 1,
+                        port: entry.index,
+                        ..DockOp::default()
+                    },
+                )
+            })
+        };
+        if let Some((priority, op)) = op {
+            let mut directive = BaseOp::directive(DirectiveOp::Dock(op));
+            directive.priority = priority;
+            let _ = api::ai::submit_directive(cx, id, &directive);
+        }
+        super::directives::clear_list(&mut cx.logic.content.state.directives, &mut directives);
+    }
+}
+
+/// `FSpaceSupport::PickFormationLeader(&Ships)` (`SpaceSupport.cpp:168-222`):
+/// of the NPC ships of the list, a large ship (`LARGE_SHIPS`) beats any
+/// other, else the strictly higher rank; the leader moves to the list's
+/// front. `None` when the list has no NPC ship.
+pub fn pick_formation_leader(cx: &mut Cx<'_>, list: &mut Vec<ShipKey>) -> Option<ShipKey> {
+    let large = create_id(b"LARGE_SHIPS");
+    let mut best: Option<(usize, ShipKey)> = None;
+    for (at, &candidate) in list.clone().iter().enumerate() {
+        if !ships::is_npc(candidate) {
+            continue;
+        }
+        let Some((_, b)) = best else {
+            best = Some((at, candidate));
             continue;
         };
-        let op = DockOp {
-            dock_object: entry.target,
-            field_14: 1,
-            port: entry.index,
-            ..DockOp::default()
-        };
-        let mut directive = BaseOp::directive(DirectiveOp::Dock(op));
-        directive.priority = 1;
-        let _ = api::ai::submit_directive(cx, id, &directive);
+        let mut compare_ranks = false;
+        if ships::is_in_ship_class(cx, candidate, large) {
+            if !ships::is_in_ship_class(cx, b, large) {
+                best = Some((at, candidate));
+                continue;
+            }
+            compare_ranks = true;
+        } else if !ships::is_in_ship_class(cx, b, large) {
+            compare_ranks = true;
+        }
+        if compare_ranks {
+            let candidate_rank = ships::reputation_rank(cx, candidate);
+            if ships::reputation_rank(cx, b) < candidate_rank {
+                best = Some((at, candidate));
+            }
+        }
     }
+    let (at, leader) = best?;
+    list.remove(at);
+    list.insert(0, leader);
+    Some(leader)
+}
+
+/// `FSpaceSupport::PromoteFormationLeader(System, Ship)` (`:225-299`), a
+/// killed NPC ship that led its formation: with no NPC wingman the
+/// players' wingmen leave the formation; otherwise the NPC wingmen, then
+/// the players', form a new formation of the same layout under the leader
+/// [`pick_formation_leader`] chose, which takes the old leader's directives
+/// and its guide, and `FormationLeaderChanged` goes to every controller.
+/// True when a new leader took the guide.
+pub fn promote_formation_leader(cx: &mut Cx<'_>, _system: u32, ship: NpcShipKey) -> bool {
+    let key = ShipKey::Npc(ship);
+    let state = &cx.logic.content.state;
+    if !state.npc_ships.contains_key(&ship) || ships::is_wingman(state, key) {
+        return false;
+    }
+    let members = collect_members(state, ships::formation_id(state, key));
+    let mut npc_wingmen: Vec<ShipKey> = Vec::new();
+    let mut player_wingmen: Vec<ShipKey> = Vec::new();
+    for m in members {
+        if !ships::is_wingman(state, m) {
+            continue;
+        }
+        let id = ships::id(state, m);
+        if players::find_by_ship(&state.players, id).is_none() {
+            npc_wingmen.push(m);
+        } else {
+            player_wingmen.push(m);
+        }
+    }
+    if npc_wingmen.is_empty() {
+        for w in player_wingmen {
+            // Looked up again in its system (`GetSystem()->FindShip`, not
+            // null-tested, D843).
+            let state = &cx.logic.content.state;
+            let id = ships::id(state, w);
+            let Some(system) = ships::system(state, w) else {
+                continue;
+            };
+            let Some(found) = ships::find_in_system(cx, system, id) else {
+                continue;
+            };
+            let formation = ships::formation_id(&cx.logic.content.state, found);
+            if formation == u32::MAX {
+                continue;
+            }
+            cancel_docking_behind_leader(cx, found, formation);
+            ships::set_formation(&mut cx.logic.content.state, found, u32::MAX, 0, None);
+        }
+        return false;
+    }
+    npc_wingmen.extend(player_wingmen);
+    let Some(new_leader) = pick_formation_leader(cx, &mut npc_wingmen) else {
+        return false;
+    };
+    let layout = ships::formation(&cx.logic.content.state, key);
+    form_formation(cx, &mut npc_wingmen, layout, false);
+    super::npc_ships::follow_directives_of(cx, new_leader, key);
+    let guide = cx
+        .logic
+        .content
+        .state
+        .npc_ships
+        .get(&ship)
+        .and_then(|s| s.guide);
+    let ShipKey::Npc(new_key) = new_leader else {
+        return false;
+    };
+    super::guides::set_guide(cx, new_key, guide, true, false);
+    let _ = cx.dispatch(
+        neuron_server::controller::ControllerId::BROADCAST,
+        &mut crate::events::ControllerMessage::FormationLeaderChanged {
+            new_leader: new_key,
+            old_leader: ship,
+        },
+    );
+    true
 }
 
 #[cfg(test)]

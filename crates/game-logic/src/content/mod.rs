@@ -61,6 +61,8 @@ pub mod bases;
 pub mod callbacks;
 /// The faction, archetype and cargo helpers (TU44; P3.4c).
 pub mod cargo;
+/// The combat reputation (TU56; P3.6c).
+pub mod combat_reputation;
 pub mod counter;
 /// The `[ObjList]` directive objects Content's ships run (TU40, TU50;
 /// P3.6c).
@@ -213,6 +215,12 @@ pub struct ContentState {
     pub directives: directives::DirectiveArena,
     /// `GNpcShipEvents` (`Content/NpcShip.cpp:950`, [`npc_ships`]).
     pub npc_ship_events: npc_ships::NpcShipEvents,
+    /// The guides of the NPC ships ([`guides`]).
+    pub guides: guides::GuideArena,
+    /// `GSpaceSupportGuidedShips` (`Content/SpaceSupport.cpp:50`): the ships
+    /// whose guides hear SpaceSupport's messages, `None` for an entry
+    /// unregistered during the walk.
+    pub guided_ships: Vec<Option<crate::events::NpcShipKey>>,
 }
 
 impl ContentState {
@@ -251,6 +259,8 @@ impl ContentState {
             rep_handles: rep_handles::RepHandles::default(),
             directives: directives::DirectiveArena::default(),
             npc_ship_events: npc_ships::NpcShipEvents::default(),
+            guides: guides::GuideArena::default(),
+            guided_ships: Vec::new(),
         }
     }
 }

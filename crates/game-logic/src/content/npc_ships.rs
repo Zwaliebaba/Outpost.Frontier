@@ -634,6 +634,57 @@ pub fn copy_directives(cx: &mut Cx<'_>, ship: ShipKey) -> DirectiveList {
     directives::copy_list(&mut cx.logic.content.state.directives, &list)
 }
 
+/// `FollowDirectivesOf(Leader)` (`BehaviorCmds.cpp:357-399`): the AI
+/// directive cancelled, the queue replaced by the leader's very directives
+/// (shared, each `AddRef`'ed) and started. A first directive of type 0x13
+/// that is a dock is pointed at this ship's own docking terminal when the
+/// ship is in the docking list: the write goes into the object the leader
+/// shares (an instant trade lane, which answers 0x13 too, only gets its
+/// flag byte, D854).
+pub fn follow_directives_of(cx: &mut Cx<'_>, ship: ShipKey, leader: ShipKey) {
+    cancel_ai_directive(cx, ship);
+    drop_queue_list(cx, ship);
+    let list = queue(cx, leader)
+        .map(|q| q.list.clone())
+        .unwrap_or_default();
+    let copy = directives::copy_list(&mut cx.logic.content.state.directives, &list);
+    match queue_mut(cx, ship) {
+        Some(q) => q.list = copy,
+        None => {
+            let mut copy = copy;
+            directives::clear_list(&mut cx.logic.content.state.directives, &mut copy);
+            return;
+        }
+    }
+    if let Some(&first) = list.first()
+        && cx.logic.content.state.directives.type_code(first) == 0x13
+    {
+        let id = ships::id(&cx.logic.content.state, ship);
+        if let Some((target, index, _)) = super::dock_queues::ship_docking_target(cx, id)
+            && let Some(d) = cx.logic.content.state.directives.get_mut(first)
+        {
+            match &mut d.kind {
+                DirectiveKind::Dock(dock) => {
+                    dock.op.dock_object = target;
+                    dock.op.field_14 = 1;
+                    dock.op.port = index;
+                }
+                DirectiveKind::InstantTradelane(lane) => {
+                    // `TradeLaneId` and the low byte of the third word (the
+                    // index lands past the object in the C++, D854).
+                    lane.op.entrance = target;
+                    lane.op.speed = f32::from_bits((lane.op.speed.to_bits() & !0xff) | 1);
+                }
+                _ => {}
+            }
+        }
+    }
+    if let Some(q) = queue_mut(cx, ship) {
+        q.current = None;
+    }
+    advance_directive(cx, ship);
+}
+
 /// `FContentNpcShip::OnDirectiveComplete(Word11c, Word118)` (`:466-471`):
 /// the TU50 handling first (a non-empty queue advances), then, with the
 /// queue empty, the guide's `OnDirectivesDone`.
@@ -949,9 +1000,7 @@ fn request_flee_destination(
     _own: u32,
     reason: i32,
 ) -> Option<FleeAnswer> {
-    let Some(ship) = get(cx, key) else {
-        return None;
-    };
+    let ship = get(cx, key)?;
     let (state, guide) = (ship.flee_state, ship.guide);
     let answer = if state == 0 {
         let answer = guide.and_then(|g| super::guides::request_flee_destination(cx, g, key));
