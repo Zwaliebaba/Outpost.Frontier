@@ -40,6 +40,9 @@ data root (O31).
 - NeuronClient uses NeuronServer only as a dev-dependency, for the
   end-to-end test of the QUIC transport (P3.8). NeuronServer never
   depends on NeuronClient.
+- `apps/outpost-server` uses NeuronClient only as a dev-dependency, for
+  Gate G3's scripted test client against the real server (P3.9, owner
+  2026-11-25).
 - Keep startup wiring in `apps/` and put reusable code in the owning crate
   under `crates/`.
 - `cargo xtask check-policy` enforces these edges. The table is in

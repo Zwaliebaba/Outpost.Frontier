@@ -141,6 +141,25 @@ pub fn encode_name_file(name: &[u16]) -> Vec<u8> {
         .collect()
 }
 
+/// `PlayerDB::SetAccountPassword`'s `password` file
+/// (`Server/server_classes.cpp:4158-4198`): each wide character of the
+/// password XORed with the low 16 bits of the account CRC of the
+/// password's own bytes, little endian, no terminator. The key depends on
+/// the password, so the file is a check value, not a reversible store.
+#[must_use]
+pub fn encode_password_file(password: &[u16]) -> Vec<u8> {
+    let end = password
+        .iter()
+        .position(|&c| c == 0)
+        .unwrap_or(password.len());
+    let password = &password[..end];
+    let key = account_crc(&wide_bytes(password)) as u16;
+    password
+        .iter()
+        .flat_map(|&c| (c ^ key).to_le_bytes())
+        .collect()
+}
+
 /// The most wide characters `CAccount::InitFromFolder` reads.
 pub const NAME_FILE_MAX: usize = 0x400;
 

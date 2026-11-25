@@ -52,6 +52,101 @@ pub fn elapse_time<H: FrameHost>(host: &mut H, dt: f32, real_dt: f64) {
     controller::fire_timers(host, dt);
 }
 
+/// The dedicated server's frame period (`GServerFramePeriod`, the float
+/// nearest 1/30, which nothing writes; `OutpostServer.cpp:61`).
+pub const FRAME_PERIOD: f32 = 0.033_333_335;
+
+/// The server thread's pacing (`ServerThreadProc`,
+/// `OutpostServer/OutpostServer.cpp:370-403`): at the top of each frame
+/// the time since the previous frame's reading is the frame's `dt`; when
+/// it is below the period the thread sleeps the rest, cut to whole
+/// milliseconds; then the reading taken *before* the sleep becomes the
+/// previous one. So a frame that slept is followed by one whose `dt`
+/// includes that sleep, and `dt` alternates between the work time and
+/// about a period.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FramePacer<T> {
+    last: T,
+}
+
+/// A frame's start as [`FramePacer::begin`] answers it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FrameStart {
+    /// The frame's `dt`, in seconds (`Timing::seconds(DeltaTicks)`).
+    pub elapsed: f64,
+    /// How long to sleep before the frame runs.
+    pub sleep: std::time::Duration,
+}
+
+impl<T> FramePacer<T>
+where
+    T: Copy + core::ops::Sub<T, Output = std::time::Duration>,
+{
+    /// A pacer whose first reading is `now` (`LastTicks`, read before the
+    /// loop).
+    pub const fn new(now: T) -> Self {
+        Self { last: now }
+    }
+
+    /// The frame that starts at `now`.
+    pub fn begin(&mut self, now: T) -> FrameStart {
+        let elapsed = (now - self.last).as_secs_f64();
+        let period = f64::from(FRAME_PERIOD);
+        let sleep = if period > elapsed {
+            let millis = neuron_core::num::trunc_to_i32((period - elapsed) * 1000.0);
+            std::time::Duration::from_millis(u64::try_from(millis).unwrap_or(0))
+        } else {
+            std::time::Duration::ZERO
+        };
+        self.last = now;
+        FrameStart { elapsed, sleep }
+    }
+}
+
+/// The slots of the load history (`COutpostServerDoc::LoadHistorySize`).
+pub const LOAD_HISTORY: usize = 64;
+
+/// The frame load the status shows (`COutpostServerDoc::SetLoad`,
+/// `GetAverageLoad`): each frame's milliseconds in a ring of 64 slots,
+/// starting at zero, and their integer mean.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LoadHistory {
+    slots: [i32; LOAD_HISTORY],
+    next: usize,
+    last: i32,
+}
+
+impl Default for LoadHistory {
+    fn default() -> Self {
+        Self {
+            slots: [0; LOAD_HISTORY],
+            next: 0,
+            last: 0,
+        }
+    }
+}
+
+impl LoadHistory {
+    /// `SetLoad`.
+    pub fn push(&mut self, milliseconds: i32) {
+        self.last = milliseconds;
+        self.slots[self.next] = milliseconds;
+        self.next = (self.next + 1) % LOAD_HISTORY;
+    }
+
+    /// The last frame's load.
+    #[must_use]
+    pub const fn last(&self) -> i32 {
+        self.last
+    }
+
+    /// `GetAverageLoad`: the sum over every slot divided by 64.
+    #[must_use]
+    pub fn average(&self) -> i32 {
+        self.slots.iter().sum::<i32>() / LOAD_HISTORY as i32
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,5 +220,45 @@ mod tests {
         h.clock.base = 10.0;
         elapse_time(&mut h, 1.0, 0.25);
         assert_eq!(h.clock.now(), 10.25);
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct Ms(u64);
+
+    impl core::ops::Sub for Ms {
+        type Output = std::time::Duration;
+        fn sub(self, other: Self) -> std::time::Duration {
+            std::time::Duration::from_millis(self.0 - other.0)
+        }
+    }
+
+    #[test]
+    fn the_pacer_sleeps_the_rest_of_the_period_from_the_last_reading() {
+        let mut pacer = FramePacer::new(Ms(0));
+        // The first frame starts at once and sleeps nearly a whole period.
+        let first = pacer.begin(Ms(1));
+        assert_eq!(first.elapsed, 0.001);
+        assert_eq!(first.sleep.as_millis(), 32);
+        // The next reading comes after the sleep and 2 ms of work: its dt
+        // includes the sleep, and it does not sleep.
+        let second = pacer.begin(Ms(35));
+        assert_eq!(second.elapsed, 0.034);
+        assert_eq!(second.sleep, std::time::Duration::ZERO);
+        // The one after is only the work time again.
+        let third = pacer.begin(Ms(37));
+        assert_eq!(third.elapsed, 0.002);
+        assert_eq!(third.sleep.as_millis(), 31);
+    }
+
+    #[test]
+    fn the_load_is_the_mean_of_64_slots() {
+        let mut load = LoadHistory::default();
+        load.push(64);
+        assert_eq!(load.average(), 1);
+        assert_eq!(load.last(), 64);
+        for _ in 0..LOAD_HISTORY {
+            load.push(10);
+        }
+        assert_eq!(load.average(), 10);
     }
 }
