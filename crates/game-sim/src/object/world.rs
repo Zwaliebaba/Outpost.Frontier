@@ -79,7 +79,7 @@ pub use launch_action::{LAUNCH_ACTION_CALLBACK, LAUNCH_COAST_TIME, LAUNCH_DECEL_
 pub use sensors::{EquipStatus, EquipmentVal, equipment_val};
 pub(crate) use spawn::shield_status;
 pub use spawn::{LootSpawn, ProjectileSpawn, ShipSpawn, SolarSpawn, SpawnError};
-pub use step::{DamageState, Hit, HitRule, NoServerHooks, ServerHooks, ServerRequest};
+pub use step::{AiChange, DamageState, Hit, HitRule, NoServerHooks, ServerHooks, ServerRequest};
 pub use turret::TurretGeometry;
 
 /// A force controller the world registered with the physics

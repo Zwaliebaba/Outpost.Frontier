@@ -256,6 +256,16 @@ pub enum ServerRequest {
         /// The speed.
         speed: f32,
     },
+    /// A change the AI made through the server's wrapper that the
+    /// players are told of (`Ship::set_target`, `EqObj::slot_44`,
+    /// `Ship::slot_50`, `slot_54`, `EqObj::slot_4c`): the world made it
+    /// inside the tick; the server's `notify_*` follows (D857).
+    Changed {
+        /// The ship.
+        ship: ObjHandle,
+        /// The change.
+        change: AiChange,
+    },
     /// A report of the ship's behaviour manager to its content callback
     /// (`pub::AI::ContentCallback`, by the owner's handle, D710), in the
     /// order the tick made it among the requests (record 0008 point 4).
@@ -280,6 +290,37 @@ pub enum ServerRequest {
         /// What `get_tradelane_exit_ring` answers (the current leg's first
         /// ring, as the reference reads it).
         exit: u32,
+    },
+}
+
+/// A change of [`ServerRequest::Changed`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AiChange {
+    /// `notify_set_target(Id, Equip, Target, SubTarget, 0)`: the ship's
+    /// target (`equip` `SUBOBJ_ID_NONE`) or a gun's.
+    Target {
+        /// The sub-object (`SUBOBJ_ID_NONE` for the ship).
+        equip: crate::equip::SubObjId,
+        /// The target.
+        target: Option<ObjHandle>,
+        /// The sub-target.
+        sub_target: crate::equip::SubObjId,
+    },
+    /// `notify_cruise(Id, bEngage, bArg2, 0)`.
+    Cruise {
+        /// `bEngage`.
+        engage: bool,
+        /// `bArg2`.
+        instant: bool,
+    },
+    /// `notify_thrusters(Id, bActivate, 0)`.
+    Thrusters(bool),
+    /// `notify_activate_equip(Id, Equip, bActivate, 0)`.
+    Equip {
+        /// The item.
+        equip: crate::equip::SubObjId,
+        /// `bActivate`.
+        on: bool,
     },
 }
 
