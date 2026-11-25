@@ -854,3 +854,71 @@ fn mined_loot_tractor_invincibility_manoeuvre_and_the_forced_landing() {
         );
     }
 }
+
+/// The munition hits of the world's events since the last call: the
+/// target's id and the list's owner player.
+fn munition_hits(cx: &mut Cx<'_>) -> Vec<(u32, u32)> {
+    cx.world
+        .take_events()
+        .into_iter()
+        .filter_map(|e| match e {
+            game_sim::object::world::WorldEvent::MunitionHit { target, damage, .. } => {
+                Some((target, damage.inflictor_owner))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_munition_report_whose_shooter_left_the_system_names_no_shooter() {
+    let sink = Shared::default();
+    let Some((mut world, mut logic)) = setup("the shooter's system", false, &sink) else {
+        return;
+    };
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    let Scene { ship, .. } = scene(&mut cx);
+    // PvP off; player 3's ship is the target, player 2's the shooter.
+    cx.logic.server_world.forbid_pvp = true;
+    let target = fighter(&mut cx, 3, Vector::new(15000.0, 3000.0, -24500.0));
+    let target_id = id(&cx, target);
+    let near = fighter(&mut cx, 2, Vector::new(15200.0, 3000.0, -24500.0));
+    let he02 = create_id(b"he02");
+    cx.world.load_system(he02);
+    let mut spawn = ShipSpawn::new(
+        create_id(b"he_fighter"),
+        create_id(b"li_p_he_fighter_loadout01"),
+        Vector::new(0.0, 0.0, 0.0),
+        Matrix::IDENTITY,
+    );
+    spawn.owner_player = 2;
+    let away = cx.world.spawn_ship(he02, &spawn).expect("he02's fighter");
+    let gun = items(&cx, ship, types::GUN)[0];
+    let munition = cx
+        .world
+        .launcher_projectile(ship, gun)
+        .expect("a projectile")
+        .nickname;
+    let report = |shooter: u32| MunCollision {
+        field_00: munition,
+        field_04: shooter,
+        object_id: target_id,
+        field_0c: SUBOBJ_ID_ROOT,
+        hit_position: [15000.0, 3000.0, -24500.0],
+    };
+    let _ = munition_hits(&mut cx);
+
+    // A player's shooter in the target's system: the gate holds the damage.
+    let near_id = id(&cx, near);
+    deliver_client(&mut cx, 1, report(near_id));
+    assert!(munition_hits(&mut cx).is_empty());
+
+    // The same player's ship in he02 is no shooter (`find_object` in the
+    // target's system): the hit is applied and names no owner player.
+    let away_id = id(&cx, away);
+    deliver_client(&mut cx, 1, report(away_id));
+    assert_eq!(munition_hits(&mut cx), [(target_id, 0)]);
+}
