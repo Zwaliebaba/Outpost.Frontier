@@ -404,7 +404,8 @@ pub fn set_relative_health(cx: &mut Cx<'_>, h: ObjHandle, relative: f32) -> Opti
 }
 
 /// `StarSystem::on_object_destroyed`: a player's current ship ends its
-/// trade (with the trade work), its health goes to 0 when destroyed by
+/// trade and its trade request ([`crate::trade::player_terminate_trade`],
+/// [`crate::trade::cancel_trade_request`]), its health goes to 0 when destroyed by
 /// damage (kind 1), the slot's ship is cleared and `SpaceExit` goes to the
 /// bus; then every player of the system hears of the object
 /// ([`crate::replication::object_destroyed`]).
@@ -423,6 +424,8 @@ fn on_player_object_destroyed(cx: &mut Cx<'_>, session: u32, id: u32, kind: i32)
     {
         return;
     }
+    crate::trade::player_terminate_trade(cx, session);
+    crate::trade::cancel_trade_request(cx, session, true);
     if kind == 1 {
         crate::player::set_relative_health(cx, session, 0.0, false);
     }

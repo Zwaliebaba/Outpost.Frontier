@@ -8,7 +8,8 @@ use game_sim::data::equip_desc::EquipDesc;
 use game_sim::data::string_cache::StringCache;
 use game_sim::protocol::ToClient;
 use game_sim::protocol::common::{
-    SetInterfaceState, SetMissionLog, SetVisitedState, SetWeaponGroup,
+    PlayerTrade, RequestGroupPositions, RequestRankLevel, SetInterfaceState, SetMissionLog,
+    SetVisitedState, SetWeaponGroup,
 };
 use game_sim::protocol::fmtstr::FmtStr;
 use game_sim::protocol::records::{CollisionGroup, EquipRecord};
@@ -441,4 +442,117 @@ pub fn misc_obj_update_formation(cx: &mut Cx<'_>, client: u32, ids: &[u32]) {
         ..MiscObjUpdate::default()
     };
     send(cx, client, message);
+}
+
+/// `SendCommonRequestGroupPositions` (slot +0x180, ch1 0x17): the block.
+pub fn request_group_positions(cx: &mut Cx<'_>, client: u32, data: Vec<u8>) {
+    send_common(cx, client, RequestGroupPositions { data });
+}
+
+/// `SendCommonRequestRankLevel` (slot +0x18c, ch1 0x1a): the block.
+pub fn request_rank_level(cx: &mut Cx<'_>, client: u32, data: Vec<u8>) {
+    send_common(cx, client, RequestRankLevel { data });
+}
+
+/// One `FLPACKET_COMMON_PLAYER_TRADE` (ch1 0x12) of the server's.
+fn player_trade(cx: &mut Cx<'_>, client: u32, trade: PlayerTrade) {
+    send_common(cx, client, trade);
+}
+
+/// `SendCommonPlayerTradeInitiateTrade` (slot +0x194, action 0x01): the
+/// partner's ship as the target.
+pub fn player_trade_initiate(cx: &mut Cx<'_>, client: u32, ship: u32) {
+    let trade = PlayerTrade {
+        action: 0x01,
+        target_player: ship,
+        ..PlayerTrade::default()
+    };
+    player_trade(cx, client, trade);
+}
+
+/// `SendCommonPlayerTradeTerminateTrade` (slot +0x198, action 0x02): the
+/// reason, stored to the packet's byte.
+pub fn player_trade_terminate(cx: &mut Cx<'_>, client: u32, reason: i32) {
+    let [reason, ..] = reason.to_le_bytes();
+    let trade = PlayerTrade {
+        action: 0x02,
+        reason: i8::from_le_bytes([reason]),
+        ..PlayerTrade::default()
+    };
+    player_trade(cx, client, trade);
+}
+
+/// `SendCommonPlayerTradeAcceptTrade` (slot +0x19c, action 0x40): the
+/// ship of the player that accepted, and whether it did.
+pub fn player_trade_accept(cx: &mut Cx<'_>, client: u32, ship: u32, accepted: bool) {
+    let trade = PlayerTrade {
+        action: 0x40,
+        target_player: ship,
+        accepted,
+        ..PlayerTrade::default()
+    };
+    player_trade(cx, client, trade);
+}
+
+/// `SendCommonPlayerTradeSetTradeMoney` (slot +0x1a0, action 0x04): the
+/// offering player's ship and the money, as an `int`.
+pub fn player_trade_money(cx: &mut Cx<'_>, client: u32, ship: u32, money: u32) {
+    let trade = PlayerTrade {
+        action: 0x04,
+        money: i32::from_ne_bytes(money.to_ne_bytes()),
+        target_player: ship,
+        ..PlayerTrade::default()
+    };
+    player_trade(cx, client, trade);
+}
+
+/// `SendCommonPlayerTradeAddTradeEquip` (slot +0x1a4, action 0x08): the
+/// offering player's ship and the item's archetype, count, health and id.
+pub fn player_trade_add_equip(cx: &mut Cx<'_>, client: u32, ship: u32, item: &EquipDesc) {
+    let trade = PlayerTrade {
+        action: 0x08,
+        equip_arch_id: item.arch_id,
+        equip_count: item.count,
+        equip_health: item.health,
+        equip_id: item.id,
+        target_player: ship,
+        ..PlayerTrade::default()
+    };
+    player_trade(cx, client, trade);
+}
+
+/// `SendCommonPlayerTradeDelTradeEquip` (slot +0x1a8, action 0x10): as
+/// [`player_trade_add_equip`] without the health.
+pub fn player_trade_del_equip(cx: &mut Cx<'_>, client: u32, ship: u32, item: &EquipDesc) {
+    let trade = PlayerTrade {
+        action: 0x10,
+        equip_arch_id: item.arch_id,
+        equip_count: item.count,
+        equip_id: item.id,
+        target_player: ship,
+        ..PlayerTrade::default()
+    };
+    player_trade(cx, client, trade);
+}
+
+/// `SendCommonPlayerTradeRequestTrade` (slot +0x1ac, action 0x20): the
+/// asking player's ship.
+pub fn player_trade_request(cx: &mut Cx<'_>, client: u32, ship: u32) {
+    let trade = PlayerTrade {
+        action: 0x20,
+        target_player: ship,
+        ..PlayerTrade::default()
+    };
+    player_trade(cx, client, trade);
+}
+
+/// `SendCommonPlayerTradeStopTradeRequest` (slot +0x1b0, action 0x80): the
+/// asking player's ship.
+pub fn player_trade_stop_request(cx: &mut Cx<'_>, client: u32, ship: u32) {
+    let trade = PlayerTrade {
+        action: 0x80,
+        target_player: ship,
+        ..PlayerTrade::default()
+    };
+    player_trade(cx, client, trade);
 }

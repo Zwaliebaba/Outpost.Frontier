@@ -30,6 +30,7 @@ pub mod server;
 pub mod session;
 pub mod ship;
 pub mod startup;
+pub mod trade;
 pub mod tradelane;
 pub mod transfer;
 pub mod world;
