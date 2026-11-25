@@ -1,6 +1,11 @@
 //! The populators, SpacePop and BasePop (`Content/Populators.cpp`; record
-//! 0008 point 2). Their handlers, the encounters and the spawn placement
-//! are P3.6d's.
+//! 0008 points 2 and 7). SpacePop's handler is P3.6d's ([`handle_space_pop`]):
+//! the heartbeat population around the players' ships, the arrival
+//! population where a ship launches, jumps in or leaves a lane, and the
+//! lanes' attacks; over the encounters ([`super::encounters`]), their
+//! placement ([`super::spawn_placement`]) and the random encounters
+//! ([`super::random_encounters`]). BasePop's room population waits for
+//! BaseSupport's bar characters (P3.6e, D1003).
 //!
 //! - **SpacePop** (`FSpacePop::FSpacePop`, `:237-241`): the controller's id
 //!   into `GSpacePopControllerId`, then a 3 s heartbeat (one `rand()`). No
@@ -24,11 +29,15 @@ use std::collections::BTreeMap;
 
 use neuron_server::controller::ControllerId;
 
-use neuron_core::math::{Matrix, Transform, Vector};
+use neuron_core::math::{Matrix, Transform, Vector, transform_xform};
 
 use super::Instance;
+use super::encounters::{self, ZoneRef};
+use super::random_encounters;
+use super::spawn_placement::{self, SpawnRequest};
 use super::systems::SystemInfo;
 use crate::api;
+use crate::events::ControllerMessage;
 use crate::server::Cx;
 
 /// SpacePop's heartbeat period in seconds (`:240`).
@@ -248,4 +257,496 @@ fn same_sphere(known: &[f32; 4], sphere: &[f32; 4]) -> bool {
     }
     let d = f64::from(known[3]) - f64::from(sphere[3]);
     d < 1.0 && d > -1.0
+}
+
+// ---- SpacePop's run time (P3.6d) ----------------------------------------------------------------
+
+/// `SpacePopPositionIsExcluded(Position)` (`:1120-1148`): the point is
+/// inside an exclusion sphere (its distance, from the refined estimate of
+/// the square stored as a float, below the radius).
+#[must_use]
+pub fn position_is_excluded(cx: &Cx<'_>, position: Vector) -> bool {
+    cx.logic.content.state.exclusion_spheres.iter().any(|s| {
+        let delta = Vector::new(s[0] - position.x, s[1] - position.y, s[2] - position.z);
+        let square = ((f64::from(delta.z) * f64::from(delta.z)
+            + f64::from(delta.y) * f64::from(delta.y))
+            + f64::from(delta.x) * f64::from(delta.x)) as f32;
+        let length = spawn_placement::fast_reciprocal_sqrt(square) * f64::from(square);
+        length < f64::from(s[3])
+    })
+}
+
+/// `ZoneDensity`: the zone's density, read unsigned.
+fn zone_density(record: &SystemInfo, zone: usize) -> u32 {
+    record.zones[zone].population.density as u32
+}
+
+/// `ftol(density * 0.6f)` of a near zone.
+fn near_density(record: &SystemInfo, zone: usize) -> u32 {
+    (f64::from(zone_density(record, zone)) * f64::from(0.6f32)) as i64 as u32
+}
+
+/// `ComputeZoneShares(AtShip, Near, ...)` (`:127-192`): each zone's share of
+/// the population. The weight is the largest density (a near zone's at 0.6)
+/// over the zone's repop time times the average repop time (float stores);
+/// the share is the weight over the sum of the weights (0 for a sum of 0).
+fn zone_shares(record: &SystemInfo, at_ship: &[usize], near: &[usize]) -> (Vec<f32>, Vec<f32>) {
+    let repop = |z: usize| record.zones[z].population.repop_time;
+    let mut repop_sum = 0.0f32;
+    let mut max_density = 0u32;
+    for &z in at_ship {
+        repop_sum = (f64::from(repop(z)) + f64::from(repop_sum)) as f32;
+        max_density = max_density.max(zone_density(record, z));
+    }
+    for &z in near {
+        repop_sum = (f64::from(repop(z)) + f64::from(repop_sum)) as f32;
+        max_density = max_density.max(near_density(record, z));
+    }
+    let count = (at_ship.len() + near.len()) as u32;
+    let average = if count == 0 {
+        0.0
+    } else {
+        (f64::from(repop_sum) / f64::from(count)) as f32
+    };
+    let max_f = f64::from(max_density) as f32;
+    let mut weights = Vec::with_capacity(count as usize);
+    let mut weight_sum = 0.0f32;
+    for &z in at_ship.iter().chain(near) {
+        let w = (f64::from(max_f) / f64::from(repop(z)) * f64::from(average)) as f32;
+        weights.push(w);
+        weight_sum = (f64::from(w) + f64::from(weight_sum)) as f32;
+    }
+    let shares: Vec<f32> = weights
+        .iter()
+        .map(|&w| {
+            if weight_sum != 0.0 {
+                (f64::from(w) / f64::from(weight_sum)) as f32
+            } else {
+                0.0
+            }
+        })
+        .collect();
+    let (a, n) = shares.split_at(at_ship.len());
+    (a.to_vec(), n.to_vec())
+}
+
+/// The zone lists of a placement in system `system`
+/// ([`collect_space_pop_zones`] on the record taken out of its slot).
+fn zones_at(
+    cx: &mut Cx<'_>,
+    system: u32,
+    orientation: Matrix,
+    position: Vector,
+) -> Option<SpacePopZones> {
+    super::systems::with_system_taken(cx, system, |cx, record| {
+        collect_space_pop_zones(cx, record, orientation, position)
+    })
+}
+
+/// The request of the population around `player`'s ship.
+#[allow(clippy::too_many_arguments)]
+fn request(
+    cx: &Cx<'_>,
+    arrival: bool,
+    zone_list: u32,
+    player: u32,
+    orientation: Matrix,
+    position: Vector,
+    velocity: Vector,
+) -> SpawnRequest {
+    let state = &cx.logic.content.state;
+    SpawnRequest {
+        arrival,
+        zone_list,
+        controller: state.space_pop.0,
+        player,
+        orientation,
+        position,
+        velocity,
+        spheres: state.exclusion_spheres.clone(),
+    }
+}
+
+/// `FSpacePop::PopulateAround(System, Ship, &Position)` (`:258-283`): the
+/// arrival population around a point outside the exclusion spheres
+/// (identity orientation), from the zones at the point and near it
+/// ([`populate_arrival`]) unless the population there is blocked.
+pub fn populate_around(cx: &mut Cx<'_>, system: u32, player: u32, position: Vector) {
+    if position_is_excluded(cx, position) {
+        return;
+    }
+    let Some(zones) = zones_at(cx, system, Matrix::IDENTITY, position) else {
+        return;
+    };
+    if !zones.blocked {
+        populate_arrival(
+            cx,
+            system,
+            player,
+            Matrix::IDENTITY,
+            position,
+            &zones.at_ship,
+            &zones.near,
+        );
+    }
+}
+
+/// `FSpacePop::PopulateAtLaneEnd(System, Lane, &Ring, Ship)` (`:286-318`):
+/// [`populate_around`] the point 1200 beyond the ring, away from its
+/// neighbour (the second ring for the first, else the previous one).
+pub fn populate_at_lane_end(cx: &mut Cx<'_>, system: u32, rings: &[u32], ring: usize, player: u32) {
+    let other = if ring == 0 {
+        rings.get(1).copied()
+    } else {
+        rings.get(ring - 1).copied()
+    };
+    let (Some(&ring_id), Some(other)) = (rings.get(ring), other) else {
+        return;
+    };
+    let (r, _) = api::space_obj::location(cx, ring_id).unwrap_or((Vector::ZERO, Matrix::IDENTITY));
+    let (o, _) = api::space_obj::location(cx, other).unwrap_or((Vector::ZERO, Matrix::IDENTITY));
+    let dx = f64::from(r.x) - f64::from(o.x);
+    let dy = f64::from(r.y) - f64::from(o.y);
+    let dz = f64::from(r.z) - f64::from(o.z);
+    let dz_stored = dz as f32;
+    let length_sq = dz * f64::from(dz_stored) + dy * dy + dx * dx;
+    let inv = (1.0 / length_sq.sqrt()) as f32;
+    let scaled_x = (f64::from((dx * f64::from(inv)) as f32) * 1200.0) as f32;
+    let scaled_y = (dy * f64::from(inv) * 1200.0) as f32;
+    let target = Vector::new(
+        (f64::from(scaled_x) + f64::from(r.x)) as f32,
+        (f64::from(scaled_y) + f64::from(r.y)) as f32,
+        (f64::from(dz_stored) * f64::from(inv) * 1200.0 + f64::from(r.z)) as f32,
+    );
+    populate_around(cx, system, player, target);
+}
+
+/// `FSpacePop::PopulatePlayers()` (`:321-349`): the heartbeat population
+/// around every player's ship that is not in a lane, in player order, from
+/// the zones at it, near it and (single player only) ahead of it
+/// ([`populate_zones`]), unless the population there is blocked.
+pub fn populate_players(cx: &mut Cx<'_>) {
+    let players: Vec<u32> = cx.logic.content.state.players.keys().copied().collect();
+    for player in players {
+        let Some(state) = cx.logic.content.state.players.get(&player) else {
+            continue;
+        };
+        let Some(ship) = state.ship.as_ref() else {
+            continue;
+        };
+        if ship.lane_entry != 0 {
+            continue;
+        }
+        let ship_id = ship.ship;
+        let Some(system) = state.system else {
+            continue;
+        };
+        let (position, orientation) =
+            api::space_obj::location(cx, ship_id).unwrap_or((Vector::ZERO, Matrix::IDENTITY));
+        let (linear, _) =
+            api::space_obj::motion(cx, ship_id).unwrap_or((Vector::ZERO, Vector::ZERO));
+        let Some(mut zones) = zones_at(cx, system, orientation, position) else {
+            continue;
+        };
+        if zones.blocked {
+            continue;
+        }
+        if !api::misc::single_player(cx) {
+            zones.ahead.clear();
+        }
+        populate_zones(cx, system, player, orientation, position, linear, &zones);
+    }
+}
+
+/// `FSpacePop::PopulateZones(...)` (`:352-424`): one encounter at most, from
+/// the first zone list that yields one. The density limit is the largest
+/// at the ship, or a near zone's own when the largest is below 0.6 of it.
+/// The ship's position must be outside every exclusion sphere. The zones at
+/// the ship and near it populate at scale 1 up to the limit; a zone ahead
+/// from a point 5000 ahead (identity orientation, no velocity) up to a
+/// third of its own density.
+pub fn populate_zones(
+    cx: &mut Cx<'_>,
+    system: u32,
+    player: u32,
+    orientation: Matrix,
+    position: Vector,
+    velocity: Vector,
+    zones: &SpacePopZones,
+) {
+    let Some(record) = cx.logic.content.state.systems.get(&system) else {
+        return;
+    };
+    let mut max_density = 0u32;
+    for &z in &zones.at_ship {
+        max_density = max_density.max(zone_density(record, z));
+    }
+    for &z in &zones.near {
+        let density = zone_density(record, z);
+        if !(f64::from(max_density) >= f64::from(density) * f64::from(0.6f32)) {
+            max_density = density;
+        }
+    }
+    let ahead_limits: Vec<u32> = zones
+        .ahead
+        .iter()
+        .map(|&z| (f64::from(zone_density(record, z)) * f64::from(0.33f32)) as i64 as u32)
+        .collect();
+    let time = super::game_support::game_time(cx) as f32;
+    let spheres = cx.logic.content.state.exclusion_spheres.clone();
+    if !spawn_placement::test_exclusion_spheres(position, Some(&spheres), true, false) {
+        return;
+    }
+    let mut spawned = 0;
+    for (list, zone_list) in [(&zones.at_ship, 0), (&zones.near, 1)] {
+        for &z in list {
+            if spawned != 0 {
+                break;
+            }
+            let req = request(
+                cx,
+                false,
+                zone_list,
+                player,
+                orientation,
+                position,
+                velocity,
+            );
+            let zone = ZoneRef { system, zone: z };
+            spawned = encounters::populate(cx, zone, &req, time, 1.0, max_density);
+        }
+    }
+    for (&z, &limit) in zones.ahead.iter().zip(&ahead_limits) {
+        if spawned != 0 {
+            break;
+        }
+        let offset = Vector::new(0.0, 0.0, 2500.0 * -2.0);
+        let ahead = transform_xform(
+            &Transform {
+                rotation: orientation,
+                translation: position,
+            },
+            offset,
+        );
+        let req = request(cx, false, 2, player, Matrix::IDENTITY, ahead, Vector::ZERO);
+        let zone = ZoneRef { system, zone: z };
+        spawned = encounters::populate(cx, zone, &req, time, 1.0, limit);
+    }
+}
+
+/// `FSpacePop::PopulateArrival(...)` (`:427-519`): the zones filled up to
+/// their share of the density budget (the largest density at the ship, or
+/// a near zone's at 0.6; in multiplayer less the NPC ships within 9200).
+/// The position must be outside every exclusion sphere. The zones at the
+/// ship, then those near, each get the budget times its share (-1 for no
+/// share), at least 1, filled ([`encounters::populate_up_to`], the ship's
+/// hostile contacts updated after each call) until a call makes nothing or
+/// the count reaches it, while the blocks made stay below the budget.
+pub fn populate_arrival(
+    cx: &mut Cx<'_>,
+    system: u32,
+    player: u32,
+    orientation: Matrix,
+    position: Vector,
+    at_ship: &[usize],
+    near: &[usize],
+) {
+    let Some(record) = cx.logic.content.state.systems.get(&system) else {
+        return;
+    };
+    let mut max_density = 0u32;
+    for &z in at_ship {
+        max_density = max_density.max(zone_density(record, z));
+    }
+    for &z in near {
+        max_density = max_density.max(near_density(record, z));
+    }
+    let (at_shares, near_shares) = zone_shares(record, at_ship, near);
+    let mut budget = max_density as i32;
+    if !api::misc::single_player(cx) {
+        budget -= spawn_placement::count_npc_ships_near(
+            cx,
+            system,
+            &orientation,
+            position,
+            encounters::DENSITY_RADIUS_MP,
+            0.0,
+            None,
+        );
+    }
+    let time = super::game_support::game_time(cx) as f32;
+    let spheres = cx.logic.content.state.exclusion_spheres.clone();
+    if !spawn_placement::test_exclusion_spheres(position, Some(&spheres), true, false) {
+        return;
+    }
+    let mut spawned = 0;
+    for (zones, shares) in [(at_ship, &at_shares), (near, &near_shares)] {
+        for (index, &z) in zones.iter().enumerate() {
+            if spawned >= budget {
+                break;
+            }
+            let req = request(cx, true, 0, player, orientation, position, Vector::ZERO);
+            let share = shares[index];
+            let mut target =
+                (f64::from(budget) * if share == 0.0 { -1.0 } else { f64::from(share) }) as f32;
+            if !(target > 0.0) {
+                continue;
+            }
+            if target < 1.0 {
+                target = 1.0;
+            }
+            let limit = target as i64 as u32;
+            let zone = ZoneRef { system, zone: z };
+            let mut count = 0;
+            loop {
+                let created = encounters::populate_up_to(cx, zone, &req, time, limit);
+                count += created;
+                if cx
+                    .logic
+                    .content
+                    .state
+                    .players
+                    .get(&player)
+                    .is_some_and(|p| p.ship.is_some())
+                {
+                    super::combat_reputation::update_hostile_contacts(cx, player, 0.0);
+                }
+                if created == 0 || !((count as f32) < target) {
+                    break;
+                }
+            }
+            spawned += count;
+        }
+    }
+}
+
+/// `FSpacePop::HandleMessage` (`:522-608`):
+/// - `Heartbeat`: [`populate_players`] with the population on;
+/// - `SystemEnter` of a player with a ship from another system: the
+///   arrival population at the arrival point;
+/// - `SpaceEnter` (a launch): the arrival population at the ship;
+/// - `TradelaneEnter` of a ship the record knows, a player's: the lane's
+///   attack (with the encounters on; [`random_encounters::spawn_trade_lane_attack`])
+///   and the arrival population beyond the lane's far end in the direction
+///   of travel ([`populate_at_lane_end`]).
+///
+/// The C++ reads the player's state, a lane ring's lane and the message's
+/// system record without a test; without them nothing is done (D1066).
+pub fn handle_space_pop(cx: &mut Cx<'_>, _id: ControllerId, message: &mut ControllerMessage<'_>) {
+    use ControllerMessage as M;
+    let enabled = cx.logic.content.state.clamps.population_enabled != 0;
+    match message {
+        M::Heartbeat { .. } => {
+            if enabled {
+                populate_players(cx);
+            }
+        }
+        M::SystemEnter {
+            from,
+            player,
+            position,
+            ..
+        } => {
+            if !enabled {
+                return;
+            }
+            let Some(state) = cx.logic.content.state.players.get(player) else {
+                return;
+            };
+            if state.ship.is_none() || *from == 0 {
+                return;
+            }
+            let Some(system) = state.system else {
+                return;
+            };
+            let (player, position) = (*player, *position);
+            populate_around(cx, system, player, position);
+        }
+        M::SpaceEnter { player, .. } => {
+            if !enabled {
+                return;
+            }
+            let Some(state) = cx.logic.content.state.players.get(player) else {
+                return;
+            };
+            let (Some(ship), Some(system)) = (state.ship.as_ref(), state.system) else {
+                return;
+            };
+            let player = *player;
+            let position = super::ships::position(cx, super::ships::ShipKey::Player(player));
+            let _ = ship;
+            populate_around(cx, system, player, position);
+        }
+        M::TradelaneEnter {
+            ship,
+            entrance,
+            exit,
+            system,
+        } => {
+            let (ship, entrance, exit, system) = (*ship, *entrance, *exit, *system);
+            trade_lane_enter(cx, ship, entrance, exit, system, enabled);
+        }
+        _ => {}
+    }
+}
+
+/// SpacePop's `TradelaneEnter` case (`:561-605`).
+fn trade_lane_enter(
+    cx: &mut Cx<'_>,
+    ship: u32,
+    entrance: u32,
+    exit: u32,
+    system: u32,
+    enabled: bool,
+) {
+    if !cx.logic.content.state.systems.contains_key(&system) {
+        return;
+    }
+    if super::ships::find_in_system(cx, system, ship).is_none() {
+        return;
+    }
+    let Some(record) = cx.logic.content.state.systems.get(&system) else {
+        return;
+    };
+    let Some(lane) = record.lane_of_ring(entrance) else {
+        return;
+    };
+    let rings: Vec<u32> = record.trade_lanes[lane]
+        .rings
+        .iter()
+        .map(|r| r.object)
+        .collect();
+    let mut entry: i32 = -1;
+    let mut exit_index: i32 = -1;
+    for (index, &ring) in rings.iter().enumerate() {
+        if ring == entrance {
+            entry = index as i32;
+            if exit_index != -1 {
+                break;
+            }
+        } else if ring == exit {
+            exit_index = index as i32;
+            if entry != -1 {
+                break;
+            }
+        }
+    }
+    if !enabled {
+        return;
+    }
+    let Some(player) = super::players::find_by_ship(&cx.logic.content.state.players, ship) else {
+        return;
+    };
+    let encounters_on = cx.logic.content.state.clamps.encounter_enabled != 0;
+    if (entry as u32) < (exit_index as u32) {
+        if encounters_on {
+            random_encounters::spawn_trade_lane_attack(cx, system, player, 1, entry, lane);
+        }
+        populate_at_lane_end(cx, system, &rings, rings.len().wrapping_sub(1), player);
+    } else {
+        if encounters_on {
+            random_encounters::spawn_trade_lane_attack(cx, system, player, -1, entry, lane);
+        }
+        populate_at_lane_end(cx, system, &rings, 0, player);
+    }
 }

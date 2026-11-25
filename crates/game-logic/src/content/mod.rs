@@ -533,8 +533,8 @@ pub fn deliver(
         | ControllerKind::Mission01b
         | ControllerKind::Mission(_)
         | ControllerKind::GenericMission => mission::engine::handle_message(cx, id, message),
+        ControllerKind::SpacePop => population::handle_space_pop(cx, id, message),
         ControllerKind::BaseSupport
-        | ControllerKind::SpacePop
         | ControllerKind::BasePop
         | ControllerKind::StoryLauncher
         | ControllerKind::Story
