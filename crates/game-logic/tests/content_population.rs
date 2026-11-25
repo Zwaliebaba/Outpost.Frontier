@@ -26,17 +26,20 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use game_logic::content::players::{PlayerShip, PlayerState};
 use game_logic::content::systems::DrawMark;
+use game_logic::events::ControllerMessage;
 use game_logic::selection;
 use game_logic::server::{CreateParams, Cx, Logic, RecordingSink};
 use game_logic::world;
 use game_sim::data::config::{DataConfig, GameData};
 use game_sim::object::World;
-use game_sim::object::world::{Assets, WorldConfig};
+use game_sim::object::world::{Assets, ShipSpawn, WorldConfig};
 use game_sim::scenario::records::{Json, find_files, read_lines};
 use game_sim::scenario::{parse, scenario_files};
 use neuron_core::id::create_id;
 use neuron_core::ini::IniReader;
+use neuron_core::math::{Matrix, Vector};
 use neuron_core::rng::CrtRand;
 use neuron_core::vfs::Host;
 use neuron_server::controller::{self, Priority};
@@ -290,4 +293,105 @@ fn the_load_draws_equal_the_oracle() {
     print!("{summary}");
     let _ = std::fs::write(dir.join("rust-load-draws.txt"), &summary);
     assert!(failures.is_empty(), "load-time draws differ: {failures:?}");
+}
+
+/// A player with a ship at `position` in system `name`, as GameSupport's
+/// `SpaceEnter` leaves its state (the ship spawned by the world, the
+/// player in the system's record): the player id and the ship's id.
+fn synthetic_player(cx: &mut Cx<'_>, name: &str, position: Vector) -> (u32, u32) {
+    let system = create_id(name.as_bytes());
+    let spawn = ShipSpawn::new(
+        create_id(b"he_fighter"),
+        create_id(b"li_p_he_fighter_loadout01"),
+        position,
+        Matrix::IDENTITY,
+    );
+    let h = cx
+        .world
+        .spawn_ship(system, &spawn)
+        .expect("the player's ship");
+    let ship = cx.world.get(h).map_or(0, |o| o.simple.id);
+    let player = 1;
+    let mut state = PlayerState::new(cx, player);
+    state.ship = Some(PlayerShip::new(
+        ship,
+        create_id(b"he_fighter"),
+        Vec::new(),
+        Some(system),
+    ));
+    state.system = Some(system);
+    cx.logic.content.state.players.insert(player, state);
+    if let Some(record) = cx.logic.content.state.systems.get_mut(&system) {
+        record.add_player(player);
+    }
+    (player, ship)
+}
+
+/// The NPC ships SpacePop owns.
+fn space_pop_ships(cx: &Cx<'_>) -> usize {
+    let pop = cx.logic.content.state.space_pop;
+    cx.logic
+        .content
+        .state
+        .npc_ships
+        .values()
+        .filter(|s| s.is_space_pop_ship(pop))
+        .count()
+}
+
+#[test]
+fn space_pop_populates_he01_around_a_player() {
+    // A player launches beside Station he01_11 (its zone is populated, density
+    // 12) on a multiplayer server with SpacePop: the arrival population
+    // (`SpaceEnter`), then twenty heartbeats. The run draws from one seed,
+    // so it repeats exactly; its ships are SpacePop's.
+    let run = || {
+        let mut world = world()?;
+        let mut logic = Logic::new(Box::new(RecordingSink::default()), 16, true);
+        let mut cx = Cx {
+            world: &mut world,
+            logic: &mut logic,
+        };
+        start(&mut cx, &["SpacePop"]);
+        let system = create_id(b"he01");
+        world::load(&mut cx, system);
+        cx.world.rng().seed(7);
+        let (player, _) = synthetic_player(&mut cx, "he01", Vector::new(5541.0, 0.0, -49500.0));
+        let pop = cx.logic.content.state.space_pop;
+        let _ = cx.dispatch(
+            pop,
+            &mut ControllerMessage::SpaceEnter {
+                system,
+                player,
+                launch_object: 0,
+                launch_kind: -1,
+            },
+        );
+        let arrival = space_pop_ships(&cx);
+        for _ in 0..20 {
+            let _ = cx.dispatch(pop, &mut ControllerMessage::Heartbeat { elapsed: 3.0 });
+        }
+        let after = space_pop_ships(&cx);
+        let draws = draws_since(7, cx.world.rng());
+        let names: Vec<String> = cx
+            .logic
+            .content
+            .state
+            .npc_ships
+            .values()
+            .map(|s| String::from_utf8_lossy(&s.nickname).into_owned())
+            .collect();
+        Some((arrival, after, draws, names))
+    };
+    let Some(first) = run() else {
+        println!("outdir/ is missing: SpacePop was not run");
+        return;
+    };
+    println!(
+        "he01: {} ships on arrival, {} after 20 heartbeats, {} draws; {:?}",
+        first.0, first.1, first.2, first.3
+    );
+    assert!(first.0 > 0, "the arrival population made no ship");
+    assert!(first.1 >= first.0);
+    assert_eq!(run(), Some(first), "the population does not repeat");
 }
