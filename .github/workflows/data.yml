@@ -56,11 +56,38 @@ jobs:
           path: |
             ${{ runner.temp }}/outpost-oracle
             ${{ runner.temp }}/outpost-sim
-            ${{ runner.temp }}/outpost-ensemble
             ${{ runner.temp }}/outpost-systems
             ${{ runner.temp }}/outpost-replication
             ${{ runner.temp }}/outpost-sim-summaries
             ${{ runner.temp }}/oracle-dump.log
+      - name: Key the seed ensemble
+        # Decision O48 (4): the seed ensemble's oracle outputs are cached apart from the other
+        # oracle outputs, keyed on what the ensemble runs: the C++ without the instrumentation
+        # the ensemble never calls (Content's oracle_*.cpp dump exports and their project
+        # entries, the dump sessions at the top of CppSource/Oracle/, and oracle_sim.cpp, whose
+        # changes are the dump options; the scenario oracle below runs every scenario again on
+        # each change), the ensemble's own scenario files, the data, the toolset and the seed
+        # list. This file is not in the key: bump the version in the key when the ensemble's
+        # step changes. The nightly run rebuilds the ensemble without the cache.
+        id: ensemble-key
+        shell: pwsh
+        env:
+          SOURCES: ${{ hashFiles('CppSource/**', '!CppSource/Content/oracle_*.cpp', '!CppSource/Content/Content.vcxproj', '!CppSource/Content/Content.vcxproj.filters', '!CppSource/Oracle/*.txt', '!CppSource/Oracle/scenarios/**', '!CppSource/Oracle/oracle_sim.cpp', 'outdir/**', '.github/msvc-toolset.txt', '.github/scripts/**', 'crates/game-sim/tests/fixtures/g2_ensemble.txt') }}
+        run: |
+          $list = Get-Content crates\game-sim\tests\fixtures\g2_ensemble.txt | ForEach-Object { ($_ -split '#')[0].Trim() } | Where-Object { $_ -like 'scenario *' }
+          $text = ($list | ForEach-Object { Get-Content -Raw "CppSource\Oracle\scenarios\$(($_ -split '\s+')[1]).txt" -ErrorAction Stop }) -join "`n"
+          $sha = [Security.Cryptography.SHA256]::Create()
+          $hash = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($text))).Replace('-', '')
+          "key=ensemble-v1-$env:SOURCES-$hash" >> $env:GITHUB_OUTPUT
+      - name: Restore the seed ensemble's outputs
+        id: ensemble-cache
+        if: ${{ github.event_name != 'schedule' }}
+        uses: actions/cache/restore@v4
+        with:
+          key: ${{ steps.ensemble-key.outputs.key }}
+          path: |
+            ${{ runner.temp }}/outpost-ensemble
+            ${{ runner.temp }}/outpost-sim-summaries/ensemble
       - name: Restore the C++ build
         # P3.5b: the step that loads the port's saves with the oracle runs after the port's
         # tests on every run, so the oracle's build is kept as well as its outputs. It depends
@@ -357,10 +384,13 @@ jobs:
         # run must record its seed. Only what the Rust comparison reads is kept on the runner
         # (tick.jsonl, events.jsonl, the munition_hit and collision_damage records of calls.jsonl,
         # the head of ai.jsonl with the pilots' personalities and attitudes, session.jsonl); the
-        # session logs go to the summaries.
-        if: ${{ !cancelled() && steps.oracle-cache.outputs.cache-hit != 'true' }}
+        # session logs go to the summaries. It runs when the ensemble's own cache missed (O48).
+        if: ${{ !cancelled() && steps.ensemble-cache.outputs.cache-hit != 'true' }}
         shell: pwsh
         run: |
+          # The other oracle steps may have come from their cache (O48), so the templates the
+          # dump step puts next to Oracle.exe are copied here too.
+          Copy-Item outdir\*.fl bin\ -Force
           $ens = "$env:RUNNER_TEMP\outpost-ensemble"
           $keep = "$env:RUNNER_TEMP\outpost-sim-summaries\ensemble"
           New-Item -ItemType Directory -Force $keep | Out-Null
@@ -456,11 +486,21 @@ jobs:
           path: |
             ${{ runner.temp }}/outpost-oracle
             ${{ runner.temp }}/outpost-sim
-            ${{ runner.temp }}/outpost-ensemble
             ${{ runner.temp }}/outpost-systems
             ${{ runner.temp }}/outpost-replication
             ${{ runner.temp }}/outpost-sim-summaries
             ${{ runner.temp }}/oracle-dump.log
+      - name: Save the seed ensemble's outputs
+        # The key step's key, computed on the clean checkout before the build. The nightly run,
+        # which skipped the restore, saves only a key no run saved before.
+        if: ${{ success() && steps.ensemble-cache.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          key: ${{ steps.ensemble-key.outputs.key }}
+          path: |
+            ${{ runner.temp }}/outpost-ensemble
+            ${{ runner.temp }}/outpost-sim-summaries/ensemble
       - name: Prepare Rust
         run: rustup toolchain install
       - name: Cache the Rust build
