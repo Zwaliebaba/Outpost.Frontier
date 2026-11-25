@@ -15,9 +15,10 @@
 //!   [`Behavior::on_request_result`] (`RequestCB::OnResult`);
 //! * 4 waiting for the answer;
 //! * 6, 7, 8, 9 the docking points (the second, the first, a spline for a
-//!   ring or gate, the mount), 10 in the lane, 11 the 3 s wait at the
-//!   mount of a terminal that does not take the ship in, 12 and 13 done
-//!   (directive result 0 and 2).
+//!   ring or gate, the mount), 10 in the lane (until the manager's
+//!   type-4 event of the ship leaving it, [`Behavior::lane_event`]), 11
+//!   the 3 s wait at the mount of a terminal that does not take the ship
+//!   in, 12 and 13 done (directive result 0 and 2).
 //!
 //! The server's side (the dock queue and the bay handshake that answer
 //! the request and finally dock the ship) is P3.3's.
@@ -26,7 +27,8 @@ use neuron_core::math::{Matrix, Transform, Vector, transform_matrix, transpose_t
 use neuron_core::util::spline::CrSplineSegment;
 
 use super::behavior::{
-    AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, DockOp, EvaluateResult, GotoOp, ids,
+    AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, DockOp, EvaluateResult, GotoOp, LaneEvent,
+    ids,
 };
 use super::face_idea::FaceIdea;
 use super::fp::{add, column0, column1, column2, e, len_sq_xyz, neg, normalize3, r, scale, sub};
@@ -1250,6 +1252,27 @@ impl<W: AiEnv + ?Sized> Behavior<W> for DockBehavior {
         if self.prox.watched == Some(id) {
             self.prox.watched = None;
         }
+    }
+
+    /// (22) `OnWatchedObjectDestroyed` with the manager's type-4 event:
+    /// the own ship leaving the lane it entered at the ring docked with
+    /// (the event's byte 0 clear, its ship the owner and its entrance ring
+    /// the watched object) ends the dock: `Flag399` (the lane brought the
+    /// ship to its end, so the disengage asks no exit) and state 0xc (the
+    /// disengage and the directive's result 7, 0). The reference reads the
+    /// watched object's id through null when there is none; here it is 0.
+    fn lane_event(&mut self, cx: &mut Cx<'_, W>, event: &LaneEvent) {
+        if event.entering {
+            return;
+        }
+        if cx.own().map(|v| v.id) != Some(event.ship) {
+            return;
+        }
+        if self.watched_id(cx) != event.entrance {
+            return;
+        }
+        self.flag_399 = 1;
+        self.enter_state(cx, 0xc);
     }
 
     /// (24) `GetWatchedRawBlock`.
