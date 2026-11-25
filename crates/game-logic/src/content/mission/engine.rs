@@ -15,7 +15,7 @@
 //!   repeatable, and leaves the list when it stays complete. Then the
 //!   pending activations are drained in key order.
 //! - [`tick_timers`] (`TickMissionTimers`, `:490-506`): the delayed actions.
-//! - [`handle_message`]: `FMissionObject::HandleMessage`
+//! - [`handle_message`], `FMissionObject::HandleMessage`
 //!   (`MissionObject.cpp:129-142`) over `FMissionScript::HandleMissionMessage`
 //!   (`MissionScript.cpp:1011-1250`), its tail and `ApplyDesiredMissionState`.
 //!
@@ -320,14 +320,11 @@ pub fn dispatch(cx: &mut Cx<'_>, id: ControllerId, event: u32, parms: &Parms<'_,
         s.walks.truncate(depth);
     }
     // The pending activations, front to back.
-    loop {
-        let Some(target) = script_mut(cx, id).and_then(|s| {
-            let (&target, _) = s.pending_activations.first_key_value()?;
-            s.pending_activations.remove(&target);
-            Some(target)
-        }) else {
-            break;
-        };
+    while let Some(target) = script_mut(cx, id).and_then(|s| {
+        let (&target, _) = s.pending_activations.first_key_value()?;
+        s.pending_activations.remove(&target);
+        Some(target)
+    }) {
         activate_trigger(cx, id, target);
     }
 }
@@ -476,7 +473,7 @@ pub fn handle_mission_message(
         }
         M::PlayerLogin { .. } | M::SystemLoaded { .. } | M::LoadGame { .. } => base_body = false,
         M::PlayerLogout { .. } => {
-            let gone = cx.logic.content.state.players.get(&player).is_none();
+            let gone = !cx.logic.content.state.players.contains_key(&player);
             if let Some(s) = script_mut(cx, id) {
                 s.active_triggers.clear();
                 s.walks.iter_mut().for_each(|w| *w = 0);
@@ -509,7 +506,7 @@ pub fn handle_mission_message(
         M::Heartbeat { elapsed } => {
             let dt = *elapsed;
             if let Some(s) = script_mut(cx, id) {
-                s.elapsed_time = dt + s.elapsed_time;
+                s.elapsed_time += dt;
             }
             tick_timers(cx, id, dt);
             dispatch(cx, id, HEARTBEAT, &Parms::Delta(dt));

@@ -15,6 +15,10 @@
 //! parameter block ([`block`]); the trigger engine passes a heartbeat's
 //! frame time, the synthetic `NpcSystemEnter` words of `OnSystemEnter`, or
 //! nothing (the activation probe and the heartbeat's `TetherObject` pass).
+//!
+//! The C++'s comparisons are kept as written, negations included: an
+//! x87 `FCOMP` branch is false for a NaN on either side.
+#![allow(clippy::neg_cmp_op_on_partial_ord, clippy::double_comparisons)]
 
 use neuron_core::hash::{c_str, eq_ignore_case};
 use neuron_core::id::create_id;
