@@ -1334,7 +1334,7 @@ fn plan_path(cx: &Cx<'_>, plan: &SpawnPlan) -> Option<super::patrol_paths::Patro
 }
 
 /// A random point of `points` (`rand() * n / 32768`); the C++ reads an
-/// empty list past its end, here -1 (D1063).
+/// empty list through null, here -1 (D1062).
 fn random_point(cx: &mut Cx<'_>, points: &[i32]) -> i32 {
     let at = rand_index(cx, points.len());
     points.get(at).copied().unwrap_or(-1)

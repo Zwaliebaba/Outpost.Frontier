@@ -53,6 +53,7 @@ Conventions:
 | `heartbeats` | `tick` u (0), `controllers` [{`flid` u, `priority` u, `module` s (the controller's DLL), `interval` f (s, −1 for none), `phase` f (the accumulator frame 1 starts from), `deferred` b}, …] in the server's list order: the heartbeat of every controller (`OracleSimControllerHeartbeats`; Content's GameSupport heartbeat is its game time), written before tick 0 (since 2026-11-19) |
 | `spawn` | `obj` s, `kind` s (`ship` or `solar`); a ship: `arch` s, `arch_id` u, `loadout` s, `loadout_id` u, `result` i (`pub::SpaceObj::Create`), `id` u, [`state_graph` s, `state_graph_id` i, [`pilot` s, `pilot_found` b (the `pilot` option; its personality was submitted)], `submit_state` i]; with `faction`, before `arch`: `faction` s, `faction_result` i (`GetReputationGroup`), then when the group is known `faction_id` u, `vibe` i (the ship's `VibeGroupId`), `vibe_alloc` i, `vibe_affiliation` i (`pub::Reputation::Alloc`, `SetAffiliation`); a solar: `nickname` s, `id` u (`CreateID(nickname)`), `found` b; then (P2.5, the transport's collision geometry) a created ship's `part_map` [[`part` u, `instance` i], …] (`CObject::PartMap`) and `attached` [{`id` u, `connected` b, `kind` s (`non_physical`, `physical` or `none`), with `non_physical` also `hp_crc` u, `collisions` b}, …] (every `CAttachedEquip` and its attachment) |
 | `player` | (P3.3, a scenario's `player` line; after the `spawn` records) `tick` u (0), `line` i, `session` u, `obj` s (the ship), `id` u (its id, 0 when it was not spawned), `joined` b (`OracleSimAddPlayer` answered true) |
+| `population` | (P3.6d, a scenario's `population <ship>` line; after the `player` records) `tick` u (0), `line` i, `obj` s (the ship), `id` u (its id), `space_pop` u (SpacePop's controller id, 0 when `OracleSimPopulate` failed or is missing), `error` s (when Content.dll lacks the export) |
 | `command` | `tick` u, `line` i (in the scenario file), `obj` s, `cmd` s (the command as written), `ok` b, `result` i (what the called function returned; for a directive the `OP_RTYPE`), [`note` s, why it did not run] |
 | `error`, `critical_warning`, `note` | `tick` u, `text` s (`note`: an object marked `psi` whose PSIs are not recorded, and why; once per object) |
 | `fault` | `tick` u, `first_chance` b (from the vectored handler; false: the frame's `__except` filter, which ends the run with code 4), `code` s (hex), `code_name` s, `address` s (hex), `at` {`module` s\|null, `offset` s (hex, from the module base), `functions` s[] (the innermost inlined function first), `line` s (`file:line` under `CppSource/`, `""` when unknown)}, for an access violation `access` s (`read`, `write`, `execute`), `target` s (hex), `target_memory` s (`free`, `reserved`, `committed`, `committed, not readable`); `symbols` b (dbghelp started), `regs` {`eax` .. `ebp`: {`v` s, [`in` s (module+offset and symbol)], `words` s[4] and [`word0_in` s] when it points at readable memory (a vtable names the class), else `memory` s}, `esp` s, `eip` s, `eflags` s}, `esp_words` s[16], `stack` [{`module`, `offset`, `functions`, `line`}] (at most 48 frames; frame 0 is the faulting instruction, the others are resolved at their call) |
@@ -625,7 +626,11 @@ recorder. The harness sets the phase before each step of the start-up:
 (`OracleSimLoadSystem`: `StarSystem::load`, which ends with the
 `SystemLoaded` message to Content's controllers), `after_load`, `spawn
 <name>` for each scenario object (`pub::SpaceObj::Create` and, with `ai`,
-`pub::AI::SubmitState`), `hooks` (the recorders start); `start` holds
+`pub::AI::SubmitState`), `players` (a scenario's `player` lines),
+`population` (P3.6d, a scenario's `population` line: Content.dll's
+`OracleSimPopulate`, the player's ship object with its `PLAYER` state
+graph, SpacePop's creation and the launch's arrival population), `hooks`
+(the recorders start); `start` holds
 nothing. Between `after_load` and the first `spawn` the harness calls
 `srand(seed)` again (the seeding point); the `reseed` record marks it, and
 the indices of the later draws count from 0 in the new sequence. The
