@@ -306,7 +306,7 @@ fn objects_near(cx: &mut Cx<'_>, position: Vector, system: u32) -> bool {
 fn sphere_points(center: Vector, radius: f32) -> Vec<Vector> {
     let mut directions = vec![Vector::ZERO; 256];
     for polar in 0..16_usize {
-        let polar_angle = polar as f64 * f64::from(0.196_349_546_313_285_83_f32);
+        let polar_angle = polar as f64 * f64::from(0.196_349_55_f32);
         let sin_polar = polar_angle.sin();
         let cos_polar = polar_angle.cos() as f32;
         for azimuth in 0..16_usize {
@@ -390,18 +390,17 @@ fn find_segment_spawn_point(
         target: Vector::ZERO,
         direction: 0,
     };
-    let far;
-    if rand_coin(cx) != 0 {
+    let far = if rand_coin(cx) != 0 {
         step = scale(step, 200.0);
         out.direction = -1;
         out.target = start;
-        far = end;
+        end
     } else {
         step = scale(step, -200.0);
         out.direction = 1;
         out.target = end;
-        far = start;
-    }
+        start
+    };
     for pass in 0..=2 {
         if pass == 1 {
             out.target = far;
@@ -985,6 +984,7 @@ fn place_cruising(
     spheres.extend_from_slice(&request.spheres);
     let at = request.position;
     let max_distance = zone_creation_distance as f32;
+    #[allow(clippy::needless_late_init)]
     let found: Option<(Vector, Vector)>;
     if guide_kind(blocks) == 3 {
         spheres.push([

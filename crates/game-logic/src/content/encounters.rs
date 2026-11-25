@@ -259,7 +259,7 @@ pub fn refresh(cx: &mut Cx<'_>, params: &mut EncounterParameters, time: f32) -> 
         }
         if !params.permutations.is_empty() && sum != 0.0 {
             let target = (f64::from(cx.world.rng().rand())
-                * f64::from(3.051_757_812_5e-5_f32)
+                * f64::from(1.0f32 / 32768.0)
                 * f64::from(sum)) as f32;
             let mut running = 0.0f32;
             for (at, p) in params.permutations.iter().enumerate() {
@@ -998,10 +998,7 @@ pub fn populate(
         return starred + drawn;
     }
     let mut pool = encounter_pool(cx, zone);
-    loop {
-        let Some(picked) = weighted_pick(cx, &pool) else {
-            break;
-        };
+    while let Some(picked) = weighted_pick(cx, &pool) {
         if drawn != 0 {
             break;
         }
@@ -1026,10 +1023,7 @@ pub fn populate_up_to(
     let starred = refresh_and_spawn_starred(cx, zone, request, time);
     let mut drawn = 0;
     let mut pool = encounter_pool(cx, zone);
-    loop {
-        let Some(picked) = weighted_pick(cx, &pool) else {
-            break;
-        };
+    while let Some(picked) = weighted_pick(cx, &pool) {
         if (drawn + starred) as u32 >= max_count {
             break;
         }

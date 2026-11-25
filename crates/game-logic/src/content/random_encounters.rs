@@ -52,12 +52,12 @@ pub fn pick_weighted(cx: &mut Cx<'_>, weights: &[f32]) -> Option<usize> {
     if sum == 0.0 {
         return None;
     }
-    let scaled = f64::from(cx.world.rng().rand()) * f64::from(3.051_757_812_5e-5_f32);
+    let scaled = f64::from(cx.world.rng().rand()) * f64::from(1.0f32 / 32768.0);
     let pick = (f64::from(sum) * scaled) as f32;
     let mut running = 0.0f32;
     for (at, &w) in weights.iter().enumerate() {
         running = (f64::from(running) + f64::from(w)) as f32;
-        if pick < running || pick == running {
+        if pick <= running {
             return Some(at);
         }
     }
@@ -506,7 +506,6 @@ pub fn spawn_lane_formation(
         wander_zone: Some(zone_id),
         ..GuideDesc::default()
     });
-    let mut plan = plan;
     super::spawn_placement::set_leader_guide_targets(cx, system, &mut plan, &mut blocks[0]);
     if let Some(desc) = blocks[0].guide.as_mut() {
         desc.plan = plan;
@@ -794,10 +793,8 @@ pub fn tl_accept(
                 params.goto_target_id = named_target(cx, params).unwrap_or(own);
             }
         }
-        M::SystemEnter { .. } => {
-            if params.tl_attack_chance <= 0x32 {
-                params.tl_attack_chance = params.tl_attack_chance_read_in;
-            }
+        M::SystemEnter { .. } if params.tl_attack_chance <= 0x32 => {
+            params.tl_attack_chance = params.tl_attack_chance_read_in;
         }
         _ => {}
     }

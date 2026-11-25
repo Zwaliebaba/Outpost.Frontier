@@ -87,6 +87,12 @@ fn start(cx: &mut Cx<'_>, extra: &[&str]) {
     world::initialize(cx);
 }
 
+/// A step of a system's full load and its draws' indices, `[first, end)`.
+type Step = (&'static str, usize, usize);
+
+/// An oracle draw by its index.
+type Draw = (usize, Json);
+
 /// The draws from `seed` to the generator `now`.
 fn draws_since(seed: u32, now: &CrtRand) -> usize {
     let mut r = CrtRand::with_seed(seed);
@@ -118,7 +124,7 @@ fn port_load(
     name: &str,
     seed: u32,
     skip: usize,
-) -> Option<(usize, Vec<(&'static str, usize, usize)>)> {
+) -> Option<(usize, Vec<Step>)> {
     let mut world = world()?;
     let mut logic = Logic::new(Box::new(RecordingSink::default()), 16, true);
     let mut cx = Cx {
@@ -207,7 +213,7 @@ fn oracle_step(draw: &Json) -> &'static str {
 
 /// The oracle's `load` phase of a run: its first index, the indices it
 /// spans and every draw of it the hooks saw, by index.
-fn oracle_load(file: &Path) -> Option<(usize, usize, Vec<(usize, Json)>)> {
+fn oracle_load(file: &Path) -> Option<(usize, usize, Vec<Draw>)> {
     let records = read_lines(file);
     let phase = records.iter().find(|r| {
         r.get("rec").and_then(Json::as_str) == Some("phase")
