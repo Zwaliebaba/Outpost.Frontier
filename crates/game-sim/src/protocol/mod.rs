@@ -85,6 +85,12 @@ pub use common::CommonMessage;
 pub use to_client::ServerMessage;
 pub use to_server::ClientMessage;
 
+/// The game's packed version, `((minor | major << 8) << 16) | build`
+/// (`GServerVersion`, `OutpostServer.cpp:422-431`): 1.0 build 11, the C++'s
+/// value when the executable has no version resource. The QUIC handshake
+/// refuses a peer of another build (D894).
+pub const GAME_BUILD: u32 = 0x0100_000b;
+
 /// The C++ encode buffer: 10 240 bytes in both directions
 /// (`RemoteClient_transport.cpp`, `RemoteServer_main.cpp`).
 pub const ENCODE_LIMIT: usize = 0x2800;
@@ -326,6 +332,12 @@ pub struct MultiplayerToServer(pub ToServer);
 impl From<ToServer> for MultiplayerToServer {
     fn from(message: ToServer) -> Self {
         Self(message)
+    }
+}
+
+impl From<MultiplayerToServer> for ToServer {
+    fn from(message: MultiplayerToServer) -> Self {
+        message.0
     }
 }
 

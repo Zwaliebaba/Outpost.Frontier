@@ -233,6 +233,62 @@ where
     }
 }
 
+/// The chat sink over a transport (P3.9): `CClientImpl::SendCommonChatMsg`
+/// (`RemoteClient/ClientImpl.cpp:360-381`), a `CHATMSG` with the target
+/// and sender ids, pushed to the client the target id's low word names.
+/// A message for a client without an open connection (the console's own
+/// echo, to id 0) is dropped.
+#[derive(Debug)]
+pub struct TransportChat<T> {
+    transport: Rc<RefCell<T>>,
+}
+
+impl<T> TransportChat<T> {
+    /// The sink over `transport`.
+    #[must_use]
+    pub const fn new(transport: Rc<RefCell<T>>) -> Self {
+        Self { transport }
+    }
+}
+
+impl<T> ChatSink for TransportChat<T>
+where
+    T: Transport,
+    T::Outgoing: From<ToClient>,
+{
+    fn send(&mut self, to: u32, from: u32, data: Vec<u8>) {
+        let message = ToClient::Common(
+            game_sim::protocol::common::ChatMsg {
+                data,
+                target_id: to,
+                field_04: from,
+            }
+            .into(),
+        );
+        let _ = self
+            .transport
+            .borrow_mut()
+            .send(ConnectionId::new(to & 0xFFFF), message.into());
+    }
+}
+
+/// The server's counters (`GServerStats`, `ServerStats`,
+/// `include/common_server_types.h:498`); the player count is counted when
+/// asked (`IServerImpl::GetServerStats`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ServerStats {
+    /// Logins answered 3 (`LoginSuccessCount`).
+    pub logins: u32,
+    /// `PlayerDB::logout` calls (`LogoutCount`).
+    pub logouts: u32,
+    /// Logins answered otherwise (`LoginFailCount`).
+    pub failed_logins: u32,
+    /// Players' ships destroyed on a multiplayer server (`Field_0x10`).
+    pub player_deaths: u32,
+    /// Missions aborted (`AbortMissionCount`).
+    pub aborted_missions: u32,
+}
+
 /// A delivery handler for tests: called with the context, the controller
 /// and the message. A function pointer, so the context can lend it out
 /// without a borrow.
@@ -298,6 +354,10 @@ pub struct Logic {
     /// Content.dll's state (record 0008 point 1): its tables, its globals
     /// and each controller's own state.
     pub content: crate::content::Content,
+    /// The message of the day (`PlayerDB::m_MOTD`).
+    pub motd: Vec<u16>,
+    /// The server's counters (`GServerStats`).
+    pub stats: ServerStats,
 }
 
 /// The 4096-bit map of player vibe ids (`g_VibeBitmap`, `g_VibeBitmapHint`,
@@ -393,6 +453,8 @@ impl Logic {
             solar_trees: crate::api::system::SolarTrees::default(),
             saves: crate::saves::Saves::default(),
             content: crate::content::Content::new(),
+            motd: Vec::new(),
+            stats: ServerStats::default(),
         }
     }
 }

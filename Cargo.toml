@@ -33,6 +33,12 @@ flate2 = { version = "1.1", default-features = false, features = ["rust_backend"
 md-5 = { version = "0.10", default-features = false }
 parry3d = { version = "0.25.3", default-features = false, features = ["required-features", "std", "alloc"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
+# The dedicated server's platform services through safe wrappers (P3.9,
+# decisions O42 and T14): the local time, the interrupt handler and the
+# Documents folder.
+ctrlc = { version = "3.5.3", default-features = false, features = ["termination"] }
+dirs = { version = "7.0.0", default-features = false }
+jiff = { version = "1.0.3", default-features = false, features = ["std", "tz-system", "tzdb-bundle-platform", "tzdb-zoneinfo"] }
 # The QUIC transport (P3.8, decisions O6, T16, T17): quinn on tokio's
 # current-thread runtime, rustls with the ring provider, and rcgen for the
 # server's self-signed certificate.

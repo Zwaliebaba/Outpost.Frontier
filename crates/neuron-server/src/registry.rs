@@ -262,6 +262,42 @@ impl AccountRegistry {
         true
     }
 
+    /// `PlayerDB::BanAccount`: for a registered account, the `banned` file
+    /// is made (or removed) in its folder and the flag set; `false` for an
+    /// unknown account. A logged-in player stays (the next login is
+    /// refused).
+    pub fn ban_account(&mut self, root: &AccountsRoot, name: &[u16], ban: bool) -> bool {
+        let Some(id) = self.find_by_name(name) else {
+            return false;
+        };
+        let path = root.account_dir(name).join("banned");
+        if ban {
+            let _ = fs::write(&path, b"");
+        } else {
+            let _ = fs::remove_file(&path);
+        }
+        if let Some(account) = self.get_mut(id) {
+            account.not_banned = !ban;
+        }
+        true
+    }
+
+    /// `PlayerDB::SetAccountPassword`: the `password` file of an existing
+    /// account folder ([`crate::account::encode_password_file`]); `false`
+    /// when the folder does not exist. A file that cannot be written still
+    /// answers `true`, as in the C++.
+    pub fn set_account_password(root: &AccountsRoot, name: &[u16], password: &[u16]) -> bool {
+        let dir = root.account_dir(name);
+        if !dir.is_dir() {
+            return false;
+        }
+        let _ = fs::write(
+            dir.join("password"),
+            crate::account::encode_password_file(password),
+        );
+        true
+    }
+
     /// `LockAccountAccess`: the account is locked; returns the session to
     /// disconnect, if one is logged in.
     pub fn lock(&mut self, name: &[u16]) -> Option<u32> {
@@ -269,6 +305,20 @@ impl AccountRegistry {
         let account = self.get_mut(id)?;
         account.locked = true;
         (account.client_id != 0).then_some(account.client_id)
+    }
+
+    /// The accounts in the name map's order (`m_AccountNameMap`'s walk).
+    pub fn iter(&self) -> impl Iterator<Item = (AccountId, &Account)> + '_ {
+        self.by_name
+            .values()
+            .filter_map(|&id| self.get(id).map(|account| (id, account)))
+    }
+
+    /// `UnlockAccountAccess`: logins are taken again.
+    pub fn unlock(&mut self, name: &[u16]) {
+        if let Some(account) = self.find_by_name(name).and_then(|id| self.get_mut(id)) {
+            account.locked = false;
+        }
     }
 
     /// `PlayerDB::CreateAccount`: `false` when the folder exists already or
