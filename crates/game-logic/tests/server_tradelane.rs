@@ -6,7 +6,9 @@
 //! `Common/common_laneaction.cpp`), rides it ring by ring and leaves it
 //! past the last ring (`LaneAction::stop` → `Ship::stop_tradelane`), and
 //! the players who see the ship and the bus hear both ends
-//! (`StarSystem::notify_go_tradelane`, `notify_stop_tradelane`). The
+//! (`StarSystem::notify_go_tradelane`, `notify_stop_tradelane`), and the
+//! server's type-4 event of the exit ends the dock behaviour
+//! (`DockBehavior::Slot22`). The
 //! instant trade lane's behaviour ends with the server's type-4 event, a
 //! request at an object that is not a ring is refused, and the bare world
 //! leaves a lane on request. Expected values follow the C++ logic.
@@ -400,7 +402,11 @@ fn lane_psi(cx: &Cx<'_>, before: &Lane, at: Vector, orient: Matrix) -> Psi {
 /// engine and turned by the steering, whose controllers the PSI runs after
 /// the lane's (IVP runs a core's controllers from the last registered), so
 /// the ship ends the PSI one PSI of that velocity past the pose, with
-/// about the pose's orientation.
+/// about the pose's orientation. The beam writes the ship's `Orientation`
+/// at once (`PhySys::BeamR`), so the engine pushes along the beamed
+/// pose's third column (`CEEngine::do_simulation_controller`), not along
+/// the orientation of the step before: during the entry's blend the two
+/// differ by about 5e-4 rad a PSI.
 fn after_beam(
     world: &World,
     h: ObjHandle,
@@ -426,7 +432,23 @@ fn after_beam(
         .flatten()
         .zip(beamed.rotation.m.iter().flatten())
         .all(|(x, y)| (x - y).abs() < 1e-3);
-    off.iter().all(|d| d.abs() < 2e-3) && turned
+    off.iter().all(|d| d.abs() < 2e-3) && turned && pushed_along(v, &beamed.rotation)
+}
+
+/// The velocity is along the orientation's third column: the sine of the
+/// angle between them is below 1e-5 (the push's own rounding is about
+/// 1e-7).
+fn pushed_along(v: Vector, orient: &Matrix) -> bool {
+    let c = [e(orient.m[0][2]), e(orient.m[1][2]), e(orient.m[2][2])];
+    let v = [e(v.x), e(v.y), e(v.z)];
+    let cross = [
+        v[1] * c[2] - v[2] * c[1],
+        v[2] * c[0] - v[0] * c[2],
+        v[0] * c[1] - v[1] * c[0],
+    ];
+    let norm = |a: [f64; 3]| (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt();
+    let speed = norm(v);
+    speed > 1.0 && norm(cross) < 1e-5 * speed * norm(c)
 }
 
 /// The frames the test saw a lane's events in.
@@ -629,7 +651,12 @@ fn an_npc_rides_the_he01_lane_from_ring_16_to_ring_20() {
                 // stopped the action (`stop(0)`) and called
                 // `Ship::stop_tradelane`: the bus and player 2, who sees the
                 // ship at ring 20, hear it. The exit ring the C++ reports
-                // is the last leg's first ring (ring 20).
+                // is the last leg's first ring (ring 20). Between the two
+                // (`notify_stop_tradelane`'s ship pass) the ship's own
+                // behaviour hears the type-4 event: the dock behaviour
+                // ends and its disengage lets the lane request go
+                // (`CancelOwnerRequest(2)`, SpaceSupport's
+                // `HandleTradelaneRelease` at ring 16).
                 seen.exit = Some(f);
                 let psi = lane_psi(&cx, b, pose.0, pose.1);
                 assert!(psi.beamed.is_none());
@@ -638,12 +665,15 @@ fn an_npc_rides_the_he01_lane_from_ring_16_to_ring_20() {
                 assert_eq!(l.entrance.ring, Some(ring_ids[4]));
                 assert_eq!(
                     lines,
-                    [format!(
-                        "TradelaneExit {npc_id} {} {} {}",
-                        ring_ids[0],
-                        ring_ids[4],
-                        he01()
-                    )]
+                    [
+                        format!(
+                            "TradelaneExit {npc_id} {} {} {}",
+                            ring_ids[0],
+                            ring_ids[4],
+                            he01()
+                        ),
+                        format!("TradelaneRelease {npc_id} {} {}", ring_ids[0], he01()),
+                    ]
                 );
                 assert_eq!(
                     packets,
@@ -666,10 +696,25 @@ fn an_npc_rides_the_he01_lane_from_ring_16_to_ring_20() {
                     .flight
                     .throttle;
                 assert_eq!(throttle, 1.0);
+                // `notify_stop_tradelane`'s type-4 event (the ship leaving
+                // the lane it entered at ring 16, the ring it docked with)
+                // ended the dock behaviour (`DockBehavior::Slot22`): the
+                // lane brought it to its end (`Flag399`, so no exit is
+                // asked) and state 0xc gave the directive its result.
+                let m = cx.world.behavior_manager(npc).unwrap();
+                let dock = m
+                    .behavior(ids::DOCK)
+                    .and_then(|b| b.as_any())
+                    .and_then(|b| b.downcast_ref::<game_sim::ai::dock::DockBehavior>())
+                    .unwrap();
+                assert_eq!((dock.flag_399, dock.abort_398), (1, 0));
             }
             (Some(_), None) => {
-                // The ship's next update removes the stopped action.
+                // The ship's next update removes the stopped action, and
+                // its behaviour tick leaves the finished dock.
                 seen.removed = Some(f);
+                let m = cx.world.behavior_manager(npc).unwrap();
+                assert_ne!(m.state.behavior, ids::DOCK, "frame {f}");
             }
             _ => {}
         }

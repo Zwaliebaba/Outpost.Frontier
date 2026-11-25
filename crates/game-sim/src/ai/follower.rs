@@ -184,8 +184,9 @@ impl FollowerBase {
     }
 
     /// Slot 22 (`BaseFollowerBehavior::Slot22`) with the manager's
-    /// type-4 event. The running dock delegate hears it first (the dock
-    /// behaviour's own slot 22 is `Behavior`'s). When the formation
+    /// type-4 event. The running dock delegate hears it first (its slot
+    /// 22 ends the dock when the own ship leaves the lane it docked
+    /// with). When the formation
     /// block's current leader asked its followers out of the lane, the
     /// ship in a lane asks for its own exit (`CShip::
     /// request_exit_tradelane`) and a ship out of it stops the dock

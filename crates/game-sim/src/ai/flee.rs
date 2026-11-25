@@ -248,12 +248,13 @@ impl<W: AiEnv + ?Sized> Behavior<W> for FleeBehavior {
         }
     }
 
-    /// Slot 22: the delegate's. Only the formation behaviour (while the
-    /// leader flees) has a slot 22 of its own; the goto and dock
-    /// behaviours keep `Behavior`'s.
+    /// Slot 22: the delegate's (the formation behaviour while the leader
+    /// flees, else the dock or goto behaviour by the flee's type; the goto
+    /// behaviour keeps `Behavior`'s). Nothing for an uninitialised type,
+    /// where the reference writes an error report.
     fn lane_event(&mut self, cx: &mut Cx<'_, W>, event: &LaneEvent) {
-        if self.field_38 != 0 {
-            cx.with_peer(ids::FORMATION, |b, cx| b.lane_event(cx, event));
+        if let Some(delegate) = self.delegate() {
+            cx.with_peer(delegate, |b, cx| b.lane_event(cx, event));
         }
     }
 
