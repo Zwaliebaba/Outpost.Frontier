@@ -325,6 +325,8 @@ separate runner (owner, 2026-11-18).
 | P3.7 | `Content`: random mission database, offer generator, vignette tree, runtime machines | `game-logic::content::{random_mission, router}` | XL | A for offers from a seed, B for runtime |
 | P3.8 | `NeuronRuntime` transport, `RemoteClient`, `RemoteServer`: QUIC host and connection, handshake with version and password, length-prefixed frames, batching, send-backlog governor, certificate pinning | `neuron-server::net`, `neuron-client::net` | M | B |
 | P3.9 | `OutpostServer`: TOML config, command console (accounts, kick, ban, chat, news, status), logging | `apps/outpost-server`, `game-logic::admin` | M | — |
+| P3.10a | `Server`: the client's flight and combat handlers (fire, equipment, cruise, thrusters, target, tractor, trade lanes, jettison, collision reports, mining, use item, invincibility, manoeuvre, dock); before Gate G3 (decision O49) | `game-logic::{session, receive}` and the world's owners | M | B |
+| P3.10b | `Server`: the player-state requests (equipment and items, collision groups, visited state, mission log, interface state, rank, best path, group positions, pop-up dialogs, difficulty scale) and the player trades; after Gate G3 (decision O49) | `game-logic::{session, player}` | M | A |
 
 **Gate G3 (milestone "headless server").** `OutpostServer.exe` starts on
 the original data. A scripted test client connects over QUIC, logs in,
