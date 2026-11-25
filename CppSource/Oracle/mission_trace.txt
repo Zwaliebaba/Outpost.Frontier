@@ -1,0 +1,10 @@
+# Oracle.exe sim session (P3.5c1, decision record 0008 question 9): not a scenario. The server
+# starts as a multiplayer server (GameSupport's tables, then LoadGame's system records) and loads
+# RELAYSEVEN_system, then Content.dll makes Mission_01a for a synthetic player without a ship,
+# runs its opening (MissionStart, 900 heartbeats of 1/30 s and the session's scripted messages)
+# and writes what the trigger engine did as mission.jsonl (OracleDumpMissionTrace). Nothing else
+# is stepped; the parser still wants `ticks`.
+
+system RELAYSEVEN_system
+ticks 1
+dump mission_trace

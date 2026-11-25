@@ -194,6 +194,11 @@ namespace
         // record 0008 points 8 and 10, Gate G3).
         bool bDumpRandomMissionSaves = false;
         bool bDumpRandomMissionSaveLoads = false;
+        // `dump mission_trace`: after the server starts and the scenario's system loads,
+        // Content.dll runs Mission_01a's opening for a synthetic player and writes what its trigger
+        // engine did as mission.jsonl through its OracleDumpMissionTrace; no scenario runs (P3.5c1,
+        // decision record 0008 question 9).
+        bool bDumpMissionTrace = false;
         unsigned int Seed = 0x4f524143u;
         double ClockStart = 1000.0;
         std::vector<FObjectDesc> Objects;
@@ -536,6 +541,10 @@ namespace
             {
                 Out.bDumpRandomMissionSaveLoads = true;
             }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "mission_trace")
+            {
+                Out.bDumpMissionTrace = true;
+            }
             else if (Key == "seed" && T.size() == 2 && ParseUnsigned(T[1], Value))
             {
                 Out.Seed = (unsigned int)Value;
@@ -606,12 +615,13 @@ namespace
             return Error = "a scenario needs `system` and `ticks`", false;
         // A dump session needs no object: every `dump` line but `replication`, which records
         // the objects the session spawns (P3.6a: `content_systems` joins the list; P3.7a:
-        // `random_missions`; P3.7c: `random_mission_saves` and `random_mission_save_loads`).
+        // `random_missions`; P3.7c: `random_mission_saves` and `random_mission_save_loads`; P3.5c1:
+        // `mission_trace`).
         bool const bObjectlessDump = Out.bDumpSystemLoads || Out.bDumpContentTables ||
                                      Out.bDumpContentSystems || Out.bDumpMissionScripts ||
                                      Out.bDumpMissionSaves || Out.bDumpMissionSaveLoads ||
                                      Out.bDumpRandomMissions || Out.bDumpRandomMissionSaves ||
-                                     Out.bDumpRandomMissionSaveLoads;
+                                     Out.bDumpRandomMissionSaveLoads || Out.bDumpMissionTrace;
         if (Out.Objects.empty() && !bObjectlessDump)
             return Error = "a scenario needs at least one object", false;
         std::stable_sort(Out.Commands.begin(), Out.Commands.end(),
@@ -3148,6 +3158,30 @@ namespace oracle
             int const Code = Lines < 0 || ContentLines < 0 ? 3 : 0;
             EndProcess(Code);
             return Code;
+        }
+
+        // `dump mission_trace` (P3.5c1): the scenario's system has loaded, so the mission's spawns
+        // have a system; Mission_01a's opening runs through Content.dll's Oracle export, then the
+        // end of the run.
+        if (GScenario.bDumpMissionTrace)
+        {
+            typedef int(__cdecl * FDumpMissionTrace)(char const*);
+            HMODULE const Content = GetModuleHandleA("Content.dll");
+            FDumpMissionTrace const DumpMissionTrace =
+                Content != nullptr ? (FDumpMissionTrace)GetProcAddress(Content, "OracleDumpMissionTrace")
+                                   : nullptr;
+            int const Records = DumpMissionTrace != nullptr ? DumpMissionTrace(OutDir.c_str()) : -1;
+            if (DumpMissionTrace == nullptr)
+                SessionNote("error", "dump mission_trace: Content.dll is not loaded or lacks OracleDumpMissionTrace");
+            else if (Records < 0)
+                SessionNote("error", "OracleDumpMissionTrace failed: mission.jsonl could not be opened or "
+                                     "Mission_01a could not be made");
+            FOracleJson J;
+            J.Str("rec", "mission_trace");
+            J.Int("records", Records);
+            Write(FileSession, J);
+            EndProcess(Records < 0 ? 3 : 0);
+            return Records < 0 ? 3 : 0;
         }
 
         // The seeding point of the comparison (owner, 2026-11-18): the system and Content's
