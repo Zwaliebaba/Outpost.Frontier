@@ -573,7 +573,7 @@ pub fn matches(
             c.field_0x74 & ID_MASK != 0 && scanner
         }
         Condition::CharSelect(c) => {
-            let Some(_) = w else { return false };
+            let Some(w) = w else { return false };
             let Some(p) = player_state(cx_ref, s) else {
                 return false;
             };
@@ -581,9 +581,18 @@ pub fn matches(
             if p.base != Some(c.base_id) || c.location_id != s.current_location {
                 return false;
             }
-            // The base's room states and bar characters are BaseSupport's
-            // (P3.6e, D977): no character is found before.
-            false
+            // The room state of the mission's location and the player's
+            // character of the role there (`FBaseRoomState::FindCharacter`,
+            // P3.6e).
+            cx_ref
+                .logic
+                .content
+                .state
+                .bases
+                .get(&c.base_id)
+                .and_then(|b| b.room_states.get(&s.current_location))
+                .and_then(|room| room.find_character(&c.character, s.object.player))
+                .is_some_and(|found| found.character_id == w[0])
         }
         Condition::CommComplete(c) => {
             let Some(w) = w else { return false };

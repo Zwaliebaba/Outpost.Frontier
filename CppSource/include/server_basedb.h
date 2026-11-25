@@ -490,3 +490,16 @@ void Server_SubsystemShutdown();
 // -> BaseDB::update(dt) (IServerImpl::ElapseTime, module storage;
 // the float is ElapseTime's own argument, pushed from ESI).
 void Server_SubsystemUpdate(float DeltaTime);
+
+// Oracle instrumentation (design/migration-plan.md, Phase 0; work package P3.6e, decision
+// record 0008 points 7 and 10): the base database's events for the Tier B base session trace
+// (Content.dll's OracleDumpBaseSession, crates/game-logic/tests/base_session.rs). Inert unless
+// the harness set a hook through OracleSetBaseDbTrace; no game module sets one. Event 1 is a
+// record made (A the handle, B the session filter, Data its marshalled properties), 2 a destroy
+// (A the handle, B 1 when the handle's map had it), 3 set_character_behavior (A the
+// character, B the behaviour, C 1 when the record was changed), 4 a vendor's answer (A the
+// offer, B accepted, C the session, Data the marshalled MissionVendorAcceptance), 5
+// ReportWhyMissionVendorEmpty (A the client, B the reason). Kind: 1 character, 2 behaviour,
+// 3 ambient script, 4 mission vendor offer, 5 news broadcast, 0 for events 3 to 5.
+void OracleBaseDbTrace(int Event, int Kind, unsigned int A, unsigned int B, unsigned int C,
+                       void const* Data, unsigned int Size);
