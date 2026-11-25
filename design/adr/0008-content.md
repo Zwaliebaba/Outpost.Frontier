@@ -311,8 +311,9 @@ Paths are relative to `CppSource/`.
   So every pilot gets 0, and no NPC loots.
 - **The oracle already runs part of Content.** `Oracle.exe sim` runs the
   real GameSupport, SpaceSupport and BaseSupport (`Oracle/oracle_sim.cpp:2364-2405`).
-  The Rust scenario run gives SpaceSupport only its trade-lane answers
-  (`crates/game-logic/tests/scenario_hooks.rs:9-13`).
+  Since P3.6a the Rust scenario run starts the same three controllers and
+  runs `LoadGame`, so SpaceSupport runs on both sides
+  (`crates/game-logic/tests/scenario_hooks.rs`).
 
 ### Random missions
 
@@ -659,9 +660,9 @@ Paths are relative to `CppSource/`.
     | P3.5b | The mission, trigger, snapshot and `[StoryInfo]` sections (`format_f` itself came with P3.4d) | `format_f` vectors; save round trips; Rust saves loaded by the C++ build (Gate G3) |
     | P3.5c | The run time: the trigger engine, conditions, the 85 actions in groups (one pull request per group if large), object lists, nags, the NN path | Tier B mission trace (Verification) |
     | P3.5d | The story shell and `StoryMissions.cpp`'s overrides | Tier B story trace |
-    | P3.6a | SpaceSupport's core: handler order, loot preparation, formations, dock queues (with the dock-list half of `SystemEnter` and `SystemExit`); the trade lanes moved in | `dock_at_station` through the server; scenarios with SpaceSupport on both sides |
+    | P3.6a | SpaceSupport's core: handler order, loot preparation, the players' formations, dock queues (with the dock-list half of `SystemEnter` and `SystemExit`); the trade lanes moved in | `dock_at_station` through the server; scenarios with SpaceSupport on both sides |
     | P3.6b | GCS and voices | D734 removed; a scenario without `comms off` |
-    | P3.6c | NPC ships, callback handles, guides, the NPC name builder (moved from P3.4c), `GenerateCargo` (moved from P3.4c) | D168, D184 removed; D194 rewritten; flee, follow and guide scenarios driven by Content |
+    | P3.6c | NPC ships, callback handles, guides, the NPC name builder (moved from P3.4c), `GenerateCargo` (moved from P3.4c), the NPC formations (`PromoteFormationLeader`, `PickFormationLeader`, `BreakFormationAtDock`'s NPC part; moved from P3.6a), the combat reputation of TU56 and the players' hostile contacts (D845) | D168, D184 removed; D194 rewritten; flee, follow and guide scenarios driven by Content |
     | P3.6d | SpacePop, BasePop, encounters, spawn placement, random encounters | Population draws in `load_rand.jsonl`; a populated scenario |
     | P3.6e | BaseSupport | Tier B base session trace |
     | P3.7a | Random-mission tables, vignette tree, generator | Tier A offers from a seed (Gate G3) |
@@ -677,6 +678,10 @@ Paths are relative to `CppSource/`.
     The owner split P3.5a on 2026-11-24: `[ObjList]` and `[MetaBehavior]`
     draw no `rand()` and no other section reads them, so P3.5a2 adds them
     without changing P3.5a1's output.
+
+    The owner gave the combat reputation (TU56), which point 7 listed
+    without an increment, and the NPC-only formation functions to P3.6c on
+    2026-11-25 (with P3.6a).
 
     The owner moved `format_f` from P3.5b, SpaceSupport's system-load cases
     and the system-record half of `SystemEnter` and `SystemExit` from P3.6a,
