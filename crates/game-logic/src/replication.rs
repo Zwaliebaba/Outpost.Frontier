@@ -78,7 +78,7 @@ use game_sim::object::{KindData, ObjHandle, ObjectKind, World, class};
 use game_sim::protocol::ToClient;
 use game_sim::protocol::common::{
     ActivateCruise, ActivateEquip, ActivateThrusters, FireComponent, FireWeapon, GoTradeLane,
-    JettisonCargo, SetTarget, StopTradeLane, UpdateObject,
+    JettisonCargo, SetTarget, StopTradeLane, TractorObjects, UpdateObject,
 };
 use game_sim::protocol::costume::{Costume as WireCostume, CreateCostume};
 use game_sim::protocol::fmtstr::FmtStr;
@@ -90,7 +90,7 @@ use game_sim::protocol::records::{
 use game_sim::protocol::to_client::{
     ActivateObject, BurnFuse, CreateCounter, CreateGuided, CreateLoot, CreateMine, CreateShip,
     CreateShipOwner, CreateSolar, DamageObject, DestroyObject, Land, LootRecord, SendComm,
-    SetReputation, SystemSwitchIn, SystemSwitchOut,
+    SetReputation, SystemSwitchIn, SystemSwitchOut, UseItem,
 };
 use neuron_core::id::sub_object::{is_arch_group_id, is_equip_id};
 use neuron_core::math::{Matrix, Quaternion, Vector, matrix_to_quaternion};
@@ -2058,7 +2058,8 @@ pub struct Comm {
 
 /// `StarSystem::find_object`: the object with the id in the system's
 /// lists (none for an id whose low 30 bits are 0).
-fn find_in_system(world: &World, system: u32, id: u32) -> Option<ObjHandle> {
+#[must_use]
+pub fn find_in_system(world: &World, system: u32, id: u32) -> Option<ObjHandle> {
     if id & 0x3fff_ffff == 0 {
         return None;
     }
@@ -2538,6 +2539,77 @@ pub fn weapon_fired(
             hardpoints: hardpoints.to_vec(),
         };
         send_common(cx.logic, player, message);
+    }
+}
+
+/// `StarSystem::send_tractor_objects` (`EqObj::slot_3c`,
+/// `Server/server_classes.cpp:6296`): to every player of the system but
+/// the source that can see the tractoring object, `TRACTOROBJECTS` (the
+/// object, the tractor, the targets that player can see), sent even when
+/// no target is left.
+pub fn tractor_objects(
+    cx: &mut Cx<'_>,
+    system: u32,
+    id: u32,
+    equip: SubObjId,
+    targets: &[u32],
+    source: i32,
+) {
+    let skip = source_session(source);
+    let messages: Vec<(u32, TractorObjects)> = cx
+        .logic
+        .server_world
+        .systems
+        .get(&system)
+        .map(|s| {
+            s.observers
+                .iter()
+                .filter(|v| v.player != skip)
+                .filter(|v| is_object_id_visible(cx.world, cx.logic, v, id))
+                .map(|v| {
+                    let target_ids = targets
+                        .iter()
+                        .copied()
+                        .filter(|&t| is_object_id_visible(cx.world, cx.logic, v, t))
+                        .collect();
+                    let message = TractorObjects {
+                        object_id: id,
+                        tractor_equip_id: equip,
+                        target_ids,
+                    };
+                    (v.player, message)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    for (player, message) in messages {
+        send_common(cx.logic, player, message);
+    }
+}
+
+/// `StarSystem::use_item` (`EqObj::slot_58`, `server_classes.cpp:6504`):
+/// when the object is its owner's current ship, the owner's record loses
+/// the items (no notice); then `USE_ITEM` (the object, the item, the count
+/// as a word) to every player of the system that can see the object, the
+/// owner included.
+pub fn item_used(cx: &mut Cx<'_>, system: u32, h: ObjHandle, equip: SubObjId, count: i32) {
+    let Some((owner, id)) = cx
+        .world
+        .get(h)
+        .map(|o| (o.simple.owner_player, o.simple.id))
+    else {
+        return;
+    };
+    if owner != 0 && cx.logic.players.is_valid(owner) && ship_object_id(cx.logic, owner) == id {
+        crate::player::remove_equipment(cx, owner, equip, count, false);
+    }
+    let message = UseItem {
+        object_id: id,
+        equip_id: equip,
+        count: count as u16,
+    };
+    for player in players_seeing(cx, system, id, None) {
+        send_server(cx.logic, player, message.clone());
     }
 }
 

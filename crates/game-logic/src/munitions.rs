@@ -574,7 +574,12 @@ pub fn destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32, killer: u32) -> bool {
 /// with PvP off, damage an object that is a player's ship deals is not
 /// applied to a player's ship (`is_player` on both).
 #[must_use]
-pub fn pvp_blocked(forbid_pvp: bool, world: &World, inflictor: u32, target: ObjHandle) -> bool {
+pub fn pvp_blocked(
+    forbid_pvp: bool,
+    world: &World,
+    inflictor: Option<ObjHandle>,
+    target: ObjHandle,
+) -> bool {
     if !forbid_pvp {
         return false;
     }
@@ -583,5 +588,5 @@ pub fn pvp_blocked(forbid_pvp: bool, world: &World, inflictor: u32, target: ObjH
             .and_then(|o| o.as_ship())
             .is_some_and(|s| s.is_player)
     };
-    is_player(world.find(inflictor)) && is_player(Some(target))
+    is_player(inflictor) && is_player(Some(target))
 }

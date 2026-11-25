@@ -10,7 +10,13 @@
 //! (`CREATESHIP`) and receives its object updates (`UPDATEOBJECT`) as the
 //! second client flies it: until Content's population (P3.6) puts NPC ships
 //! in space, another player's ship is the only object the server replicates
-//! to a fresh player. The console's `status`, `kick` and `quit` end the run.
+//! to a fresh player. The second client then flies and fights (P3.10a): a
+//! shot of its equipment, the thrusters, the cruise, a trade lane's start
+//! and end at he01's rings 16 and 17, and a dock request at the ring it
+//! launched from, which Content answers; the first client hears the shot
+//! (`FIREWEAPON`), the thrusters (`ACTIVATETHRUSTERS`), the cruise
+//! (`ACTIVATECRUISE`) and the lane (`GOTRADELANE`, `STOPTRADELANE`). The
+//! console's `status`, `kick` and `quit` end the run.
 //!
 //! The data is the committed `outdir/`, as the other data tests of the
 //! workspace read it; the test returns early with a notice when it is
@@ -23,11 +29,14 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
-use game_sim::protocol::common::{CommonMessage, UpdateObject};
+use game_sim::protocol::common::{
+    ActivateCruise, ActivateThrusters, CommonMessage, FireWeapon, GoTradeLane, StopTradeLane,
+    UpdateObject,
+};
 use game_sim::protocol::to_client::ServerMessage;
 use game_sim::protocol::to_server::{
-    CreateNewChar, EnterBase, ExitBase, Login, RequestCharInfo, RequestCreateShip, RequestLaunch,
-    SelectCharacter,
+    CreateNewChar, EnterBase, ExitBase, Login, RequestCharInfo, RequestCreateShip, RequestEvent,
+    RequestLaunch, SelectCharacter,
 };
 use game_sim::protocol::{
     ClientMessage, GAME_BUILD, MultiplayerToClient, MultiplayerToServer, ToClient, ToServer,
@@ -139,6 +148,15 @@ fn send(client: &mut Client, message: impl Into<ClientMessage>) {
         .expect("the connection is open");
 }
 
+fn send_common(client: &mut Client, message: impl Into<CommonMessage>) {
+    client
+        .send(
+            SERVER_CONNECTION,
+            MultiplayerToServer(ToServer::Common(message.into())),
+        )
+        .expect("the connection is open");
+}
+
 /// Polls until `pick` takes a message; every message seen is kept.
 fn expect<T>(
     client: &mut Client,
@@ -178,11 +196,14 @@ fn name(message: &ToClient) -> &'static str {
     }
 }
 
-/// A pilot in space: its connection, what it received and its ship.
+/// A pilot in space: its connection, what it received, its ship, the
+/// ring it launched from and its mounted equipment.
 struct Pilot {
     client: Client,
     seen: Vec<ToClient>,
     ship: u32,
+    ring: u32,
+    equipped: Vec<u16>,
 }
 
 /// One client from the handshake to the launch: the client id and the
@@ -300,7 +321,19 @@ fn join(address: SocketAddr, fingerprint: &str, account: &str, name: &str, id: u
     });
     assert_eq!(launched, ship);
     assert_ne!(ring, 0, "the launch is from the base's docking ring");
-    Pilot { client, seen, ship }
+    let equipped = record
+        .equipment
+        .iter()
+        .filter(|e| e.equipped != 0)
+        .map(|e| e.id)
+        .collect();
+    Pilot {
+        client,
+        seen,
+        ship,
+        ring,
+        equipped,
+    }
 }
 
 /// `FLPACKET_COMMON_UPDATEOBJECT` of the pilot's own ship.
@@ -386,6 +419,9 @@ fn scripted_clients_log_in_create_characters_launch_and_see_each_other() {
     }
     let moved = moved.expect("the first client receives the second ship's updates");
     assert!(moved[0] > position[0], "{moved:?} after {position:?}");
+    while second.client.poll().is_some() {}
+
+    flight_and_combat(&mut first, &mut second, moved);
 
     // The console sees both players, then saves them and stops.
     server.command("status");
@@ -398,6 +434,147 @@ fn scripted_clients_log_in_create_characters_launch_and_see_each_other() {
     let status = server.child.wait().expect("the server ends");
     assert!(status.success());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The second pilot's flight and combat requests (P3.10a) and what the
+/// first pilot hears of them: the shot of its mounted equipment ahead of
+/// it (the guns among them fire), the thrusters on and off, the cruise on
+/// and off, he01's lane from ring 16 to 17 entered and left, and a dock
+/// request at its launch ring, which the requester hears answered.
+fn flight_and_combat(first: &mut Pilot, second: &mut Pilot, at: [f32; 3]) {
+    let ship = second.ship;
+    send_common(
+        &mut second.client,
+        FireWeapon {
+            object_id: ship,
+            target: FireWeapon::target_from([at[0], at[1], at[2] - 1000.0]),
+            hardpoints: second.equipped.clone(),
+        },
+    );
+    let fired = expect(
+        &mut first.client,
+        &mut first.seen,
+        "FIREWEAPON",
+        |m| match m {
+            ToClient::Common(CommonMessage::FireWeapon(f)) if f.object_id == ship => {
+                Some(f.hardpoints.clone())
+            }
+            _ => None,
+        },
+    );
+    assert!(!fired.is_empty(), "the guns that fired");
+
+    for active in [1, 0] {
+        send_common(
+            &mut second.client,
+            ActivateThrusters {
+                object_id: ship,
+                active,
+            },
+        );
+        let heard = expect(
+            &mut first.client,
+            &mut first.seen,
+            "ACTIVATETHRUSTERS",
+            |m| match m {
+                ToClient::Common(CommonMessage::ActivateThrusters(t)) if t.object_id == ship => {
+                    Some(t.active)
+                }
+                _ => None,
+            },
+        );
+        assert_eq!(heard, active);
+    }
+    for active in [1, 0] {
+        send_common(
+            &mut second.client,
+            ActivateCruise {
+                object_id: ship,
+                active,
+                field_05: 0,
+            },
+        );
+        let heard = expect(
+            &mut first.client,
+            &mut first.seen,
+            "ACTIVATECRUISE",
+            |m| match m {
+                ToClient::Common(CommonMessage::ActivateCruise(c)) if c.object_id == ship => {
+                    Some(c.active)
+                }
+                _ => None,
+            },
+        );
+        assert_eq!(heard, active);
+    }
+
+    let (ring16, ring17) = (
+        create_id(b"he01_Trade_Lane_Ring_16"),
+        create_id(b"he01_Trade_Lane_Ring_17"),
+    );
+    send_common(
+        &mut second.client,
+        GoTradeLane {
+            object_id: ship,
+            tradelane_ring1: ring16,
+            tradelane_ring2: ring17,
+            field_0c: 0,
+        },
+    );
+    let lane = expect(
+        &mut first.client,
+        &mut first.seen,
+        "GOTRADELANE",
+        |m| match m {
+            ToClient::Common(CommonMessage::GoTradeLane(g)) if g.object_id == ship => {
+                Some((g.tradelane_ring1, g.tradelane_ring2))
+            }
+            _ => None,
+        },
+    );
+    assert_eq!(lane, (ring16, ring17));
+    send_common(
+        &mut second.client,
+        StopTradeLane {
+            ship_id: ship,
+            tradelane_ring1: ring16,
+            tradelane_ring2: ring17,
+        },
+    );
+    expect(
+        &mut first.client,
+        &mut first.seen,
+        "STOPTRADELANE",
+        |m| match m {
+            ToClient::Common(CommonMessage::StopTradeLane(s)) if s.ship_id == ship => Some(()),
+            _ => None,
+        },
+    );
+
+    // The dock request at the launch ring (type 0, the dock flag set):
+    // Content's SpaceSupport answers the requester.
+    send(
+        &mut second.client,
+        RequestEvent {
+            event_type: 0,
+            arg1: ship,
+            arg2: second.ring,
+            arg3: 0,
+            field_10: 1,
+        },
+    );
+    let answer = expect(
+        &mut second.client,
+        &mut second.seen,
+        "REQUEST_RETURNED",
+        |m| match m {
+            ToClient::Server(ServerMessage::RequestReturned(r)) if r.object_id == ship => {
+                Some(r.request_type)
+            }
+            _ => None,
+        },
+    );
+    assert_eq!(answer, 0, "the dock's answer");
 }
 
 /// An interrupt (SIGINT, as Ctrl-C sends) stops the server as `quit` does:

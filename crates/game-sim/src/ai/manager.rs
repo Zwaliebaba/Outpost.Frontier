@@ -741,6 +741,27 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
         let _ = self.with(world, ship, index, |b, cx| b.lane_event(cx, event));
     }
 
+    /// `IBehaviorManager::Slot00` case 2 (a player's manoeuvre,
+    /// `IServerImpl::SetManeuver`): nothing without a current behaviour;
+    /// a directive waiting for a manoeuvre (kind 2) whose behaviour is the
+    /// event's `behavior` (`XSetManeuver::Field_0x08`) ends: the kind
+    /// becomes 0, the behaviour -1, the result word 0 and the finished
+    /// behaviour the old one.
+    pub fn maneuver_event(&mut self, behavior: i32) {
+        if self.state.behavior == -1 {
+            return;
+        }
+        let directive = &mut self.state.directive;
+        if directive[0] != 2 || directive[2] != behavior {
+            return;
+        }
+        let old = directive[2];
+        directive[0] = 0;
+        directive[2] = -1;
+        self.state.f118 = 0;
+        self.state.f11c = old;
+    }
+
     /// `lock_maneuvers`.
     pub fn lock_maneuvers(&mut self, lock: bool) -> bool {
         self.state.lock = lock;

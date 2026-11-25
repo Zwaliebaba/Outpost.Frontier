@@ -1557,6 +1557,16 @@ impl World {
         self.behavior_managers.get(&h)
     }
 
+    /// The manager's type-2 event for the object `h` (a player's manoeuvre,
+    /// `IBehaviorManager::Slot00({2, &XSetManeuver})`,
+    /// [`BehaviorManager::maneuver_event`]): nothing for an object without
+    /// a manager (`get_behavior_interface` answers null).
+    pub fn maneuver_event(&mut self, h: ObjHandle, behavior: i32) {
+        if let Some(manager) = self.behavior_managers.get_mut(&h) {
+            manager.maneuver_event(behavior);
+        }
+    }
+
     /// Runs `f` on an object's manager (created when missing, as
     /// `GetBehaviorManager` does).
     pub fn with_behavior_manager<T>(
