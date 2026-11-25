@@ -60,12 +60,19 @@ use std::sync::Arc;
 use game_logic::api;
 use game_logic::api::ai::{BaseOp, CallbackArg, Op, SetPersonalityParams};
 use game_logic::content::Instance;
+use game_logic::content::guides;
+use game_logic::content::mission::action::{self, Action};
 use game_logic::content::mission::execute;
+use game_logic::content::mission::meta_behavior::{MbGuide, MetaBehavior};
+use game_logic::content::mission::obj_list::{self, DirectiveKind, Goto, Idle, ObjListDirective};
+use game_logic::content::mission::runtime;
+use game_logic::content::npc_ships;
+use game_logic::content::ships::{self, ShipKey};
 use game_logic::content::mission::trace::{Trace, TraceRecord};
 use game_logic::content::mission::trigger::Trigger;
 use game_logic::content::mission::{MissionScript, engine};
 use game_logic::content::players::{PlayerShip, PlayerState};
-use game_logic::events::{CommResult, ControllerMessage};
+use game_logic::events::{CommResult, ControllerMessage, NpcShipKey};
 use game_logic::server::{ControllerKind, CreateParams, Cx, Logic, RecordingSink};
 use game_logic::{selection, world};
 use game_sim::ai::state_graph::GraphType;
@@ -308,9 +315,21 @@ fn register_player(cx: &mut Cx<'_>, session: u32, ship: u32, archetype: u32, sys
     cx.logic.content.state.players.insert(session, state);
 }
 
-/// The session on a data root (`exe` holds `OutpostFrontier.ini`).
+/// A look at the server after a tick's frame (`probe(cx, mission, tick)`).
+type Probe<'p> = &'p mut dyn FnMut(&mut Cx<'_>, ControllerId, u32);
+
+/// The session's ticks after a frame: no look.
+fn no_probe(_: &mut Cx<'_>, _: ControllerId, _: u32) {}
+
+/// The session on a data root (`exe` holds `OutpostFrontier.ini`), with
+/// `probe` after each tick's frame.
 #[allow(clippy::too_many_lines)]
-fn run_session(exe: &Path, data_dir: &Path, file: &SessionFile) -> Option<Session> {
+fn run_session(
+    exe: &Path,
+    data_dir: &Path,
+    file: &SessionFile,
+    probe: Probe<'_>,
+) -> Option<Session> {
     let s = &file.scenario;
     let config = DataConfig::read(&Host::new(exe), b"OutpostFrontier.ini")?;
     let mut data = GameData::new();
@@ -434,6 +453,7 @@ fn run_session(exe: &Path, data_dir: &Path, file: &SessionFile) -> Option<Sessio
         cx.world.update_global_time(dt);
         neuron_server::tick::elapse_time(&mut cx, dt, s.frame);
         objects_after_frame(&cx, id, tick, &mut objects);
+        probe(&mut cx, id, tick);
         if gone_trace.is_none()
             && let Some(at) = cx
                 .logic
@@ -711,6 +731,19 @@ fn counts(records: &[TraceRecord]) -> String {
     )
 }
 
+/// The trace records of the judged window: up to and including the first
+/// action that runs without an effect (all of them without one).
+fn judged_records(ours: &Session) -> usize {
+    ours.unported
+        .first()
+        .and_then(|&(tick, trigger, index, _)| {
+            ours.trace.iter().position(|r| {
+                matches!(*r, TraceRecord::Action { tick: t, trigger: g, index: i } | TraceRecord::Timer { tick: t, trigger: g, index: i } if t == tick && g == trigger && i == index)
+            })
+        })
+        .map_or(usize::MAX, |at| at + 1)
+}
+
 /// The unported actions that ran, by class with their first tick.
 fn unported_summary(unported: &[(u32, u32, u32, &'static str)]) -> String {
     let mut first: BTreeMap<&str, (u32, usize)> = BTreeMap::new();
@@ -763,7 +796,7 @@ fn data_dump_mission_session() {
         println!("notice: CppSource/Oracle/mission_session.txt does not parse");
         return;
     };
-    let Some(ours) = run_session(&root.join("EXE"), &root.join("DATA"), &file) else {
+    let Some(ours) = run_session(&root.join("EXE"), &root.join("DATA"), &file, &mut no_probe) else {
         println!("notice: the session could not start on the dump root");
         return;
     };
@@ -832,15 +865,7 @@ fn data_dump_mission_session() {
         .map(str::to_owned)
         .collect();
     // The judged records: up to and including the first unported action.
-    let judged_records = ours
-        .unported
-        .first()
-        .and_then(|&(tick, trigger, index, _)| {
-            ours.trace.iter().position(|r| {
-                matches!(*r, TraceRecord::Action { tick: t, trigger: g, index: i } | TraceRecord::Timer { tick: t, trigger: g, index: i } if t == tick && g == trigger && i == index)
-            })
-        })
-        .map_or(usize::MAX, |at| at + 1);
+    let judged_records = judged_records(&ours);
     match first_difference("mission.jsonl", &rust_trace, &oracle_trace) {
         None => {
             let _ = writeln!(
@@ -963,7 +988,7 @@ fn the_space_part_runs_on_outdir() {
         println!("notice: CppSource/Oracle/mission_session.txt does not parse");
         return;
     };
-    let Some(ours) = run_session(&root, &root.join("data"), &file) else {
+    let Some(ours) = run_session(&root, &root.join("data"), &file, &mut no_probe) else {
         println!("notice: outdir/ is missing or the session could not start; it was not run");
         return;
     };
@@ -1029,10 +1054,462 @@ fn the_space_part_runs_on_outdir() {
         !ours.unported.is_empty(),
         "M01a runs actions of later increments"
     );
+    // P3.5c3's actions all have their effect: the window ends at a comm or
+    // scene action of P3.5c4.
+    let first = ours.unported.first().map(|u| u.3);
+    assert!(
+        matches!(first, Some("Act_CallSceneScript" | "Act_StartDialog")),
+        "the first action without an effect: {first:?}"
+    );
     println!(
-        "{} trace records ({}), unported: {}",
+        "{} trace records ({}), unported: {}; judged window: tick {}, {} records",
         ours.trace.len(),
         counts(&ours.trace),
-        unported_summary(&ours.unported)
+        unported_summary(&ours.unported),
+        ours.unported.first().map_or(u32::MAX, |u| u.0),
+        judged_records(&ours)
     );
+}
+
+/// The NPC ship of the mission by its nickname.
+fn npc_of(cx: &Cx<'_>, id: ControllerId, name: &[u8]) -> Option<NpcShipKey> {
+    script_of(cx, id).and_then(|s| runtime::find_npc_by_name(cx, s, name))
+}
+
+/// The attitude of object `a`'s reputation towards object `b`'s.
+fn attitude(cx: &mut Cx<'_>, a: u32, b: u32) -> Option<f32> {
+    let ra = api::space_obj::rep(cx, a).ok()?;
+    let rb = api::space_obj::rep(cx, b).ok()?;
+    api::reputation::attitude(cx, ra, rb).ok()
+}
+
+/// The kind of the ship's active directive.
+fn active_kind(cx: &Cx<'_>, ship: ShipKey) -> Option<DirectiveKind> {
+    let q = npc_ships::queue(cx, ship)?;
+    let d = q.active?;
+    cx.logic
+        .content
+        .state
+        .directives
+        .get(d)
+        .map(|d| d.kind.clone())
+}
+
+/// Runs `action` on the mission as its trigger's first action would.
+fn run(cx: &mut Cx<'_>, id: ControllerId, mut action: Action) -> bool {
+    execute::execute(cx, id, 0, 0, &mut action)
+}
+
+/// P3.5c3's actions and directives on `outdir/` (`MissionAct.cpp`,
+/// `MissionObjList.cpp`): `Mission_01a`'s own vibes, object lists and
+/// lives of tick 2, then, after tick 3's frame, each of the 13 actions run
+/// on the live mission, checked against what the C++'s `Execute` does.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn the_ai_and_reputation_actions_on_outdir() {
+    let root = outdir();
+    let Some(file) = read_session() else {
+        println!("notice: CppSource/Oracle/mission_session.txt does not parse");
+        return;
+    };
+    let session = file.mission.1;
+    let checked = Cell::new(false);
+    let mut probe = |cx: &mut Cx<'_>, id: ControllerId, tick: u32| {
+        if tick != 3 {
+            return;
+        }
+        checked.set(true);
+        let player_ship = cx
+            .logic
+            .content
+            .state
+            .players
+            .get(&session)
+            .and_then(|p| p.ship.as_ref())
+            .map_or(0, |s| s.ship);
+        assert_ne!(player_ship, 0);
+        let escort = |cx: &Cx<'_>, n: u8| {
+            let name = format!("fp7base_escort{n}");
+            npc_of(cx, id, name.as_bytes()).expect("the escort")
+        };
+        let (e1, e2, e3) = (escort(cx, 1), escort(cx, 2), escort(cx, 3));
+        let flid = |cx: &Cx<'_>, k: NpcShipKey| npc_ships::space_obj(cx, k);
+
+        // Tick 2's `Act_SetVibe = fp7base_escortN, Player, REP_FRIEND_MAXIMUM`
+        // ran: the harness's ship has no vibe (-1) and its session no
+        // player vibe, so the vibes towards `Player` set nothing, in the
+        // C++'s `SetObjectAttitude` as in the port.
+        assert_eq!(api::space_obj::rep(cx, player_ship).ok(), Some(-1));
+        assert!(api::player::rep(cx, session).is_err());
+        assert_eq!(attitude(cx, flid(cx, e1), player_ship), None);
+        // `FP7_attackers_hold_position`: `Avoidance` submits its state and
+        // advances, the `Delay` stays active.
+        assert!(matches!(
+            active_kind(cx, ShipKey::Npc(e1)),
+            Some(DirectiveKind::Delay(d)) if d.delay_seconds == 600.0
+        ));
+        assert_eq!(
+            npc_ships::queue(cx, ShipKey::Npc(e1)).map(|q| q.list.len()),
+            Some(1)
+        );
+        // `transport_creeps`: `SetLifetime = 1000`, then the goto.
+        let transport = npc_of(cx, id, b"fp7_transport1").expect("the transport");
+        let t = npc_ships::get(cx, transport).expect("the transport");
+        assert_eq!((t.life_time, t.life_left), (1000.0, 1000.0));
+        assert!(matches!(
+            active_kind(cx, ShipKey::Npc(transport)),
+            Some(DirectiveKind::GotoVec(_))
+        ));
+
+        // `Act_SetRep`: the player's and an object's reputation towards a
+        // group; an unknown label or group answers false.
+        let group = api::reputation::reputation_group(cx, b"li_lsf_grp").expect("li_lsf_grp");
+        let set_rep = |label: &[u8], group_id: u32, value: f32| {
+            Action::SetRep(action::SetRep {
+                label: label.to_vec(),
+                faction: Vec::new(),
+                group_id,
+                value,
+            })
+        };
+        // `Player` with a live player asks the session's vibe, which the
+        // harness's has not: nothing is set, and the action answers true.
+        assert!(run(cx, id, set_rep(b"Player", group, 0.25)));
+        // An object's: `pub::Reputation::SetReputation(its vibe, group,
+        // value)`, which the same call made again leaves as it is.
+        let e1_rep = api::space_obj::rep(cx, flid(cx, e1)).expect("the escort's vibe");
+        let before = api::reputation::reputation(cx, e1_rep, group).ok();
+        assert!(run(cx, id, set_rep(b"fp7base_escort1", group, -0.5)));
+        let after = api::reputation::reputation(cx, e1_rep, group).ok();
+        assert_ne!(after, before);
+        api::reputation::set_reputation(cx, e1_rep, group, -0.5).expect("the vibe");
+        assert_eq!(api::reputation::reputation(cx, e1_rep, group).ok(), after);
+        assert!(!run(cx, id, set_rep(b"nobody_here", group, 0.0)));
+        assert!(!run(cx, id, set_rep(b"Player", 0, 0.0)));
+
+        // `Act_RepChangeRequest`: the pop-up's state.
+        assert!(run(
+            cx,
+            id,
+            Action::RepChangeRequest(action::RepChangeRequest {
+                shown: false,
+                armed: true,
+                system_id: create_id(b"li01"),
+                groups: vec![group],
+            })
+        ));
+        let s = script_of(cx, id).expect("the mission");
+        assert!(s.rep_pop_up_armed && !s.rep_pop_up_shown);
+        assert_eq!(s.rep_pop_up_system, create_id(b"li01"));
+        assert_eq!(s.rep_pop_up_groups, vec![group]);
+
+        // `Act_SetPriority`: every NPC ship under the label.
+        assert!(run(
+            cx,
+            id,
+            Action::SetPriority(action::SetPriority {
+                formation_id: create_id(b"lbl_fp7_convoy"),
+                priority: 1,
+            })
+        ));
+        for k in [e1, e2, e3] {
+            assert_eq!(npc_ships::priority(cx, ShipKey::Npc(k)), 1);
+        }
+
+        // `Act_SetFlee`: a position, an object (the label's), then clear.
+        let set_flee = |mode: i32, target: &[u8], flag: bool| {
+            Action::SetFlee(action::SetFlee {
+                npc: b"fp7base_escort1".to_vec(),
+                mode,
+                position: Vector::new(1.0, 2.0, 3.0),
+                target: target.to_vec(),
+                distance: 500.0,
+                flag,
+            })
+        };
+        run(cx, id, set_flee(0, b"", false));
+        let n = npc_ships::get(cx, e1).expect("the escort");
+        assert_eq!(
+            (n.flee_state, n.flee_position, n.flee_distance),
+            (1, Vector::new(1.0, 2.0, 3.0), 500.0)
+        );
+        run(cx, id, set_flee(1, b"fp7base", true));
+        let base = api::misc::nickname_id(b"fp7base");
+        let n = npc_ships::get(cx, e1).expect("the escort");
+        assert_eq!((n.flee_state, n.flee_object), (3, base));
+        run(cx, id, set_flee(2, b"", false));
+        assert_eq!(npc_ships::get(cx, e1).map(|n| n.flee_state), Some(0));
+
+        // `Act_PilotParams`: `no_flee` clears the job's flee fields, then
+        // `normal_flee` takes them from the archetype's pilot (the ship's
+        // own pilot is empty, as in the C++).
+        let pilot = |mode: i32| {
+            Action::PilotParams(action::PilotParams {
+                flee_mode: mode,
+                label: b"fp7base_escort1".to_vec(),
+            })
+        };
+        run(cx, id, pilot(0));
+        let job = api::ai::personality(cx, flid(cx, e1))
+            .expect("the personality")
+            .job;
+        assert_eq!(
+            (job.flee_scene_threat_style, job.scene_toughness_threshold),
+            (4, 4)
+        );
+        run(cx, id, pilot(1));
+        let archetype = npc_ships::get(cx, e1).map_or(0, |n| n.base.archetype);
+        let tables = cx.logic.content.tables.clone();
+        let mut expected = game_sim::ai::personality::Personality::default();
+        let loaded = tables
+            .npc_ships
+            .values()
+            .find(|a| a.ship_archetype == archetype)
+            .is_some_and(|a| tables.pilots.personality(a.pilot, &mut expected));
+        let job = api::ai::personality(cx, flid(cx, e1))
+            .expect("the personality")
+            .job;
+        if loaded {
+            assert_eq!(
+                job.flee_scene_threat_style,
+                expected.job.flee_scene_threat_style
+            );
+            assert_eq!(
+                job.scene_toughness_threshold,
+                expected.job.scene_toughness_threshold
+            );
+            assert_eq!(job.loot_preference, expected.job.loot_preference);
+        }
+
+        // `Act_SetVibeOfferBaseHack`: the base's solar reputation towards
+        // the player's; without the session's vibe nothing is set.
+        let solar_rep = api::space_obj::solar_rep(cx, base);
+        let before = solar_rep.map(|r| api::reputation::attitude(cx, r, -1));
+        assert!(run(
+            cx,
+            id,
+            Action::SetVibeOfferBaseHack(action::SetVibeOfferBaseHack { base_id: base })
+        ));
+        assert_eq!(solar_rep.map(|r| api::reputation::attitude(cx, r, -1)), before);
+
+        // `Act_SetVibe` with a range draws one `rand()` between its ends.
+        assert!(run(
+            cx,
+            id,
+            Action::SetVibe(action::SetVibe {
+                label_a: b"fp7base_escort2".to_vec(),
+                label_b: b"fp7_transport1".to_vec(),
+                lo: -0.5,
+                hi: 0.5,
+            })
+        ));
+        let a = attitude(cx, flid(cx, e2), flid(cx, transport)).expect("an attitude");
+        assert!((-0.5..=0.5).contains(&a), "{a}");
+
+        // `Act_SetVibeShipToLbl`: the ship towards every member under the
+        // label.
+        assert!(run(
+            cx,
+            id,
+            Action::SetVibeShipToLbl(action::SetVibeShipToLbl {
+                ship: b"fp7_transport1".to_vec(),
+                formation_id: create_id(b"lbl_fp7_convoy"),
+                lo: -0.75,
+                hi: -0.75,
+            })
+        ));
+        let t = flid(cx, transport);
+        for k in [e1, e2, e3] {
+            assert_eq!(attitude(cx, t, flid(cx, k)), Some(-0.75));
+        }
+
+        // `Act_PlayerForm`: the player's ship and the NPC ship form the
+        // formation (`convoy1` has a player slot).
+        let formation = create_id(b"convoy1");
+        assert!(cx.logic.content.tables.formation(formation).is_some());
+        run(
+            cx,
+            id,
+            Action::PlayerForm(action::PlayerForm {
+                npc: b"fp7base_escort2".to_vec(),
+                formation: Some(formation),
+            }),
+        );
+        let state = &cx.logic.content.state;
+        let formed = ships::formation_id(state, ShipKey::Player(session));
+        assert_ne!(formed, u32::MAX);
+        assert_eq!(ships::formation_id(state, ShipKey::Npc(e2)), formed);
+
+        // `Act_GiveMB`: the NPC ship cancels its directives and takes the
+        // goto guide of the `[MetaBehavior]`'s first object.
+        let mb = create_id(b"mb_p3_5c3_test");
+        if let Some(s) = runtime::script_mut(cx, id) {
+            s.object.meta_behaviors.insert(
+                mb,
+                vec![MetaBehavior::GotoGuide(MbGuide {
+                    target_name: b"Player".to_vec(),
+                    destination: Vector::new(3600.0, 1000.0, -21000.0),
+                    range: 500.0,
+                    ..MbGuide::default()
+                })],
+            );
+        }
+        run(
+            cx,
+            id,
+            Action::GiveMb(action::GiveMb {
+                npc: b"fp7base_escort3".to_vec(),
+                list_id: mb,
+            }),
+        );
+        let guide = npc_ships::get(cx, e3)
+            .and_then(|n| n.guide)
+            .expect("a guide");
+        assert_eq!(guides::guide_type(cx, guide), 5);
+
+        // `Act_GiveObjList` with named targets: a name that resolves is
+        // written into the shared op; one that finds nothing finishes its
+        // directive, and the ship goes on to the next.
+        let named = create_id(b"ol_p3_5c3_named");
+        let missing = create_id(b"ol_p3_5c3_missing");
+        // `GotoShip = goto, <target>, 1000, true`, as `FObjListGotoShip::Parse`
+        // makes it.
+        let goto_ship = |target: &[u8]| {
+            let mut goto = Goto {
+                field_0x17c: 1,
+                target_name: target.to_vec(),
+                ..Goto::default()
+            };
+            goto.op.kind = 0;
+            goto.op.range = 1000.0;
+            goto.op.field_58 = 1;
+            ObjListDirective {
+                name: b"GotoShip".to_vec(),
+                kind: DirectiveKind::GotoShip(goto),
+            }
+        };
+        let idle = ObjListDirective {
+            name: b"Idle".to_vec(),
+            kind: DirectiveKind::Idle(Idle::default()),
+        };
+        if let Some(s) = runtime::script_mut(cx, id) {
+            s.object
+                .obj_lists
+                .insert(named, vec![goto_ship(b"fp7base"), idle.clone()]);
+            s.object
+                .obj_lists
+                .insert(missing, vec![goto_ship(b"no_such_object"), idle]);
+        }
+        let give = |npc: &[u8], list_id: u32| {
+            Action::GiveObjList(action::GiveObjList {
+                npc: npc.to_vec(),
+                list_id,
+            })
+        };
+        run(cx, id, give(b"fp7base_escort3", named));
+        assert!(npc_ships::get(cx, e3).is_some_and(|n| n.guide.is_none()));
+        assert!(matches!(
+            active_kind(cx, ShipKey::Npc(e3)),
+            Some(DirectiveKind::GotoShip(g)) if g.op.field_1c.cast_unsigned() == base
+        ));
+        let shared = script_of(cx, id)
+            .and_then(|s| s.object.obj_list_refs.get(&named))
+            .and_then(|l| l.first().copied())
+            .expect("the shared list");
+        assert!(matches!(
+            cx.logic.content.state.directives.get(shared).map(|d| &d.kind),
+            Some(DirectiveKind::GotoShip(g)) if g.op.field_1c.cast_unsigned() == base
+        ));
+        run(cx, id, give(b"fp7base_escort1", missing));
+        assert!(matches!(
+            active_kind(cx, ShipKey::Npc(e1)),
+            Some(DirectiveKind::Idle(_))
+        ));
+        assert_eq!(
+            npc_ships::queue(cx, ShipKey::Npc(e1)).map(|q| q.list.len()),
+            Some(1)
+        );
+
+        // The mission kinds of the shipped lists: `SetPriority`,
+        // `MakeNewFormation` and `StayInRange` run and advance; `Follow`
+        // takes its named target and stays.
+        let kinds = create_id(b"ol_p3_5c3_kinds");
+        let mut zone = obj_list::Zone {
+            object_name: b"fp7base".to_vec(),
+            ..obj_list::Zone::default()
+        };
+        zone.op.mode = 2;
+        zone.op.invert_mode = 0;
+        zone.op.radius = 1000.0;
+        let list = vec![
+            ObjListDirective {
+                name: b"SetPriority".to_vec(),
+                kind: DirectiveKind::SetPriority(obj_list::SetPriority { priority: 0 }),
+            },
+            ObjListDirective {
+                name: b"MakeNewFormation".to_vec(),
+                kind: DirectiveKind::MakeNewFormation(obj_list::Formation {
+                    formation: Some(create_id(b"convoy1")),
+                    member_names: vec![b"fp7base_escort3".to_vec()],
+                    add_followers: false,
+                }),
+            },
+            ObjListDirective {
+                name: b"StayInRange".to_vec(),
+                kind: DirectiveKind::StayInRange(zone),
+            },
+            ObjListDirective {
+                name: b"Follow".to_vec(),
+                kind: DirectiveKind::Follow(obj_list::Follow {
+                    field_0x10c: 1,
+                    target_name: b"fp7_transport1".to_vec(),
+                    ..obj_list::Follow::default()
+                }),
+            },
+        ];
+        if let Some(s) = runtime::script_mut(cx, id) {
+            s.object.obj_lists.insert(kinds, list);
+        }
+        run(cx, id, give(b"fp7base_escort1", kinds));
+        assert_eq!(npc_ships::priority(cx, ShipKey::Npc(e1)), 0);
+        let state = &cx.logic.content.state;
+        let formed = ships::formation_id(state, ShipKey::Npc(e1));
+        assert_ne!(formed, u32::MAX);
+        assert_eq!(ships::formation_id(state, ShipKey::Npc(e3)), formed);
+        assert!(npc_ships::has_no_directives(cx, ShipKey::Npc(e3)));
+        let refs = script_of(cx, id)
+            .and_then(|s| s.object.obj_list_refs.get(&kinds).cloned())
+            .expect("the shared list");
+        assert!(matches!(
+            cx.logic.content.state.directives.get(refs[2]).map(|d| &d.kind),
+            Some(DirectiveKind::StayInRange(z)) if z.op.target_id == base
+        ));
+        assert!(matches!(
+            active_kind(cx, ShipKey::Npc(e1)),
+            Some(DirectiveKind::Follow(f)) if f.op.target == flid(cx, transport)
+        ));
+        assert_eq!(
+            npc_ships::queue(cx, ShipKey::Npc(e1)).map(|q| q.list.len()),
+            Some(1)
+        );
+
+        // `Act_GiveObjList` for `Player`: the player's ship object's queue
+        // (no directive callback); `Avoidance` advances, the `Delay` stays.
+        run(
+            cx,
+            id,
+            give(b"Player", create_id(b"FP7_attackers_hold_position")),
+        );
+        assert!(matches!(
+            active_kind(cx, ShipKey::Player(session)),
+            Some(DirectiveKind::Delay(_))
+        ));
+        // A label that is no NPC and not `Player` gives nothing.
+        run(cx, id, give(b"nobody_here", named));
+    };
+    if run_session(&root, &root.join("data"), &file, &mut probe).is_none() {
+        println!("notice: outdir/ is missing or the session could not start; it was not run");
+        return;
+    }
+    assert!(checked.get(), "the probe ran at tick 3");
 }
