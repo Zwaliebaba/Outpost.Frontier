@@ -34,6 +34,8 @@ pub mod message;
 mod machine;
 mod mission;
 mod sub;
+#[cfg(test)]
+mod tests;
 pub mod trace;
 
 use std::collections::{BTreeMap, BTreeSet};
