@@ -15,13 +15,14 @@
 // spells them as the negated comparison.
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
 
-use neuron_core::math::{Matrix, Transform, Vector, mul_matrix, transform_matrix, transform_xform};
+use neuron_core::math::{Matrix, Transform, Vector, mul_matrix, transform_matrix};
 use neuron_server::controller::ControllerId;
 
 use super::encounter_params::EncounterShip;
 use super::guides::{GuideDesc, PatrolPathRef, SpawnPlan};
 use super::mission::obj_list::{Delay, DirectiveKind, Goto};
 use super::mission::rand_enc::{RandEncFormation, RandEncKind, RandEncParams, ShipChoice};
+use super::mission::spawn::place_facing_anchor;
 use super::npc_names::{self, NpcNameParams, NpcNameRequest};
 use super::npc_ships::{self, NpcShipParams};
 use super::{cargo, systems};
@@ -62,47 +63,6 @@ pub fn pick_weighted(cx: &mut Cx<'_>, weights: &[f32]) -> Option<usize> {
         }
     }
     None
-}
-
-/// `PlaceFacingAnchor(&Anchor, &Heading, &Range, &Out)` (`ContentDataPath.cpp:37-98`):
-/// the point `range` from the anchor at `heading` (`(cos h * r, 0, -(sin h
-/// * r))` in the anchor's frame), facing away from it.
-#[must_use]
-pub fn place_facing_anchor(anchor: &Transform, heading: f32, range: f32) -> Transform {
-    let (h, r) = (f64::from(heading), f64::from(range));
-    let offset = Vector::new((h.cos() * r) as f32, 0.0, (-(h.sin() * r)) as f32);
-    let position = transform_xform(anchor, offset);
-    let fx = (f64::from(position.x) - f64::from(anchor.translation.x)) as f32;
-    let fy = (f64::from(position.y) - f64::from(anchor.translation.y)) as f32;
-    let fz = (f64::from(position.z) - f64::from(anchor.translation.z)) as f32;
-    let (dx, dy, dz) = (f64::from(fx), f64::from(fy), f64::from(fz));
-    let inverse = 1.0 / ((dy * dy + dz * dz) + dx * dx).sqrt();
-    let (fx, fy, fz) = (
-        (dx * inverse) as f32,
-        (dy * inverse) as f32,
-        (dz * inverse) as f32,
-    );
-    let zero = 0.0_f64;
-    let y_zero = f64::from(fy) * zero;
-    let rx = (f64::from(fz) - y_zero) as f32;
-    let ry = (f64::from(fx) * zero - f64::from(fz) * zero) as f32;
-    let rz = (y_zero - f64::from(fx)) as f32;
-    let inverse = 1.0
-        / ((f64::from(rz) * f64::from(rz) + f64::from(ry) * f64::from(ry))
-            + f64::from(rx) * f64::from(rx))
-        .sqrt();
-    let (rx, ry, rz) = (
-        (f64::from(rx) * inverse) as f32,
-        (f64::from(ry) * inverse) as f32,
-        (f64::from(rz) * inverse) as f32,
-    );
-    let ux = (-(f64::from(fz) * f64::from(ry) - f64::from(fy) * f64::from(rz))) as f32;
-    let uy = (-(f64::from(rz) * f64::from(fx) - f64::from(fz) * f64::from(rx))) as f32;
-    let uz = (-(f64::from(fy) * f64::from(rx) - f64::from(ry) * f64::from(fx))) as f32;
-    Transform {
-        rotation: Matrix::from_rows([[rx, ux, fx], [ry, uy, fy], [rz, uz, fz]]),
-        translation: position,
-    }
 }
 
 /// The directive list the leader of each formation gets: one directive

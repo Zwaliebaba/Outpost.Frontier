@@ -577,9 +577,7 @@ pub fn deliver(
         | ControllerKind::GenericMission => mission::engine::handle_message(cx, id, message),
         ControllerKind::DestroyMission => random_mission::runtime::handle_message(cx, id, message),
         ControllerKind::SpacePop => population::handle_space_pop(cx, id, message),
-        ControllerKind::BasePop
-        | ControllerKind::StoryLauncher
-        | ControllerKind::Story => {}
+        ControllerKind::BasePop | ControllerKind::StoryLauncher | ControllerKind::Story => {}
     }
 }
 
