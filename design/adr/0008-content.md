@@ -327,7 +327,8 @@ Paths are relative to `CppSource/`.
   (`:1051-1052`).
   `FinalizeMission` seeds it again from the saved seed and builds the
   offer (`:620-650`). A save rebuilds the mission the same way from
-  `[RandomMission]` (`:661-689`; `Support.cpp:360-380`).
+  `[RandomMission]` (`:661-689`; `Support.cpp:361-397`; amended by the
+  owner on 2026-11-25, with P3.7c).
 - **There is one generator.** The CRT's `rand` belongs to `ucrtbase.dll`,
   which every game module binds to ([sim-records.md](../sim-records.md),
   `load_rand.jsonl`). Content's `srand` therefore reseeds the generator
@@ -357,12 +358,14 @@ Paths are relative to `CppSource/`.
   The vignette cookies (`RandomMissionVignette.cpp:43`) are not among
   them: they are state of the runtime machines.
 - **Where offers come from.** The bar offers (`CreateBarMissionOffer`,
-  `LootProps.cpp:195`) and the vendor offers (`GenerateVendorMissions` and
-  `BuildMissionVendorOffers`, `:278-520`) are built in TU35, which the
+  `LootProps.cpp:195`) and the vendor offers (`GenerateVendorMissions`,
+  `:282-422`, and `BuildMissionVendorOffers`, `:463-520`, released by
+  `ClearMissionVendorOffers`, `:523-535`) are built in TU35, which the
   reconstruction put in `LootProps.cpp`. They are accepted in
-  `BaseSupport.cpp:420-435` (vendor) and `BaseDB.cpp:900-921` (bar,
+  `BaseSupport.cpp:420-435` (vendor) and `BaseDB.cpp:884-943` (bar,
   `FBarOffer::Accept`). (References corrected by the owner on 2026-11-25,
-  with P3.7a.)
+  with P3.7a; the vendor offers' and `FBarOffer::Accept`'s lines amended by
+  the owner on 2026-11-25, with P3.7c.)
 - **The run time.** `FRandomMissionObject` is the mission object plus a
   state-machine group (`RandomMissionObject.h:39`). Its machines are at
   `RandomMissionMachine.h:205` and `RandomMissionRuntime.h:102`, `:185`.

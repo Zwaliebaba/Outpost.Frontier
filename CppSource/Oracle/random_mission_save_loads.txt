@@ -1,0 +1,10 @@
+# Oracle.exe sim session (P3.7c, decision record 0008 points 8 and 10, Gate G3): not a scenario.
+# After the multiplayer start-up of random_mission_saves.txt, Content.dll loads the
+# [RandomMission] saves the Rust port wrote into the out folder's rust folder
+# (crates/game-logic/tests/random_missions.rs) and writes the offers it rebuilt from the saved
+# seeds as rmload_<table>.txt (OracleLoadRandomMissionSaves). The data job runs it between the
+# port's two steps (design/reference-build.md). No system loads and nothing is stepped.
+
+system he01
+ticks 1
+dump random_mission_save_loads

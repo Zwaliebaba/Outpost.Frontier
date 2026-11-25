@@ -974,6 +974,61 @@ lists each of them; a bit-equal line counts as exact.
 | `rm_offer_objectives.txt` | `case component key type str_id params marker` (`system:value:position`) |
 | `rm_offer_comms.txt` | `case conversation trigger delay ready lines` (`speaker/target/text`) |
 
+`random_missions.rs` also compares the port's own `CreateMission` with the
+same files (P3.7c, `data_dump_created_random_missions`, summary
+`rust-created-random-missions.txt`): the port makes the cases itself, in the
+export's order, and every field of the seven case files is its own (the zone,
+the enemy group, the seed, the result); the rebuild from the oracle's values
+above stays as it was. The rebuild takes the oracle's zone, enemy and seed,
+so the dock position `CreateMission` searches from (D954) does not reach it;
+the port's own creation is where it does. A case whose base is one of the
+three bases without a dock object (`fr01_01_Base`, `he01_15_Base`,
+`ve05_02_Base`; none is in the export's list) may differ only in the fields
+that derive from the dock position, and each such case is listed under
+"D954" in the summary (owner, 2026-11-25): the `rm_missions.txt` fields
+`result enemy_group dest_sys zone pos path offers draws serial enemy_uses`;
+the case's offer lines in number and every field but the query's
+(`offer_group difficulty reward rep_hit rep_reward offer_base voice`) where
+both have one; its other offer lines in number and every field. Every other
+case and field is compared exactly, and a bit-equal case counts as exact.
+A difference in the counters such a case leaves (the serial, the vignette
+nicknames) reaches the next cases, which are compared exactly.
+
+## `random_mission_saves/` (`dump random_mission_saves`) and `rmload_<table>.txt` (`dump random_mission_save_loads`)
+
+The random missions' `[RandomMission]` save sections and the offers rebuilt
+from them (P3.7c, decision record 0008 points 8 and 10, Gate G3;
+`Content/oracle_random_missions.cpp`), read by
+`crates/game-logic/tests/random_missions.rs`. After the multiplayer start-up,
+for every base of the export's list that Content knows: `GRmObjectiveZones`
+emptied, player 7 put in the base's system, the base loaded
+(`FContentBase::Load`, which reads its `num_offers`), `srand(0x4f524143)`,
+`BuildMissionVendorOffers` into a local visit, each vendor offer written and
+saved, `ClearMissionVendorOffers`, the base unloaded; then per
+`[BaseFaction]` with a `mission_type`, faction properties and names,
+`srand(0x4f524143)` and `CreateBarMissionOffer` with the faction's first
+mission type as the NPC's (`min`, `max`, type); a created offer is saved and
+the loader released. Every save is then loaded in turn by a new loader for
+player 7 (`Load`: every section, each with `FinalizeMission`), its draws
+since the last `srand(random_seed)` counted, the loader released. The fields
+are written as in `rm_<table>.txt`.
+
+| File | Content |
+| --- | --- |
+| `random_mission_saves/rms_offers.txt` | per base `source=vendor_offers base count zones` (`GRmObjectiveZones`' size); per offer `save` (the save's number, −1 when not saved) `source` (`vendor`, `bar`) `base group created offer_id type`, then `mission=-`, or `random_seed player offer_base offer_group enemy_group dest_sys zone pos reward rep_reward rep_hit difficulty path offers serial zones` and the vendor description (`class=-` without an offer, else `class title description briefing base_id icon filter`) |
+| `random_mission_saves/rmsave_<n>.ini` | the section a `DestroyMission` controller writes on `PlayerSave`: `[RandomMission]`, `type = DestroyMission`, `FRandomMissionData::Save` (binary: the `\n` the format strings write) |
+| `random_mission_saves/rmsave_pair.ini` | `rmsave_0.ini` then `rmsave_1.ini` |
+| `random_mission_saves/rmload_missions.txt` | per load `save loaded player offer_base offer_group enemy_group dest_sys zone pos reward rep_reward rep_hit difficulty jump_pref offer_ids random_seed path offers draws serial zones description enemy_uses` |
+| `random_mission_saves/rmload_<table>.txt` | the rebuilt offers in the format of `rm_<table>.txt` (`offers`, `offer_ship_groups`, `offer_ships`, `offer_solars`, `offer_objectives`, `offer_comms`), the load's number as the case; the same Tier B fields as there |
+| `rust/rmsave_<n>.ini`, `rust/rmsave_pair.ini` | (written by the port before `dump random_mission_save_loads`, through the text-mode translation) the port's saves of the same offers |
+| `rmload_<table>.txt` | (`dump random_mission_save_loads`) the C++ loads of the port's saves, `n` = 0 up while a file opens, then the pair, in the same format |
+
+Under D954 (owner, 2026-11-25) a base without a dock object may differ in
+its `rms_offers.txt` lines in number and every field but `source` and
+`base`, and in its saves in every key but `offer_base`, `offer_ids`,
+`jump_pref`, `rep_reward` and `rep_hit`; each is listed under "D954" in the
+summary. The loads compare exactly, because both sides load the same files.
+
 ## `spread.jsonl` (`--runs N`)
 
 | `rec` | Fields |

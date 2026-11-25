@@ -4,7 +4,8 @@
 // (crates/game-logic/tests/random_missions.rs). A new export, not part of the reference DLL's
 // interface: only Oracle.exe sim calls it, for the session file
 // CppSource/Oracle/random_missions.txt (`dump random_missions`), right after the multiplayer
-// start-up, so a game run never reaches it.
+// start-up, so a game run never reaches it. P3.7c adds two exports for the [RandomMission] save
+// sections at the end of the file (OracleDumpRandomMissionSaves, OracleLoadRandomMissionSaves).
 //
 // The tables are written first, as the generator's constructor left them. Then, for every base
 // of OracleRmBases that Content knows, every [BaseFaction] of it with a mission_type and with
@@ -46,8 +47,10 @@
 
 #include "content.h"
 #include "BaseDB.h"               // FindContentBaseInfo, FContentBase, FBaseFaction
+#include "BaseSupport.h"          // FBaseVisit (P3.7c)
 #include "ContentPlayerState.h"   // ReplaceContentPlayerState, RemoveContentPlayerState
 #include "FactionProps.h"         // GetFactionProps, GetFactionNames
+#include "LootProps.h"            // CreateBarMissionOffer, BuildMissionVendorOffers (P3.7c)
 #include "RandomEncounters.h"     // GRmKillableSolars, GRmCriticalLoot
 #include "RandomMission.h"        // FRandomMissionData, FRandomMissionLoader, GRmObjectiveZones
 #include "RandomMissionDB.h"      // GRmBonusLoot, GetSolarFormations
@@ -55,7 +58,9 @@
 #include "RandomMissionOffer.h"   // FRmVignetteOffer and its components
 #include "RandomMissionRuntime.h" // FRmParamText, FRmObjectiveType2, GRmShipGroupSerial
 #include "SystemInfo.h"           // FindSystemInfo
+#include "common_goods.h"         // MissionVendorOfferDescription (P3.7c)
 #include "common_id.h"            // CreateID
+#include "common_ini.h"           // INI_Reader (P3.7c)
 #include "common_server.h"        // pub::GetBaseID, pub::GetSystem
 #include "common_text.h"          // FmtStr
 
@@ -637,5 +642,360 @@ extern "C" __declspec(dllexport) int __cdecl OracleDumpRandomMissions(char const
         if (Files[Index] != nullptr)
             std::fclose(Files[Index]);
     }
+    return Lines;
+}
+
+// =======================================================================================
+// P3.7c (decision record 0008 points 8 and 10, Gate G3): the [RandomMission] save sections and
+// the restore from them. Two more exports, for the session files
+// CppSource/Oracle/random_mission_saves.txt (`dump random_mission_saves`) and
+// CppSource/Oracle/random_mission_save_loads.txt (`dump random_mission_save_loads`), right after
+// the multiplayer start-up, so a game run never reaches them.
+//
+// OracleDumpRandomMissionSaves(Dir) makes random missions through the vendor and bar offers:
+// for every base of OracleRmBases that Content knows, with a system record, the objective zones
+// are emptied, the synthetic player 7 (ReplaceContentPlayerState) is put in the base's system,
+// the base is loaded (FContentBase::Load, as BaseSupport loads the base a player enters, which
+// reads its [MVendor] num_offers) and the CRT generator is seeded with OracleRmSeeds[1];
+// BuildMissionVendorOffers runs for the base into a local visit, every vendor offer is written
+// and saved, ClearMissionVendorOffers releases them, and the base is unloaded. Then, for every [BaseFaction] of the base with a
+// mission_type and with faction properties and names, the generator is seeded again and
+// CreateBarMissionOffer runs with that faction's first mission type as the NPC's mission; a
+// created offer is saved, and the loader is released. Each saved mission is
+// <Dir>\rmsave_<n>.ini: what a DestroyMission controller writes on PlayerSave
+// (DestroyMission.cpp:409-411); rmsave_pair.ini is the first two saves one after the other.
+// rms_offers.txt has one line per base (its vendor offer count) and one per offer made.
+//
+// Every save is then loaded in turn, n = 0 up, then the pair: one random-mission loader's Load
+// for player 7 over the file (every [RandomMission] section, each followed by FinalizeMission,
+// which seeds the generator with the saved seed and rebuilds the offer), its draws since that
+// seeding counted, and the loader released. rmload_missions.txt has one line per load,
+// rmload_<table>.txt the rebuilt offers in rm_<table>.txt's format, with the load's number as
+// the case.
+//
+// OracleLoadRandomMissionSaves(Dir) loads <Dir>\rust\rmsave_<n>.ini, n = 0 up while the file
+// opens, then <Dir>\rust\rmsave_pair.ini, the same way, into <Dir>\rmload_<table>.txt.
+//
+// Both return the number of lines written, -1 when a file cannot be opened.
+// =======================================================================================
+
+namespace
+{
+    char const* const OracleRmLoadTables[] = {"missions",     "offers",           "offer_ship_groups", "offer_ships",
+                                              "offer_solars", "offer_objectives", "offer_comms"};
+    int const OracleRmLoadTableCount = 7;
+
+    FILE* OracleOpenPath(std::string const& Path)
+    {
+        return std::fopen(Path.c_str(), "wb");
+    }
+
+    std::string OracleRmSaveName(int Index)
+    {
+        char Name[0x40];
+        std::snprintf(Name, sizeof(Name), "rmsave_%d.ini", Index);
+        return Name;
+    }
+
+    // The section a DestroyMission controller writes on PlayerSave.
+    void WriteOracleRmSave(FILE* File, FRandomMissionData* Mission)
+    {
+        std::fprintf(File, "[RandomMission]\n");
+        std::fprintf(File, "type = %s\n", "DestroyMission");
+        Mission->Save(File);
+    }
+
+    void OracleRmPath(FILE* Out, FRmTreePath const& Path)
+    {
+        std::fprintf(Out, " path=");
+        for (size_t Bit = 0; Bit < Path.Bits.size(); ++Bit)
+            std::fprintf(Out, "%c", Path.Bits[Bit] == 0 ? 'F' : 'T');
+    }
+
+    // The mission's vendor description (the loader's slot 6); " class=-" without an offer, whose
+    // first offer GetOfferDescription would read.
+    void DumpOracleRmDescription(FILE* Out, FRandomMissionLoader* Loader, FRandomMissionData* Mission)
+    {
+        if (Mission->Offers.empty())
+        {
+            std::fprintf(Out, " class=-");
+            return;
+        }
+        MissionVendorOfferDescription Desc;
+        Desc.BaseId = 0;
+        Desc.TargetId = 0;
+        Desc.SystemId = 0;
+        Desc.MissionClass = 0;
+        Desc.IconTextureId = 0;
+        Desc.Filter = 0;
+        Loader->GetOfferDescription(Mission, &Desc);
+        std::fprintf(Out, " class=%u", Desc.MissionClass);
+        OracleFmtStr(Out, "title", Desc.Title);
+        OracleFmtStr(Out, "description", Desc.Description);
+        OracleFmtStr(Out, "briefing", Desc.Briefing);
+        std::fprintf(Out, " base_id=%u icon=%u filter=%u", Desc.BaseId, Desc.IconTextureId, Desc.Filter);
+    }
+
+    // One line of rms_offers.txt.
+    void DumpOracleRmCreated(FILE* Out, int Save, char const* Source, unsigned int BaseId, unsigned int Group,
+                             bool bCreated, unsigned int OfferId, char const* Type, FRandomMissionLoader* Loader,
+                             FRandomMissionData* Mission)
+    {
+        std::fprintf(Out, "save=%d source=%s base=%u group=%u created=%u offer_id=%u type=", Save, Source, BaseId,
+                     Group, bCreated ? 1u : 0u, OfferId);
+        OracleHex(Out, Type);
+        if (Mission == nullptr)
+        {
+            std::fprintf(Out, " mission=-\n");
+            return;
+        }
+        FRandomMissionData const& M = *Mission;
+        std::fprintf(Out, " random_seed=%u player=%u offer_base=%u offer_group=%d enemy_group=%u dest_sys=%u zone=%u",
+                     M.RandomSeed, M.PlayerId, M.OfferBase, M.OfferGroup, M.EnemyGroup, M.DestSys, M.ObjectiveZone);
+        OracleVector(Out, "pos", M.ObjectivePos.x, M.ObjectivePos.y, M.ObjectivePos.z);
+        std::fprintf(Out, " reward=%d rep_reward=%08x rep_hit=%08x difficulty=%08x", M.Reward,
+                     OracleBits(M.RepReward), OracleBits(M.RepHit), OracleBits(M.Difficulty));
+        OracleRmPath(Out, M.TreePath);
+        std::fprintf(Out, " offers=%u serial=%u zones=%u", static_cast<unsigned int>(M.Offers.size()),
+                     GRmShipGroupSerial, static_cast<unsigned int>(GRmObjectiveZones.size()));
+        DumpOracleRmDescription(Out, Loader, Mission);
+        std::fprintf(Out, "\n");
+    }
+
+    // Saves Mission as rmsave_<Index>.ini; false when the file cannot be opened.
+    bool SaveOracleRm(std::string const& Root, int Index, FRandomMissionData* Mission)
+    {
+        FILE* const File = OracleOpenPath(Root + "\\" + OracleRmSaveName(Index));
+        if (File == nullptr)
+            return false;
+        WriteOracleRmSave(File, Mission);
+        std::fclose(File);
+        return true;
+    }
+
+    // One load of the file at Path as case Case: the line of rmload_missions.txt and the
+    // rebuilt offers. -1 when the file does not open.
+    int LoadOracleRm(FOracleRmFiles const& F, std::string const& Path, unsigned int Case)
+    {
+        INI_Reader Reader;
+        if (!Reader.open(Path.c_str(), false))
+            return -1;
+        FRandomMissionLoader* Loader = nullptr;
+        CreateRandomMissionLoader("DestroyMission", &Loader);
+        if (Loader == nullptr)
+        {
+            Reader.close();
+            return -1;
+        }
+        FRandomMissionData* Mission = nullptr;
+        bool const bLoaded = Loader->Load(&Reader, &Mission, OracleRmPlayerId);
+        int Lines = 0;
+        if (Mission != nullptr)
+        {
+            int const Draws = CountDraws(Mission->RandomSeed);
+            FRandomMissionData const& M = *Mission;
+            std::fprintf(F.Missions,
+                         "save=%u loaded=%u player=%u offer_base=%u offer_group=%d enemy_group=%u dest_sys=%u zone=%u",
+                         Case, bLoaded ? 1u : 0u, M.PlayerId, M.OfferBase, M.OfferGroup, M.EnemyGroup, M.DestSys,
+                         M.ObjectiveZone);
+            OracleVector(F.Missions, "pos", M.ObjectivePos.x, M.ObjectivePos.y, M.ObjectivePos.z);
+            std::fprintf(F.Missions,
+                         " reward=%d rep_reward=%08x rep_hit=%08x difficulty=%08x jump_pref=%d offer_ids=%d "
+                         "random_seed=%u",
+                         M.Reward, OracleBits(M.RepReward), OracleBits(M.RepHit), OracleBits(M.Difficulty),
+                         M.JumpPref, M.OfferIds, M.RandomSeed);
+            OracleRmPath(F.Missions, M.TreePath);
+            std::fprintf(F.Missions, " offers=%u draws=%d serial=%u zones=%u",
+                         static_cast<unsigned int>(M.Offers.size()), Draws, GRmShipGroupSerial,
+                         static_cast<unsigned int>(GRmObjectiveZones.size()));
+            OracleFmtStr(F.Missions, "description", M.Description);
+            DumpNameUses(F.Missions, M.EnemyGroup);
+            std::fprintf(F.Missions, "\n");
+            ++Lines;
+            for (std::list<FRmOffer*>::const_iterator It = M.Offers.begin(); It != M.Offers.end(); ++It)
+                Lines += DumpOffer(F, Case, static_cast<FRmVignetteOffer const*>(*It));
+        }
+        Loader->Release();
+        Reader.close();
+        return Lines;
+    }
+
+    void CloseOracleRmFiles(FILE* (&Files)[7])
+    {
+        for (int Index = 0; Index < OracleRmLoadTableCount; ++Index)
+        {
+            if (Files[Index] != nullptr)
+                std::fclose(Files[Index]);
+            Files[Index] = nullptr;
+        }
+    }
+
+    // Every rmsave_<n>.ini of SaveDir, n = 0 up while one opens (fewer than Count when Count >= 0),
+    // then rmsave_pair.ini, into Root's rmload_<table>.txt. -1 when an output file cannot be opened.
+    int LoadOracleRmSaves(std::string const& Root, std::string const& SaveDir, int Count)
+    {
+        FILE* Files[7] = {};
+        bool bOpen = true;
+        for (int Index = 0; Index < OracleRmLoadTableCount; ++Index)
+        {
+            Files[Index] = OracleOpenPath(Root + "\\rmload_" + OracleRmLoadTables[Index] + ".txt");
+            bOpen = bOpen && Files[Index] != nullptr;
+        }
+        int Lines = -1;
+        if (bOpen)
+        {
+            FOracleRmFiles const F = {Files[0], Files[1], Files[2], Files[3], Files[4], Files[5], Files[6]};
+            Lines = 0;
+            unsigned int Case = 0;
+            for (;; ++Case)
+            {
+                if (Count >= 0 && static_cast<int>(Case) >= Count)
+                    break;
+                int const Loaded = LoadOracleRm(F, SaveDir + "\\" + OracleRmSaveName(static_cast<int>(Case)), Case);
+                if (Loaded < 0)
+                    break;
+                Lines += Loaded;
+            }
+            int const Pair = LoadOracleRm(F, SaveDir + "\\rmsave_pair.ini", Case);
+            if (Pair > 0)
+                Lines += Pair;
+        }
+        CloseOracleRmFiles(Files);
+        return Lines;
+    }
+
+    // rmsave_pair.ini: the bytes of rmsave_0.ini, then those of rmsave_1.ini.
+    bool WriteOracleRmPair(std::string const& Root)
+    {
+        FILE* const Out = OracleOpenPath(Root + "\\rmsave_pair.ini");
+        if (Out == nullptr)
+            return false;
+        for (int Index = 0; Index < 2; ++Index)
+        {
+            FILE* const In = std::fopen((Root + "\\" + OracleRmSaveName(Index)).c_str(), "rb");
+            if (In == nullptr)
+                continue;
+            char Buffer[0x400];
+            size_t Read = 0;
+            while ((Read = std::fread(Buffer, 1, sizeof(Buffer), In)) != 0)
+                std::fwrite(Buffer, 1, Read, Out);
+            std::fclose(In);
+        }
+        std::fclose(Out);
+        return true;
+    }
+}
+
+// The vendor and bar offers made and saved, then every save loaded. Returns the number of lines
+// written, -1 when a file cannot be opened.
+extern "C" __declspec(dllexport) int __cdecl OracleDumpRandomMissionSaves(char const* Dir)
+{
+    if (Dir == nullptr)
+        return -1;
+    std::string const Root(Dir);
+    FILE* const Offers = OracleOpenPath(Root + "\\rms_offers.txt");
+    if (Offers == nullptr)
+        return -1;
+    FContentPlayerState* const State = ReplaceContentPlayerState(OracleRmPlayerId);
+    int Lines = 0;
+    int Saves = 0;
+    bool bFailed = false;
+    for (size_t BaseIndex = 0; BaseIndex < sizeof(OracleRmBases) / sizeof(OracleRmBases[0]) && !bFailed;
+         ++BaseIndex)
+    {
+        unsigned int BaseId = 0;
+        pub::GetBaseID(BaseId, OracleRmBases[BaseIndex]);
+        FContentBase* const Base = FindContentBaseInfo(&BaseId);
+        unsigned int SystemId = 0;
+        if (Base == nullptr || pub::GetSystem(SystemId, BaseId) != 0)
+            continue;
+        FSystemInfo* const System = FindSystemInfo(&SystemId);
+        if (System == nullptr)
+            continue;
+
+        // The vendor offers, of the base loaded as BaseSupport loads it for a player entering it.
+        GRmObjectiveZones.clear();
+        State->SystemRecord = System;
+        Base->Load(nullptr);
+        std::srand(OracleRmSeeds[1]);
+        FBaseVisit Visit;
+        BuildMissionVendorOffers(Base, &Visit, State);
+        std::fprintf(Offers, "source=vendor_offers base=%u count=%u zones=%u\n", BaseId,
+                     static_cast<unsigned int>(Visit.VendorOffers.size()),
+                     static_cast<unsigned int>(GRmObjectiveZones.size()));
+        ++Lines;
+        for (std::list<FBaseVendorOffer>::iterator It = Visit.VendorOffers.begin(); It != Visit.VendorOffers.end();
+             ++It)
+        {
+            FRandomMissionData* const Mission = It->Data.Mission;
+            int const Save = Mission != nullptr ? Saves : -1;
+            DumpOracleRmCreated(Offers, Save, "vendor", BaseId,
+                                Mission != nullptr ? static_cast<unsigned int>(Mission->OfferGroup) : 0u, true,
+                                It->OfferId, It->Data.Type.Data, It->Data.Loader, Mission);
+            ++Lines;
+            if (Mission != nullptr)
+            {
+                if (!SaveOracleRm(Root, Saves, Mission))
+                    bFailed = true;
+                ++Saves;
+            }
+        }
+        ClearMissionVendorOffers(&Visit);
+        Base->Unload();
+
+        // The bar offers.
+        for (size_t FactionIndex = 0; FactionIndex < Base->Factions.size() && !bFailed; ++FactionIndex)
+        {
+            FBaseFaction const& Faction = Base->Factions[FactionIndex];
+            unsigned int Group = Faction.Group;
+            if (Faction.MissionTypes.empty() || GetFactionProps(&Group) == nullptr ||
+                GetFactionNames(&Group) == nullptr)
+                continue;
+            FBaseNpcMission NpcMission;
+            NpcMission.MinDifficulty = Faction.MissionTypes[0].MinDifficulty;
+            NpcMission.MaxDifficulty = Faction.MissionTypes[0].MaxDifficulty;
+            NpcMission.Type = Faction.MissionTypes[0].Type.Data;
+            std::srand(OracleRmSeeds[1]);
+            FBarMissionOfferData Data;
+            bool const bCreated = CreateBarMissionOffer(&NpcMission, State, BaseId, Group, &Data);
+            int const Save = bCreated && Data.Mission != nullptr ? Saves : -1;
+            DumpOracleRmCreated(Offers, Save, "bar", BaseId, Group, bCreated, 0u, Data.Type.Data, Data.Loader,
+                                Data.Mission);
+            ++Lines;
+            if (Save >= 0)
+            {
+                if (!SaveOracleRm(Root, Saves, Data.Mission))
+                    bFailed = true;
+                ++Saves;
+            }
+            if (Data.Loader != nullptr)
+            {
+                Data.Loader->Slot05(Data.Mission);
+                Data.Loader->Release();
+            }
+        }
+    }
+    std::fclose(Offers);
+    if (bFailed || (Saves >= 2 && !WriteOracleRmPair(Root)))
+    {
+        RemoveContentPlayerState(OracleRmPlayerId);
+        return -1;
+    }
+    int const Loads = LoadOracleRmSaves(Root, Root, Saves);
+    GRmObjectiveZones.clear();
+    RemoveContentPlayerState(OracleRmPlayerId);
+    return Loads < 0 ? -1 : Lines + Loads;
+}
+
+// The C++ restore of the port's saves in <Dir>\rust\.
+extern "C" __declspec(dllexport) int __cdecl OracleLoadRandomMissionSaves(char const* Dir)
+{
+    if (Dir == nullptr)
+        return -1;
+    std::string const Root(Dir);
+    ReplaceContentPlayerState(OracleRmPlayerId);
+    int const Lines = LoadOracleRmSaves(Root, Root + "\\rust", -1);
+    GRmObjectiveZones.clear();
+    RemoveContentPlayerState(OracleRmPlayerId);
     return Lines;
 }
