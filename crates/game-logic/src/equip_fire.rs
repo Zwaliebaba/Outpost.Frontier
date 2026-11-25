@@ -756,6 +756,33 @@ pub fn activate_equip(
     result
 }
 
+/// The server's part of an AI's `Ship::set_target`, `EqObj::slot_44`,
+/// `Ship::slot_50`, `slot_54` or `EqObj::slot_4c` (the world's
+/// `ServerRequest::Changed`, after the behaviour tick; the world made the
+/// change inside it): the players who can see the ship hear of it
+/// (`notify_set_target`, `notify_cruise`, `notify_thrusters`,
+/// `notify_activate_equip`, the server's own source 0; D857). Nothing for a
+/// ship outside a system.
+pub fn ai_changed(cx: &mut Cx<'_>, ship: ObjHandle, change: game_sim::object::world::AiChange) {
+    use game_sim::object::world::AiChange;
+    let Some(system) = owner_system(cx, ship) else {
+        return;
+    };
+    let id = cx.world.get(ship).map_or(0, |o| o.simple.id);
+    match change {
+        AiChange::Target {
+            equip,
+            target,
+            sub_target,
+        } => crate::replication::target_changed(cx, system, id, equip, target, sub_target, 0),
+        AiChange::Cruise { engage, instant } => {
+            crate::replication::cruise_changed(cx, system, id, engage, instant, 0);
+        }
+        AiChange::Thrusters(on) => notify_thrusters(cx, system, id, on, 0),
+        AiChange::Equip { equip, on } => notify_activate_equip(cx, system, id, equip, on, 0),
+    }
+}
+
 /// The server's part of an AI's `slot_34` (the world's
 /// `ServerRequest::Fired`, after the behaviour tick): each gun that fired
 /// counts its shot; each missile gets its server entry and the players'

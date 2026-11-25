@@ -85,6 +85,7 @@ pub mod bank;
 pub mod behavior;
 pub mod behaviors;
 pub mod buzz;
+pub mod content;
 pub mod dock;
 pub mod dodge;
 pub mod evade;

@@ -174,9 +174,15 @@ impl World {
             let target_vel = self.velocity(target);
             self.seek(h, target_pos, target_vel);
         } else if let Some(KindData::Guided(g)) = self.objects.get_mut(h).map(|o| &mut o.data) {
-            // `set_target(nullptr, SUBOBJ_ID_ROOT, 0)`.
+            // `set_target(nullptr, SUBOBJ_ID_ROOT, 0)`: the server's
+            // `Guided::set_target` tells the players when the pair changed
+            // (`server_guided.cpp:297`, `:642-678`).
+            let changed = g.target.is_some() || g.sub_target != SUBOBJ_ID_ROOT;
             g.target = None;
             g.sub_target = SUBOBJ_ID_ROOT;
+            if changed {
+                hooks.guided_target_lost(self, h);
+            }
         }
     }
 

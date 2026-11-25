@@ -11,10 +11,9 @@
 //!   SpaceSupport's handler tail hands to `pub::SpaceObj::Activate`
 //!   ([`apply_terminal_states`]), and `GDockTerminalsApplied`, the states
 //!   it handed over last;
-//! - `GDockLaunchQueues`: the NPC ships queued to launch from a dock
-//!   target. Content makes NPC ships with P3.6c, so every queue is empty
-//!   ([`QueuedLaunch`] has no value) and the launch pump only drops the
-//!   empty queues `FinishDocking`'s `operator[]` leaves behind.
+//! - `GDockLaunchQueues`: the NPC ships' parameter blocks queued to launch
+//!   from a dock target ([`QueuedLaunch`], P3.6c): [`queue_dock_launch`]
+//!   and the launch pump [`launch_queued_ships`].
 //!
 //! A ship's request (`DockRequest`) asks [`handle_dock_request`]: the
 //! ship's terminal ([`try_start_docking`], [`check_dock_permission`],
@@ -42,6 +41,7 @@ use neuron_core::math::{Matrix, Vector};
 
 use super::ContentState;
 use super::formations;
+use super::npc_ships::NpcShipParams;
 use super::players;
 use super::ships::{self, ShipKey};
 use crate::api;
@@ -106,10 +106,8 @@ pub struct DockTerminal {
 }
 
 /// An NPC ship's parameters queued to launch from a dock target
-/// (`FContentNpcShipParams`). Content makes NPC ships with P3.6c, so no
-/// value exists yet.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum QueuedLaunch {}
+/// (`FContentNpcShipParams`), holding its references.
+pub type QueuedLaunch = NpcShipParams;
 
 /// One of the two dock lists, its entries in list order.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1032,16 +1030,6 @@ pub fn apply_terminal_states(cx: &mut Cx<'_>) {
     }
 }
 
-/// `LaunchQueuedShips` (`:1925-2101`), SpaceSupport's heartbeat: every
-/// launch queue's ships leave their dock target, and an emptied queue is
-/// dropped. Content queues no ship until P3.6c ([`QueuedLaunch`]), so the
-/// pass only drops the empty queues, as the C++'s does for them (it reads
-/// nothing for an empty queue). Returns the last ship made, none yet.
-pub fn launch_queued_ships(cx: &mut Cx<'_>) -> Option<QueuedLaunch> {
-    queues(cx).launch.retain(|_, queue| !queue.is_empty());
-    None
-}
-
 /// `FDockQueueEntry` for a ship that enters the docking list as launched
 /// (`inside` set): SpaceSupport's `SpaceEnter` and `SystemEnter`.
 pub fn push_launched(cx: &mut Cx<'_>, system: u32, ship: u32, target: u32, index: i32) {
@@ -1062,6 +1050,368 @@ pub fn push_launched(cx: &mut Cx<'_>, system: u32, ship: u32, target: u32, index
 pub fn docking_entry_of(state: &ContentState, ship: u32) -> Option<DockEntry> {
     let docking = &state.dock_queues.docking;
     docking.get(docking.find_ship(ship)?).copied()
+}
+
+/// `AddLeadingDirective(Params, Directive)`: the directive at the front of
+/// the block's list, one reference taken (the creator's is released after).
+fn add_leading_directive(
+    cx: &mut Cx<'_>,
+    params: &mut NpcShipParams,
+    kind: super::mission::obj_list::DirectiveKind,
+) {
+    let arena = &mut cx.logic.content.state.directives;
+    let d = arena.create(kind);
+    params.directives.insert(0, d);
+    arena.add_ref(d);
+    arena.release(d);
+}
+
+/// `PlaceLaunchedShip(Params, &TargetType, TerminalType, &Position,
+/// &Orientation)` (`:1865-1950`): where a ship launched from a terminal
+/// starts. From a docking ring (type `0x20`) the hardpoint lifted by
+/// `rand() / 32768 * 10000 + 10000`; else the hardpoint's orientation
+/// (turned a quarter about its up axis unless the terminal is a mooring of
+/// type 3 to 5) with the archetype's `HpMount` at the hardpoint.
+fn place_launched_ship(
+    cx: &mut Cx<'_>,
+    params: &mut NpcShipParams,
+    target_type: u32,
+    terminal_type: u32,
+    hardpoint: Vector,
+    hardpoint_orientation: &Matrix,
+) {
+    fn e(v: f32) -> f64 {
+        f64::from(v)
+    }
+    let r = |v: f64| v as f32;
+    if target_type & 0x20 != 0 {
+        let random = cx.world.rng().rand();
+        let offset_y = r(f64::from(random) * e(3.051_757_8e-5_f32) * 10000.0 + e(10000.0_f32));
+        params.position = Vector::new(
+            r(e(hardpoint.x) + 0.0),
+            r(e(hardpoint.y) + e(offset_y)),
+            r(e(hardpoint.z) + 0.0),
+        );
+        return;
+    }
+    params.orientation = *hardpoint_orientation;
+    if !matches!(terminal_type, 3..=5) {
+        let m = &params.orientation.m;
+        let axis = Vector::new(m[0][1], m[1][1], m[2][1]);
+        let sin_half = std::f64::consts::FRAC_PI_2.sin() as f32;
+        let length = (e(axis.x) * e(axis.x) + e(axis.y) * e(axis.y) + e(axis.z) * e(axis.z)).sqrt();
+        let scale = r(e(sin_half) / length);
+        let quat = neuron_core::math::Quaternion {
+            w: std::f64::consts::FRAC_PI_2.cos() as f32,
+            x: r(e(scale) * e(axis.x)),
+            y: r(e(scale) * e(axis.y)),
+            z: r(e(scale) * e(axis.z)),
+        };
+        let rotation = neuron_core::math::quaternion_to_matrix(&quat);
+        params.orientation = neuron_core::math::mul_matrix(&rotation, &params.orientation);
+    }
+    // `pub::FindHardpoint("HpMount", ShipArchId)`, the result not tested
+    // (the outputs stay zero on a failure).
+    let mount = api::misc::find_hardpoint(cx, b"HpMount", params.archetype)
+        .map_or(Vector::ZERO, |t| t.translation);
+    let current = params.orientation;
+    let rotated = neuron_core::math::transform_matrix(&current, mount);
+    let mount_point = Vector::new(
+        r(e(rotated.x) + e(hardpoint.x)),
+        r(e(rotated.y) + e(hardpoint.y)),
+        r(e(rotated.z) + e(hardpoint.z)),
+    );
+    let offset = Vector::new(
+        r(e(hardpoint.x) - e(mount_point.x)),
+        r(e(hardpoint.y) - e(mount_point.y)),
+        r(e(hardpoint.z) - e(mount_point.z)),
+    );
+    let transposed = current.transpose();
+    let local = neuron_core::math::transform_matrix(&transposed, offset);
+    let back = neuron_core::math::transform_matrix(&current, local);
+    params.position = Vector::new(
+        r(e(back.x) + e(hardpoint.x)),
+        r(e(back.y) + e(hardpoint.y)),
+        r(e(back.z) + e(hardpoint.z)),
+    );
+}
+
+/// The whole queue of `target` erased (`EraseLaunchQueue`), each block's
+/// references released.
+fn erase_launch_queue(cx: &mut Cx<'_>, target: u32) {
+    let blocks = queues(cx)
+        .launch
+        .get_mut(&target)
+        .map(std::mem::take)
+        .unwrap_or_default();
+    for block in blocks {
+        super::npc_ships::release_params(cx, block);
+    }
+}
+
+/// Every launch queue erased (`EraseAllDockLaunchQueues`).
+pub fn erase_all_launch_queues(cx: &mut Cx<'_>) {
+    let targets: Vec<u32> = queues(cx).launch.keys().copied().collect();
+    for target in targets {
+        erase_launch_queue(cx, target);
+    }
+    queues(cx).launch.clear();
+}
+
+/// `GDockLaunchQueues.erase(Object)`: the object's queue, its blocks'
+/// references released.
+pub fn erase_launch_queue_of(cx: &mut Cx<'_>, target: u32) {
+    erase_launch_queue(cx, target);
+    queues(cx).launch.remove(&target);
+}
+
+/// `QueueDockLaunch(Params, DockTarget, OutShip)` (`:1959-1968`): the
+/// block (with its references) at the end of the dock target's queue, the
+/// queues launched at once; true while the target's queue still holds
+/// blocks. The ship of the launch pass's result goes out.
+pub fn queue_dock_launch(
+    cx: &mut Cx<'_>,
+    params: &NpcShipParams,
+    dock_target: u32,
+) -> (bool, Option<crate::events::NpcShipKey>) {
+    let copy = params.clone();
+    {
+        let state = &mut cx.logic.content.state;
+        if let Some(h) = copy.reputation {
+            state.rep_handles.add_ref(h);
+        }
+        for &d in &copy.directives {
+            state.directives.add_ref(d);
+        }
+    }
+    queues(cx).launch.entry(dock_target).or_default().push(copy);
+    let ship = launch_queued_ships(cx);
+    let queued = queues(cx).launch.entry(dock_target).or_default().is_empty();
+    (!queued, ship)
+}
+
+/// `LaunchQueuedShips` (`:1999-2140`), SpaceSupport's heartbeat and
+/// [`queue_dock_launch`]: every queued block is checked against its dock
+/// target and made: through a gate, a hole or an airlock (`0xc40`) a 2 s
+/// delay leads the directives of a block that is no formation follower;
+/// from a base or a docking ring (`0x600de0`) the dock permission decides
+/// (0 and 2 drop the block, 5 the queue, 3 waits unless the ship's life is
+/// set, 4 reads the terminal's hardpoint) before the ship is placed at the
+/// terminal and given a launch directive. The ship is made, joins its
+/// system's space objects, `NpcShipCreated` goes to every controller, and
+/// it jumps in or launches (entering the docking list). Returns the last
+/// ship made whose life is set (`+0x104 >= 0`).
+///
+/// The C++'s loop steps once more after an erase: the block after a made
+/// one waits for the next pass, and the last one wraps to the queue's
+/// first (kept). The terminal locals carry over between blocks, as the
+/// C++'s function-scope locals do. The comm system's hail silence and
+/// launch conversation are P3.6b's (D844).
+#[allow(clippy::too_many_lines)]
+pub fn launch_queued_ships(cx: &mut Cx<'_>) -> Option<crate::events::NpcShipKey> {
+    let mut result = None;
+    let mut info = api::space_obj::TerminalInfo {
+        name: Vec::new(),
+        value: 0,
+    };
+    let mut hardpoint = Vector::ZERO;
+    let mut hardpoint_orientation = Matrix::from_rows([[0.0; 3]; 3]);
+    let targets: Vec<u32> = queues(cx).launch.keys().copied().collect();
+    for target in targets {
+        let mut at = 0_usize;
+        loop {
+            let len = queues(cx).launch.get(&target).map_or(0, Vec::len);
+            if at >= len {
+                break;
+            }
+            let target_type = match api::space_obj::object_type(cx, target) {
+                Ok(t) => t,
+                Err(_) => {
+                    erase_launch_queue(cx, target);
+                    break;
+                }
+            };
+            let Some(mut params) = queues(cx).launch.get_mut(&target).map(|q| q.remove(at)) else {
+                break;
+            };
+            let mut index = params.field_0x110;
+            if target_type & 0xc40 != 0 {
+                if params.formation_slot == 0 || params.formation_id == u32::MAX {
+                    let delay = super::mission::obj_list::Delay {
+                        delay_seconds: 2.0,
+                        ..super::mission::obj_list::Delay::default()
+                    };
+                    add_leading_directive(
+                        cx,
+                        &mut params,
+                        super::mission::obj_list::DirectiveKind::Delay(delay),
+                    );
+                }
+            } else if target_type & 0x60_0de0 != 0 {
+                if target_type & 0x20 != 0 {
+                    index = 1;
+                }
+                let ship_rep = cx.logic.content.state.rep_handles.vibe(params.reputation);
+                let response = check_dock_permission(
+                    cx,
+                    &params.class_ids.clone(),
+                    ship_rep,
+                    0,
+                    None,
+                    target,
+                    &mut index,
+                );
+                match response {
+                    0 | 2 => {
+                        super::npc_ships::release_params(cx, params);
+                        continue;
+                    }
+                    5 => {
+                        super::npc_ships::release_params(cx, params);
+                        erase_launch_queue(cx, target);
+                        break;
+                    }
+                    3 => {
+                        if params.life_time >= 0.0 {
+                            super::npc_ships::release_params(cx, params);
+                            erase_launch_queue(cx, target);
+                            break;
+                        }
+                        if let Some(q) = queues(cx).launch.get_mut(&target) {
+                            q.insert(at, params);
+                        }
+                        at += 1;
+                        continue;
+                    }
+                    4 => {
+                        if let Ok(i) = api::space_obj::terminal_info(cx, target, index) {
+                            info = i;
+                        }
+                        if let Ok((p, o)) = api::space_obj::hardpoint(cx, target, &info.name) {
+                            hardpoint = p;
+                            hardpoint_orientation = o;
+                        }
+                    }
+                    _ => {}
+                }
+                place_launched_ship(
+                    cx,
+                    &mut params,
+                    target_type,
+                    info.value,
+                    hardpoint,
+                    &hardpoint_orientation,
+                );
+                let open_terminal = !matches!(info.value, 2..=5);
+                if params.life_time.to_bits() != (-1.0_f32).to_bits() || open_terminal {
+                    let mut launch = super::mission::obj_list::Launch::default();
+                    launch.op.launch_object = target;
+                    launch.op.index = index;
+                    launch.op.terminal = info.value as i32;
+                    add_leading_directive(
+                        cx,
+                        &mut params,
+                        super::mission::obj_list::DirectiveKind::Launch(launch),
+                    );
+                }
+            }
+            params.field_0x110 = index;
+            params.guide_target = target;
+            let system = params.system.unwrap_or(0);
+            let ship = super::npc_ships::construct(cx, &params);
+            if params.life_time >= 0.0 {
+                result = Some(ship);
+            }
+            if let Some(record) = cx.logic.content.state.systems.get_mut(&system) {
+                record.space_objs.push(ship);
+            }
+            if let Some(s) = cx.logic.content.state.npc_ships.get_mut(&ship) {
+                s.base.system = params.system;
+            }
+            let _ = cx.dispatch(
+                neuron_server::controller::ControllerId::BROADCAST,
+                &mut ControllerMessage::NpcShipCreated { ship },
+            );
+            let ship_id = super::npc_ships::space_obj(cx, ship);
+            if target_type & 0xc40 != 0 {
+                let _ = api::space_obj::jump_in(cx, ship_id, target);
+            } else if target_type & 0x60_0de0 != 0 {
+                let time = now(cx);
+                let q = queues(cx);
+                let mut entry = q.new_entry(time);
+                entry.system = system;
+                entry.index = index;
+                entry.target = target;
+                entry.ship = ship_id;
+                entry.inside = true;
+                q.docking.entries.push(entry);
+                // The dock hail's silence and the launch conversation (the
+                // terminal info read again): P3.6b (D844).
+                if let Ok(i) = api::space_obj::terminal_info(cx, target, index) {
+                    info = i;
+                }
+                if target_type & 0x100 == 0 {
+                    let _ = api::space_obj::launch(cx, ship_id, target, 0);
+                }
+            }
+            super::npc_ships::release_params(cx, params);
+            // The C++'s increment after the erase: skip one, or wrap to the
+            // first after the last.
+            let len = queues(cx).launch.get(&target).map_or(0, Vec::len);
+            if at >= len {
+                at = 0;
+            } else {
+                at += 1;
+            }
+        }
+        if queues(cx).launch.get(&target).is_some_and(Vec::is_empty) {
+            queues(cx).launch.remove(&target);
+        }
+    }
+    result
+}
+
+/// `PlaceFormationBlocks(&Blocks, Formation, &Placement)` (`:2169-2212`):
+/// the blocks in a new formation (every block whose slot is no player slot
+/// takes its slot, the formation and the new id), then each placed at its
+/// slot's transform from the placement. A block whose slot the formation
+/// rejects keeps the previous block's transform (zero for the first).
+pub fn place_formation_blocks(
+    cx: &mut Cx<'_>,
+    blocks: &mut [NpcShipParams],
+    formation: Option<u32>,
+    placement: &neuron_core::math::Transform,
+) {
+    let id = formations::allocate_id(&mut cx.logic.content.state);
+    let tables = cx.logic.content.tables.clone();
+    let layout = formation.and_then(|f| tables.formation(f));
+    for (slot, block) in blocks.iter_mut().enumerate() {
+        // `IsPlayerSlot` without a bound (D840: past the end, none).
+        let player_slot = layout
+            .and_then(|f| f.slots.get(slot))
+            .is_some_and(|s| s.player_slot);
+        if !player_slot {
+            block.formation_slot = slot as u32;
+            block.formation = formation;
+            block.formation_id = id;
+        }
+    }
+    let mut position = Vector::ZERO;
+    let mut orientation = Matrix::from_rows([[0.0; 3]; 3]);
+    for block in blocks.iter_mut() {
+        if let Some(s) = layout.and_then(|f| f.slots.get(block.formation_slot as usize)) {
+            // The formation's own transform is the identity and zero: the
+            // slot's position (`-0` reads `+0`) and the identity.
+            position = Vector::new(
+                s.position[0] + 0.0,
+                s.position[1] + 0.0,
+                s.position[2] + 0.0,
+            );
+            orientation = Matrix::IDENTITY;
+        }
+        block.position = neuron_core::math::transform_xform(placement, position);
+        block.orientation = neuron_core::math::mul_matrix(&placement.rotation, &orientation);
+    }
 }
 
 #[cfg(test)]

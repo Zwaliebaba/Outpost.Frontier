@@ -79,7 +79,7 @@ pub use launch_action::{LAUNCH_ACTION_CALLBACK, LAUNCH_COAST_TIME, LAUNCH_DECEL_
 pub use sensors::{EquipStatus, EquipmentVal, equipment_val};
 pub(crate) use spawn::shield_status;
 pub use spawn::{LootSpawn, ProjectileSpawn, ShipSpawn, SolarSpawn, SpawnError};
-pub use step::{DamageState, Hit, HitRule, NoServerHooks, ServerHooks, ServerRequest};
+pub use step::{AiChange, DamageState, Hit, HitRule, NoServerHooks, ServerHooks, ServerRequest};
 pub use turret::TurretGeometry;
 
 /// A force controller the world registered with the physics
@@ -364,6 +364,9 @@ pub struct World {
     pub(crate) time: f64,
     pub(crate) events: Vec<WorldEvent>,
     behavior: Option<Box<dyn BehaviorHook>>,
+    /// The content callback's flee answer for the ship whose behaviour
+    /// tick runs (`ServerHooks::content_answer`, asked before it).
+    pub(crate) content_answer: Option<(ObjHandle, Option<crate::ai::content::FleeAnswer>)>,
     pub(crate) behavior_managers: BTreeMap<ObjHandle, crate::ai::manager::BehaviorManager<World>>,
     /// `GAvoidIndexTableShuffled`: the first obstacle probe of the process
     /// has drawn its 50 `rand()` values.
@@ -494,6 +497,7 @@ impl World {
             time: 0.0,
             events: Vec::new(),
             behavior: None,
+            content_answer: None,
             behavior_managers: BTreeMap::new(),
             avoid_table_shuffled: false,
             attitudes: BTreeMap::new(),

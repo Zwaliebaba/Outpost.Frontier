@@ -23,6 +23,7 @@ use neuron_core::math::{Matrix, Vector, transform_matrix};
 use super::behavior::{
     AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, DockOp, EvaluateResult, GotoOp, LaneEvent,
 };
+use super::content::CombatEvent;
 use super::dock::DockBehavior;
 use super::dodge::BreakAwayIdea;
 use super::face_idea::FaceIdea;
@@ -537,17 +538,36 @@ impl FollowBehavior {
 
     /// The engage toggle slot 27 opens with: `enabled` follows the
     /// leader's crossing of the follow range. Each transition goes to
-    /// `IBehaviorManager::NotifyFollowEvent`, which reads and changes
-    /// nothing without a content callback, and only reports to one.
-    fn update_engage_state(&mut self, own: &ObjectView, leader: &ObjectView) {
+    /// `IBehaviorManager::NotifyFollowEvent` (status 1 with the range, 2
+    /// with the speed parameter), which reports it to the content callback
+    /// while the ship is in an attack state and follows (behaviour 0x11).
+    fn update_engage_state<W: AiEnv + ?Sized>(
+        &mut self,
+        cx: &mut Cx<'_, W>,
+        own: &ObjectView,
+        leader: &ObjectView,
+    ) {
         let range = r(e(self.field_2b8) + e(self.speed_param));
-        if is_within_intercept_range_of_iface(own, leader, range) {
-            if self.enabled == 0 {
-                self.enabled = 1;
+        let (status, distance) = if is_within_intercept_range_of_iface(own, leader, range) {
+            if self.enabled != 0 {
+                return;
             }
-        } else if self.enabled != 0 {
+            self.enabled = 1;
+            (1, range)
+        } else {
+            if self.enabled == 0 {
+                return;
+            }
             self.enabled = 0;
-        }
+            (2, self.speed_param)
+        };
+        let event = CombatEvent::Follow {
+            own: own.id,
+            leader: leader.id,
+            status,
+            distance,
+        };
+        let _ = cx.notify_content(&[super::behavior::ids::FOLLOW], event);
     }
 }
 
@@ -593,7 +613,7 @@ impl<W: AiEnv + ?Sized> FollowerWork<W> for FollowBehavior {
             (add(rotated, leader.center), !present)
         };
         let mut update_match = true;
-        self.update_engage_state(&own, &leader);
+        self.update_engage_state(cx, &own, &leader);
         if watch_block {
             self.f
                 .match_throttle
