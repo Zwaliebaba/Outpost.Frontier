@@ -30,6 +30,9 @@
 //! handles of a mission's named NPCs are small copies of the P3.6c
 //! follow-up's (PR #169), which is not merged: when it lands they become
 //! calls to `npc_names`.
+//!
+//! The C++'s comparisons are kept as written (a NaN fails an x87 `FCOMP`).
+#![allow(clippy::neg_cmp_op_on_partial_ord)]
 
 use std::collections::BTreeMap;
 
@@ -406,7 +409,8 @@ pub fn spawn_ship_group(cx: &mut Cx<'_>, id: ControllerId, group: &ShipGroup) {
         params.voice = npc.voice;
         params.costume = npc.appearance.clone();
         if npc.appearance.part_ids[0] & ID_MASK == 0 || npc.voice & ID_MASK == 0 {
-            if let Some(props) = tables.faction_props(npc.affiliation) {
+            let props = tables.faction_props(npc.affiliation);
+            if let Some(props) = props {
                 if npc.appearance.part_ids[0] & ID_MASK == 0
                     && let Some(costume) = pick_space_costume(cx, props, name.gender)
                 {

@@ -1,6 +1,10 @@
 //! The actions of the mission object's spawns and objects
 //! (`Content/MissionAct.cpp`; work package P3.5c2): `Act::Execute` of the
 //! 22 classes [`super::is_ported`] lists after group A.
+//!
+//! The C++'s comparisons are kept as written: an x87 `FCOMP` branch is
+//! false for a NaN on either side.
+#![allow(clippy::neg_cmp_op_on_partial_ord)]
 
 use neuron_core::hash::c_str;
 use neuron_core::id::create_id;
@@ -358,11 +362,8 @@ pub fn execute(cx: &mut Cx<'_>, id: ControllerId, action: &mut Action) -> bool {
             for member in members {
                 let mut health = api::space_obj::relative_health(cx, member).unwrap_or(0.0);
                 health += a.delta;
-                if health < 0.0 {
-                    health = 0.0;
-                } else if health > 1.0 {
-                    health = 1.0;
-                }
+                // `FCOMP` against 0 and 1; a NaN passes.
+                health = health.clamp(0.0, 1.0);
                 healths.entry(member).or_insert(health);
             }
             for (member, health) in healths {

@@ -1327,8 +1327,12 @@ Act_StartDialog = some_dialog, 2
             send(cx, 1, ControllerMessage::PlayerLogout { player: 7 });
             let s = script(cx, ID).unwrap();
             assert!(s.triggers.is_empty() && s.active_triggers.is_empty());
-            // The player still has a state, so the mission lives on.
-            assert!(!s.object.pending_destroy);
+            // The player still has a state, but the mission object's case
+            // drops the player's record and takes the next one, of which
+            // there is none (`SetPlayer(0)`): the mission asks for its
+            // teardown (P3.5c2).
+            assert_eq!(s.object.player, 0);
+            assert!(s.object.destroyed);
         });
     }
 }
