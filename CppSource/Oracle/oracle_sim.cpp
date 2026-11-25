@@ -185,6 +185,15 @@ namespace
         // OracleDumpRandomMissions; no system loads and no scenario runs (P3.7a, decision record
         // 0008 point 8, Gate G3).
         bool bDumpRandomMissions = false;
+        // `dump random_mission_saves`: right after the server starts, Content.dll makes random
+        // missions through a fixed set of bases' vendor and bar offers, writes their
+        // [RandomMission] save sections and loads each again, through its
+        // OracleDumpRandomMissionSaves; `dump random_mission_save_loads`: it loads the port's
+        // saves from the out folder's `rust` folder and writes the rebuilt offers, through its
+        // OracleLoadRandomMissionSaves. No system loads and no scenario runs (P3.7c, decision
+        // record 0008 points 8 and 10, Gate G3).
+        bool bDumpRandomMissionSaves = false;
+        bool bDumpRandomMissionSaveLoads = false;
         unsigned int Seed = 0x4f524143u;
         double ClockStart = 1000.0;
         std::vector<FObjectDesc> Objects;
@@ -519,6 +528,14 @@ namespace
             {
                 Out.bDumpRandomMissions = true;
             }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "random_mission_saves")
+            {
+                Out.bDumpRandomMissionSaves = true;
+            }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "random_mission_save_loads")
+            {
+                Out.bDumpRandomMissionSaveLoads = true;
+            }
             else if (Key == "seed" && T.size() == 2 && ParseUnsigned(T[1], Value))
             {
                 Out.Seed = (unsigned int)Value;
@@ -589,11 +606,12 @@ namespace
             return Error = "a scenario needs `system` and `ticks`", false;
         // A dump session needs no object: every `dump` line but `replication`, which records
         // the objects the session spawns (P3.6a: `content_systems` joins the list; P3.7a:
-        // `random_missions`).
+        // `random_missions`; P3.7c: `random_mission_saves` and `random_mission_save_loads`).
         bool const bObjectlessDump = Out.bDumpSystemLoads || Out.bDumpContentTables ||
                                      Out.bDumpContentSystems || Out.bDumpMissionScripts ||
                                      Out.bDumpMissionSaves || Out.bDumpMissionSaveLoads ||
-                                     Out.bDumpRandomMissions;
+                                     Out.bDumpRandomMissions || Out.bDumpRandomMissionSaves ||
+                                     Out.bDumpRandomMissionSaveLoads;
         if (Out.Objects.empty() && !bObjectlessDump)
             return Error = "a scenario needs at least one object", false;
         std::stable_sort(Out.Commands.begin(), Out.Commands.end(),
@@ -3018,6 +3036,31 @@ namespace oracle
                                      "generator or a random-mission loader is missing");
             FOracleJson J;
             J.Str("rec", "random_missions");
+            J.Int("lines", Lines);
+            Write(FileSession, J);
+            EndProcess(Lines < 0 ? 3 : 0);
+            return Lines < 0 ? 3 : 0;
+        }
+
+        // `dump random_mission_saves` and `dump random_mission_save_loads` (P3.7c): the random
+        // missions' [RandomMission] save sections and their restores, the port's saves' among
+        // them, after the start-up, through Content.dll's Oracle exports, then the end of the run.
+        if (GScenario.bDumpRandomMissionSaves || GScenario.bDumpRandomMissionSaveLoads)
+        {
+            typedef int(__cdecl * FRandomMissionSaves)(char const*);
+            char const* const Export = GScenario.bDumpRandomMissionSaves ? "OracleDumpRandomMissionSaves"
+                                                                         : "OracleLoadRandomMissionSaves";
+            HMODULE const Content = GetModuleHandleA("Content.dll");
+            FRandomMissionSaves const Saves =
+                Content != nullptr ? (FRandomMissionSaves)GetProcAddress(Content, Export) : nullptr;
+            int const Lines = Saves != nullptr ? Saves(OutDir.c_str()) : -1;
+            if (Saves == nullptr)
+                SessionNote("error", (std::string("dump random mission saves: Content.dll is not loaded or lacks ") +
+                                      Export).c_str());
+            else if (Lines < 0)
+                SessionNote("error", (std::string(Export) + " failed: a file could not be opened").c_str());
+            FOracleJson J;
+            J.Str("rec", GScenario.bDumpRandomMissionSaves ? "random_mission_saves" : "random_mission_save_loads");
             J.Int("lines", Lines);
             Write(FileSession, J);
             EndProcess(Lines < 0 ? 3 : 0);

@@ -4,10 +4,13 @@
 //!
 //! Its create parameter is the reference-counted `FRandomMissionData`
 //! (`RandomMission.h:21-90`), which the port keeps in a table of Content's
-//! state and names by [`RmDataKey`]. The mission data, the constructor
-//! (its 1 s heartbeat, `RandomMissionDB.cpp:1041`, and the router
-//! handlers) and the run time are P3.7b's and P3.7c's; until then a random
-//! mission instance holds its key only.
+//! state ([`mission::RmMissions`]) and names by [`RmDataKey`]. P3.7c ports
+//! the mission data with its `[RandomMission]` save section, the loader
+//! (`CreateMission`, `Load`, the offer description and `CanAccept`;
+//! [`mission`]) and the bar and vendor offers ([`vendor`]). The
+//! constructor's 1 s heartbeat (`RandomMissionDB.cpp:1041`), the router
+//! handlers and the run time are P3.7b's; until then a random mission
+//! instance holds its key and one reference.
 //!
 //! P3.7a ports what builds an offer from a seed: the generator's tables
 //! ([`tables`]), the vignette tree ([`vignette`]), the offers
@@ -19,8 +22,10 @@
 //! changes are [`RmState`] in Content's state.
 
 pub mod generator;
+pub mod mission;
 pub mod offer;
 pub mod tables;
+pub mod vendor;
 pub mod vignette;
 
 use game_sim::data::DataSource;
@@ -43,13 +48,30 @@ pub struct RandomMission {
     pub data: Option<RmDataKey>,
 }
 
-/// `CreateDestroyMission`: the instance with its mission data.
-pub fn construct(_cx: &mut Cx<'_>, _id: ControllerId, params: &CreateParams) -> Instance {
+/// `CreateDestroyMission`: the instance with its mission data, which it
+/// holds one reference to (`FDestroyMission`'s constructor AddRefs it; the
+/// rest of the constructor is P3.7b's, D955).
+pub fn construct(cx: &mut Cx<'_>, _id: ControllerId, params: &CreateParams) -> Instance {
     let data = match *params {
         CreateParams::RandomMission(key) => Some(key),
         _ => None,
     };
+    if let Some(key) = data {
+        cx.logic.content.state.rm.missions.add_ref(key);
+    }
     Instance::RandomMission(RandomMission { data })
+}
+
+/// The `DestroyMission` destructor's release of its mission data (the
+/// rest of `~FDestroyMission` is P3.7b's, D955).
+pub fn destruct(cx: &mut Cx<'_>, id: ControllerId) {
+    let key = match cx.logic.content.instance(id) {
+        Some(Instance::RandomMission(r)) => r.data,
+        _ => None,
+    };
+    if let Some(key) = key {
+        mission::release(cx, key);
+    }
 }
 
 /// The files the generator's constructor opens, in its order
@@ -108,8 +130,8 @@ impl RmData {
 }
 
 /// The random-mission globals the generator changes (record 0008 point 8,
-/// "state outside the seed").
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// "state outside the seed"), and the live missions.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct RmState {
     /// The counter of the `Vignette_ship_%X` nicknames
     /// (`RandomMissionGen.cpp:1998`).
@@ -122,6 +144,11 @@ pub struct RmState {
     /// `GRmDestSystems` (`RandomMissionDB.cpp:395`): the systems loaded for
     /// random missions, each holding one load until they are released.
     pub dest_systems: Vec<u32>,
+    /// `GRmObjectiveZones` (`DestroyMission.cpp:43`): the zones the live
+    /// missions hold as objectives (P3.7c).
+    pub objective_zones: Vec<u32>,
+    /// The live missions (`FRandomMissionData`), by key (P3.7c).
+    pub missions: mission::RmMissions,
 }
 
 /// `RegisterRmDestSystem` (`RandomMissionDB.cpp:400-410`): a system not

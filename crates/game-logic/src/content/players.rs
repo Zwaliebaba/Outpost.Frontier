@@ -16,7 +16,9 @@
 //! is the [`PlayerShip`] the state owns. The ship's hostile contacts
 //! (SpaceSupport's heartbeat), its directives and the formations are
 //! P3.6's; the mission and random-mission fields are kept here and set by
-//! P3.5 and P3.7, as are the `[RandomMission]` sections of a player's save.
+//! P3.5 and P3.7. P3.7c restores a save's `[RandomMission]` sections
+//! ([`load_random_mission_section`]) and adds the group's mission
+//! ([`group_live_mission`], [`join_mission_as_group`]).
 
 use std::collections::BTreeMap;
 use std::io::{self, Write};
@@ -471,14 +473,26 @@ fn load_stats_value(stats: &mut PlayerStats, reader: &mut IniReader) {
 /// gate for the player, the records, the access and the statistics. The
 /// rank is computed again, and the reader is put back where it was.
 ///
-/// A `[RandomMission]` section re-creates the player's random mission as a
-/// `DestroyMission` controller; that is P3.7's, and the section is skipped
-/// here.
+/// A `[RandomMission]` section re-creates the player's random mission
+/// ([`load_random_mission_section`], P3.7c); the state is in the table
+/// while it does, as the C++'s is.
 pub fn load_player_state(cx: &mut Cx<'_>, state: &mut PlayerState, reader: &mut IniReader) {
     state.vnpcs.clear();
     state.rumors.clear();
     let saved = reader.state();
     while reader.read_header() {
+        if reader.is_header(b"RandomMission") {
+            let player = state.player;
+            let previous = cx.logic.content.state.players.insert(player, state.clone());
+            load_random_mission_section(cx, player, reader);
+            if let Some(back) = cx.logic.content.state.players.remove(&player) {
+                *state = back;
+            }
+            if let Some(previous) = previous {
+                cx.logic.content.state.players.insert(player, previous);
+            }
+            continue;
+        }
         if !reader.is_header(b"mPlayer") {
             continue;
         }
@@ -519,6 +533,117 @@ pub fn load_player_state(cx: &mut Cx<'_>, state: &mut PlayerState, reader: &mut 
     }
     recalculate_rank(cx, state);
     reader.set_state(&saved);
+}
+
+/// The `[RandomMission]` branch of `LoadContentPlayerState`
+/// (`Support.cpp:361-397`): each `type` line (the rest are skipped) makes
+/// a loader that loads the save's random mission ([`Loader::load`], which
+/// reads every `[RandomMission]` section from the reader's start and puts
+/// the reader back). A loaded mission becomes a controller of that type at
+/// `ABOVE_NORMAL`, the player's live mission;
+/// `PlayerMissionChanged {controller, player}` is broadcast and the
+/// player's mission id set. The loader is released either way.
+///
+/// [`Loader::load`]: crate::content::random_mission::mission::Loader::load
+pub fn load_random_mission_section(cx: &mut Cx<'_>, player: u32, reader: &mut IniReader) {
+    use crate::content::random_mission::mission::Loader;
+    use crate::events::ControllerMessage;
+    use crate::server::CreateParams;
+    use neuron_server::controller::{ControllerId, Priority};
+
+    while reader.read_value() {
+        if !reader.is_value(b"type") {
+            continue;
+        }
+        // `strncpy` into 0x3c bytes; a name of 0x3c or more has no end there
+        // and runs into the stack (D953).
+        let mut kind = reader.value_string_at(0);
+        kind.truncate(0x3b);
+        let mut loader = Loader::new();
+        let (loaded, mission) = loader.load(cx, reader, player);
+        if loaded {
+            let controller = api::controller::create(
+                cx,
+                b"content.dll",
+                &kind,
+                &CreateParams::RandomMission(mission),
+                Priority::AboveNormal,
+            );
+            if let Some(state) = cx.logic.content.state.players.get_mut(&player) {
+                state.live_mission = controller.0;
+            }
+            let mut message = ControllerMessage::PlayerMissionChanged {
+                mission: controller,
+                player,
+            };
+            let _ = api::controller::send_message(cx, ControllerId::BROADCAST, &mut message);
+            api::player::set_msn_id(cx, player, controller.0, player, false, 0);
+        }
+        loader.release(cx);
+    }
+}
+
+/// `GetGroupLiveMission` (`PlayerState.cpp:457-470`): the player's live
+/// random mission, else the first group member's; 0 without one.
+pub fn group_live_mission(cx: &Cx<'_>, player: u32) -> u32 {
+    let players = &cx.logic.content.state.players;
+    let Some(state) = players.get(&player) else {
+        return 0;
+    };
+    if state.live_mission != 0 {
+        return state.live_mission;
+    }
+    let members = api::player::group_members(cx, player).unwrap_or_default();
+    members
+        .iter()
+        .filter_map(|m| players.get(m))
+        .map(|m| m.live_mission)
+        .find(|&m| m != 0)
+        .unwrap_or(0)
+}
+
+/// `JoinMissionAsGroup(ControllerId, VnpcOwner, Vnpc, bNotify, NotifyArg)`
+/// (`PlayerState.cpp:853-883`): the player's vnpc record `{owner, vnpc}`
+/// marked (value 3 set to 1; none marked when none matches, D953); then
+/// every group member with a state gets the mission as its live mission,
+/// `PlayerMissionChanged {controller, member}` broadcast and its mission
+/// id set (by this player, or by the member for player 0).
+pub fn join_mission_as_group(
+    cx: &mut Cx<'_>,
+    player: u32,
+    controller: u32,
+    vnpc_owner: u32,
+    vnpc: u32,
+    notify: bool,
+    notify_arg: u32,
+) {
+    use crate::events::ControllerMessage;
+    use neuron_server::controller::ControllerId;
+
+    if vnpc_owner != 0
+        && vnpc != 0
+        && let Some(state) = cx.logic.content.state.players.get_mut(&player)
+        && let Some(record) = state
+            .vnpcs
+            .iter_mut()
+            .find(|r| r[0] == vnpc_owner && r[1] == vnpc)
+    {
+        record[3] = 1;
+    }
+    let members = api::player::group_members(cx, player).unwrap_or_default();
+    for member in members {
+        let Some(state) = cx.logic.content.state.players.get_mut(&member) else {
+            continue;
+        };
+        state.live_mission = controller;
+        let mut message = ControllerMessage::PlayerMissionChanged {
+            mission: ControllerId(controller),
+            player: member,
+        };
+        let _ = api::controller::send_message(cx, ControllerId::BROADCAST, &mut message);
+        let set_by = if player == 0 { member } else { player };
+        api::player::set_msn_id(cx, member, controller, set_by, notify, notify_arg);
+    }
 }
 
 /// `RecalculateContentPlayerRank(State)` (`Support.cpp:209-297`): the

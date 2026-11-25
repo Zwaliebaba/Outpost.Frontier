@@ -528,6 +528,28 @@ impl ContentBase {
 /// `GContentBases`: the records by base id.
 pub type ContentBases = BTreeMap<u32, ContentBase>;
 
+/// `FindContentBaseInfo(&BaseId)->Load(nullptr)`, as BaseSupport loads the
+/// base a player enters (P3.6e): the record taken out of the table for a
+/// load that cannot dispatch. Nothing for a base without a record.
+pub fn load_base(cx: &mut Cx<'_>, base: u32) {
+    let Some(mut record) = cx.logic.content.state.bases.remove(&base) else {
+        return;
+    };
+    let source = super::data_source(cx);
+    let take = super::NoDispatch::begin(&cx.logic.content);
+    record.load(cx, None, source.as_ref());
+    take.end(&cx.logic.content);
+    cx.logic.content.state.bases.insert(base, record);
+}
+
+/// `FindContentBaseInfo(&BaseId)->Unload()`: nothing for a base without a
+/// record.
+pub fn unload_base(cx: &mut Cx<'_>, base: u32) {
+    if let Some(record) = cx.logic.content.state.bases.get_mut(&base) {
+        record.unload();
+    }
+}
+
 /// `BuildContentBases` (`:400-422`): `bases` gets one record per
 /// `pub::NextBaseID` base (an existing record is kept), then the `[mBase]`
 /// sections of `missions\mBases.ini` under `source`. The walk stops at the

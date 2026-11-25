@@ -1,0 +1,11 @@
+# Oracle.exe sim session (P3.7c, decision record 0008 points 8 and 10, Gate G3): not a scenario.
+# The server starts as a multiplayer server (GameSupport's tables, then LoadGame's system records
+# and bases), then Content.dll makes random missions through the vendor and bar offers of a fixed
+# set of bases, writes their [RandomMission] save sections as rmsave_<n>.ini and the offers as
+# rms_offers.txt, and loads every save again, the offers rebuilt from the saved seeds written as
+# rmload_<table>.txt (OracleDumpRandomMissionSaves). No system loads and nothing is stepped; the
+# parser still wants `system` and `ticks`.
+
+system he01
+ticks 1
+dump random_mission_saves

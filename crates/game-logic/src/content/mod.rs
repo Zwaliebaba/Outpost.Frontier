@@ -479,9 +479,11 @@ pub fn destroy_instance(cx: &mut Cx<'_>, id: ControllerId, kind: ControllerKind)
         ControllerKind::GameSupport => game_support::destruct(cx, id),
         ControllerKind::BaseSupport => base_support::destruct(cx, id),
         ControllerKind::StoryLauncher => story::destruct_launcher(cx, id),
+        // The random mission's release of its data (P3.7c; the rest of its
+        // destructor is P3.7b's).
+        ControllerKind::DestroyMission => random_mission::destruct(cx, id),
         // No destructor body: SpaceSupport, SpacePop and BasePop have none,
-        // Story's is the default one, and the missions' come with P3.5 and
-        // P3.7.
+        // Story's is the default one, and the missions' come with P3.5.
         ControllerKind::SpaceSupport
         | ControllerKind::SpacePop
         | ControllerKind::BasePop
@@ -489,8 +491,7 @@ pub fn destroy_instance(cx: &mut Cx<'_>, id: ControllerId, kind: ControllerKind)
         | ControllerKind::Mission01a
         | ControllerKind::Mission01b
         | ControllerKind::Mission(_)
-        | ControllerKind::GenericMission
-        | ControllerKind::DestroyMission => {}
+        | ControllerKind::GenericMission => {}
     }
     let content = &mut cx.logic.content;
     content.instances.remove(&id);
