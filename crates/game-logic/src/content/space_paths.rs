@@ -662,96 +662,6 @@ pub fn build_best_path_legs(
     (path, vec![NnPathLeg::free(from, to)])
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::content::systems::TradeLane;
-
-    fn ring(object: u32, z: f32) -> TradeLaneRing {
-        TradeLaneRing {
-            object,
-            position: Vector::new(0.0, 0.0, z),
-            rotation: Matrix::IDENTITY,
-            reputation: u32::MAX,
-        }
-    }
-
-    fn system_with_lane() -> SystemInfo {
-        let mut record = SystemInfo::new(1);
-        let rings = vec![
-            ring(10, 0.0),
-            ring(11, -7000.0),
-            ring(12, -14000.0),
-            ring(13, -21000.0),
-        ];
-        record.trade_lanes.push(TradeLane {
-            start: rings[0].position,
-            end: rings[3].position,
-            rings,
-            ..TradeLane::default()
-        });
-        record
-    }
-
-    #[test]
-    fn a_trip_along_the_lane_takes_it() {
-        let record = system_with_lane();
-        let from = Vector::new(500.0, 0.0, 1000.0);
-        let to = Vector::new(0.0, 0.0, -25000.0);
-        let (path, legs) = build_nn_path(&record, from, to, 1.0);
-        assert!(path);
-        assert_eq!(legs.len(), 2);
-        assert_eq!(
-            (legs[0].kind, legs[0].object_a, legs[0].object_b),
-            (0, 10, 13)
-        );
-        assert_eq!(legs[1].kind, 1);
-        assert_eq!(legs[1].point_b, to);
-    }
-
-    #[test]
-    fn a_short_trip_flies_straight_or_not_at_all() {
-        let record = system_with_lane();
-        let from = Vector::new(30_000.0, 0.0, 0.0);
-        let to = Vector::new(30_000.0, 0.0, 100.0);
-        let (path, legs) = build_nn_path(&record, from, to, 1.0);
-        assert!(path);
-        assert_eq!(legs, [NnPathLeg::free(from, to)]);
-        let (path, legs) = build_nn_path(&record, from, to, 500.0);
-        assert!(!path);
-        assert!(legs.is_empty());
-        let (path, legs) = build_best_path_legs(&record, from, to, 500.0);
-        assert!(!path);
-        assert_eq!(legs, [NnPathLeg::free(from, to)]);
-        // No lanes at all.
-        let empty = SystemInfo::new(2);
-        let (path, legs) = build_nn_path(&empty, from, to, 1.0);
-        assert!(path);
-        assert_eq!(legs.len(), 1);
-    }
-
-    #[test]
-    fn the_entry_ring_crosses_towards_the_target() {
-        let rings = system_with_lane().trade_lanes[0].rings.clone();
-        let near = find_entry_ring(Vector::new(0.0, 0.0, -6000.0), &rings, None);
-        assert_eq!(near.object, 11);
-        // Towards -z: the nearest ring whose plane lies between.
-        let crossing = find_entry_ring(
-            Vector::new(0.0, 0.0, -6000.0),
-            &rings,
-            Some(Vector::new(0.0, 0.0, -30_000.0)),
-        );
-        assert_eq!(crossing.object, 11);
-        let back = find_entry_ring(
-            Vector::new(0.0, 0.0, -8000.0),
-            &rings,
-            Some(Vector::new(0.0, 0.0, 5000.0)),
-        );
-        assert_eq!(back.object, 11);
-        assert!((fast_length(4.0e6) - 2000.0).abs() < 5.0);
-    }
-}
-
 /// The members of a ship's formation for [`set_formation_attitudes`]
 /// (`CollectAttitudeMembers`): the ship alone outside a formation, else
 /// the formation's members; none for a ship the record does not know,
@@ -858,5 +768,95 @@ pub fn set_formation_attitudes(
                 set(cx, target_rep, member);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::content::systems::TradeLane;
+
+    fn ring(object: u32, z: f32) -> TradeLaneRing {
+        TradeLaneRing {
+            object,
+            position: Vector::new(0.0, 0.0, z),
+            rotation: Matrix::IDENTITY,
+            reputation: u32::MAX,
+        }
+    }
+
+    fn system_with_lane() -> SystemInfo {
+        let mut record = SystemInfo::new(1);
+        let rings = vec![
+            ring(10, 0.0),
+            ring(11, -7000.0),
+            ring(12, -14000.0),
+            ring(13, -21000.0),
+        ];
+        record.trade_lanes.push(TradeLane {
+            start: rings[0].position,
+            end: rings[3].position,
+            rings,
+            ..TradeLane::default()
+        });
+        record
+    }
+
+    #[test]
+    fn a_trip_along_the_lane_takes_it() {
+        let record = system_with_lane();
+        let from = Vector::new(500.0, 0.0, 1000.0);
+        let to = Vector::new(0.0, 0.0, -25000.0);
+        let (path, legs) = build_nn_path(&record, from, to, 1.0);
+        assert!(path);
+        assert_eq!(legs.len(), 2);
+        assert_eq!(
+            (legs[0].kind, legs[0].object_a, legs[0].object_b),
+            (0, 10, 13)
+        );
+        assert_eq!(legs[1].kind, 1);
+        assert_eq!(legs[1].point_b, to);
+    }
+
+    #[test]
+    fn a_short_trip_flies_straight_or_not_at_all() {
+        let record = system_with_lane();
+        let from = Vector::new(30_000.0, 0.0, 0.0);
+        let to = Vector::new(30_000.0, 0.0, 100.0);
+        let (path, legs) = build_nn_path(&record, from, to, 1.0);
+        assert!(path);
+        assert_eq!(legs, [NnPathLeg::free(from, to)]);
+        let (path, legs) = build_nn_path(&record, from, to, 500.0);
+        assert!(!path);
+        assert!(legs.is_empty());
+        let (path, legs) = build_best_path_legs(&record, from, to, 500.0);
+        assert!(!path);
+        assert_eq!(legs, [NnPathLeg::free(from, to)]);
+        // No lanes at all.
+        let empty = SystemInfo::new(2);
+        let (path, legs) = build_nn_path(&empty, from, to, 1.0);
+        assert!(path);
+        assert_eq!(legs.len(), 1);
+    }
+
+    #[test]
+    fn the_entry_ring_crosses_towards_the_target() {
+        let rings = system_with_lane().trade_lanes[0].rings.clone();
+        let near = find_entry_ring(Vector::new(0.0, 0.0, -6000.0), &rings, None);
+        assert_eq!(near.object, 11);
+        // Towards -z: the nearest ring whose plane lies between.
+        let crossing = find_entry_ring(
+            Vector::new(0.0, 0.0, -6000.0),
+            &rings,
+            Some(Vector::new(0.0, 0.0, -30_000.0)),
+        );
+        assert_eq!(crossing.object, 11);
+        let back = find_entry_ring(
+            Vector::new(0.0, 0.0, -8000.0),
+            &rings,
+            Some(Vector::new(0.0, 0.0, 5000.0)),
+        );
+        assert_eq!(back.object, 11);
+        assert!((fast_length(4.0e6) - 2000.0).abs() < 5.0);
     }
 }

@@ -413,13 +413,18 @@ pub enum GuideMessage {
         /// The system.
         system: u32,
     },
+    /// Any other message, which no guide reads but whose arrival the
+    /// patrol guide answers by its scanner's status; delivered as
+    /// `MissionStart`, which no guide reads either.
+    Other,
 }
 
 impl GuideMessage {
-    /// The copy of a message a guide reads; none for the others.
-    fn of(message: &ControllerMessage<'_>) -> Option<Self> {
+    /// The copy of a message a guide reads ([`GuideMessage::Other`] for
+    /// the others).
+    fn of(message: &ControllerMessage<'_>) -> Self {
         use ControllerMessage as M;
-        Some(match message {
+        match message {
             M::CommComplete {
                 listener,
                 system,
@@ -548,8 +553,8 @@ impl GuideMessage {
                 param2: *param2,
                 system: *system,
             },
-            _ => return None,
-        })
+            _ => Self::Other,
+        }
     }
 
     /// The message again.
@@ -680,6 +685,7 @@ impl GuideMessage {
                 param2,
                 system,
             },
+            Self::Other => M::MissionStart,
         }
     }
 }
@@ -1033,9 +1039,8 @@ pub fn handle_event(
     message: &crate::events::ControllerMessage<'_>,
 ) {
     if cx.logic.content.state.guides.running.contains(&guide) {
-        if let Some(m) = GuideMessage::of(message) {
-            cx.logic.content.state.guides.deferred.push((guide, m));
-        }
+        let m = GuideMessage::of(message);
+        cx.logic.content.state.guides.deferred.push((guide, m));
         return;
     }
     let _ = with_guide(cx, guide, |cx, g| {
