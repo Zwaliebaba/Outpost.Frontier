@@ -129,6 +129,9 @@ pub struct PlayerData {
     pub current_base: u32,
     /// The base `last_base` names (+0x3f0).
     pub last_base_id: u32,
+    /// The base `IServerImpl::BaseEnter` entered (+0x3f4), which `BaseExit`
+    /// checks; 0 outside a base.
+    pub entered_base_id: u32,
     /// The room in the base (+0x3f8).
     pub current_location: u32,
     /// +0x3fc, cleared with the location.
@@ -208,6 +211,7 @@ impl Default for PlayerData {
             created_ship_id: 0,
             current_base: 0,
             last_base_id: 0,
+            entered_base_id: 0,
             current_location: 0,
             field_3fc: 0,
             exited_base_id: 0,

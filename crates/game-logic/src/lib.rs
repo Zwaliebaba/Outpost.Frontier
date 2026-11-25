@@ -1,6 +1,7 @@
 //! Outpost:Frontier server startup and authoritative game rules.
 #![forbid(unsafe_code)]
 
+pub mod admin;
 pub mod api;
 pub mod bases;
 pub mod cargo;
@@ -14,6 +15,7 @@ pub mod equip_fire;
 pub mod events;
 pub mod fuses;
 pub mod group;
+pub mod host;
 pub mod login;
 pub mod loot;
 pub mod munitions;
@@ -25,7 +27,9 @@ pub mod save_writer;
 pub mod saves;
 pub mod selection;
 pub mod server;
+pub mod session;
 pub mod ship;
+pub mod startup;
 pub mod tradelane;
 pub mod transfer;
 pub mod world;

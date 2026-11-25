@@ -877,6 +877,11 @@ name = "outpost-server"
 version = "0.1.0"
 dependencies = [
  "game-logic",
+ "game-sim",
+ "neuron-core",
+ "neuron-server",
+ "toml",
+ "tracing",
 ]
 
 [[package]]

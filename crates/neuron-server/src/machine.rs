@@ -39,7 +39,7 @@ impl MachineIdentity for PortableMachine {
 
     fn uuid(&mut self) -> [u8; 16] {
         let mut bytes = [0u8; 16];
-        for half in bytes.chunks_exact_mut(8) {
+        for half in bytes.as_chunks_mut::<8>().0 {
             let mut hasher = RandomState::new().build_hasher();
             hasher.write_u32(clock_milliseconds());
             half.copy_from_slice(&hasher.finish().to_le_bytes());

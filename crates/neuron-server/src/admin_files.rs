@@ -97,8 +97,10 @@ const PASSWORD_CHARS: usize = 0x11;
 /// A fixed field's characters up to the first NUL.
 fn wide_field(bytes: &[u8]) -> Vec<u16> {
     bytes
-        .chunks_exact(2)
-        .map(|p| u16::from_le_bytes([p[0], p[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&p| u16::from_le_bytes(p))
         .take_while(|&c| c != 0)
         .collect()
 }

@@ -251,10 +251,10 @@ impl ServerLog {
             let _ = file.write_all(line.as_bytes());
             let _ = file.flush();
         }
-        if flags.severity_nibble() == 0 || flags.severity_nibble() == 1 {
-            if let Some(errors) = self.errors.as_mut() {
-                errors.append(&line);
-            }
+        if (flags.severity_nibble() == 0 || flags.severity_nibble() == 1)
+            && let Some(errors) = self.errors.as_mut()
+        {
+            errors.append(&line);
         }
         true
     }

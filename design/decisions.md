@@ -203,7 +203,8 @@ this register.
 The permitted licences are listed in `deny.toml`. In use so far:
 
 - `toml`, in `xtask` and `neuron-client` (`user_state`, the per-user state
-  files of P4.1; `tests/rdl_cards.rs` reads the card sources, P4.12).
+  files of P4.1; `tests/rdl_cards.rs` reads the card sources, P4.12), and
+  `apps/outpost-server` (the dedicated server's configuration, P3.9).
 - `flate2` 1.1 (MIT or Apache-2.0; `rust_backend`, that is `miniz_oxide`):
   `neuron-core::net::frame`, compressed batches only (P1.9).
 - `md-5` 0.10 (MIT or Apache-2.0; default features off):
@@ -211,7 +212,9 @@ The permitted licences are listed in `deny.toml`. In use so far:
   and is standard.
 - `tracing` 0.1 (MIT; `std` feature only, no attribute macros):
   `neuron-core::diag` (P1.5), and the transports' notices in
-  `neuron-server::net` and `neuron-client::net` (P3.8).
+  `neuron-server::net` and `neuron-client::net` (P3.8), and the dedicated
+  server's log (`neuron-server::log::ServerLogSubscriber`, its set-up in
+  `apps/outpost-server`, P3.9).
   `tracing-subscriber` is not used; the channel subscriber is written in
   `diag`.
 - `parry3d` 0.25.3 (Apache-2.0; default features off, `required-features`,
