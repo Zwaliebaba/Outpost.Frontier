@@ -750,3 +750,44 @@ fn trade_lane_enter(
         populate_at_lane_end(cx, system, &rings, 0, player);
     }
 }
+
+/// The oracle's populated scenario (`OracleSimPopulate`,
+/// `Content/oracle_content_population.cpp`): `player` takes a fresh state in
+/// the system's record with the ship as its ship object (as GameSupport's
+/// launch makes it), then SpacePop is created and hears the launch
+/// (`SpaceEnter`). SpacePop's controller id; 0 without the record.
+pub fn oracle_populate(
+    cx: &mut Cx<'_>,
+    player: u32,
+    system: u32,
+    ship: u32,
+    archetype: u32,
+) -> ControllerId {
+    if !cx.logic.content.state.systems.contains_key(&system) {
+        return ControllerId::BROADCAST;
+    }
+    let state = super::players::PlayerState::new(cx, player);
+    cx.logic.content.state.players.insert(player, state);
+    super::game_support::on_system_change(cx, player, system);
+    if let Some(record) = cx.logic.content.state.systems.get_mut(&system) {
+        record.add_player(player);
+    }
+    super::game_support::make_ship_object(cx, player, ship, archetype);
+    let pop = neuron_server::controller::create(
+        cx,
+        b"Content.dll",
+        b"SpacePop",
+        &crate::server::CreateParams::None,
+        neuron_server::controller::Priority::Normal,
+    );
+    let _ = cx.dispatch(
+        pop,
+        &mut ControllerMessage::SpaceEnter {
+            system,
+            player,
+            launch_object: 0,
+            launch_kind: -1,
+        },
+    );
+    pop
+}

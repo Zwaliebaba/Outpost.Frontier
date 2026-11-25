@@ -64,9 +64,10 @@ use neuron_server::controller::Priority;
 /// The scenarios run without the oracle: two contacts, an AI ship, the
 /// two trade lanes (the instant one and the dock behaviour's, whose
 /// request SpaceSupport answers), the dock at a station, whose request
-/// SpaceSupport's dock queues answer, and Content's NPC ships following
-/// and guiding (P3.6c).
-const SMOKE: [&str; 8] = [
+/// SpaceSupport's dock queues answer, Content's NPC ships following
+/// and guiding (P3.6c), and free flight in he01 with SpacePop populating
+/// around the ship (P3.6d).
+const SMOKE: [&str; 9] = [
     "ram_ship",
     "ram_asteroid",
     "turn_to_heading",
@@ -75,6 +76,7 @@ const SMOKE: [&str; 8] = [
     "dock_at_station",
     "content_follow",
     "content_guide",
+    "populated_he01",
 ];
 
 fn outdir() -> PathBuf {
@@ -99,6 +101,11 @@ struct ScenarioHooks<'l> {
     /// server`); the other scenarios run without, as they were judged
     /// before.
     requests: bool,
+    /// The populated scenario's ship (`population <ship>`, P3.6d): it
+    /// becomes player 1's after the spawns, SpacePop hears its launch, and
+    /// each frame ends with the bus's heartbeats and timers as the
+    /// oracle's `ElapseTime` runs them.
+    population: Option<String>,
 }
 
 impl ServerHooks for ScenarioHooks<'_> {
@@ -183,6 +190,42 @@ impl ScenarioServer for ScenarioHooks<'_> {
         self
     }
 
+    /// The populated scenario (`OracleSimPopulate`): player 1 with the
+    /// ship, then SpacePop and its launch.
+    fn spawned(
+        &mut self,
+        world: &mut World,
+        system: u32,
+        objects: &std::collections::BTreeMap<String, Option<ObjHandle>>,
+    ) {
+        let Some(name) = &self.population else {
+            return;
+        };
+        let Some(h) = objects.get(name).copied().flatten() else {
+            return;
+        };
+        let (ship, archetype) = world.get(h).map_or((0, 0), |o| (o.simple.id, o.archetype));
+        let mut cx = Cx {
+            world,
+            logic: self.server.logic,
+        };
+        game_logic::content::population::oracle_populate(&mut cx, 1, system, ship, archetype);
+    }
+
+    /// The end of the oracle's `ElapseTime` in the populated scenario: the
+    /// controllers' heartbeats, then the timers.
+    fn after_step(&mut self, world: &mut World, _system: u32, _tick: u32, dt: f32) {
+        if self.population.is_none() {
+            return;
+        }
+        let mut cx = Cx {
+            world,
+            logic: self.server.logic,
+        };
+        neuron_server::controller::tick(&mut cx, dt);
+        neuron_server::controller::fire_timers(&mut cx, dt);
+    }
+
     /// A `content` ship (P3.6c): Content's NPC ship in the system's record
     /// (`FSystemInfo::CreateNpcShip`), as the oracle's
     /// `OracleSimCreateNpcShip` makes it: the archetype, loadout, place,
@@ -238,6 +281,20 @@ impl ScenarioServer for ScenarioHooks<'_> {
         let id = npc_ships::space_obj(&cx, key);
         Some(cx.world.find(id))
     }
+}
+
+/// The `population <ship>` line of a scenario file (P3.6d; the scenario
+/// parser leaves it to the server).
+fn population_ship(path: &Path) -> Option<String> {
+    let text = fs::read_to_string(path).ok()?;
+    text.lines().find_map(|l| {
+        let l = l.split('#').next().unwrap_or("").trim();
+        let mut t = l.split_whitespace();
+        match (t.next(), t.next()) {
+            (Some(k), Some(ship)) if k.eq_ignore_ascii_case("population") => Some(ship.to_owned()),
+            _ => None,
+        }
+    })
 }
 
 /// The oracle's start-up (`Oracle.exe sim`, `WriteServerIni` and
@@ -311,6 +368,7 @@ fn scenarios_through_the_server_hooks() {
         let mut hooks = ScenarioHooks {
             server: Hooks { logic: &mut logic },
             requests: s.rust_server.is_some(),
+            population: population_ship(&path),
         };
         let ours = scenario::run_with(world, &s, &ai, &mut hooks);
         if let Some((b, tick)) = ours.unported {

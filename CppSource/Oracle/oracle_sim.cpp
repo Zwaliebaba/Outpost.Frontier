@@ -204,6 +204,11 @@ namespace
         std::vector<FObjectDesc> Objects;
         std::vector<FCommand> Commands;
         std::vector<FPlayerDesc> Players;
+        // P3.6d: `population <ship>`, the ship becomes a Content player's (player 1) after the
+        // objects are spawned, and SpacePop is created and hears its launch
+        // (Content.dll's OracleSimPopulate); the server's frames then run SpacePop's heartbeat.
+        std::string PopulationShip;
+        int PopulationLine = 0;
     };
 
     std::string Lower(std::string Text)
@@ -508,6 +513,14 @@ namespace
                         return Error = Where + "duplicate player", false;
                 }
                 Out.Players.push_back(Player);
+            }
+            else if (Key == "population" && T.size() == 2)
+            {
+                FObjectDesc const* const Ship = FindDesc(Out, T[1]);
+                if (Ship == nullptr || !Ship->bShip)
+                    return Error = Where + "population needs a ship named before it: " + T[1], false;
+                Out.PopulationShip = T[1];
+                Out.PopulationLine = LineNumber;
             }
             else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "content_tables")
             {
@@ -2260,6 +2273,33 @@ namespace
         return bOk;
     }
 
+    // P3.6d: `population <ship>` through Content.dll's OracleSimPopulate
+    // (oracle_content_population.cpp): player 1 with the ship, then SpacePop and its launch.
+    bool Populate(unsigned int SystemId)
+    {
+        typedef unsigned int(__cdecl * FPopulate)(unsigned int, unsigned int, unsigned int, unsigned int);
+        HMODULE const Content = GetModuleHandleA("Content.dll");
+        FPopulate const PopulateFn =
+            Content != nullptr ? (FPopulate)GetProcAddress(Content, "OracleSimPopulate") : nullptr;
+        FSimObject const* const Object = FindObject(GScenario.PopulationShip);
+        unsigned int const ShipId = Object != nullptr ? Object->Id : 0u;
+        unsigned int const ShipArch =
+            Object != nullptr && Object->Desc != nullptr ? CreateID(Object->Desc->Archetype.c_str()) : 0u;
+        unsigned int const SpacePop =
+            PopulateFn != nullptr && ShipId != 0u ? PopulateFn(1u, SystemId, ShipId, ShipArch) : 0u;
+        FOracleJson J;
+        J.Str("rec", "population");
+        J.Uint("tick", GTick);
+        J.Int("line", GScenario.PopulationLine);
+        J.Str("obj", GScenario.PopulationShip.c_str());
+        J.Uint("id", ShipId);
+        J.Uint("space_pop", SpacePop);
+        if (PopulateFn == nullptr)
+            J.Str("error", "Content.dll lacks OracleSimPopulate");
+        Write(FileSession, J);
+        return SpacePop != 0u;
+    }
+
     int SubmitScenarioDirective(unsigned int Id, pub::AI::BaseOp& Op)
     {
         // A current directive blocks a new one (pub::AI::SubmitDirective returns 2), so each
@@ -3206,6 +3246,16 @@ namespace oracle
             if (!AddPlayers(SystemId))
             {
                 SessionNote("error", "a player could not join the system");
+                bSpawned = false;
+            }
+        }
+        // P3.6d: the populated scenario's player and SpacePop, after the players' join.
+        if (bSpawned && !GScenario.PopulationShip.empty())
+        {
+            OracleSimLoadRandPhase("population");
+            if (!Populate(SystemId))
+            {
+                SessionNote("error", "the population could not be started");
                 bSpawned = false;
             }
         }
