@@ -20,10 +20,11 @@
 //!      ([`sync_solar_attitudes`]), the system records' parts (P3.4d) and
 //!      the music, the NPC ships, their lives and hostile contacts, the
 //!      combat reputation and the faction-name timers (P3.6c,
-//!      [`super::npc_names::handle_faction_name_timer`]), and the comm
-//!      system's conversations ([`super::gcs`]). The parts of later
-//!      packages are named stubs: the system records' pending comms
-//!      (P3.5c4, the mission dialogs) and the message router (P3.7b);
+//!      [`super::npc_names::handle_faction_name_timer`]), the system
+//!      records' pending comms (the mission dialogs' next lines, P3.5c4,
+//!      [`super::systems::send_pending_comms`]) and the comm system's
+//!      conversations ([`super::gcs`]), and the message router's timers
+//!      (P3.7b, [`super::router`]);
 //!   4. the tail: the comm system again on load and unload, the
 //!      dock terminal states except on `JumpgateAct`
 //!      ([`super::dock_queues::apply_terminal_states`]), and each guided
@@ -247,8 +248,9 @@ fn main_switch(cx: &mut Cx<'_>, message: &mut ControllerMessage<'_>) {
             line,
             ..
         } => {
-            // The system record's pending comms (`SendPendingComms`): only
-            // the mission dialogs fill them (P3.5c4, D971).
+            // The system record's pending comms (`SendPendingComms`, the
+            // mission dialogs' next lines), then the conversations.
+            super::systems::send_pending_comms(cx, *system, *line);
             let done = super::gcs::LineDone {
                 listener: *listener,
                 system: *system,

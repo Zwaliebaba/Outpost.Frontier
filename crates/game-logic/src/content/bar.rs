@@ -251,13 +251,15 @@ pub struct RtcScriptRole {
     pub fidget: Vec<u8>,
 }
 
-/// The parts of an RTC script (`FCharacterEncounter`, TU23
-/// `Content/RtcScripts.h:26-59`) that the bar scene creator reads. Its
-/// loader is P3.5c4's.
+/// An RTC script (`FCharacterEncounter`, TU23
+/// `Content/RtcScripts.h:26-59`), which the bar scene creator reads; its
+/// loader is [`super::rtc_scripts::load`] (P3.5c4).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CharacterEncounter {
     /// `LocationId`.
     pub location: u32,
+    /// `BaseId`: the `Location` line's base.
+    pub base_id: u32,
     /// `bAutoplay`.
     pub autoplay: bool,
     /// `Roles`, one per `[Char]`.
@@ -266,6 +268,10 @@ pub struct CharacterEncounter {
     pub reserved_spots: Vec<i32>,
     /// `MissionTextId`.
     pub mission_text_id: i32,
+    /// `NoOfferTextId`.
+    pub no_offer_text_id: i32,
+    /// `LoadedMissionTextId`: `mission_text_id` as read.
+    pub loaded_mission_text_id: i32,
     /// `RelocateLocationId`.
     pub relocate_location: u32,
     /// `StartRoomLocationId`.

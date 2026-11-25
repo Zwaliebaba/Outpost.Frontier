@@ -42,6 +42,7 @@ pub mod objective;
 pub mod rand_enc;
 pub mod runtime;
 pub mod save;
+pub mod scenes;
 pub mod spawn;
 pub mod trace;
 pub mod trigger;
