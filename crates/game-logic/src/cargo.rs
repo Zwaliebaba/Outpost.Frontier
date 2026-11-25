@@ -650,3 +650,176 @@ pub fn remove_cargo(cx: &mut Cx<'_>, h: ObjHandle, id: SubObjId, count: i32) {
         .map_or((0, 0), |o| (o.physical.system, o.simple.id));
     crate::replication::cargo_updated(cx, system, object, &desc);
 }
+
+/// The cause of a repair kit's damage list (`EqObj::use_repair_kits`).
+pub const CAUSE_REPAIR_KIT: damage::DamageCause = 0x12;
+/// The cause of a shield battery's damage list
+/// (`EqObj::use_shield_batteries`).
+pub const CAUSE_SHIELD_BATTERY: damage::DamageCause = 0x13;
+
+const EQ_OBJ: &str = "Server\\Space\\EqObj.cpp";
+
+/// `AClassRepairKit`.
+const CLASS_REPAIR_KIT: u32 = 0x1a;
+/// `AClassShieldBattery`.
+const CLASS_SHIELD_BATTERY: u32 = 0x1b;
+
+/// `EqObj::slot_58(EquipId, Count, SourceClient)`
+/// (`Server/server_gameobject.cpp:2256`), a client's use of a cargo
+/// item: -5 outside a system or destroyed; an item that is not a cargo
+/// stack is -2 with a warning. At most the stack's count is used: repair
+/// kits mend the hull ([`use_repair_kits`]), shield batteries charge the
+/// weakest shield ([`use_shield_batteries`]); any other kind is -5, and so
+/// is a use that took nothing. Otherwise the units leave the stack and the
+/// observers hear of it ([`crate::replication::item_used`]). `SourceClient`
+/// is not read. The caller has narrowed the object to one with equipment.
+pub fn use_item(cx: &mut Cx<'_>, h: ObjHandle, equip: SubObjId, count: u32) -> i32 {
+    let Some(system) = cx.world.get(h).and_then(|o| o.simple.system) else {
+        return -5;
+    };
+    if is_destroyed(cx, h) {
+        return -5;
+    }
+    let stack = cx
+        .world
+        .get(h)
+        .and_then(|o| o.equipped.as_deref())
+        .and_then(|eq| eq.equipment.by_id(equip))
+        .and_then(|e| match &e.kind {
+            EquipKind::Cargo(c) => Some((e.arch_id, c.count)),
+            _ => None,
+        });
+    let Some((arch_id, stack_count)) = stack else {
+        cx.logic.reports.push(
+            EQ_OBJ,
+            0x18c,
+            "*** WARNING: EqObj::use_item() couldn't find target item on Client request.",
+        );
+        return -2;
+    };
+    let used = count.min(stack_count) as i32;
+    let Some(arch) = cx.world.data().archetypes.equipment.get(&arch_id).cloned() else {
+        return -5;
+    };
+    let taken = match arch.class() {
+        CLASS_REPAIR_KIT => use_repair_kits(cx, h, arch.root.hit_pts, used),
+        CLASS_SHIELD_BATTERY => use_shield_batteries(cx, h, arch.root.hit_pts, used),
+        _ => return -5,
+    };
+    if taken <= 0 {
+        return -5;
+    }
+    let max = arch.root.hit_pts;
+    if let Some(EquipKind::Cargo(c)) = cx
+        .world
+        .get_mut(h)
+        .and_then(|o| o.equipped.as_deref_mut())
+        .and_then(|eq| eq.equipment.by_id_mut(equip))
+        .map(|e| &mut e.kind)
+    {
+        c.remove_from_stack(taken as u32, max);
+    }
+    crate::replication::item_used(cx, system, h, equip, taken);
+    0
+}
+
+/// The units needed to fill `max - hp` with `per_unit` each:
+/// `(max - hp) / per_unit` truncated, one more when the remainder is
+/// above `0.05f`; at most `count` (signed).
+fn units_needed(hit_pts: f32, max_hit_pts: f32, per_unit: f32, count: i32) -> i32 {
+    let needed = (e(max_hit_pts) - e(hit_pts)) / e(per_unit);
+    let mut taken = neuron_core::num::trunc_to_i32(needed);
+    if needed - f64::from(taken) > e(0.05) {
+        taken += 1;
+    }
+    if count < taken { count } else { taken }
+}
+
+/// `taken * per_unit + hit_pts`, capped at the maximum (a float store
+/// below it).
+fn mended(hit_pts: f32, max_hit_pts: f32, per_unit: f32, taken: i32) -> f32 {
+    let value = f64::from(taken) * e(per_unit) + e(hit_pts);
+    if value < e(max_hit_pts) {
+        r(value)
+    } else {
+        max_hit_pts
+    }
+}
+
+/// `EqObj::use_repair_kits` (`server_gameobject.cpp:2316`): a hull below
+/// full health takes the kits it needs, at most `count`; the mended hull
+/// goes into a cause-0x12 list from the object (a fate-0 root entry),
+/// which is applied. Answers the kits used (0 for a whole hull).
+pub fn use_repair_kits(cx: &mut Cx<'_>, h: ObjHandle, per_kit: f32, count: i32) -> i32 {
+    let Some(o) = cx.world.get(h) else {
+        return 0;
+    };
+    if !(o.simple.relative_health() < 1.0) {
+        return 0;
+    }
+    let (id, owner, hit_pts, max) = (
+        o.simple.id,
+        o.simple.owner_player,
+        o.simple.hit_pts,
+        o.simple.max_hit_pts,
+    );
+    let taken = units_needed(hit_pts, max, per_kit, count);
+    if taken > 0 {
+        let mut list = DamageList::new(CAUSE_REPAIR_KIT, id, owner);
+        list.add_damage_entry(
+            game_sim::equip::SUBOBJ_ID_ROOT,
+            mended(hit_pts, max, per_kit, taken),
+            Fate::None,
+        );
+        let mut hooks = crate::world::Hooks {
+            logic: &mut *cx.logic,
+        };
+        cx.world.apply_damage_list_hooked(h, &list, &mut hooks);
+    }
+    taken
+}
+
+/// `EqObj::use_shield_batteries` (`server_gameobject.cpp:2400`): the
+/// shield with the lowest relative health below 1 (compared unrounded,
+/// kept rounded to a float) whose maximum is above 0 takes the batteries
+/// it needs, at most `count`; the charged shield goes into a cause-0x13
+/// list from the object, which is applied. Answers the batteries used (0
+/// without such a shield).
+pub fn use_shield_batteries(cx: &mut Cx<'_>, h: ObjHandle, per_battery: f32, count: i32) -> i32 {
+    let Some(o) = cx.world.get(h) else {
+        return 0;
+    };
+    let (id, owner) = (o.simple.id, o.simple.owner_player);
+    let Some(eq) = o.equipped.as_deref() else {
+        return 0;
+    };
+    let mut lowest = 1.0f32;
+    let mut weakest = None;
+    for slot in eq.equipment.traverse(types::SHIELD, false) {
+        let Some(item) = eq.equipment.get(slot) else {
+            continue;
+        };
+        let relative = item.relative_health();
+        if !(relative < e(lowest)) {
+            continue;
+        }
+        if !(item.max_hit_points() > 0.0) {
+            continue;
+        }
+        lowest = r(relative);
+        weakest = Some((item.id, item.hit_points(), item.max_hit_points()));
+    }
+    let Some((shield, hit_pts, max)) = weakest else {
+        return 0;
+    };
+    let taken = units_needed(hit_pts, max, per_battery, count);
+    if taken > 0 {
+        let mut list = DamageList::new(CAUSE_SHIELD_BATTERY, id, owner);
+        list.add_damage_entry(shield, mended(hit_pts, max, per_battery, taken), Fate::None);
+        let mut hooks = crate::world::Hooks {
+            logic: &mut *cx.logic,
+        };
+        cx.world.apply_damage_list_hooked(h, &list, &mut hooks);
+    }
+    taken
+}

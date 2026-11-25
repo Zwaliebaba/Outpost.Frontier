@@ -232,3 +232,95 @@ pub fn destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32, killer: u32) -> bool {
     }
     true
 }
+
+/// `Archetype::Equipment::get_loot_appearance` (`Common/
+/// common_archetype_equipment.cpp:383-428`): a commodity's, repair kit's
+/// or shield battery's loot appearance when it has one, else the item
+/// itself. An appearance the data lacks reads as none.
+#[must_use]
+pub fn loot_appearance(world: &game_sim::object::World, contents: u32) -> u32 {
+    use game_sim::data::archetype::equipment::EquipmentKind;
+    let data = world.data();
+    let appearance = match data.archetypes.equipment.get(&contents).map(|a| &a.kind) {
+        Some(
+            EquipmentKind::Commodity {
+                loot_appearance, ..
+            }
+            | EquipmentKind::RepairKit { loot_appearance }
+            | EquipmentKind::ShieldBattery { loot_appearance },
+        ) => *loot_appearance,
+        _ => None,
+    };
+    appearance
+        .filter(|id| data.archetypes.equipment.contains_key(id))
+        .unwrap_or(contents)
+}
+
+/// `StarSystem::spawn_mined_loot(Pos, ContainerArchId, ContentsArchId,
+/// Count)` (`Server/server_classes.cpp:6235`, `IServerImpl::MineAsteroid`):
+/// a new object id is taken first (and spent on the early outs); an
+/// unknown contents archetype makes nothing. The container is the
+/// container archetype when it is not 0 and known, else the contents'
+/// loot appearance; one container of `count` units with the archetypes'
+/// hit points, at the position with the identity orientation, a velocity
+/// drawn inside a sphere of 20 and a spin inside one of 3, tractorable by
+/// the AI, is created from nobody in mode 3
+/// ([`crate::objects::create_loot_mode`]).
+pub fn spawn_mined_loot(
+    cx: &mut Cx<'_>,
+    system: u32,
+    position: neuron_core::math::Vector,
+    container: u32,
+    contents: u32,
+    count: i32,
+) {
+    let id = cx.world.allocate_id();
+    let Some(contents_hit_pts) = cx
+        .world
+        .data()
+        .archetypes
+        .equipment
+        .get(&contents)
+        .map(|a| a.root.hit_pts)
+    else {
+        return;
+    };
+    let container = if container != 0
+        && cx
+            .world
+            .data()
+            .archetypes
+            .equipment
+            .contains_key(&container)
+    {
+        container
+    } else {
+        loot_appearance(cx.world, contents)
+    };
+    let hit_pts = cx
+        .world
+        .data()
+        .archetypes
+        .equipment
+        .get(&container)
+        .map_or(0.0, |a| a.root.hit_pts);
+    let velocity = game_sim::object::csys::random_inside_sphere(20.0, cx.world.rng());
+    let angular_velocity = game_sim::object::csys::random_inside_sphere(3.0, cx.world.rng());
+    let spawn = game_sim::object::world::LootSpawn {
+        archetype: container,
+        contents,
+        units: count as u32,
+        contents_hit_pts,
+        owner: 0,
+        position,
+        velocity,
+        id: Some(id),
+        hit_pts,
+        orientation: neuron_core::math::Matrix::IDENTITY,
+        angular_velocity,
+        name_id: 0,
+        temporary: false,
+        can_ai_tractor: true,
+    };
+    crate::objects::create_loot_mode(cx, system, 0, 3, &[spawn]);
+}

@@ -658,6 +658,94 @@ pub fn destroy_object(cx: &mut Cx<'_>, object: ObjHandle, kind: i32, killer: u32
     cx.world.destroy_hooked(object, kind, killer, &mut hooks);
 }
 
+/// `GameObject::is_destroyed`: the server's latch, or an object the world
+/// has marked dead.
+fn is_destroyed(cx: &Cx<'_>, h: ObjHandle) -> bool {
+    cx.logic.objects.get(h).is_some_and(|o| o.destroyed) || cx.world.get(h).is_none_or(|o| o.dead)
+}
+
+/// What a client reports of a munition's hit (`SSPMunitionCollisionInfo`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MunitionHit {
+    /// `Field_0x00`: the munition's archetype.
+    pub munition: u32,
+    /// `Field_0x04`: the shooter.
+    pub shooter: u32,
+    /// `ObjectId`: the object hit.
+    pub object: u32,
+    /// `Field_0x0c`: the sub-object hit.
+    pub sub_obj: game_sim::equip::SubObjId,
+    /// `Field_0x10` to `Field_0x18`: where.
+    pub position: Vector,
+}
+
+/// `StarSystem::munition_collision(Info)` (`Server/server_classes.cpp:
+/// 9188`) for a client's report: the object hit and the shooter are the
+/// system's; a target that is missing or destroyed takes nothing; the
+/// world's `munition_collision` (the PvP gate, `munition_hit` in a list of
+/// the munition's cause from the shooter, applied) does the rest. A
+/// munition archetype the data lacks, which the C++ reads through null,
+/// deals nothing (D932).
+pub fn munition_collision(cx: &mut Cx<'_>, system: u32, hit: &MunitionHit) {
+    let Some(target) = crate::replication::find_in_system(cx.world, system, hit.object) else {
+        return;
+    };
+    if is_destroyed(cx, target) {
+        return;
+    }
+    let mut hooks = Hooks {
+        logic: &mut *cx.logic,
+    };
+    cx.world.munition_collision_hooked(
+        target,
+        hit.shooter,
+        hit.munition,
+        hit.sub_obj,
+        hit.position,
+        &mut hooks,
+    );
+}
+
+/// `StarSystem::collision_damage(Rec, Target)` (`server_classes.cpp:9782`)
+/// for a client's report: unless the PvP gate holds it, a live target's
+/// `damage_sub_obj` takes `damage` on `target_sub` in a cause-1 list from
+/// `source` (owned by the source's owner when the system has the source,
+/// else by none), which is then applied
+/// ([`World::collision_damage_hooked`]).
+pub fn collision_damage(
+    cx: &mut Cx<'_>,
+    system: u32,
+    source: u32,
+    target: ObjHandle,
+    target_sub: game_sim::equip::SubObjId,
+    damage: f32,
+) {
+    if is_destroyed(cx, target) {
+        return;
+    }
+    let owner = crate::replication::find_in_system(cx.world, system, source)
+        .and_then(|s| cx.world.get(s))
+        .map_or(0, |o| o.simple.owner_player);
+    let mut hooks = Hooks {
+        logic: &mut *cx.logic,
+    };
+    cx.world
+        .collision_damage_hooked(source, owner, target, target_sub, damage, &mut hooks);
+}
+
+/// `StarSystem::badlands_collision(Info)` (`server_classes.cpp:9833`): the
+/// system's object, unless destroyed or invincible (`is_invincible`, the
+/// protect flag), is destroyed (kind 1) by `killer`.
+pub fn badlands_collision(cx: &mut Cx<'_>, system: u32, object: u32, killer: u32) {
+    let Some(h) = crate::replication::find_in_system(cx.world, system, object) else {
+        return;
+    };
+    if is_destroyed(cx, h) || cx.logic.objects.get(h).is_some_and(|o| o.invincible) {
+        return;
+    }
+    destroy_object(cx, h, 1, killer);
+}
+
 /// `StarSystem_Update`: the world's frame of the system with the server's
 /// hooks, then each observer's update with the frame's whole time
 /// ([`crate::replication::update_observers`]), then the changed

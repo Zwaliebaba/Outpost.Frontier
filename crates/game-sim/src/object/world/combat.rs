@@ -650,8 +650,25 @@ impl World {
             damage: amount,
         });
         let _ = sub;
-        // `StarSystem::collision_damage`.
-        if hooks.pvp_blocked(self, id, other) {
+        let inflictor_owner = self.objects.get(h).map_or(0, |o| o.simple.owner_player);
+        self.collision_damage_hooked(id, inflictor_owner, other, other_sub, amount, hooks);
+    }
+
+    /// `StarSystem::collision_damage`: unless the PvP gate holds it, a live
+    /// target's `damage_sub_obj` takes `amount` on `other_sub` in a cause-1
+    /// list from `source` (owned by `inflictor_owner`), which is then
+    /// applied. The world's collision pass and a client's collision report
+    /// (`IServerImpl::SPObjCollision`) both end here.
+    pub fn collision_damage_hooked(
+        &mut self,
+        source: u32,
+        inflictor_owner: u32,
+        other: ObjHandle,
+        other_sub: SubObjId,
+        amount: f32,
+        hooks: &mut dyn ServerHooks,
+    ) {
+        if hooks.pvp_blocked(self, source, other) {
             return;
         }
         let Some(target) = self.objects.get(other) else {
@@ -660,8 +677,7 @@ impl World {
         if target.dead {
             return;
         }
-        let inflictor_owner = self.objects.get(h).map_or(0, |o| o.simple.owner_player);
-        let mut list = DamageList::new(CAUSE_GUN, id, inflictor_owner);
+        let mut list = DamageList::new(CAUSE_GUN, source, inflictor_owner);
         match target.kind {
             // `Bullet::damage_sub_obj` does nothing.
             ObjectKind::Beam => return,
