@@ -12,11 +12,13 @@
 //!   detection), [`find_obstacle_center`], [`pick_points_around`],
 //!   [`is_base_of_affiliation`] and [`fast_length`].
 //!
-//! The parts that need Content's NPC ships or directives stay with their
-//! packages: the guided ships (`RegisterGuidedShip`,
-//! `UnregisterGuidedShip`), `IsSameShipOrFormation` and
-//! `SetFormationAttitudes` (P3.6c), and `BuildPathDirectives`, whose
-//! dock and goto directives are the object lists' (P3.5c).
+//! - [`set_formation_attitudes`] (P3.6c's follow-up, for the patrol
+//!   guide's scanner).
+//!
+//! The parts that need Content's NPC ships or directives live with them:
+//! the guided ships (`RegisterGuidedShip`, `UnregisterGuidedShip`) in
+//! [`super::space_support`], `IsSameShipOrFormation` with the patrol guide
+//! and `BuildPathDirectives` with the guides ([`super::guides`]).
 //!
 //! The arithmetic is the C++'s on the x87 stack in its 53-bit mode: `f64`,
 //! rounded to `f32` where the C++ stores a float (T11).
@@ -28,6 +30,7 @@
 use neuron_core::math::{Matrix, Vector, transform_matrix};
 
 use super::patrol_paths::distance_squared_to_segment;
+use super::ships::ShipKey;
 use super::systems::{SystemInfo, TradeLaneRing};
 use crate::api;
 use crate::server::Cx;
@@ -657,6 +660,115 @@ pub fn build_best_path_legs(
         return (path, legs);
     }
     (path, vec![NnPathLeg::free(from, to)])
+}
+
+/// The members of a ship's formation for [`set_formation_attitudes`]
+/// (`CollectAttitudeMembers`): the ship alone outside a formation, else
+/// the formation's members; none for a ship the record does not know,
+/// which the C++ dereferences (D862).
+fn attitude_members(cx: &Cx<'_>, system: u32, id: u32) -> Vec<ShipKey> {
+    let Some(key) = super::ships::find_in_system(cx, system, id) else {
+        return Vec::new();
+    };
+    let state = &cx.logic.content.state;
+    let formation = super::ships::formation_id(state, key);
+    if formation == u32::MAX {
+        return vec![key];
+    }
+    super::formations::collect_members(state, formation)
+}
+
+/// A member's reputation: an NPC ship's handle's, a player's ship's
+/// `pub::SpaceObj::GetRep` (not tested: -1 when it fails).
+fn member_rep(cx: &Cx<'_>, key: ShipKey) -> i32 {
+    match key {
+        ShipKey::Npc(_) => super::ships::reputation(&cx.logic.content.state, key),
+        ShipKey::Player(_) => {
+            let id = super::ships::id(&cx.logic.content.state, key);
+            api::space_obj::rep(cx, id).unwrap_or(-1)
+        }
+    }
+}
+
+/// `SetFormationAttitudes(System, ShipId, OtherId, bFormations, bMutual,
+/// Attitude)` (`SpacePaths.cpp:935-1040`): `pub::Reputation::SetAttitude`
+/// from the ship toward the other object, and back when mutual. Without
+/// formations only the two objects, never from a player's ship. With them
+/// every member of the ship's formation; toward an object that is not a
+/// ship (type bits `0x7f0000`) its own reputation, else every member of
+/// its formation: NPC members both ways, an NPC toward a player's ship one
+/// way, and a player's ship only as the target of the NPCs' attitudes.
+pub fn set_formation_attitudes(
+    cx: &mut Cx<'_>,
+    system: u32,
+    ship: u32,
+    other: u32,
+    formations: bool,
+    mutual: bool,
+    attitude: f32,
+) {
+    let set = |cx: &mut Cx<'_>, from: i32, to: i32| {
+        let _ = api::reputation::set_attitude(cx, from, to, attitude);
+    };
+    if !formations {
+        let Ok(ship_rep) = api::space_obj::rep(cx, ship) else {
+            return;
+        };
+        let Ok(other_rep) = api::space_obj::rep(cx, other) else {
+            return;
+        };
+        let players = &cx.logic.content.state.players;
+        let ship_is_player = super::players::find_by_ship(players, ship).is_some();
+        let other_is_player = super::players::find_by_ship(players, other).is_some();
+        if !ship_is_player {
+            set(cx, ship_rep, other_rep);
+        }
+        if mutual && !other_is_player {
+            set(cx, other_rep, ship_rep);
+        }
+        return;
+    }
+    let ship_members = attitude_members(cx, system, ship);
+    let other_type = api::space_obj::object_type(cx, other).unwrap_or(0);
+    if other_type & 0x7f_0000 == 0 {
+        let Ok(other_rep) = api::space_obj::rep(cx, other) else {
+            return;
+        };
+        for m in ship_members {
+            let rep = member_rep(cx, m);
+            if super::ships::is_npc(m) {
+                set(cx, rep, other_rep);
+                if mutual {
+                    set(cx, other_rep, rep);
+                }
+            } else if mutual {
+                set(cx, other_rep, rep);
+            }
+        }
+        return;
+    }
+    let other_members = attitude_members(cx, system, other);
+    for &m in &ship_members {
+        if super::ships::is_npc(m) {
+            for &t in &other_members {
+                let target_rep = member_rep(cx, t);
+                let member = member_rep(cx, m);
+                set(cx, member, target_rep);
+                if mutual && super::ships::is_npc(t) {
+                    set(cx, target_rep, member);
+                }
+            }
+        } else if mutual {
+            for &t in &other_members {
+                if !super::ships::is_npc(t) {
+                    continue;
+                }
+                let member = member_rep(cx, m);
+                let target_rep = member_rep(cx, t);
+                set(cx, target_rep, member);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
