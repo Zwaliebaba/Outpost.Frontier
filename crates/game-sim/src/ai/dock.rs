@@ -27,8 +27,7 @@ use neuron_core::math::{Matrix, Transform, Vector, transform_matrix, transpose_t
 use neuron_core::util::spline::CrSplineSegment;
 
 use super::behavior::{
-    AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, DockOp, EvaluateResult, GotoOp, LaneEvent,
-    ids,
+    AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, DockOp, EvaluateResult, GotoOp, LaneEvent, ids,
 };
 use super::face_idea::FaceIdea;
 use super::fp::{add, column0, column1, column2, e, len_sq_xyz, neg, normalize3, r, scale, sub};
