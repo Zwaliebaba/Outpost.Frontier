@@ -749,6 +749,10 @@ impl PhysicsWorld {
             let (q, pos) = self.phantom_pose(p);
             let iso = shape::isometry(q, pos);
             let mut inside = Vec::new();
+            // The radius around the phantom's origin that holds its ledges,
+            // for the bounding-sphere early out below.
+            let reach = f64::from(super::bound_radius(&p.geometry));
+            let origin = iso.translation.vector;
             if p.enabled {
                 for h in self.bodies.indices().into_iter().map(BodyHandle) {
                     if p.attached == Some(h) {
@@ -764,6 +768,19 @@ impl PhysicsWorld {
                         continue;
                     };
                     let body_iso = shape::isometry(bq, bp);
+                    // The two bounding spheres apart: no ledge can meet (a
+                    // conservative early out, as the contact pass's; the
+                    // outcome is the exact test's).
+                    let t = body_iso.translation.vector;
+                    let d = [
+                        f64::from(origin.x) - f64::from(t.x),
+                        f64::from(origin.y) - f64::from(t.y),
+                        f64::from(origin.z) - f64::from(t.z),
+                    ];
+                    let gap = ((d[0] * d[0] + d[1] * d[1]) + d[2] * d[2]).sqrt();
+                    if gap > (reach + f64::from(body.bound_radius)) * 1.001 + 0.01 {
+                        continue;
+                    }
                     let hit = p.geometry.ledges.iter().any(|pl| {
                         body.geometry.ledges.iter().any(|bl| {
                             !body.detached_parts.contains(&bl.part_id)
