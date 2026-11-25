@@ -200,7 +200,8 @@ fn is_ship(cx: &Cx<'_>, h: ObjHandle) -> bool {
 }
 
 /// The slot's ship id (`Players[Session].ship_object_id`, the raw slot);
-/// none for a session without a slot.
+/// none for a session without a slot, which the C++ reads past the table
+/// (D933).
 fn slot_ship(cx: &Cx<'_>, session: u32) -> Option<u32> {
     cx.logic.players.get(session).map(|p| p.ship_object_id)
 }

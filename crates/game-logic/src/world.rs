@@ -680,10 +680,11 @@ pub struct MunitionHit {
 }
 
 /// `StarSystem::munition_collision(Info)` (`Server/server_classes.cpp:
-/// 9188`) for a client's report: the object hit and the shooter are the
-/// system's; a target that is missing or destroyed takes nothing; the
-/// world's `munition_collision` (the PvP gate, `munition_hit` in a list of
-/// the munition's cause from the shooter, applied) does the rest. A
+/// 9188`) for a client's report: the object hit is the system's; a target
+/// that is missing or destroyed takes nothing; the world's
+/// `munition_collision` (the PvP gate, `munition_hit` in a list of the
+/// munition's cause from the shooter, applied; the shooter found anywhere,
+/// D930) does the rest. A
 /// munition archetype the data lacks, which the C++ reads through null,
 /// deals nothing (D932).
 pub fn munition_collision(cx: &mut Cx<'_>, system: u32, hit: &MunitionHit) {
@@ -711,7 +712,8 @@ pub fn munition_collision(cx: &mut Cx<'_>, system: u32, hit: &MunitionHit) {
 /// `damage_sub_obj` takes `damage` on `target_sub` in a cause-1 list from
 /// `source` (owned by the source's owner when the system has the source,
 /// else by none), which is then applied
-/// ([`World::collision_damage_hooked`]).
+/// ([`World::collision_damage_hooked`]; its PvP gate finds the source
+/// anywhere, D930).
 pub fn collision_damage(
     cx: &mut Cx<'_>,
     system: u32,
