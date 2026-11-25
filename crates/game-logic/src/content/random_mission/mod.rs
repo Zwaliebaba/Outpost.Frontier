@@ -7,10 +7,8 @@
 //! state ([`mission::RmMissions`]) and names by [`RmDataKey`]. P3.7c ports
 //! the mission data with its `[RandomMission]` save section, the loader
 //! (`CreateMission`, `Load`, the offer description and `CanAccept`;
-//! [`mission`]) and the bar and vendor offers ([`vendor`]). The
-//! constructor's 1 s heartbeat (`RandomMissionDB.cpp:1041`), the router
-//! handlers and the run time are P3.7b's; until then a random mission
-//! instance holds its key and one reference.
+//! [`mission`]) and the bar and vendor offers ([`vendor`]). P3.7b ports
+//! the controller, its runtime machines and their triggers ([`runtime`]).
 //!
 //! P3.7a ports what builds an offer from a seed: the generator's tables
 //! ([`tables`]), the vignette tree ([`vignette`]), the offers
@@ -24,6 +22,7 @@
 pub mod generator;
 pub mod mission;
 pub mod offer;
+pub mod runtime;
 pub mod tables;
 pub mod vendor;
 pub mod vignette;
@@ -40,38 +39,16 @@ use crate::server::{CreateParams, Cx};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RmDataKey(pub u32);
 
-/// A `DestroyMission` controller's own state (P3.7 adds the mission
-/// object and its machines).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RandomMission {
-    /// Its mission data; none for parameters of another form (D770).
-    pub data: Option<RmDataKey>,
+pub use runtime::RandomMission;
+
+/// `CreateDestroyMission` ([`runtime::construct`]).
+pub fn construct(cx: &mut Cx<'_>, id: ControllerId, params: &CreateParams) -> Instance {
+    runtime::construct(cx, id, params)
 }
 
-/// `CreateDestroyMission`: the instance with its mission data, which it
-/// holds one reference to (`FDestroyMission`'s constructor AddRefs it; the
-/// rest of the constructor is P3.7b's, D955).
-pub fn construct(cx: &mut Cx<'_>, _id: ControllerId, params: &CreateParams) -> Instance {
-    let data = match *params {
-        CreateParams::RandomMission(key) => Some(key),
-        _ => None,
-    };
-    if let Some(key) = data {
-        cx.logic.content.state.rm.missions.add_ref(key);
-    }
-    Instance::RandomMission(RandomMission { data })
-}
-
-/// The `DestroyMission` destructor's release of its mission data (the
-/// rest of `~FDestroyMission` is P3.7b's, D955).
+/// `~FDestroyMission` ([`runtime::destruct`]).
 pub fn destruct(cx: &mut Cx<'_>, id: ControllerId) {
-    let key = match cx.logic.content.instance(id) {
-        Some(Instance::RandomMission(r)) => r.data,
-        _ => None,
-    };
-    if let Some(key) = key {
-        mission::release(cx, key);
-    }
+    runtime::destruct(cx, id);
 }
 
 /// The files the generator's constructor opens, in its order
@@ -149,6 +126,12 @@ pub struct RmState {
     pub objective_zones: Vec<u32>,
     /// The live missions (`FRandomMissionData`), by key (P3.7c).
     pub missions: mission::RmMissions,
+    /// The run time's globals: the vignette cookies and the multiplayer
+    /// delay (P3.7b, [`runtime::RuntimeState`]).
+    pub runtime: runtime::RuntimeState,
+    /// The router and machine trace, when a session records it (P3.7b,
+    /// [`runtime::trace`]).
+    pub trace: Option<runtime::trace::RmTrace>,
 }
 
 /// `RegisterRmDestSystem` (`RandomMissionDB.cpp:400-410`): a system not

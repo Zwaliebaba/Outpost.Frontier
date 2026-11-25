@@ -113,6 +113,14 @@ pub struct PlayerShip {
     /// `Attackers` (TU20 `+0x14`): the ship's hits on each victim
     /// ([`super::combat_reputation`], P3.6c).
     pub attackers: [super::combat_reputation::Attacker; 8],
+    /// TU50 `Directives`, `CurrentDirective`, `Priority` and
+    /// `ActiveDirective` (`+0x158` to `+0x16c`) of a player's ship object:
+    /// a mission's `Act_GiveObjList` for `Player` fills it (P3.5c3). The
+    /// player's ship has no directive callback, so only the directives that
+    /// finish at once advance it. An NPC ship keeps its queue in
+    /// [`NpcShip::directives`](super::npc_ships::NpcShip::directives) and
+    /// leaves its base's empty.
+    pub directives: super::directives::ShipDirectives,
 }
 
 impl PlayerShip {
@@ -139,6 +147,7 @@ impl PlayerShip {
             hostile_contact_count: 0,
             hostile_contacts: Vec::new(),
             attackers: [super::combat_reputation::Attacker::default(); 8],
+            directives: super::directives::ShipDirectives::default(),
         }
     }
 }
@@ -322,6 +331,45 @@ impl PlayerState {
     #[must_use]
     pub fn find_rumor(&self, id: u32) -> u32 {
         self.rumors.iter().find(|r| r[0] == id).map_or(0, |r| r[1])
+    }
+
+    /// `RecordVnpcTalk(BaseId, NpcId)` (`:409-433`, BaseSupport's
+    /// `GFObjSelect`): nothing for NPC 0; a new record `{base, npc, 1, 0}`
+    /// when none is the NPC's or its count is 0; else value 3 is cleared
+    /// unless it is 1, and the count grows.
+    pub fn record_vnpc_talk(&mut self, base: u32, npc: u32) {
+        if npc == 0 {
+            return;
+        }
+        match self.vnpcs.iter_mut().find(|r| r[0] == base && r[1] == npc) {
+            Some(record) if record[2] != 0 => {
+                if record[3] != 1 {
+                    record[3] = 0;
+                }
+                record[2] = record[2].wrapping_add(1);
+            }
+            _ => self.vnpcs.push([base, npc, 1, 0]),
+        }
+    }
+
+    /// `GetVnpcValue2(BaseId, NpcId)` (`:908-916`): the talk count of the
+    /// NPC's record, 0 without one.
+    #[must_use]
+    pub fn vnpc_value2(&self, base: u32, npc: u32) -> u32 {
+        self.vnpcs
+            .iter()
+            .find(|r| r[0] == base && r[1] == npc)
+            .map_or(0, |r| r[2])
+    }
+
+    /// `FindVnpcValue3(BaseId, &NpcId, &Value)` (`:893-905`): value 3 of
+    /// the NPC's record, `None` without one.
+    #[must_use]
+    pub fn find_vnpc_value3(&self, base: u32, npc: u32) -> Option<u32> {
+        self.vnpcs
+            .iter()
+            .find(|r| r[0] == base && r[1] == npc)
+            .map(|r| r[3])
     }
 
     /// `CountShipTypeKilled(ShipArchId)`.
@@ -761,6 +809,28 @@ mod tests {
             vnpcs: Vec::new(),
             rumors: Vec::new(),
         }
+    }
+
+    #[test]
+    fn a_vnpc_talk_counts_and_clears_value_3_unless_it_is_1() {
+        let mut s = state();
+        s.record_vnpc_talk(5, 0);
+        assert!(s.vnpcs.is_empty());
+        s.record_vnpc_talk(5, 9);
+        assert_eq!(s.vnpcs, vec![[5, 9, 1, 0]]);
+        s.vnpcs[0][3] = 2;
+        s.record_vnpc_talk(5, 9);
+        assert_eq!(s.vnpcs, vec![[5, 9, 2, 0]]);
+        s.vnpcs[0][3] = 1;
+        s.record_vnpc_talk(5, 9);
+        assert_eq!(s.vnpcs, vec![[5, 9, 3, 1]]);
+        assert_eq!(s.vnpc_value2(5, 9), 3);
+        assert_eq!(s.find_vnpc_value3(5, 9), Some(1));
+        assert_eq!(s.find_vnpc_value3(5, 8), None);
+        // A record whose count is 0 gets a new one after it.
+        s.vnpcs[0][2] = 0;
+        s.record_vnpc_talk(5, 9);
+        assert_eq!(s.vnpcs.len(), 2);
     }
 
     #[test]

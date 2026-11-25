@@ -1067,6 +1067,125 @@ The comparison is exact, record by record; the summary
 `rust-mission-trace.txt` gives the first divergence with the two records on
 each side. The port's trace is kept as `rust-mission.jsonl`.
 
+## `mission.jsonl` and `mission_objects.jsonl` (`mission <name> <session>`)
+
+The Tier B mission session with a ship (P3.5c2, decision record 0008
+question 9; `Content/oracle_mission_session.cpp`, the same hook), read by
+`crates/game-logic/tests/mission_session.rs` with the run's `dispatch.jsonl`
+and `session.jsonl`. A scenario run (`CppSource/Oracle/mission_session.txt`:
+`RELAYSEVEN_system`, 900 ticks, one ship joined as player 1) whose
+`mission Mission_01a 1` line makes, after the players join, player 1's
+Content state with the ship as its ship object and the mission as Story
+makes one (`ABOVE_NORMAL`, `MissionStart` through the bus at tick 0). The
+session's scripted messages go to the mission alone at the start of their
+tick's frame: `SpaceEnter` (tick 2) and the `CommComplete`s of
+`DX_M01_0000_FREEPORT_7_BRIDGE` (200), `DX_M01_0005_Samura_SA_14` (260) and
+`DX_M01_0010_FREEPORT_7_BRIDGE` (320). `session.jsonl` gains a `mission`
+record (`tick`, `line`, `name`, `session`, `controller`) and, at the end, a
+`mission_session` record (`records`).
+
+`mission.jsonl` holds the records of `dump mission_trace` with a `message`
+record before every delivery the bus makes to the mission (heartbeats and
+broadcasts included), and in place of `final`, when the bus has torn the
+mission down:
+
+| `rec` | Fields | Written |
+| --- | --- | --- |
+| `gone` | `tick` | the session's end, the mission no longer listed |
+
+`mission_objects.jsonl` holds, after each frame while the mission is
+listed, one record per live mission NPC ship (the mission's map order),
+spawned `[MsnSolar]` and spawned `[MsnLoot]` whose `GetLocation` succeeds:
+
+| `rec` | Fields | Written |
+| --- | --- | --- |
+| `obj` | `tick` u, `kind` s (`npc`, `solar`, `loot`), `name` s (the nickname), `id` u, `pos` [u, u, u] (each coordinate's float bits) |
+
+The comparison (`rust-mission-session.txt`): the trace exactly, record by
+record, and the deliveries from the first one to the mission on as `(tick,
+depth, controller, message)` with a heartbeat's elapsed time, a controller
+named by its place in the bus's list (`session.jsonl`'s `heartbeats`
+without the harness's controller of the `server` record); objects by kind
+and nickname, ids not compared. Judged up to the first action that runs
+without effect (D970) in the port's trace, at tick `J`: the trace through
+that record, the deliveries before `J`, the objects within the gross bound
+(500 m) through `J`; reported after (rule accepted by the owner on 2026-11-25). The port's records are kept as
+`rust-mission-session.jsonl` and `rust-mission-objects.jsonl`. On `outdir/`, `J`
+is tick 2: with P3.5c2 at `Act_SetVibe` (18 records), with P3.5c3 at
+`Act_CallSceneScript` (30 records), a P3.5c4 action.
+## `base.jsonl` (`dump base_session`)
+The Tier B base session trace (P3.6e, decision record 0008 points 7 and 10;
+`Content/oracle_base_session.cpp`, the hook `OracleBaseDbTrace` of
+`Server/server_basedb.cpp`), read by `crates/game-logic/tests/base_session.rs`.
+After the multiplayer start-up: player 7 registered in `he01_01_Base`'s
+system without a ship or a server slot, a BaseSupport made by
+`CreateInstance` on controller id `0x00ff0002` (the generic scripts emptied
+first), `BaseDB::load_base` of the base. Ten steps, each from
+`srand(0x4f524143 + step)`: `base_enter` (`BaseEnter`), `vendor_offers`
+(`RefreshMissionVendorOffers`), one `room` per `[mRoom]` of the base
+(`LocationEnter`, `LocationExit`), `bar` (`LocationEnter` of the
+bartender's room), `select_bartender` (`GFObjSelect`), `accept_vendor`
+(`MissionResponse` accepting the first vendor offer) and `base_exit`
+(`LocationExit`, `BaseExit`). Each message goes to GameSupport's case for it,
+then to the BaseSupport. One JSON object per line, ids unsigned decimal,
+`data` lower-case hexadecimal:
+| `step` | `step`, `name` | at a step's start |
+| `message` | `step`, `msg` | before each message |
+| `create` | `step`, `kind`, `handle`, `filter`, `data` | the base database made a record (`kind` `character`, `behavior`, `ambient`, `vendor` or `news`); `data` its properties as `send_update` marshals them |
+| `destroy` | `step`, `kind`, `handle`, `found` | a destroy of a handle, `found` 1 when its map had it |
+| `set_behavior` | `step`, `character`, `behavior`, `found` | `set_character_behavior` |
+| `acceptance` | `step`, `handle`, `accepted`, `session`, `data` | a vendor offer's answer, `data` the marshalled `MissionVendorAcceptance` |
+| `why_empty` | `step`, `client`, `reason` | `pub::GF::ReportWhyMissionVendorEmpty` |
+| `state` | `step`, `draws`, `location`, `visit`, `rooms` | a step's end: the draws since its seeding (-1 beyond 0x10000 or after a reseed), the player's room, his visit (`null`, or `news` handles and `vendor` `[handle, offer id]`s) and the base's room states by id, each with `locks` `[player, placement, count]`, `characters` `[id, behaviour, uses, placement, role, player, talks, offer kind]` in list order and `refs` (character ids) |
+
+The comparison is exact, record by record, to the first difference. The
+`DestroyMission` controller the acceptance of step `accept_vendor` makes
+runs its constructor on both sides (P3.7b), so that step is judged as every
+other one; the owner's D955 exception, accepted on 2026-11-25 until P3.7b,
+ended with it. The port's trace is kept as `rust-base.jsonl`.
+
+## `rm.jsonl` (`dump rm_session`)
+
+The Tier B router and machine trace of a random mission (P3.7b, decision
+record 0008 points 3 and 10; `Content/oracle_rm_session.cpp` with the hooks
+of `Content/oracle_rm_trace.h` in the router, the `DestroyMission`
+controller, the runtime machine, its sub-machines and the triggers, and
+Server.dll's `OracleBusFireTimers` and `OracleBusTick`), read by
+`crates/game-logic/tests/rm_session.rs`. After the multiplayer start-up:
+player 7 registered in `he01_01_Base`'s system without a ship or a server
+slot, a BaseSupport made by `CreateInstance` on controller id `0x00ff0003`
+(the generic scripts emptied first), `BaseDB::load_base` of the base. Each
+step from `srand(0x4f524143 + step)`: `base_enter` (`BaseEnter`),
+`vendor_offers` (`RefreshMissionVendorOffers`), `accept_vendor`
+(`MissionResponse` accepting the first vendor offer: BaseSupport makes the
+`DestroyMission` controller on the bus), `join` (the mission's
+`FRandomMissionObject::OracleJoinPlayer(7)`, for the group a slotless
+player does not have), twelve `tick` steps (the game time plus 1 s,
+`Heartbeat {1.0}` to the mission through the bus, the bus's timers fired
+with 1 s, which hand the router's timers to SpaceSupport), `abort`
+(`AbortMission {7, mission}` through the bus) and `teardown` (the bus's
+heartbeat walk with 0, which tears the mission down). One JSON object per
+line, ids unsigned decimal, a `float` as its bits in lower-case
+hexadecimal:
+
+| `rec` | Fields | Written |
+| --- | --- | --- |
+| `step` | `step`, `name` | at a step's start |
+| `message` | `step`, `msg` | before each controller message the session sends |
+| `register` / `unregister` | `step`, `handler` | a `MessageHandler` registered with the router, and its removal |
+| `route` | `step`, `type`, `sender`, `receiver`, `state`, `time` | a message routed, after its delivery options are set (`time` 0 for one delivered at once) |
+| `deliver` | `step`, `type`, `sender`, `receiver`, `found` | a delivery at once or from the router's timer, `found` 1 when a handler has the receiver's id |
+| `sm` | `step`, `machine`, `kind`, `event`, `state` | a machine's slot 2 offered an enter (1) or exit (2) event in a state of 0 or more; `kind` `mission`, `vignette`, `solars`, `ships`, `loot` or `trigger` |
+| `mission` | `step`, `event`, `value` | the mission's `fail` (the reason), `succeed` (the reward), `remove_player` (the player) and `end` |
+| `end` | `step`, `draws`, `flags`, `live`, `completed`, `aborted`, `failed` | a step's end: the draws since its seeding (-1 beyond 0x10000), player 7's flags and live mission, and his random-mission counts as `[type, count]` |
+
+A message's `type` is the C++ global's name without its `GRmMsg` prefix
+(`StartMachine`, `Type06fd3b74`, ...; `Timeout` and `ChangeState` for
+Common's two), because the values follow the DLL's static initialisation
+order (D1027). The comparison is exact, record by record, to the first
+difference, reported with the records around it in
+`rust-rm-session.txt`; the port's trace is kept as `rust-rm.jsonl`.
+
 ## `spread.jsonl` (`--runs N`)
 
 | `rec` | Fields |

@@ -303,6 +303,9 @@ pub struct Logic {
     /// A test seam: every delivery goes here after Content's handler
     /// (record 0008 point 2).
     pub deliver_hook: Option<DeliverHook>,
+    /// A test seam: every delivery goes here before Content's handler, as
+    /// the oracle's dispatch trace records it (`dispatch.jsonl`; P3.5c2).
+    pub before_deliver_hook: Option<DeliverHook>,
     /// The session slots (`Players`, `PlayerDB::init(MaxPlayers, ...)`).
     pub players: neuron_server::session::SessionTable<crate::player::PlayerData>,
     /// `IsMPServer()`: a dedicated multiplayer server.
@@ -431,6 +434,7 @@ impl Logic {
             bus: ControllerBus::new(),
             client,
             deliver_hook: None,
+            before_deliver_hook: None,
             players: neuron_server::session::SessionTable::new(max_players),
             multiplayer_server,
             clock: neuron_server::tick::ServerClock::default(),
@@ -482,6 +486,9 @@ impl BusHost for Cx<'_> {
         kind: ControllerKind,
         message: &mut ControllerMessage<'_>,
     ) {
+        if let Some(hook) = self.logic.before_deliver_hook {
+            hook(self, id, kind, message);
+        }
         self.logic.content.count_delivery();
         crate::content::deliver(self, id, kind, message);
         if let Some(hook) = self.logic.deliver_hook {

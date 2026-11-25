@@ -736,7 +736,7 @@ Paths are relative to `CppSource/`.
     | P3.6d | SpacePop, BasePop, encounters, spawn placement, random encounters | Population draws in `load_rand.jsonl`; a populated scenario |
     | P3.6e | BaseSupport | Tier B base session trace |
     | P3.7a | Random-mission tables, vignette tree, generator | Tier A offers from a seed (Gate G3) |
-    | P3.7b | Router, `MachineHost`, the DestroyMission controller, the runtime machines | Router and machine traces (Tier B) |
+    | P3.7b | Router, `MachineHost`, the DestroyMission controller, the runtime machines; the ship-group spawn is connected to P3.5c2's mission spawns in a small follow-up after P3.5c2 lands (D1023; owner, 2026-11-25) | Router and machine traces (Tier B) |
     | P3.7c | Vendor and bar offers, `[RandomMission]` saves and the restore from save; `CreateMission` (`DestroyMission.cpp:1041-1120`) with its zone search (`CollectZonesInRange`, `CollectZonesAlongTradeLanes`, `CollectZonesThroughJumps`, `PickObjectiveZone`), `PickEnemyGroup`, `IsRouteBlocked` (`:719-752`) and the route check of the picked zone (`:991`; the search, the check and `PickEnemyGroup` at `:776-1027`), `ReleaseRmDestSystems` (`RandomMissionDB.cpp:414-422`) and `PickRmMissionDifficulty` (`:216-292`) (added by the owner on 2026-11-25, with P3.7a) | Tier A rebuild from a saved seed (Gate G3) |
 
     The owner moved the NPC name builder, the space paths and

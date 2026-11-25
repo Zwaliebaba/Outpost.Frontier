@@ -14,11 +14,42 @@
 #include "../include/common_text.h"            // FmtStr
 #include "../include/rpc_iclient.h"            // IClient
 #include "../include/neuroncomponents.h"                  // FDUMP
+#include "../include/server_exports.h"                    // SERVER_API (Oracle instrumentation)
 #include <cstring>
 #include <stdexcept>
 
 // , owned by IServerImpl.cpp.
 extern IClient* g_pClientInterface;
+
+// Oracle instrumentation (P3.6e; see server_basedb.h): the base session trace's hook, null in a
+// game run.
+typedef void(__cdecl* FOracleBaseDbTraceFn)(void* Context, int Event, int Kind, unsigned int A,
+                                             unsigned int B, unsigned int C, void const* Data,
+                                             unsigned int Size);
+namespace
+{
+    FOracleBaseDbTraceFn GOracleBaseDbTraceFn = nullptr;
+    void* GOracleBaseDbTraceContext = nullptr;
+
+    // Event 1 for a record of Kind: its properties as send_update marshals them.
+    template <typename TProps>
+    void OracleBaseDbTraceCreate(int Kind, unsigned int Handle, unsigned int Filter, TProps const& Props)
+    {
+        if (GOracleBaseDbTraceFn == nullptr)
+            return;
+        MarshalBuffer Buf;
+        Buf.use_default();
+        Props.marshal(&Buf);
+        OracleBaseDbTrace(1, Kind, Handle, Filter, 0, Buf.get_buffer(), (unsigned int)Buf.get_num_written());
+    }
+}
+
+void OracleBaseDbTrace(int Event, int Kind, unsigned int A, unsigned int B, unsigned int C,
+                       void const* Data, unsigned int Size)
+{
+    if (GOracleBaseDbTraceFn != nullptr)
+        GOracleBaseDbTraceFn(GOracleBaseDbTraceContext, Event, Kind, A, B, C, Data, Size);
+}
 
 namespace
 {
@@ -450,6 +481,7 @@ int FRoomEntry::create_character(CharacterProperties const& Props, unsigned int 
     Record->Filter = RecordFilter;
     Record->bDirty = true;
     Characters.Records.append(Record);
+    OracleBaseDbTraceCreate(1, (unsigned int)Handle, RecordFilter, Record->Props);
 
     // .. module storage: the routine over *(room+0xc), filter inlined.
     MetaNode<unsigned int>* Session = nullptr;
@@ -474,6 +506,7 @@ unsigned int FRoomEntry::create_behavior(ScriptBehavior const& Props, unsigned i
     Record->Filter = RecordFilter;
     Record->bDirty = true;
     Behaviors.Records.append(Record);
+    OracleBaseDbTraceCreate(2, Handle, RecordFilter, Record->Props);
 
     // .. module storage: the room's sessions, the routine, slot 0.
     MetaNode<unsigned int>* Session = nullptr;
@@ -499,6 +532,7 @@ unsigned int FRoomEntry::create_ambient_script(AmbientScriptProperties const& Pr
     Record->Filter = RecordFilter;
     Record->bDirty = true;
     AmbientScripts.Records.append(Record);
+    OracleBaseDbTraceCreate(3, Handle, RecordFilter, Record->Props);
 
     MetaNode<unsigned int>* Session = nullptr;
     while (AmbientScripts.Sessions->traverse(Session, true))
@@ -625,6 +659,7 @@ unsigned int FBaseEntry::create_mission_vendor(MissionVendorProperties const& Pr
     Record->Filter = RecordFilter;
     Record->bDirty = true;
     MissionVendors.Records.append(Record);
+    OracleBaseDbTraceCreate(4, Handle, RecordFilter, Record->Props);
 
     MetaNode<unsigned int>* Session = nullptr;
     while (MissionVendors.Sessions->traverse(Session, true))
@@ -652,6 +687,8 @@ void FBaseEntry::mission_vendor_acceptance(unsigned long Handle, bool bAccepted,
     MarshalBuffer Buf;
     Buf.use_default();
     Acceptance.marshal(&Buf);
+    OracleBaseDbTrace(4, 0, (unsigned int)Handle, bAccepted ? 1u : 0u, SessionId, Buf.get_buffer(),
+                      (unsigned int)Buf.get_num_written());
     g_pClientInterface->SendServerGFMissionVendorAcceptance(SessionId, Buf.get_buffer(), (unsigned int)Buf.get_num_written());
 }
 
@@ -666,6 +703,7 @@ unsigned int FBaseEntry::create_news_broadcast(NewsBroadcastProperties const& Pr
     Record->Filter = RecordFilter;
     Record->bDirty = true;
     NewsBroadcasts.Records.append(Record);
+    OracleBaseDbTraceCreate(5, Handle, RecordFilter, Record->Props);
 
     MetaNode<unsigned int>* Session = nullptr;
     while (NewsBroadcasts.Sessions->traverse(Session, true))
@@ -1111,6 +1149,8 @@ int BaseDB::create_character(CharacterProperties const& Props, unsigned int Reco
 // (the routine); then find again: hit -> erase, miss -> FDUMP (0x739).
 void BaseDB::destroy_character(unsigned int Handle)
 {
+    // Oracle instrumentation (P3.6e).
+    OracleBaseDbTrace(2, 1, Handle, CharacterMap.find(Handle) != CharacterMap.end() ? 1u : 0u, 0, nullptr, 0);
     std::map<unsigned int, FRoomEntry*>::iterator It = CharacterMap.find(Handle);
     if (It == CharacterMap.end())
     {
@@ -1140,6 +1180,7 @@ void BaseDB::set_character_behavior(unsigned int Handle, unsigned long Behavior)
     if (It == CharacterMap.end())
     {
         FDUMP(0x100001, "%s(%d) : *** ERROR: Could not find npc character %u\n", GBaseDBFile, 0x720, Handle);
+        OracleBaseDbTrace(3, 0, Handle, (unsigned int)Behavior, 0, nullptr, 0);   // Oracle instrumentation (P3.6e)
         return;
     }
     FRoomEntry* const Room = It->second;
@@ -1157,6 +1198,7 @@ void BaseDB::set_character_behavior(unsigned int Handle, unsigned long Behavior)
     }
     Record->Props.BehaviorId = (unsigned int)Behavior;
     Record->bDirty = true;
+    OracleBaseDbTrace(3, 0, Handle, (unsigned int)Behavior, 1, nullptr, 0);   // Oracle instrumentation (P3.6e)
 }
 
 // the routine for behaviours -- key ScriptBehavior+0x04,
@@ -1179,6 +1221,8 @@ unsigned int BaseDB::create_behavior(ScriptBehavior const& Props, unsigned int R
 void BaseDB::destroy_behavior(unsigned long Handle)
 {
     unsigned int const Key = (unsigned int)Handle;
+    // Oracle instrumentation (P3.6e).
+    OracleBaseDbTrace(2, 2, Key, BehaviorMap.find(Key) != BehaviorMap.end() ? 1u : 0u, 0, nullptr, 0);
     std::map<unsigned int, FRoomEntry*>::iterator It = BehaviorMap.find(Key);
     if (It == BehaviorMap.end())
     {
@@ -1218,6 +1262,8 @@ unsigned int BaseDB::create_mission_vendor(MissionVendorProperties const& Props,
 void BaseDB::destroy_mission_vendor(unsigned long Handle)
 {
     unsigned int const Key = (unsigned int)Handle;
+    // Oracle instrumentation (P3.6e).
+    OracleBaseDbTrace(2, 4, Key, MissionVendorMap.find(Key) != MissionVendorMap.end() ? 1u : 0u, 0, nullptr, 0);
     std::map<unsigned int, FBaseEntry*>::iterator It = MissionVendorMap.find(Key);
     if (It == MissionVendorMap.end())
     {
@@ -1295,6 +1341,8 @@ unsigned int BaseDB::create_news_broadcast(NewsBroadcastProperties const& Props,
 void BaseDB::destroy_news_broadcast(unsigned long Handle)
 {
     unsigned int const Key = (unsigned int)Handle;
+    // Oracle instrumentation (P3.6e).
+    OracleBaseDbTrace(2, 5, Key, NewsMap.find(Key) != NewsMap.end() ? 1u : 0u, 0, nullptr, 0);
     std::map<unsigned int, FBaseEntry*>::iterator It = NewsMap.find(Key);
     if (It == NewsMap.end())
     {
@@ -1339,6 +1387,8 @@ unsigned int BaseDB::create_ambient_script(AmbientScriptProperties const& Props,
 void BaseDB::destroy_ambient_script(unsigned long Handle)
 {
     unsigned int const Key = (unsigned int)Handle;
+    // Oracle instrumentation (P3.6e).
+    OracleBaseDbTrace(2, 3, Key, AmbientScriptMap.find(Key) != AmbientScriptMap.end() ? 1u : 0u, 0, nullptr, 0);
     std::map<unsigned int, FRoomEntry*>::iterator It = AmbientScriptMap.find(Key);
     if (It == AmbientScriptMap.end())
     {
@@ -1356,4 +1406,19 @@ void BaseDB::destroy_ambient_script(unsigned long Handle)
         return;
     }
     AmbientScriptMap.erase(It);
+}
+
+// Oracle instrumentation (P3.6e; see server_basedb.h): the base session trace's hook, set by
+// Content.dll's OracleDumpBaseSession for its run and cleared after it, and the base load
+// IServerImpl::BaseEnter makes before the bus hears of a player's entry, for a player without a
+// slot. New exports; no game module calls them.
+extern "C" SERVER_API void __cdecl OracleSetBaseDbTrace(FOracleBaseDbTraceFn Fn, void* Context)
+{
+    GOracleBaseDbTraceFn = Fn;
+    GOracleBaseDbTraceContext = Context;
+}
+
+extern "C" SERVER_API void __cdecl OracleBaseDbLoadBase(unsigned int BaseId)
+{
+    GetBaseDB()->load_base(0, BaseId);
 }

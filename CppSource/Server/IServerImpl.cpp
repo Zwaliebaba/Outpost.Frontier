@@ -3339,6 +3339,13 @@ extern "C" SERVER_API void __cdecl OracleBusTick(float Dt) {
     Server_TimerFiring(Dt);
 }
 
+// Oracle instrumentation (P3.7b, Content.dll's OracleDumpRmSession): the timer firing of
+// ElapseTime alone, so a session hands its controller the heartbeats it chooses. A new export; no
+// game module calls it.
+extern "C" SERVER_API void __cdecl OracleBusFireTimers(float Dt) {
+    Server_TimerFiring(Dt);
+}
+
 extern "C" SERVER_API void __cdecl OracleBusShutdown() {
     Server_ControllerCleanup();
 }

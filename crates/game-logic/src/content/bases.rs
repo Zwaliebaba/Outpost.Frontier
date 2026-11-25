@@ -12,10 +12,11 @@
 //!   rebuilt on `LoadGame`.
 //!
 //! The table is live state: GameSupport rebuilds it on every `LoadGame` and
-//! BaseSupport loads a base's rooms when a player enters it, so it belongs
-//! in [`ContentState`](super::ContentState). Its call sites are P3.4d's
-//! (`LoadGame`) and P3.6e's (BaseSupport). The bar characters, room states,
-//! bar scenes and offers of the same TU are BaseSupport's run time (P3.6e).
+//! loads a base's rooms when a player enters it, so it belongs in
+//! [`ContentState`](super::ContentState). Its call sites are P3.4d's
+//! (`LoadGame`, `BaseEnter`) and P3.6e's (BaseSupport's `BaseExit`). The bar
+//! characters, room states, bar scenes and offers of the same TU are
+//! BaseSupport's run time ([`super::bar`], P3.6e).
 //!
 //! A fixture points at its GF_NPC by the NPC's nickname id, the key of
 //! [`ContentBase::npcs`], where the C++ holds a pointer into the map.
@@ -280,8 +281,9 @@ pub struct BaseFaction {
     pub weight: f32,
 }
 
-/// `FContentBase` (0xb4 bytes): the parts the loaders fill. The room
-/// states and the bar scenes are BaseSupport's run time (P3.6e).
+/// `FContentBase` (0xb4 bytes): the parts the loaders fill (P3.4c) and
+/// the room states and bar scenes of BaseSupport's run time (P3.6e,
+/// [`super::bar`]).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ContentBase {
     /// `BaseId`.
@@ -304,6 +306,15 @@ pub struct ContentBase {
     pub npcs: BTreeMap<u32, BaseNpc>,
     /// `[mRoom]`.
     pub rooms: Vec<BaseRoom>,
+    /// `RoomStates` (`+0x70`): the bar characters, placement locks and
+    /// visit references of each room, by room id (P3.6e, [`super::bar`]).
+    pub room_states: BTreeMap<u32, super::bar::RoomState>,
+    /// `BarScenes` (`+0x98`): the bar scenes of the RTC scripts, in order
+    /// (P3.6e, [`super::bar::create_bar_scene`]).
+    pub bar_scenes: Vec<super::bar::BarScene>,
+    /// The last bar character key handed out: the port's name for a
+    /// character where the C++ holds a list iterator.
+    pub last_character_key: u32,
 }
 
 impl ContentBase {
@@ -321,6 +332,9 @@ impl ContentBase {
             vendor_offers_max: 0,
             npcs: BTreeMap::new(),
             rooms: Vec::new(),
+            room_states: BTreeMap::new(),
+            bar_scenes: Vec::new(),
+            last_character_key: 0,
         }
     }
 
@@ -497,15 +511,19 @@ impl ContentBase {
         }
     }
 
-    /// `FContentBase::Unload`: the last of the loads drops the rooms and the
-    /// GF_NPCs (and the room states, P3.6e).
-    pub fn unload(&mut self) {
+    /// `FContentBase::Unload` (`:378-385`): the last of the loads drops the
+    /// room states, the rooms and the GF_NPCs. The room states' characters
+    /// are returned: their offers hold references ([`unload_base`] releases
+    /// them); the base database keeps their records, as in the C++.
+    pub fn unload(&mut self) -> BTreeMap<u32, super::bar::RoomState> {
         self.load_count -= 1;
         if self.load_count != 0 {
-            return;
+            return BTreeMap::new();
         }
+        let states = std::mem::take(&mut self.room_states);
         self.rooms.clear();
         self.npcs.clear();
+        states
     }
 
     /// `FContentBase::FindFaction`: the first `[BaseFaction]` of `group`.
@@ -543,10 +561,17 @@ pub fn load_base(cx: &mut Cx<'_>, base: u32) {
 }
 
 /// `FindContentBaseInfo(&BaseId)->Unload()`: nothing for a base without a
-/// record.
+/// record. The characters of the dropped room states release their offers
+/// (`~FBarCharacter`, `~FBarOffer`).
 pub fn unload_base(cx: &mut Cx<'_>, base: u32) {
-    if let Some(record) = cx.logic.content.state.bases.get_mut(&base) {
-        record.unload();
+    let Some(record) = cx.logic.content.state.bases.get_mut(&base) else {
+        return;
+    };
+    let states = record.unload();
+    for state in states.into_values() {
+        for character in state.characters {
+            super::bar::release_offer(cx, character.offer);
+        }
     }
 }
 

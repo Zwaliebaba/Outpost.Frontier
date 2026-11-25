@@ -212,9 +212,9 @@ impl MissionData {
 
 /// The section a `DestroyMission` controller writes on `PlayerSave`
 /// (`DestroyMission.cpp:399-414`): the header, the type and
-/// [`MissionData::save`]. The controller's handler, with its gates (single
-/// player, the mission's player, the first running machine's `CanSave`),
-/// is the run time's (P3.7b, D955).
+/// [`MissionData::save`]. The controller's handler calls it with its gates
+/// (single player, the mission's player, the first running machine's
+/// `CanSave`; [`super::runtime`]).
 ///
 /// # Errors
 ///
@@ -1095,6 +1095,33 @@ pub fn pick_mission_difficulty(cx: &mut Cx<'_>, player: u32, min: f32, max: f32)
     }
     let spread = difficulty_spread(cx);
     (f64::from(window_high) - spread * (f64::from(window_high) - f64::from(low))) as f32
+}
+
+/// `FContentBase::FindDockObject` as the critical-loot state reads it
+/// (`BaseDB.cpp:1330-1348`, `RandomMissionVignette.cpp:1494-1500`): the
+/// nickname id (`pub::GetNicknameId`) of the first object of the base's
+/// system that docks with it, 0 without one; a base without a record or
+/// a system has none (D951).
+pub fn find_dock_object_id(cx: &mut Cx<'_>, base: u32) -> u32 {
+    if !cx.logic.content.state.bases.contains_key(&base) {
+        return 0;
+    }
+    let Ok(system) = api::misc::base_system(cx, base) else {
+        return 0;
+    };
+    if !cx.logic.content.state.systems.contains_key(&system) {
+        return 0;
+    }
+    let source = data_source(cx);
+    let mut found = 0;
+    let _ = api::system::enumerate_objects(cx, &*source, system, |object| {
+        if object.dock_with != base {
+            return true;
+        }
+        found = api::misc::nickname_id(&object.nickname);
+        false
+    });
+    found
 }
 
 #[cfg(test)]

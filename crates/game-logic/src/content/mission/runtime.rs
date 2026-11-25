@@ -234,7 +234,8 @@ pub fn find_npc_by_name(cx: &Cx<'_>, s: &MissionScript, label: &[u8]) -> Option<
 
 /// `FindFormationNpc` (`MissionObject.cpp:2029-2059`): each slot of each
 /// record named `label`, the first NPC with the slot's nickname, returned
-/// when it is no formation's follower.
+/// when it is no formation's follower; else the random encounters' arms
+/// (`FindRandEncFormationNpc`, [`super::spawn::find_rand_enc_formation_npc`]).
 #[must_use]
 pub fn find_formation_npc(cx: &Cx<'_>, s: &MissionScript, label: &[u8]) -> Option<NpcShipKey> {
     for group in &s.object.ships {
@@ -252,10 +253,7 @@ pub fn find_formation_npc(cx: &Cx<'_>, s: &MissionScript, label: &[u8]) -> Optio
             }
         }
     }
-    // FindRandEncFormationNpc: the random encounters' arms are filled by
-    // AttachRandEncNpc on NpcShipCreated, which comes with the spawns
-    // (P3.5c2, D975); no arm has a member before.
-    None
+    super::spawn::find_rand_enc_formation_npc(cx, s, label)
 }
 
 /// `GetLabelShipId` (`MissionObject.cpp:1984-2003`): 0 without a player
@@ -300,7 +298,8 @@ pub fn label_object_id(cx: &Cx<'_>, s: &MissionScript, label: &[u8]) -> u32 {
 /// `GetSolarId` (`MissionObject.cpp:2125-2149`): a spawned `[MsnSolar]`
 /// (`strcmp`), else the universe object of that nickname when it exists
 /// with a type (`IsSpaceObjTypeSet`, `:69-76`).
-fn solar_id(cx: &Cx<'_>, s: &MissionScript, label: &[u8]) -> u32 {
+#[must_use]
+pub fn solar_id(cx: &Cx<'_>, s: &MissionScript, label: &[u8]) -> u32 {
     if live_ship(cx, s).is_none() {
         return 0;
     }
@@ -573,7 +572,7 @@ pub fn matches(
             c.field_0x74 & ID_MASK != 0 && scanner
         }
         Condition::CharSelect(c) => {
-            let Some(_) = w else { return false };
+            let Some(w) = w else { return false };
             let Some(p) = player_state(cx_ref, s) else {
                 return false;
             };
@@ -581,9 +580,18 @@ pub fn matches(
             if p.base != Some(c.base_id) || c.location_id != s.current_location {
                 return false;
             }
-            // The base's room states and bar characters are BaseSupport's
-            // (P3.6e, D977): no character is found before.
-            false
+            // The room state of the mission's location and the player's
+            // character of the role there (`FBaseRoomState::FindCharacter`,
+            // P3.6e).
+            cx_ref
+                .logic
+                .content
+                .state
+                .bases
+                .get(&c.base_id)
+                .and_then(|b| b.room_states.get(&s.current_location))
+                .and_then(|room| room.find_character(&c.character, s.object.player))
+                .is_some_and(|found| found.character_id == w[0])
         }
         Condition::CommComplete(c) => {
             let Some(w) = w else { return false };
@@ -944,8 +952,9 @@ pub fn matches(
             c.count += 1;
             c.count >= c.needed
         }
-        // A started cut scene's sequence id comes with the bar scenes
-        // (P3.5c4, P3.6e; D977): no script of the list is started before.
+        // A started cut scene's sequence id comes with the cut scenes'
+        // start (P3.5c4, over P3.6e's bar scenes; D977): no script of the
+        // list is started before.
         Condition::RtcDone(_) => false,
         Condition::RumorHeard(c) => {
             let Parms::Message(ControllerMessage::RumorHeard { player, role }) = parms else {

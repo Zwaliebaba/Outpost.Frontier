@@ -158,6 +158,9 @@ pub struct Objective {
     pub marker_value: i32,
     /// `MarkerPosition`.
     pub marker_position: Vector,
+    /// `FRmObjectiveType3::Ids`: the objects the objective marks (the
+    /// runtime machine's `SetTargets`, P3.7b); empty until then.
+    pub targets: Vec<u32>,
 }
 
 /// One line of a comm sequence conversation (`FRmLine`).
@@ -187,6 +190,9 @@ pub struct Conversation {
 /// An offer component (`FRmOfferComponent`).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Component {
+    /// Its `MessageHandler` id: the component registers with the router
+    /// when the offer is built ([`Offer::register_handlers`]; P3.7b).
+    pub handler: u32,
     /// `+0x0c`: set by the filter that fills it.
     pub active: bool,
     /// `+0x10`.
@@ -306,6 +312,19 @@ impl Offer {
             ships: ShipComponent::default(),
             target_name: NpcNameParams::default(),
         }
+    }
+
+    /// The components' handlers (`FRmOfferComponent::FRmOfferComponent`,
+    /// `MessageHandler(GMessageRouter)`), in member order: the general, the
+    /// target ship, the solar and the ship component. The generator calls
+    /// it right after [`Offer::new`], where the C++'s constructor makes
+    /// them.
+    pub fn register_handlers(&mut self, cx: &mut Cx<'_>) {
+        use crate::content::router::{self, HandlerOwner};
+        self.general.handler = router::register(cx, HandlerOwner::Component);
+        self.target_ships.component.handler = router::register(cx, HandlerOwner::Component);
+        self.solars.component.handler = router::register(cx, HandlerOwner::Component);
+        self.ships.component.handler = router::register(cx, HandlerOwner::Component);
     }
 
     /// `CountCriticalLoot` over `groups`: each critical loot sets the
@@ -500,8 +519,27 @@ pub fn zone_at_position(cx: &mut Cx<'_>, system: u32, position: Vector) -> u32 {
 /// The offer's destructor (`~FRmVignetteOffer`, `ReleaseTargetName`,
 /// `RandomMissionRuntime.cpp:463-518`): when a name was made, it goes back
 /// to its faction's names at once unless a ship of a group with `+0x01`
-/// carries it (the first ship with the name found decides).
+/// carries it (the first ship with the name found decides); then the
+/// components unregister from the router, the last member first. The
+/// type 3 objectives' destructor unmarks their targets for the players of
+/// a mission that is gone by then; the port unmarks nothing (D1026).
 pub fn release_offer(cx: &mut Cx<'_>, offer: &Offer) {
+    release_target_name(cx, offer);
+    // The members in reverse order: the components' `~MessageHandler`.
+    for handler in [
+        offer.ships.component.handler,
+        offer.solars.component.handler,
+        offer.target_ships.component.handler,
+        offer.general.handler,
+    ] {
+        if handler != 0 {
+            crate::content::router::unregister(cx, handler);
+        }
+    }
+}
+
+/// `ReleaseTargetName` (`RandomMissionRuntime.cpp:463-518`).
+fn release_target_name(cx: &mut Cx<'_>, offer: &Offer) {
     let name = &offer.target_name;
     if name.first.mad_lib_id == 0 && name.second.mad_lib_id == 0 {
         return;

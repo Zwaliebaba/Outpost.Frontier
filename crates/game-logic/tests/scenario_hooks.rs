@@ -20,7 +20,9 @@
 //! (P3.6c) are Content's NPC ships, made through the server's record
 //! (`FSystemInfo::CreateNpcShip`), so their managers report to Content
 //! and ask it for their flee destination (`content_follow`,
-//! `content_guide`, `content_flee`).
+//! `content_guide`, `content_flee`). `content_flee_comms` (P3.6b) is
+//! `content_flee` with Content's comm system on, on both sides; each
+//! scenario's line says which comms the Rust side admitted (reported).
 //!
 //! With `OUTPOST_ORACLE_DIR` set, each run is judged against the oracle's
 //! `tick.jsonl` as `game-sim/tests/scenario_replay.rs` judges the run
@@ -364,6 +366,12 @@ fn scenarios_through_the_server_hooks() {
                 logic: &mut logic,
             };
             content_start_up(&mut cx);
+            // `comms off`: the GCS clamp, as the oracle's
+            // `OracleSimSetGcsClamp` sets it, so Content's comm system
+            // admits nothing and draws no roll (P3.6b).
+            if s.comms_off {
+                cx.logic.content.state.clamps.set_gcs_clamp_enabled(1);
+            }
         }
         let mut hooks = ScenarioHooks {
             server: Hooks { logic: &mut logic },
@@ -371,6 +379,22 @@ fn scenarios_through_the_server_hooks() {
             population: population_ship(&path),
         };
         let ours = scenario::run_with(world, &s, &ai, &mut hooks);
+        // The comm system's activity (P3.6b; reported, not judged): the
+        // comms it admitted, newest ten per category.
+        let recent = &logic.content.state.gcs.recent;
+        if recent.values().any(|r| !r.is_empty()) {
+            let per: Vec<String> = recent
+                .iter()
+                .filter(|(_, r)| !r.is_empty())
+                .map(|(c, r)| format!("{c:#x}: {}", r.len()))
+                .collect();
+            let _ = writeln!(
+                summary,
+                "{}: comm system: comms admitted by category (at most 10 kept) {}",
+                s.name,
+                per.join(", ")
+            );
+        }
         if let Some((b, tick)) = ours.unported {
             let _ = writeln!(
                 summary,

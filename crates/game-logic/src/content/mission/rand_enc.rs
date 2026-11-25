@@ -214,6 +214,23 @@ pub struct MissionRandEnc {
     pub params: Option<RandEncParams>,
     /// `NpcCount` (run time).
     pub npc_count: u32,
+    /// `Arms` (run time): the encounter's formations as their ships are
+    /// made (`AttachRandEncNpc`; P3.5c2).
+    pub arms: Vec<RandEncArm>,
+}
+
+/// One formation of a random encounter's ships (`FMissionRandEncArm`,
+/// `MissionObject.h:217-223`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RandEncArm {
+    /// `Name`: `CreateID("%s_frm%d")`.
+    pub name: u32,
+    /// `FormationRef`: the formation id of its ships.
+    pub formation_ref: u32,
+    /// `Id`: the same id, a label of each of its ships.
+    pub id: u32,
+    /// `MemberIds`: its ships' space objects.
+    pub members: Vec<u32>,
 }
 
 /// `rand() * (max - min + 1) / 32768 + min` in `int`.
@@ -411,6 +428,7 @@ pub fn load_record(
         formation_index: 0,
         params: None,
         npc_count: 0,
+        arms: Vec::new(),
     };
     while reader.read_value() {
         if reader.is_value(b"nickname") {

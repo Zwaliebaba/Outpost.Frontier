@@ -7,10 +7,9 @@
 //! for them, then tractors in the jettisoned cargo or turns hostile.
 //!
 //! The scanner's conversations are the comm system's events (types 0x11
-//! to 0x18, `FGcsScanEvent` to `GGcsConversations.QueueConversation`),
-//! which come with P3.6b: none is queued yet, so a scanner whose faction
-//! announces its scans waits for the line's end (`CommComplete`) that no
-//! conversation sends (D861).
+//! to 0x18, `FGcsScanEvent` to `GGcsConversations.QueueConversation`,
+//! [`super::super::gcs`]): the end of the line (`CommComplete` from the
+//! speaker to the target) moves a scanner on from waiting for it.
 
 // The C++'s `!(x < y)` tests send NaN to the failing side; the port spells
 // them as the negated comparison.
@@ -432,19 +431,34 @@ impl CargoScanRoute {
     }
 
     /// The comm system's scan event of `kind` from the ship to the target
-    /// (`QueueScanEvent`, `:540-552`): the ship is the last speaker; the
-    /// conversation is P3.6b's (D861).
+    /// (`QueueScanEvent`, `:556-569`): in the ship's system, the ship is the
+    /// last speaker, then the event goes to the conversation manager
+    /// ([`super::super::gcs::queue_conversation`]; its result is dropped).
     fn queue_scan_event(
         &mut self,
-        cx: &Cx<'_>,
+        cx: &mut Cx<'_>,
         ship: Option<NpcShipKey>,
         kind: i32,
         loot_taker: u32,
         good: u32,
         response: u32,
     ) {
-        let _ = (kind, loot_taker, good, response);
-        self.comm_speaker = ship.map_or(0, |s| npc_ships::space_obj(cx, s));
+        let speaker = ship.map_or(0, |s| npc_ships::space_obj(cx, s));
+        // `Ship->GetSystem()`: the ship's record (none without a ship).
+        let system = ship
+            .and_then(|s| cx.logic.content.state.npc_ships.get(&s))
+            .and_then(|s| s.base.system);
+        self.comm_speaker = speaker;
+        let event = super::super::gcs::Event::Scan(super::super::gcs::ScanEvent {
+            system,
+            kind,
+            speaker,
+            listener: self.target_id,
+            loot_taker,
+            good,
+            response,
+        });
+        super::super::gcs::queue_conversation(cx, &event);
     }
 
     /// `FindScanTarget` (`:488-537`): off while the missions clamp scans.

@@ -36,6 +36,8 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "oracle_rm_trace.h"           // P3.7b oracle instrumentation, inert outside OracleDumpRmSession
+
 // =======================================================================================
 // FRmObjective (vtable 06fbc6d8)
 // =======================================================================================
@@ -650,6 +652,7 @@ FRmSolarMachine::~FRmSolarMachine()
 // (06f86a00-06f86ab7, RET 8). True for every message 0x39 in state 0.
 bool FRmSolarMachine::Slot2(SMEventData const* Event, int const& State)
 {
+    OracleRmTraceSm(get_id(), "solars", Event, State);
     if (State < 0 || State != 0)
         return false;
     SMControllerEvent const* Controller = static_cast<SMControllerEvent const*>(Event);
@@ -707,6 +710,7 @@ FRmShipMachine::~FRmShipMachine()
 // member with Flags bit 1 left -> the field. True for every message 0x39 in state 0.
 bool FRmShipMachine::Slot2(SMEventData const* Event, int const& State)
 {
+    OracleRmTraceSm(get_id(), "ships", Event, State);
     if (State < 0 || State != 0)
         return false;
     SMControllerEvent const* Controller = static_cast<SMControllerEvent const*>(Event);
@@ -804,6 +808,7 @@ FRmLootMachine::~FRmLootMachine()
 // (06f86fb0-06f877b6, RET 8). State 0 only; every handled message answers true.
 bool FRmLootMachine::Slot2(SMEventData const* Event, int const& State)
 {
+    OracleRmTraceSm(get_id(), "loot", Event, State);
     if (State < 0 || State != 0)
         return false;
 

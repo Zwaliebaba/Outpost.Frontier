@@ -25,7 +25,7 @@
 //!
 //! A base's bar characters on `BaseEnter` and `BaseExit`
 //! (`FContentBase::OnPlayerEnter`, `OnPlayerExit`) are BaseSupport's run
-//! time (P3.6e).
+//! time ([`super::bar`], P3.6e).
 
 use std::io::Write;
 use std::sync::Arc;
@@ -75,8 +75,16 @@ pub fn construct(cx: &mut Cx<'_>, id: ControllerId) -> Instance {
 pub fn destruct(cx: &mut Cx<'_>, _id: ControllerId) {
     cx.logic.content.tables = Arc::new(ContentTables::default());
     // `UnloadContentGameTables` also empties the base records
-    // (`UnloadContentBases`) and the system records (`ClearSystemInfos`).
-    cx.logic.content.state.bases.clear();
+    // (`UnloadContentBases`) and the system records (`ClearSystemInfos`);
+    // the records' bar characters release their offers as they go.
+    let bases = std::mem::take(&mut cx.logic.content.state.bases);
+    for record in bases.into_values() {
+        for state in record.room_states.into_values() {
+            for character in state.characters {
+                super::bar::release_offer(cx, character.offer);
+            }
+        }
+    }
     cx.logic.content.state.systems.clear();
     cx.logic.content.state.router = None;
 }
@@ -100,13 +108,15 @@ pub fn handle_message(cx: &mut Cx<'_>, _id: ControllerId, message: &mut Controll
             on_base_change(cx, player, base);
             if cx.logic.content.state.bases.contains_key(&base) {
                 load_base(cx, base);
-                // `Base->OnPlayerEnter(PlayerId)`: the bar characters (P3.6e).
+                super::bar::on_player_enter(cx, base, player);
             }
         }
-        ControllerMessage::BaseExit { player, .. } => {
-            let player = *player;
+        ControllerMessage::BaseExit { base, player } => {
+            let (base, player) = (*base, *player);
             if cx.logic.content.state.players.contains_key(&player) {
-                // `Base->OnPlayerExit(PlayerId)`: the bar characters (P3.6e).
+                if cx.logic.content.state.bases.contains_key(&base) {
+                    super::bar::on_player_exit(cx, base, player);
+                }
                 on_base_change(cx, player, 0);
             }
         }
@@ -130,17 +140,21 @@ pub fn handle_message(cx: &mut Cx<'_>, _id: ControllerId, message: &mut Controll
             }
         }
         ControllerMessage::SpaceExit { player, .. } => {
-            if let Some(state) = cx.logic.content.state.players.get_mut(player) {
-                state.ship = None;
+            let state = &mut cx.logic.content.state;
+            if let Some(ship) = state.players.get_mut(player).and_then(|p| p.ship.take()) {
+                super::npc_ships::release_queue(state, ship.directives);
             }
         }
         ControllerMessage::ObjectDestroyed(event) => {
-            let states = &mut cx.logic.content.state.players;
-            if let Some(player) = players::find_by_ship(states, event.id)
-                && let Some(state) = states.get_mut(&player)
+            let state = &mut cx.logic.content.state;
+            if let Some(player) = players::find_by_ship(&state.players, event.id)
+                && let Some(p) = state.players.get_mut(&player)
             {
-                state.ship = None;
-                state.ship_destroyed = true;
+                let ship = p.ship.take();
+                p.ship_destroyed = true;
+                if let Some(ship) = ship {
+                    super::npc_ships::release_queue(state, ship.directives);
+                }
             }
         }
         ControllerMessage::SystemExit { player, .. } => {
@@ -778,8 +792,14 @@ pub fn make_ship_object(cx: &mut Cx<'_>, player: u32, ship: u32, archetype: u32)
         ship,
         &BaseOp::new(Op::SetPersonalityParams(Box::new(op))),
     );
-    if let Some(state) = cx.logic.content.state.players.get_mut(&player) {
-        state.ship = Some(PlayerShip::new(ship, archetype, class_ids, system));
+    let state = &mut cx.logic.content.state;
+    if let Some(p) = state.players.get_mut(&player) {
+        let old = p
+            .ship
+            .replace(PlayerShip::new(ship, archetype, class_ids, system));
+        if let Some(old) = old {
+            super::npc_ships::release_queue(state, old.directives);
+        }
     }
 }
 

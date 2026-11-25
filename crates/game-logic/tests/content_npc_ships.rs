@@ -564,3 +564,112 @@ fn the_goto_and_dock_guides_lead_their_target() {
     assert!(cx.logic.content.state.guides.get(dg).is_none());
     assert!(!cx.logic.content.state.guided_ships.contains(&Some(docker)));
 }
+
+/// A he_p_grp patrol announces its scan (type 0x11 to the comm system,
+/// P3.6b): the line plays, and once it ends (`CommComplete` after its
+/// voice duration and 1.25 s) the scanner closes in again and scans
+/// (`FCargoScanRoute`'s states 5, then 4 and 6 on).
+#[test]
+fn a_patrol_that_announces_its_scan_scans_once_the_line_ends() {
+    let Some((mut world, mut logic)) = setup() else {
+        return;
+    };
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    let he01 = create_id(b"he01");
+    let record = &cx.logic.content.state.systems[&he01];
+    let index = record
+        .paths
+        .iter()
+        .position(|p| p.points.len() >= 3)
+        .expect("he01 has patrol paths");
+    let path = record.paths[index].clone();
+    let desc = GuideDesc {
+        kind: 3,
+        target1: solar_id(&cx, b"he01_11"),
+        target2: solar_id(&cx, b"he01_03"),
+        plan: SpawnPlan {
+            path: Some(PatrolPathRef {
+                system: he01,
+                index,
+            }),
+            path_target_point: 1,
+            path_point: path.points.len() as i32 - 1,
+            path_direction: 1,
+            ..SpawnPlan::default()
+        },
+        ..GuideDesc::default()
+    };
+    let mut params = fighter_params(&cx);
+    params.reputation = Some(faction_handle(&mut cx, b"he_p_grp"));
+    params.position = path.points[0];
+    params.voice = create_id(b"pilot_f_leg_m01");
+    params.guide = Some(desc);
+    let (_, patrol) = npc_ships::create_in_system(&mut cx, he01, &params, 0);
+    npc_ships::release_params(&mut cx, params);
+    let patrol = patrol.expect("the patrol");
+    let (g, guide) = guide_of(&cx, patrol);
+    let GuideKind::Patrol(p) = &guide.kind else {
+        panic!("a patrol guide");
+    };
+    if p.scanner.state == 0 {
+        println!("the fighter's scanner reaches 500 m or less: no scan to announce");
+        return;
+    }
+    // A ship of no faction 200 m away: the patrol's attitude toward it is 0.
+    let vibe = reputation::alloc(&mut cx, &FmtStr::new(0), &FmtStr::new(0)).expect("a vibe");
+    let mut params = fighter_params(&cx);
+    params.reputation = Some(
+        cx.logic
+            .content
+            .state
+            .rep_handles
+            .create(vibe, RepKind::Plain),
+    );
+    let at = path.points[0];
+    params.position = Vector::new(at.x + 200.0, at.y, at.z);
+    let (_, target) = npc_ships::create_in_system(&mut cx, he01, &params, 0);
+    npc_ships::release_params(&mut cx, params);
+    let target = npc_ships::space_obj(&cx, target.expect("the target"));
+
+    let scanner = |cx: &Cx<'_>| match &cx.logic.content.state.guides.get(g).unwrap().kind {
+        GuideKind::Patrol(p) => (p.scanner.state, p.scanner.target_id),
+        _ => panic!("a patrol guide"),
+    };
+    let heartbeat = |cx: &mut Cx<'_>| {
+        space_support(cx, &mut ControllerMessage::Heartbeat { elapsed: 1.0 });
+    };
+    // The scanner picks the ship at its 0.3 chance, closes in and announces.
+    let mut beats = 0;
+    while scanner(&cx).0 != 5 {
+        heartbeat(&mut cx);
+        beats += 1;
+        assert!(
+            beats < 200,
+            "the scanner never announced: {:?}",
+            scanner(&cx)
+        );
+    }
+    assert_eq!(scanner(&cx).1, target);
+    let gcs = &cx.logic.content.state.gcs;
+    assert_eq!(gcs.conversations.len(), 1);
+    let line = &gcs.conversations[0].lines[0];
+    let patrol_id = npc_ships::space_obj(&cx, patrol);
+    assert_eq!((line.speaker, line.listener), (patrol_id, target));
+    assert_eq!(*line.texts.first().unwrap(), create_id(b"gcs_misc_thisis+"));
+    // The line's end moves the scanner on: it scans.
+    let mut beats = 0;
+    while scanner(&cx).0 == 5 {
+        heartbeat(&mut cx);
+        beats += 1;
+        assert!(beats < 30, "the scanner waits for its line");
+    }
+    while scanner(&cx).0 == 4 {
+        heartbeat(&mut cx);
+        beats += 1;
+        assert!(beats < 30, "the scanner does not close in again");
+    }
+    assert_ne!(scanner(&cx).0, 5);
+}

@@ -52,8 +52,12 @@
 //! ([`tradelane_requests`]) moved in from `crate::tradelane`. P3.6c brings
 //! the NPC ships ([`npc_ships`]) with their callback handles
 //! ([`callbacks`]), directives ([`directives`]), reputation handles
-//! ([`rep_handles`]) and guides ([`guides`]).
+//! ([`rep_handles`]) and guides ([`guides`]). P3.6e brings BaseSupport
+//! ([`base_support`]) with the bar characters of the base records
+//! ([`bar`]) and the generic bar scripts ([`generic_scripts`]).
 
+/// The bar characters, their offers and the bar scenes (TU17; P3.6e).
+pub mod bar;
 pub mod base_support;
 /// `missions\mBases.ini` (TU17, TU22; P3.4c).
 pub mod bases;
@@ -78,6 +82,9 @@ pub mod formations;
 pub mod game_support;
 /// The gate locks (TU53; P3.4d).
 pub mod gate_locks;
+/// The comm system, GCS (TU25; P3.6b).
+pub mod gcs;
+pub mod generic_scripts;
 /// The NPC guides (TU37; P3.6c).
 pub mod guides;
 pub mod mission;
@@ -243,6 +250,22 @@ pub struct ContentState {
     /// record then marks where its steps start
     /// ([`systems::DrawMark`]).
     pub draw_marks: Option<Vec<systems::DrawMark>>,
+    /// `GBaseVisits` (`Content/BaseSupport.cpp:487`): the players in a base,
+    /// their news and mission vendor offers (P3.6e, [`base_support`]).
+    pub base_visits: base_support::BaseVisits,
+    /// `GGenericScripts` (`Content/GenericScripts.cpp:28`): loaded by
+    /// BaseSupport's constructor, emptied by its destructor (P3.6e,
+    /// [`generic_scripts`]).
+    pub generic_scripts: generic_scripts::GenericScripts,
+    /// `GBarSceneNextId` (`Content/BaseDB.cpp:617`, 1): the next bar scene
+    /// id ([`bar::create_bar_scene`]).
+    pub next_bar_scene: i32,
+    /// `GBarSceneBases` (`Content/BaseDB.cpp:611`): the base of each bar
+    /// scene, by scene id; nothing reads it.
+    pub bar_scene_bases: BTreeMap<i32, u32>,
+    /// The comm system (TU25's admission tables, `GGcsHandlers` and
+    /// `GGcsConversations`; P3.6b, [`gcs`]).
+    pub gcs: gcs::Gcs,
 }
 
 impl ContentState {
@@ -287,6 +310,11 @@ impl ContentState {
             guides: guides::GuideArena::default(),
             guided_ships: Vec::new(),
             draw_marks: None,
+            base_visits: base_support::BaseVisits::new(),
+            generic_scripts: generic_scripts::GenericScripts::default(),
+            next_bar_scene: bar::FIRST_SCENE_ID,
+            bar_scene_bases: BTreeMap::new(),
+            gcs: gcs::Gcs::default(),
         }
     }
 }
@@ -319,7 +347,7 @@ pub enum Instance {
     /// `GenericMission` ([`mission::MissionScript`]).
     Mission(Box<mission::MissionScript>),
     /// `DestroyMission` ([`random_mission::RandomMission`]).
-    RandomMission(random_mission::RandomMission),
+    RandomMission(Box<random_mission::RandomMission>),
 }
 
 /// Content's state in the server (record 0008 point 1).
@@ -337,6 +365,10 @@ pub struct Content {
     pub state: ContentState,
     /// Each controller's own state, by controller id.
     pub instances: BTreeMap<ControllerId, Instance>,
+    /// The Tier B traces of the missions the bus tore down while a session
+    /// recorded them (a test seam; empty in a game run, where no mission
+    /// has a trace): the session reads the last records here (P3.5c2).
+    pub finished_traces: Vec<(ControllerId, mission::trace::Trace)>,
     /// The bus's deliveries so far (debug builds): a take of an item out
     /// of its slot asserts that this does not change before it is put back.
     #[cfg(debug_assertions)]
@@ -360,6 +392,7 @@ impl Content {
             rm_loaded: false,
             state: ContentState::load(),
             instances: BTreeMap::new(),
+            finished_traces: Vec::new(),
             #[cfg(debug_assertions)]
             deliveries: 0,
         }
@@ -496,8 +529,6 @@ pub fn destroy_instance(cx: &mut Cx<'_>, id: ControllerId, kind: ControllerKind)
         ControllerKind::GameSupport => game_support::destruct(cx, id),
         ControllerKind::BaseSupport => base_support::destruct(cx, id),
         ControllerKind::StoryLauncher => story::destruct_launcher(cx, id),
-        // The random mission's release of its data (P3.7c; the rest of its
-        // destructor is P3.7b's).
         ControllerKind::DestroyMission => random_mission::destruct(cx, id),
         // No destructor body: SpaceSupport, SpacePop and BasePop have none,
         // Story's is the default one, and the missions' come with P3.5.
@@ -511,15 +542,25 @@ pub fn destroy_instance(cx: &mut Cx<'_>, id: ControllerId, kind: ControllerKind)
         | ControllerKind::GenericMission => {}
     }
     let content = &mut cx.logic.content;
-    content.instances.remove(&id);
-    if content.instances.is_empty() {
-        content.unload();
+    if let Some(Instance::Mission(script)) = content.instances.remove(&id)
+        && let Some(trace) = script.trace
+    {
+        content.finished_traces.push((id, trace));
+    }
+    if cx.logic.content.instances.is_empty() {
+        // The DLL's static destructors: `~FGcsHandlerSet` deletes the dock
+        // hail handler, whose destructor destroys every system's phantoms
+        // (`Gcs.cpp:3716-3721`).
+        gcs::on_system_unloaded(cx, 0);
+        cx.logic.content.unload();
     }
 }
 
 /// `IDLL::HandleMessage` of controller `id` of `kind`: the kind's handler.
 /// The kinds without a ported handler ignore the message for now; the
-/// script missions' handler came with P3.5c1 ([`mission::engine`]).
+/// script missions' handler came with P3.5c1 ([`mission::engine`]),
+/// BaseSupport's with P3.6e ([`base_support`]) and `DestroyMission`'s with
+/// P3.7b ([`random_mission::runtime`]).
 pub fn deliver(
     cx: &mut Cx<'_>,
     id: ControllerId,
@@ -529,16 +570,16 @@ pub fn deliver(
     match kind {
         ControllerKind::GameSupport => game_support::handle_message(cx, id, message),
         ControllerKind::SpaceSupport => space_support::handle_message(cx, id, message),
+        ControllerKind::BaseSupport => base_support::handle_message(cx, id, message),
         ControllerKind::Mission01a
         | ControllerKind::Mission01b
         | ControllerKind::Mission(_)
         | ControllerKind::GenericMission => mission::engine::handle_message(cx, id, message),
+        ControllerKind::DestroyMission => random_mission::runtime::handle_message(cx, id, message),
         ControllerKind::SpacePop => population::handle_space_pop(cx, id, message),
-        ControllerKind::BaseSupport
-        | ControllerKind::BasePop
+        ControllerKind::BasePop
         | ControllerKind::StoryLauncher
-        | ControllerKind::Story
-        | ControllerKind::DestroyMission => {}
+        | ControllerKind::Story => {}
     }
 }
 
@@ -578,6 +619,6 @@ pub(crate) fn data_source(cx: &Cx<'_>) -> Box<dyn DataSource> {
 /// `pub::Controller::SetHeartbeatInterval(id, interval)` from a
 /// constructor. The id is the controller being made, which the bus has
 /// listed already, so the call cannot fail; it draws one `rand()`.
-fn set_heartbeat(cx: &mut Cx<'_>, id: ControllerId, interval: f32) {
+pub(crate) fn set_heartbeat(cx: &mut Cx<'_>, id: ControllerId, interval: f32) {
     let _ = crate::api::controller::set_heartbeat_interval(cx, id, interval);
 }

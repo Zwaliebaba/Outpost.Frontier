@@ -32,6 +32,8 @@
 
 #include <cstring>
 
+#include "oracle_rm_trace.h"           // P3.7b oracle instrumentation, inert outside OracleDumpRmSession
+
 // (TU61 static init): FLD 3500.0 (the field), FADD 6000.0 (the field), FSTP.
 float GRmVignetteOuterRadius = 3500.0f + 6000.0f;
 
@@ -523,6 +525,7 @@ void FRmVignetteMachine::MarkGroupTargets(FRmRecordList* Members, FRmObjectiveMa
 // (06f8c460-06f90a32, RET 8).
 bool FRmVignetteMachine::Slot2(SMEventData const* Event, int const& State)
 {
+    OracleRmTraceSm(static_cast<MessageHandler*>(this)->get_id(), "vignette", Event, State);
     RmVignetteEntryCookies();
     if (State < 0)
         return HandleAnyState(Event);

@@ -19,6 +19,8 @@
 
 #include <algorithm>
 
+#include "oracle_rm_trace.h"           // P3.7b oracle instrumentation, inert outside OracleDumpRmSession
+
 // StateMachineMessage::GenerateUniqueMessageType inlined.
 unsigned int const GRmMsgTriggerFired = StateMachineMessage::GenerateUniqueMessageType();
 
@@ -81,6 +83,7 @@ FRmTrigger::FRmTrigger(unsigned int InCookie, unsigned int InOwnerId, bool bInOn
 // (RET 8): the state value picks the slot; the slot's result is dropped.
 bool FRmTrigger::Slot2(SMEventData const* Event, int const& State)
 {
+    OracleRmTraceSm(get_id(), "trigger", Event, State);
     if (State < 0)
         return false;
     if (State == 0)

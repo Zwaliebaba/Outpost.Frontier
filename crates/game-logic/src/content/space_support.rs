@@ -4,10 +4,12 @@
 //! - **Constructor** (`FSpaceSupport::FSpaceSupport`, `:303-308`): the
 //!   controller's id into `GSpaceSupportControllerId`, a 1 s heartbeat
 //!   (`GSpaceSupportHeartbeat`; one `rand()`), then `InitGcs`, the comm
-//!   system's handlers and intervals (P3.6b). It has no destructor.
+//!   system's handlers and intervals ([`super::gcs::init`]). It has no
+//!   destructor.
 //! - **Handler** (`FSpaceSupport::HandleMessage`, `:560-984`), four steps
 //!   over every message, in the C++ order ([`handle_message`]):
-//!   1. the comm system's handler set for 15 messages (P3.6b);
+//!   1. the comm system's handler set for 15 messages
+//!      ([`super::gcs::handle_message`]);
 //!   2. the NPC ship events for `CommComplete`, `ObjectDestroyed` and
 //!      `TimerExpired` (P3.6c);
 //!   3. the main switch, every case in the C++ order. The port has the
@@ -18,10 +20,11 @@
 //!      ([`sync_solar_attitudes`]), the system records' parts (P3.4d) and
 //!      the music, the NPC ships, their lives and hostile contacts, the
 //!      combat reputation and the faction-name timers (P3.6c,
-//!      [`super::npc_names::handle_faction_name_timer`]). The parts of
-//!      later packages are named stubs: the comm system (P3.6b) and the
-//!      message router (P3.7b);
-//!   4. the tail: the comm system again on load and unload (P3.6b), the
+//!      [`super::npc_names::handle_faction_name_timer`]), and the comm
+//!      system's conversations ([`super::gcs`]). The parts of later
+//!      packages are named stubs: the system records' pending comms
+//!      (P3.5c4, the mission dialogs) and the message router (P3.7b);
+//!   4. the tail: the comm system again on load and unload, the
 //!      dock terminal states except on `JumpgateAct`
 //!      ([`super::dock_queues::apply_terminal_states`]), and each guided
 //!      ship forwarding the message to its guide (P3.6c).
@@ -51,8 +54,7 @@ pub const LOOT_RADIUS: f32 = 5000.0;
 pub fn construct(cx: &mut Cx<'_>, id: ControllerId) -> Instance {
     cx.logic.content.state.space_support = id;
     super::set_heartbeat(cx, id, HEARTBEAT);
-    // `InitGcs` (`:310-347`): the comm system's handlers 0 to 2 and its
-    // intervals, chances and categories are P3.6b's.
+    super::gcs::init(cx);
     Instance::SpaceSupport
 }
 
@@ -60,9 +62,30 @@ pub fn construct(cx: &mut Cx<'_>, id: ControllerId) -> Instance {
 /// hears `ObjectDamaged`, `Hail`, `Heartbeat`, `PhantomEnter`,
 /// `PhantomExit`, `DeathFuseLit`, `ObjectDestroyed`, `TimerExpired`,
 /// `CombatState`, `CombatDrift`, `NpcTurnedHostile`, `FleeRequest`,
-/// `DamageReputation`, `FormationLeaderChanged` and `ShipInSights`.
-/// P3.6b (D844).
-fn gcs_handlers(_cx: &mut Cx<'_>, _message: &mut ControllerMessage<'_>) {}
+/// `DamageReputation`, `FormationLeaderChanged` and `ShipInSights`
+/// ([`super::gcs::handle_message`]).
+fn gcs_handlers(cx: &mut Cx<'_>, message: &mut ControllerMessage<'_>) {
+    if matches!(
+        message,
+        ControllerMessage::ObjectDamaged(_)
+            | ControllerMessage::Hail { .. }
+            | ControllerMessage::Heartbeat { .. }
+            | ControllerMessage::PhantomEnter { .. }
+            | ControllerMessage::PhantomExit { .. }
+            | ControllerMessage::DeathFuseLit(_)
+            | ControllerMessage::ObjectDestroyed(_)
+            | ControllerMessage::TimerExpired { .. }
+            | ControllerMessage::CombatState { .. }
+            | ControllerMessage::CombatDrift { .. }
+            | ControllerMessage::NpcTurnedHostile { .. }
+            | ControllerMessage::FleeRequest { .. }
+            | ControllerMessage::DamageReputation { .. }
+            | ControllerMessage::FormationLeaderChanged { .. }
+            | ControllerMessage::ShipInSights { .. }
+    ) {
+        super::gcs::handle_message(cx, message);
+    }
+}
 
 /// Step 2 (`:590-592`): the NPC ship events (`GNpcShipEvents`) of
 /// `CommComplete`, `ObjectDestroyed` and `TimerExpired`
@@ -105,23 +128,88 @@ pub fn unregister_guided_ship(cx: &mut Cx<'_>, ship: crate::events::NpcShipKey) 
     }
 }
 
-/// The comm system's type 2 event (`FGcsDockGrantedEvent` to
-/// `GGcsConversations.QueueConversation`) of a dock answer: P3.6b (D844).
-/// The C++ fills the event's terminal type from the terminal (or the
-/// ship's classes) and queues it; nothing is queued until the comm system
-/// comes.
+/// The record of `system` when there is one (`FindSystemInfo`).
+fn system_record(cx: &Cx<'_>, system: u32) -> Option<u32> {
+    cx.logic
+        .content
+        .state
+        .systems
+        .contains_key(&system)
+        .then_some(system)
+}
+
+/// The comm system's type 2 event of a dock answer (`FGcsDockGrantedEvent`
+/// to `GGcsConversations.QueueConversation`, `DockQueues.cpp:686-710` and
+/// `:1376-1397`): the terminal's type for a terminal (`TerminalInfo::Value`;
+/// a failed read, which leaves the C++'s local unset, reads 0, D936), else
+/// the type the ship's classes give for the target (a ship that is gone,
+/// which the C++ reads through null, has none, D935). Its result is
+/// dropped.
 pub(crate) fn gcs_dock_granted_event(
-    _cx: &mut Cx<'_>,
-    _entry: &DockEntry,
-    _index: i32,
-    _response: i32,
-    _waited_in_queue: bool,
+    cx: &mut Cx<'_>,
+    entry: &DockEntry,
+    index: i32,
+    response: i32,
+    waited_in_queue: bool,
 ) {
+    let system = system_record(cx, entry.system);
+    let dock_type = if index != -1 {
+        api::space_obj::terminal_info(cx, entry.target, index).map_or(0, |i| i.value)
+    } else {
+        let classes = super::gcs::find_ship(cx, system, entry.ship)
+            .and_then(|k| ships::base(&cx.logic.content.state, k))
+            .map(|s| s.class_ids.clone())
+            .unwrap_or_default();
+        dock_queues::dock_type_for_classes(cx, entry.target, &classes) as u32
+    };
+    let event = super::gcs::Event::Dock(super::gcs::DockEvent {
+        system,
+        speaker: entry.target,
+        listener: entry.ship,
+        dock_index: index,
+        dock_type,
+        response,
+        waited_in_queue,
+    });
+    super::gcs::queue_conversation(cx, &event);
 }
 
 /// The comm system's "granted" event of a lane ring
-/// (`Content/TradelaneRequests.cpp:51-60`): P3.6b (D734).
-pub(crate) fn gcs_lane_granted_event(_cx: &mut Cx<'_>, _system: u32, _ring: u32, _ship: u32) {}
+/// (`Content/TradelaneRequests.cpp:51-60`): type 2 with index -1, dock type
+/// 0 and response 4; its result is dropped.
+pub(crate) fn gcs_lane_granted_event(cx: &mut Cx<'_>, system: u32, ring: u32, ship: u32) {
+    let event = super::gcs::Event::Dock(super::gcs::DockEvent {
+        system: system_record(cx, system),
+        speaker: ring,
+        listener: ship,
+        dock_index: -1,
+        dock_type: 0,
+        response: 4,
+        waited_in_queue: false,
+    });
+    super::gcs::queue_conversation(cx, &event);
+}
+
+/// The comm system's type 3 event of a launch (`FGcsLaunchEvent`,
+/// `SpaceSupport.cpp:836-847` and `DockQueues.cpp:2127-2138`): the dock
+/// speaks to the ship at its terminal; the result is dropped.
+pub(crate) fn gcs_launch_event(
+    cx: &mut Cx<'_>,
+    system: u32,
+    dock: u32,
+    ship: u32,
+    index: i32,
+    terminal_type: u32,
+) {
+    let event = super::gcs::Event::Launch(super::gcs::LaunchEvent {
+        system: system_record(cx, system),
+        speaker: dock,
+        listener: ship,
+        dock_index: index,
+        terminal_type,
+    });
+    super::gcs::queue_conversation(cx, &event);
+}
 
 /// `FSpaceSupport::HandleMessage`: the four steps in the C++ order.
 pub fn handle_message(cx: &mut Cx<'_>, _id: ControllerId, message: &mut ControllerMessage<'_>) {
@@ -140,7 +228,7 @@ pub fn handle_message(cx: &mut Cx<'_>, _id: ControllerId, message: &mut Controll
         message,
         ControllerMessage::SystemLoaded { .. } | ControllerMessage::SystemUnloaded { .. }
     ) {
-        gcs_handlers(cx, message);
+        super::gcs::handle_message(cx, message);
     }
     if !matches!(message, ControllerMessage::JumpgateAct { .. }) {
         dock_queues::apply_terminal_states(cx);
@@ -152,9 +240,22 @@ pub fn handle_message(cx: &mut Cx<'_>, _id: ControllerId, message: &mut Controll
 #[allow(clippy::too_many_lines)]
 fn main_switch(cx: &mut Cx<'_>, message: &mut ControllerMessage<'_>) {
     match message {
-        ControllerMessage::CommComplete { .. } => {
-            // The system record's pending comms (`SendPendingComms`) and
-            // the conversations (`GGcsConversations.OnMessage`): P3.6b.
+        ControllerMessage::CommComplete {
+            listener,
+            system,
+            speaker,
+            line,
+            ..
+        } => {
+            // The system record's pending comms (`SendPendingComms`): only
+            // the mission dialogs fill them (P3.5c4, D971).
+            let done = super::gcs::LineDone {
+                listener: *listener,
+                system: *system,
+                speaker: *speaker,
+                text: *line,
+            };
+            super::gcs::on_message(cx, &done);
         }
         ControllerMessage::ObjectDamaged(event) => {
             let event = *event;
@@ -410,9 +511,9 @@ fn main_switch(cx: &mut Cx<'_>, message: &mut ControllerMessage<'_>) {
                 let _ = api::audio::cancel_music(cx, param2);
             } else {
                 // The faction-name queues, then the message router
-                // (`GMessageRouter->OnTimerExpired`, P3.7b), which sets no
-                // timer yet.
+                // (`GMessageRouter->OnTimerExpired`, `SpaceSupport.cpp:935-936`).
                 super::npc_names::handle_faction_name_timer(cx, param1, param2);
+                super::router::on_timer_expired(cx, param1);
             }
         }
         ControllerMessage::DamageReputation {
@@ -469,7 +570,7 @@ fn erase_launch_queues_unless_occupied(cx: &mut Cx<'_>, system: u32) {
 /// (with the heartbeat's period), every record's flagged objects away from
 /// the players, the dock queues, the launch queues, the combat reputation,
 /// each player's ship's hostile contacts (with the elapsed time) and the
-/// comm system's conversations (P3.6b).
+/// comm system's delayed line ends ([`super::gcs::update`]).
 fn heartbeat(cx: &mut Cx<'_>, elapsed: f32) {
     let ids: Vec<u32> = cx.logic.content.state.systems.keys().copied().collect();
     for &system in &ids {
@@ -493,12 +594,15 @@ fn heartbeat(cx: &mut Cx<'_>, elapsed: f32) {
     for player in players {
         super::combat_reputation::update_hostile_contacts(cx, player, elapsed);
     }
+    super::gcs::update(cx, elapsed);
 }
 
 /// The `SpaceEnter` case (`:820-861`): a multiplayer launch first syncs the
 /// solar attitudes; a launch from a base or a docking ring (type
-/// `0x600de0`) puts the player's ship in the docking list as launched. The
-/// dock hail's silence and the launch conversation are P3.6b's (D844).
+/// `0x600de0`) puts the player's ship in the docking list as launched; from
+/// a station (`0x200100`) the dock hails keep quiet about it for 30 s; then
+/// the launch conversation (type 3) with the terminal's type (a failed
+/// read, which leaves the C++'s local unset, reads 0, D936).
 fn space_enter(cx: &mut Cx<'_>, system: u32, player: u32, target: u32, index: i32) {
     if !api::misc::single_player(cx) {
         sync_solar_attitudes(cx, system, player);
@@ -511,6 +615,11 @@ fn space_enter(cx: &mut Cx<'_>, system: u32, player: u32, target: u32, index: i3
     }
     let ship = api::player::ship(cx, player).unwrap_or(0);
     dock_queues::push_launched(cx, system, ship, target, index);
+    if target_type & 0x20_0100 != 0 {
+        super::gcs::suppress_hail(cx, ship, None, 0x1e);
+    }
+    let terminal_type = api::space_obj::terminal_info(cx, target, index).map_or(0, |i| i.value);
+    gcs_launch_event(cx, system, target, ship, index, terminal_type);
 }
 
 /// The `SystemEnter` case (`:877-912`): the player joins the record's

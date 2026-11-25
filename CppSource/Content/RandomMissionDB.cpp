@@ -1222,6 +1222,18 @@ int FRandomMissionObject::GetPlayerCount()
     return PlayerCount;
 }
 
+// Oracle instrumentation (P3.7b): one member of SetPlayer's loop (06f4c4c8-06f4c5be) for a player
+// a slotless session cannot put in a group.
+void FRandomMissionObject::OracleJoinPlayer(unsigned int InPlayerId)
+{
+    FContentPlayerState* State = FindContentPlayerState(InPlayerId);
+    PlayerStateMap.insert(std::map<unsigned int, FContentPlayerState*>::value_type(InPlayerId, State));
+    PlayerStates.push_back(State);
+    std::wstring Name;
+    State->GetName(&Name);
+    AddPlayerName(Name);
+}
+
 // (06f4c6f0-06f4c82b, RET 4). Every player: flags 0, the aborted (Reason 1) or
 // failed count with +0x80, "music_failure" when he has a ship. Then slot 43 with the offer
 // group's event rate 3 (aborted) or 2 and empathy for any reason but 1, the objectives cleared
