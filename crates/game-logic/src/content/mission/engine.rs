@@ -237,7 +237,9 @@ pub fn activate_trigger(cx: &mut Cx<'_>, id: ControllerId, trigger: u32) {
         rearm_if_repeatable(cx, id, trigger);
     }
     if let Some(s) = script_mut(cx, id)
-        && s.triggers.get(&trigger).is_some_and(|t| t.state != STATE_COMPLETE)
+        && s.triggers
+            .get(&trigger)
+            .is_some_and(|t| t.state != STATE_COMPLETE)
     {
         s.active_triggers.push(trigger);
     }
@@ -248,8 +250,7 @@ pub fn deactivate_trigger(cx: &mut Cx<'_>, id: ControllerId, trigger: u32) {
     let Some(s) = script_mut(cx, id) else { return };
     let at = s.active_triggers.iter().position(|&t| {
         t == trigger
-            && s
-                .triggers
+            && s.triggers
                 .get(&t)
                 .is_some_and(|t| t.state != STATE_COMPLETE)
     });
@@ -518,7 +519,10 @@ pub fn handle_mission_message(
             on_abort(cx, id, p);
             base_body = false;
         }
-        M::LocationEnter { location, player: p } => {
+        M::LocationEnter {
+            location,
+            player: p,
+        } => {
             if *p == player {
                 let location = *location;
                 let on_base = cx
@@ -662,7 +666,8 @@ fn mission_object_body(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMe
             }
         }
         M::Msg0x27 { ship, .. } => {
-            let dead = crate::content::players::find_by_ship(&cx.logic.content.state.players, *ship);
+            let dead =
+                crate::content::players::find_by_ship(&cx.logic.content.state.players, *ship);
             if let (Some(dead), Some(s)) = (dead, script_mut(cx, id)) {
                 s.object.dead_players.push(dead);
             }
@@ -855,8 +860,7 @@ fn on_damage_reputation(cx: &mut Cx<'_>, id: ControllerId, kind: u32, ship: u32,
     if ship != own || kind != 1 {
         return;
     }
-    if s
-        .friendly_fire_excused
+    if s.friendly_fire_excused
         .iter()
         .any(|label| label_object_id(cx, s, label) == victim)
     {

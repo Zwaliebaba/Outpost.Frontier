@@ -79,7 +79,10 @@ pub fn is_ported(action: &Action) -> bool {
 fn player_ship(cx: &Cx<'_>, id: ControllerId) -> Option<(u32, u32)> {
     let s = script(cx, id)?;
     let state = player_state(cx, s)?;
-    Some((state.player, state.ship.as_ref().map_or(0, |ship| ship.ship)))
+    Some((
+        state.player,
+        state.ship.as_ref().map_or(0, |ship| ship.ship),
+    ))
 }
 
 /// `Act::Execute` of the action at `index` of trigger `trigger` of mission

@@ -34,8 +34,8 @@ use super::rand_enc::{self, MissionRandEnc};
 use super::{base_id_of, f32_at, nickname_id, system_id_into, tstring, value_tstring};
 use crate::api;
 use crate::content::tables::{self, NpcShipArch};
-use crate::server::Cx;
 use crate::events::NpcShipKey;
+use crate::server::Cx;
 
 /// The heartbeat of a mission object (`MissionObject.cpp:88`): 1/30 s.
 pub const HEARTBEAT: f32 = 0.033_333_335;

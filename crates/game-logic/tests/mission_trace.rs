@@ -370,7 +370,9 @@ fn the_opening_runs_on_outdir() {
     assert_eq!(fired(id(b"tr_fp7_cam")), Some((2, 0x36)));
     let actions = records
         .iter()
-        .filter(|r| matches!(r, TraceRecord::Action { trigger, .. } if *trigger == id(b"tr_fp7_cam")))
+        .filter(
+            |r| matches!(r, TraceRecord::Action { trigger, .. } if *trigger == id(b"tr_fp7_cam")),
+        )
         .count();
     assert_eq!(actions, 19);
     // The 5 s timer counts the heartbeats after its activation at tick 2.
@@ -378,7 +380,10 @@ fn the_opening_runs_on_outdir() {
     assert_eq!(event, 0x20);
     assert!((150..=154).contains(&tick), "fired at tick {tick}");
     // Its Cnd_True follower fires through its probe in the same drain.
-    assert_eq!(fired(id(b"fp7_attacker_spawn")), Some((tick, engine::PROBE)));
+    assert_eq!(
+        fired(id(b"fp7_attacker_spawn")),
+        Some((tick, engine::PROBE))
+    );
     // The scripted comms run the dialog chain.
     assert_eq!(fired(id(b"Samura_Ack_dlg")).map(|f| f.0), Some(200));
     assert_eq!(fired(id(b"Base_sends_escorts_trg")).map(|f| f.0), Some(260));

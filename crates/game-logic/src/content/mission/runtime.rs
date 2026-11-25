@@ -126,10 +126,21 @@ pub fn block(parms: &Parms<'_, '_>) -> Option<[u32; 9]> {
                 player,
                 launch_object,
                 launch_kind,
-            } => put(&[*system, *player, *launch_object, launch_kind.cast_unsigned()]),
+            } => put(&[
+                *system,
+                *player,
+                *launch_object,
+                launch_kind.cast_unsigned(),
+            ]),
             M::SpaceExit { system, player } => put(&[*system, *player]),
             M::ObjectDestroyed(d) => {
-                put(&[d.id, d.killer, d.system, d.owner_player, d.kind.cast_unsigned()]);
+                put(&[
+                    d.id,
+                    d.killer,
+                    d.system,
+                    d.owner_player,
+                    d.kind.cast_unsigned(),
+                ]);
             }
             M::SystemExit {
                 system,
@@ -195,7 +206,9 @@ fn ship_of(state: &PlayerState) -> u32 {
 
 /// The player's live ship, when the player has a state and a ship.
 fn live_ship(cx: &Cx<'_>, s: &MissionScript) -> Option<u32> {
-    player_state(cx, s).and_then(|p| p.ship.as_ref()).map(|s| s.ship)
+    player_state(cx, s)
+        .and_then(|p| p.ship.as_ref())
+        .map(|s| s.ship)
 }
 
 /// An NPC ship by its key, `None` for a null entry.
@@ -367,8 +380,8 @@ pub fn on_activate(cx: &mut Cx<'_>, id: ControllerId, condition: &mut Condition)
             c.circle_obj_id = api::misc::nickname_id(c_str(&c.circle_obj));
             // GetLocation zeroes the position first; the orientation of a
             // missing object is the stack's (D978): identity here.
-            let (center, orientation) = location(cx_ref, c.circle_obj_id)
-                .unwrap_or((Vector::ZERO, Matrix::IDENTITY));
+            let (center, orientation) =
+                location(cx_ref, c.circle_obj_id).unwrap_or((Vector::ZERO, Matrix::IDENTITY));
             c.circle_center = center;
             let axis = transform_matrix(&orientation, Vector::new(0.0, 0.0, -1.0));
             let (nx, ny, nz) = (f64::from(axis.x), f64::from(axis.y), f64::from(axis.z));
@@ -377,7 +390,8 @@ pub fn on_activate(cx: &mut Cx<'_>, id: ControllerId, condition: &mut Condition)
             let n = c.normal;
             c.plane_offset = (-(f64::from(c.circle_center.z) * f64::from(n.z)
                 + f64::from(c.circle_center.y) * f64::from(n.y)
-                + f64::from(c.circle_center.x) * f64::from(n.x))) as f32;
+                + f64::from(c.circle_center.x) * f64::from(n.x)))
+                as f32;
             // GetRadius zeroes both outputs first.
             let (radius, center) =
                 api::space_obj::radius(cx_ref, c.circle_obj_id).unwrap_or((0.0, Vector::ZERO));
@@ -609,7 +623,10 @@ pub fn matches(
             let Some(p) = player_state(cx_ref, s) else {
                 return false;
             };
-            if w[4].cast_signed() != c.mode && c.mode != 0x3e7 && (p.ship.is_none() || c.mode != 0x3e6) {
+            if w[4].cast_signed() != c.mode
+                && c.mode != 0x3e7
+                && (p.ship.is_none() || c.mode != 0x3e6)
+            {
                 return false;
             }
             if !has_object_label(cx_ref, s, w[0], c.label) {
@@ -1128,12 +1145,7 @@ fn dist_vec(cx: &Cx<'_>, s: &MissionScript, c: &mut DistVec, parms: &Parms<'_, '
 }
 
 /// `Cnd_DistVecLbl::Matches`, `MatchesAny` and `MatchesAll`.
-fn dist_vec_lbl(
-    cx: &Cx<'_>,
-    s: &MissionScript,
-    c: &mut DistVecLbl,
-    parms: &Parms<'_, '_>,
-) -> bool {
+fn dist_vec_lbl(cx: &Cx<'_>, s: &MissionScript, c: &mut DistVecLbl, parms: &Parms<'_, '_>) -> bool {
     let Some(dt) = delta(parms) else { return false };
     let Some(p) = player_state(cx, s) else {
         return false;
@@ -1362,14 +1374,22 @@ mod tests {
     #[test]
     fn distance_ticks_only_while_in_range() {
         let (mut timer, mut last) = (1.0f32, 0.0f32);
-        assert!(!tick_distance(4.0, 9.0, true, &mut timer, 1.0, 0, &mut last, 0.5));
+        assert!(!tick_distance(
+            4.0, 9.0, true, &mut timer, 1.0, 0, &mut last, 0.5
+        ));
         assert_eq!((timer, last), (0.5, 4.0));
-        assert!(tick_distance(5.0, 9.0, true, &mut timer, 1.0, 0, &mut last, 0.5));
-        assert!(!tick_distance(10.0, 9.0, true, &mut timer, 1.0, 0, &mut last, 0.5));
+        assert!(tick_distance(
+            5.0, 9.0, true, &mut timer, 1.0, 0, &mut last, 0.5
+        ));
+        assert!(!tick_distance(
+            10.0, 9.0, true, &mut timer, 1.0, 0, &mut last, 0.5
+        ));
         assert_eq!(timer, 1.0);
         // TICK_TOWARDS does not tick while the distance grows.
         let (mut timer, mut last) = (1.0f32, 1.0f32);
-        assert!(!tick_distance(2.0, 9.0, true, &mut timer, 1.0, 1, &mut last, 0.5));
+        assert!(!tick_distance(
+            2.0, 9.0, true, &mut timer, 1.0, 1, &mut last, 0.5
+        ));
         assert_eq!(timer, 1.0);
     }
 
