@@ -71,6 +71,8 @@ pub mod directives;
 pub mod dock_queues;
 /// The encounter parameters (TU29; P3.4c).
 pub mod encounter_params;
+/// The encounters' run time (TU29, TU30; P3.6d).
+pub mod encounters;
 /// The formation helpers (TU53 `DockQueues.cpp`; P3.6a).
 pub mod formations;
 pub mod game_support;

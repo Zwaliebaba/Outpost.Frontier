@@ -23,9 +23,8 @@
 //! Where the C++ holds a pointer the record holds an index: a zone's patrol
 //! path, a lane's attack zones and a ring's lane. The players of a system
 //! are their ids; the NPC ships (`SpaceObjs`, P3.6c) are their keys in
-//! Content's arena. The mission objects' run time and the zones'
-//! population validation (`Validate`, which draws `rand()`) are P3.5's
-//! and P3.6d's (D802).
+//! Content's arena. A load with encounters ends with each populated
+//! zone's validation (P3.6d, [`super::encounters::validate`]).
 //!
 //! A handler that loads a record takes it out of the table for calls that
 //! cannot dispatch, as record 0008 point 1 allows ([`with_system_taken`]).
@@ -346,10 +345,10 @@ pub fn unload(record: &mut SystemInfo) {
 /// reader the system's own file is read (`pub::BuildSystemReader`; a
 /// missing file reads as empty).
 ///
-/// After the zones and paths, the C++ validates the population of each
-/// zone with population keys (`FZonePopulation::Validate`, the encounters'
-/// first `Refresh`, which draws `rand()`); that is the populators' run
-/// time and P3.6d's (D802).
+/// After the zones, the paths and the lanes, a load with encounters
+/// validates the population of each zone with population keys
+/// ([`super::encounters::validate`]: every encounter's first `Refresh`,
+/// whose faction and permutation picks draw `rand()`).
 pub fn load_from_reader(
     cx: &mut Cx<'_>,
     record: &mut SystemInfo,
@@ -413,6 +412,13 @@ pub fn load_from_reader(
     }
     record.paths = build_patrol_paths(cx, record.system, &mut record.zones, &mut zones.path_labels);
     record.trade_lanes = build_trade_lanes(rings);
+    if load_encounters {
+        for zone in &mut record.zones {
+            if zone.population.has_population_keys {
+                super::encounters::validate(cx, &mut zone.population);
+            }
+        }
+    }
 }
 
 /// One `[Object]` of the header loop (`:115-261`): a lane ring goes into
