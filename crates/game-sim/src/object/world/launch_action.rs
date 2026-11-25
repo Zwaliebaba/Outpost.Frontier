@@ -332,35 +332,58 @@ impl World {
         unit * QUARTER_PI - EIGHTH_PI
     }
 
-    /// `LaunchAction::OnDirectiveComplete`, which the reference's
-    /// `NotifyDirectiveCallbacks` calls inside the behaviour tick: after a
-    /// tick of the ship's manager that reported a directive's end
-    /// (`ManagerState::completed` grew past `before`) while the launch
-    /// action's callback is registered, the control exclusion is lifted,
-    /// the launch is reported (`slot_70` with the base) and the action is
-    /// over; the ship's next update removes it (D722).
-    pub(crate) fn launch_directive_callbacks(
+    /// `NotifyDirectiveCallbacks` after the behaviour tick: for each
+    /// directive result the ship's manager reported in it
+    /// (`ManagerState::completed` past `before`), every non-empty slot of
+    /// its five directive callbacks in slot order, each read again before
+    /// its call (a callback may change them): the launch action's
+    /// ([`Self::launch_directive_complete`], D722) or the server's
+    /// ([`ServerHooks::directive_complete`], D194).
+    pub(crate) fn directive_callbacks(
         &mut self,
         h: ObjHandle,
         before: usize,
         hooks: &mut dyn ServerHooks,
     ) {
+        let results: Vec<(i32, i32)> = self
+            .behavior_managers
+            .get(&h)
+            .map(|m| m.state.completed.get(before..).unwrap_or_default().to_vec())
+            .unwrap_or_default();
+        for result in results {
+            for slot in 0..5 {
+                let Some(handle) = self
+                    .behavior_managers
+                    .get(&h)
+                    .map(|m| m.state.directive_callbacks[slot])
+                else {
+                    return;
+                };
+                if handle == 0 {
+                    continue;
+                }
+                if handle == LAUNCH_ACTION_CALLBACK {
+                    self.launch_directive_complete(h, hooks);
+                } else {
+                    hooks.directive_complete(self, h, handle, result);
+                }
+            }
+        }
+    }
+
+    /// `LaunchAction::OnDirectiveComplete`: while the launch action's
+    /// callback is registered and its launch not physical, the control
+    /// exclusion is lifted, the launch is reported (`slot_70` with the
+    /// base) and the action is over; the ship's next update removes it
+    /// (D722).
+    fn launch_directive_complete(&mut self, h: ObjHandle, hooks: &mut dyn ServerHooks) {
         let Some(base) = self
             .launch_state(h)
-            .filter(|l| !l.is_physical() && l.directive)
+            .filter(|l| !l.is_physical() && l.directive && !l.complete)
             .map(|l| l.base)
         else {
             return;
         };
-        let notified = self.behavior_managers.get(&h).is_some_and(|m| {
-            m.state.completed.len() > before
-                && m.state
-                    .directive_callbacks
-                    .contains(&LAUNCH_ACTION_CALLBACK)
-        });
-        if !notified {
-            return;
-        }
         self.set_control_exclusion(h, 0);
         self.report_launch(h, base, hooks);
         if let Some(l) = self.launch_mut(h) {

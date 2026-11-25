@@ -801,13 +801,29 @@ impl AiWorld for World {
         self.config.single_player
     }
 
+    fn content_event(&mut self, h: ObjHandle, handle: u32, event: crate::ai::content::CombatEvent) {
+        self.push_server_request(super::ServerRequest::Content {
+            ship: h,
+            handle,
+            event,
+        });
+    }
+
+    fn content_answer(&self, h: ObjHandle) -> Option<crate::ai::content::FleeAnswer> {
+        self.content_answer
+            .filter(|(ship, _)| *ship == h)
+            .and_then(|(_, answer)| answer)
+    }
+
     fn command(&mut self, h: ObjHandle, command: AiCommand<ObjHandle>) -> i32 {
         let typed = match command {
             AiCommand::SetThrottle(t) => Command::SetThrottle(t),
             AiCommand::SetAxisThrottle(v) => Command::SetAxisThrottle(v),
             AiCommand::SetNudge(v) => Command::SetNudgeVec(v),
             AiCommand::SetStrafe(d) => Command::SetStrafeDir(StrafeDir::from_value(d.value())),
-            AiCommand::SetTarget { target, subtarget } => Command::SetTarget(target, subtarget),
+            AiCommand::SetTarget { target, subtarget } => {
+                return self.ai_set_target(h, target, subtarget);
+            }
             AiCommand::FireGuns { equipment, target } => {
                 // `EqObj::slot_34` without an aim point fires forward; the
                 // server's part of the shot follows the tick.
@@ -817,28 +833,13 @@ impl AiWorld for World {
                 self.fire_for_ai(h, &equipment, target);
                 return 0;
             }
-            AiCommand::ActivateEquip { equipment, on } => Command::ActivateEquip(equipment, on),
+            AiCommand::ActivateEquip { equipment, on } => {
+                return self.ai_activate_equip(h, equipment, on);
+            }
             AiCommand::EngageCruise { engage, instant } => {
-                Command::EngageCruise { engage, instant }
+                return self.ai_engage_cruise(h, engage, instant);
             }
-            AiCommand::SetThrustersActive(on) => {
-                // `slot_54`: every thruster on or off.
-                let ids: Vec<u16> = self
-                    .get(h)
-                    .and_then(|o| o.as_equipped())
-                    .map(|eq| {
-                        eq.equipment
-                            .traverse(types::THRUSTER, false)
-                            .into_iter()
-                            .filter_map(|s| eq.equipment.get(s).map(|x| x.id))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                for id in ids {
-                    self.command(h, Command::ActivateEquip(id, on));
-                }
-                return 0;
-            }
+            AiCommand::SetThrustersActive(on) => return self.ai_set_thrusters(h, on),
             // `EqObj::slot_40` (the server's own request): -5 for a dead
             // owner, -4 without a target, -2 without the item, -5 when
             // `CETractor::AddTarget` refuses.
@@ -885,7 +886,16 @@ impl AiWorld for World {
                 if !matches!(item.kind, EquipKind::Gun(_)) {
                     return -4;
                 }
-                self.gun_set_target(h, equipment, target, subtarget);
+                if self.gun_set_target(h, equipment, target, subtarget) {
+                    self.push_ai_change(
+                        h,
+                        super::AiChange::Target {
+                            equip: equipment,
+                            target,
+                            sub_target: subtarget,
+                        },
+                    );
+                }
                 return 0;
             }
             AiCommand::SetFormationLeader(_)
@@ -954,6 +964,163 @@ impl AiWorld for World {
 }
 
 impl World {
+    /// A change of the server's wrapper that the players are told of
+    /// (`StarSystem::notify_*`), queued with the AI's other requests for the
+    /// server after the behaviour tick (D857).
+    fn push_ai_change(&mut self, h: ObjHandle, change: super::AiChange) {
+        self.push_server_request(super::ServerRequest::Changed { ship: h, change });
+    }
+
+    /// Whether the wrapper's object is gone (`OwnerSystem` null or
+    /// `is_destroyed`: -5).
+    fn ai_wrapper_gone(&self, h: ObjHandle) -> bool {
+        self.get(h).is_none_or(|o| o.dead)
+    }
+
+    /// The first engine's id, cruise flag and activity.
+    fn ai_engine(&self, h: ObjHandle) -> Option<(u16, bool, bool)> {
+        let eq = self.get(h)?.as_equipped()?;
+        let e = eq.equipment.first(types::ENGINE)?;
+        let cruise = matches!(&e.kind, EquipKind::Engine(s) if s.cruise_active);
+        Some((e.id, cruise, e.is_active()))
+    }
+
+    /// `Ship::set_target(Target, SubTarget, 0)` from the AI
+    /// (`server_gameobject.cpp:5789-5834`): a target or sub-target that
+    /// differs is set, and only then the players hear of it
+    /// (`notify_set_target` with `SUBOBJ_ID_NONE`).
+    fn ai_set_target(&mut self, h: ObjHandle, target: Option<ObjHandle>, sub: u16) -> i32 {
+        if self.ai_wrapper_gone(h) {
+            return -5;
+        }
+        let Some(ship) = self.get(h).and_then(|o| o.as_ship()) else {
+            return -2;
+        };
+        if ship.target == target && ship.sub_target == sub {
+            return 0;
+        }
+        let _ = self.command(h, Command::SetTarget(target, sub));
+        self.push_ai_change(
+            h,
+            super::AiChange::Target {
+                equip: crate::equip::SUBOBJ_ID_NONE,
+                target,
+                sub_target: sub,
+            },
+        );
+        0
+    }
+
+    /// `EqObj::slot_4c(&EquipId, bActivate, 0)` from the AI
+    /// (`server_gameobject.cpp:2184-2250`): a missing or destroyed item is
+    /// -2; switching an engine off is refused (-5) while the ship strafes or
+    /// has a thruster on; an item not as asked is switched, and only then
+    /// the players hear of it (`notify_activate_equip`).
+    pub(crate) fn ai_activate_equip(&mut self, h: ObjHandle, equip: u16, on: bool) -> i32 {
+        if self.ai_wrapper_gone(h) {
+            return -5;
+        }
+        let item = self
+            .get(h)
+            .and_then(|o| o.as_equipped())
+            .and_then(|eq| eq.equipment.by_id(equip))
+            .filter(|e| !e.is_destroyed())
+            .map(|e| (e.type_bits, e.is_active()));
+        let Some((type_bits, active)) = item else {
+            return -2;
+        };
+        if !on && type_bits == types::ENGINE {
+            let o = self.get(h);
+            let strafing = o
+                .and_then(|o| o.as_ship())
+                .is_some_and(|s| s.flight.strafe.current != crate::equip::flight::StrafeDir::None);
+            let thrusting = o.and_then(|o| o.as_equipped()).is_some_and(|eq| {
+                eq.equipment
+                    .traverse(types::THRUSTER, false)
+                    .into_iter()
+                    .filter_map(|slot| eq.equipment.get(slot))
+                    .any(crate::equip::Equip::is_active)
+            });
+            if strafing || thrusting {
+                return -5;
+            }
+        }
+        if active == on {
+            return 0;
+        }
+        let _ = self.command(h, Command::ActivateEquip(equip, on));
+        self.push_ai_change(h, super::AiChange::Equip { equip, on });
+        0
+    }
+
+    /// `Ship::slot_54(bActivate, 0)` from the AI
+    /// (`server_gameobject.cpp:5888-5949`): switching them on is refused
+    /// (-5) while cruising and first switches an inactive engine on
+    /// (`slot_4c`); every thruster not as asked is switched, and only when
+    /// one was the players hear of it (`notify_thrusters`). A ship without
+    /// an engine reads as not cruising with its engine on (D650).
+    fn ai_set_thrusters(&mut self, h: ObjHandle, on: bool) -> i32 {
+        if self.ai_wrapper_gone(h) {
+            return -5;
+        }
+        if on {
+            let engine = self.ai_engine(h);
+            if engine.is_some_and(|(_, cruise, _)| cruise) {
+                return -5;
+            }
+            if let Some((id, _, false)) = engine {
+                let _ = self.ai_activate_equip(h, id, true);
+            }
+        }
+        let thrusters: Vec<(u16, bool)> = self
+            .get(h)
+            .and_then(|o| o.as_equipped())
+            .map(|eq| {
+                eq.equipment
+                    .traverse(types::THRUSTER, false)
+                    .into_iter()
+                    .filter_map(|slot| eq.equipment.get(slot))
+                    .map(|t| (t.id, t.is_active()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut changed = false;
+        for (id, active) in thrusters {
+            if active != on {
+                changed = true;
+                let _ = self.command(h, Command::ActivateEquip(id, on));
+            }
+        }
+        if changed {
+            self.push_ai_change(h, super::AiChange::Thrusters(on));
+        }
+        0
+    }
+
+    /// `Ship::slot_50(bEngage, bArg2, 0)` from the AI
+    /// (`server_gameobject.cpp:5848-5884`): when the first engine's cruise
+    /// is not as asked, engaging first switches the thrusters off
+    /// (`slot_54(false, 0)`), the engine engages or leaves cruise, and the
+    /// players hear of it (`notify_cruise`). A ship without an engine, which
+    /// the C++ reads through null, changes nothing (D708).
+    fn ai_engage_cruise(&mut self, h: ObjHandle, engage: bool, instant: bool) -> i32 {
+        if self.ai_wrapper_gone(h) {
+            return -5;
+        }
+        let Some((_, cruise, _)) = self.ai_engine(h) else {
+            return 0;
+        };
+        if cruise == engage {
+            return 0;
+        }
+        if engage {
+            let _ = self.ai_set_thrusters(h, false);
+        }
+        let _ = self.command(h, Command::EngageCruise { engage, instant });
+        self.push_ai_change(h, super::AiChange::Cruise { engage, instant });
+        0
+    }
+
     /// The formation and follow slots of `IObjAffect` (4 to 7, 9 to 12) on a
     /// ship (`Ship::set_formation_leader` and the `CShip` bodies they
     /// forward to); `GameObject`'s -8 for any other object. The player's

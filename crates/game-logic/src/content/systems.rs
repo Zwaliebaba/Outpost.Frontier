@@ -22,10 +22,10 @@
 //!
 //! Where the C++ holds a pointer the record holds an index: a zone's patrol
 //! path, a lane's attack zones and a ring's lane. The players of a system
-//! are their ids. The NPC ships (`SpaceObjs`), the mission objects' run
-//! time, the zones' population validation (`Validate`, which draws
-//! `rand()`) and the solar NPCs' personality states are P3.5's and P3.6's
-//! (D802, D803).
+//! are their ids; the NPC ships (`SpaceObjs`, P3.6c) are their keys in
+//! Content's arena. The mission objects' run time and the zones'
+//! population validation (`Validate`, which draws `rand()`) are P3.5's
+//! and P3.6d's (D802).
 //!
 //! A handler that loads a record takes it out of the table for calls that
 //! cannot dispatch, as record 0008 point 1 allows ([`with_system_taken`]).
@@ -174,6 +174,8 @@ pub struct SystemInfo {
     pub flagged_objects: Vec<u32>,
     /// The players in the system (`+0xb8`), by id, added once each.
     pub players: Vec<u32>,
+    /// `SpaceObjs` (`+0xdc`): the system's NPC ships (P3.6c).
+    pub space_objs: Vec<crate::events::NpcShipKey>,
     /// The trade lanes (`+0xe8`).
     pub trade_lanes: Vec<TradeLane>,
     /// `TradeLaneByRing` (`+0xf8`): a ring to its lane's index. The full
@@ -203,6 +205,7 @@ impl SystemInfo {
             mission_objects: Vec::new(),
             flagged_objects: Vec::new(),
             players: Vec::new(),
+            space_objs: Vec::new(),
             trade_lanes: Vec::new(),
             lane_by_ring: BTreeMap::new(),
             jumps: Vec::new(),
@@ -582,8 +585,8 @@ pub fn load_solar_npcs(cx: &mut Cx<'_>, record: &mut SystemInfo, reader: &mut In
 /// `FSystemInfo::LoadFull` (`:367-380`), SpaceSupport's `SystemLoaded`:
 /// the system file's solar NPCs, in single player SpacePop's solar
 /// detection from the record, the load with encounters over the same
-/// reader, then the trade lanes from the live rings. The solar NPCs'
-/// personality states (`SubmitPersonalityState(true)`) are P3.6c's (D803).
+/// reader, then the trade lanes from the live rings, then each solar NPC's
+/// personality state (`SubmitPersonalityState(true)`).
 /// Nothing for a system without a record, where the C++ dereferences null
 /// (D801).
 pub fn load_full(cx: &mut Cx<'_>, system: u32) {
@@ -599,16 +602,42 @@ pub fn load_full(cx: &mut Cx<'_>, system: u32) {
         load_from_reader(cx, record, Some(&mut reader), true);
         rebuild_trade_lanes(cx, record);
     });
+    // `SubmitPersonalityState(true)` of every solar NPC, after the record is
+    // back in its slot (the submit reaches Content's callbacks).
+    let count = cx
+        .logic
+        .content
+        .state
+        .systems
+        .get(&system)
+        .map_or(0, |r| r.solar_npcs.len());
+    for at in 0..count {
+        super::solar_npcs::submit_personality_state(cx, system, at, true);
+    }
 }
 
 /// `FSystemInfo::UnloadFull` (`:383-398`), SpaceSupport's
 /// `SystemUnloaded`: the solar NPCs, mission objects and flagged objects
 /// emptied (the NPCs' reputation handles go; their vibes keep the
 /// faction), in single player SpacePop's solar detection on again, then
-/// [`unload`]. The C++ first destroys the NPC ships and mission objects
-/// when no player there has a ship, which P3.5 and P3.6 bring. Nothing for
-/// a system without a record (D801).
+/// [`unload`]. First the NPC ships and mission objects are destroyed when
+/// no player there has a ship ([`destroy_objects_if_unoccupied`]). Nothing
+/// for a system without a record (D801).
 pub fn unload_full(cx: &mut Cx<'_>, system: u32) {
+    if !cx.logic.content.state.systems.contains_key(&system) {
+        return;
+    }
+    destroy_objects_if_unoccupied(cx, system);
+    let Some(record) = cx.logic.content.state.systems.get_mut(&system) else {
+        return;
+    };
+    // `SubmitPersonalityState(false)` does nothing; the solars' callback
+    // handles name nothing once they go (D850).
+    for npc in &record.solar_npcs {
+        if npc.callback != 0 {
+            cx.logic.content.state.callbacks.release(npc.callback);
+        }
+    }
     let Some(record) = cx.logic.content.state.systems.get_mut(&system) else {
         return;
     };
@@ -915,7 +944,7 @@ pub fn destroy_flagged_objects_away_from_players(cx: &mut Cx<'_>, system: u32) {
 
 /// `FSystemInfo::DestroyObjectsIfUnoccupied` (`:436-462`), single player's
 /// `RemovePlayer` and `OnPlayerChanged`: with no player of the record in a
-/// ship, the record's NPC ships (P3.6c: none yet) and then its mission
+/// ship, the record's NPC ships (`DESTROY_NORMAL`) and then its mission
 /// objects (`DESTROY_NORMAL`, then `RemoveMissionObject`) are destroyed.
 pub fn destroy_objects_if_unoccupied(cx: &mut Cx<'_>, system: u32) {
     let state = &cx.logic.content.state;
@@ -929,10 +958,302 @@ pub fn destroy_objects_if_unoccupied(cx: &mut Cx<'_>, system: u32) {
     {
         return;
     }
+    // `DestroySpaceObj` of a copy of the space objects, then the mission
+    // objects.
+    let ships: Vec<u32> = record
+        .space_objs
+        .iter()
+        .filter_map(|k| state.npc_ships.get(k).map(|s| s.base.ship))
+        .collect();
     let objects = record.mission_objects.clone();
+    for ship in ships {
+        let _ = api::space_obj::destroy(cx, ship, 0);
+    }
     for object in objects {
         let _ = api::space_obj::destroy(cx, object, 0);
         remove_mission_object(cx, system, object);
+    }
+}
+
+/// `FSystemInfo::RemoveSpaceObj(Id, bDelete)` (`SystemInfo.cpp:543-556`):
+/// the first NPC ship with the id leaves the record's space objects, and
+/// with `delete` the ship is destroyed ([`super::npc_ships::destroy`]).
+pub fn remove_space_obj(cx: &mut Cx<'_>, system: u32, object: u32, delete: bool) {
+    let Some(key) = super::ships::find_space_obj(&cx.logic.content.state, system, object) else {
+        return;
+    };
+    if delete {
+        super::npc_ships::destroy(cx, key);
+    }
+    if let Some(record) = cx.logic.content.state.systems.get_mut(&system)
+        && let Some(at) = record.space_objs.iter().position(|k| *k == key)
+    {
+        record.space_objs.remove(at);
+    }
+}
+
+// ---- the NPC ships' lives (P3.6c) -------------------------------------------------------------
+
+/// `FSystemInfo::IsPlayerShipNear(&Point, &Radius, &OutDistanceSq)`
+/// (`:645-670`) with its out-parameter: whether a player's ship is within
+/// the radius, and otherwise the smallest squared distance to one (stored
+/// as a float; -1 when no player has a ship). -1 when one is near.
+#[must_use]
+pub fn player_ship_near(cx: &Cx<'_>, system: u32, point: Vector, radius: f32) -> (bool, f32) {
+    let radius_square = (f64::from(radius) * f64::from(radius)) as f32;
+    let mut out = -1.0_f32;
+    for (_, at) in player_ship_positions(cx, system) {
+        let d = distance_squared_between(point, at);
+        if d <= f64::from(radius_square) {
+            return (true, -1.0);
+        }
+        if out == -1.0 || d < f64::from(out) {
+            out = d as f32;
+        }
+    }
+    (false, out)
+}
+
+/// `ReciprocalSqrtGuess`: the integer guess `0x5f3759df - (bits >> 1)`.
+fn reciprocal_sqrt_guess(value: f32) -> f32 {
+    let bits = value.to_bits() as i32;
+    f32::from_bits((0x5f37_59df_i32.wrapping_sub(bits >> 1)) as u32)
+}
+
+/// `IsPointInViewCone(&Point, &Viewer, &MaxDistance, &ConeAngle)` (TU53,
+/// `SystemInfo.cpp:1968-2016`): the point within the distance of the
+/// viewer and inside the cone of the angle (degrees) around its forward
+/// axis, with the guesses and Newton steps of the C++.
+#[must_use]
+pub fn is_point_in_view_cone(
+    point: Vector,
+    position: Vector,
+    orientation: &Matrix,
+    max_distance: f32,
+    cone_angle: f32,
+) -> bool {
+    let dx = f64::from(point.x) - f64::from(position.x);
+    let dy = (f64::from(point.y) - f64::from(position.y)) as f32;
+    let dz_wide = f64::from(point.z) - f64::from(position.z);
+    let dz = dz_wide as f32;
+    let length_sq = dz_wide * f64::from(dz) + f64::from(dy) * f64::from(dy) + dx * dx;
+    let stored = length_sq as f32;
+    let guess = f64::from(reciprocal_sqrt_guess(stored));
+    let length = (1.5 - guess * guess * length_sq * 0.5) * guess * length_sq;
+    if !(length <= f64::from(max_distance)) {
+        return false;
+    }
+    let m = &orientation.m;
+    let (fx, fy, fz) = (
+        -f64::from(m[0][2]),
+        -f64::from(m[1][2]),
+        -f64::from(m[2][2]),
+    );
+    let forward_sq = fz * fz + fy * fy + fx * fx;
+    let forward_guess = f64::from(reciprocal_sqrt_guess(forward_sq as f32));
+    let rounded = f64::from(stored);
+    let guess2 = f64::from(reciprocal_sqrt_guess(stored));
+    let dot = fz * f64::from(dz) + fy * f64::from(dy) + fx * dx;
+    let forward_step = 1.5 - forward_guess * forward_guess * forward_sq * 0.5;
+    let length_step = 1.5 - guess2 * guess2 * rounded * 0.5;
+    let norms = forward_step * length_step * guess2 * rounded * forward_guess * forward_sq;
+    let cos_to_point = dot / norms;
+    let cos_half = (f64::from(cone_angle) * 0.5 * f64::from(0.017_453_292_f32)).cos();
+    cos_half <= cos_to_point
+}
+
+/// The lanes of the record's players' ships (`HasField120`, `GetField120`).
+fn player_lanes(cx: &Cx<'_>, system: u32) -> Vec<(u32, u32)> {
+    let state = &cx.logic.content.state;
+    let Some(record) = state.systems.get(&system) else {
+        return Vec::new();
+    };
+    record
+        .players
+        .iter()
+        .filter_map(|p| state.players.get(p)?.ship.as_ref())
+        .filter(|s| s.lane_entry != 0)
+        .map(|s| (s.lane_entry, s.lane_end))
+        .collect()
+}
+
+/// `IsNearPlayerField124Object(&Point, &Radius)` (`:712-731`): a player's
+/// ship in a lane whose end ring is within the radius.
+fn is_near_player_lane_end(cx: &Cx<'_>, system: u32, point: Vector, radius: f32) -> bool {
+    let radius_square = (f64::from(radius) * f64::from(radius)) as f32;
+    player_lanes(cx, system).into_iter().any(|(_, end)| {
+        let at = api::space_obj::location(cx, end).map_or(Vector::ZERO, |(p, _)| p);
+        distance_squared_between(point, at) <= f64::from(radius_square)
+    })
+}
+
+/// `IsNearPlayerField120Segment(&Point, &Radius)` (`:734-756`): a player's
+/// ship in a lane whose segment from the entry to the end ring passes
+/// within the radius.
+fn is_near_player_lane_segment(cx: &Cx<'_>, system: u32, point: Vector, radius: f32) -> bool {
+    let radius_square = (f64::from(radius) * f64::from(radius)) as f32;
+    player_lanes(cx, system).into_iter().any(|(entry, end)| {
+        let start = api::space_obj::location(cx, entry).map_or(Vector::ZERO, |(p, _)| p);
+        let stop = api::space_obj::location(cx, end).map_or(Vector::ZERO, |(p, _)| p);
+        let (d, _) = super::patrol_paths::distance_squared_to_segment(point, start, stop);
+        d <= f64::from(radius_square)
+    })
+}
+
+/// `FSystemInfo::GetNpcShipLifeRate(Ship)` (`:822-894`): -1 while a player
+/// is close (or the ship travels a lane), else how fast its life runs down
+/// with the distance to the nearest player's ship, at most 15.
+fn npc_ship_life_rate(cx: &Cx<'_>, system: u32, ship: crate::events::NpcShipKey) -> f64 {
+    let near = -1.0;
+    let key = super::ships::ShipKey::Npc(ship);
+    let state = &cx.logic.content.state;
+    if super::ships::base(state, key).is_some_and(|s| s.lane_entry != 0) {
+        return near;
+    }
+    let position = super::ships::position(cx, key);
+    let (close, distance_sq) = player_ship_near(cx, system, position, 2500.0);
+    if close {
+        return near;
+    }
+    if api::misc::single_player(cx) {
+        let viewers: Vec<(Vector, Matrix)> = state
+            .systems
+            .get(&system)
+            .map(|r| {
+                r.players
+                    .iter()
+                    .filter_map(|p| state.players.get(p)?.ship.as_ref())
+                    .map(|s| {
+                        api::space_obj::location(cx, s.ship)
+                            .unwrap_or((Vector::ZERO, Matrix::IDENTITY))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if viewers
+            .iter()
+            .any(|(p, m)| is_point_in_view_cone(position, *p, m, 4000.0, 70.0))
+        {
+            return near;
+        }
+    }
+    if is_near_player_lane_end(cx, system, position, 4000.0) {
+        return near;
+    }
+    if is_near_player_lane_segment(cx, system, position, 2500.0) {
+        return near;
+    }
+    if !(distance_sq > 6_250_000.0) {
+        return 15.0;
+    }
+    let rate = (f64::from(distance_sq).sqrt() - 2500.0) * 0.01 + 1.0;
+    if !(rate > 15.0) {
+        return rate;
+    }
+    15.0
+}
+
+/// Whether the ship of some player of the record targets `id`
+/// (`IsTargetedByPlayerShip`; a failed `GetTarget` reads 0).
+fn is_targeted_by_player_ship(cx: &Cx<'_>, system: u32, id: u32) -> bool {
+    let state = &cx.logic.content.state;
+    state.systems.get(&system).is_some_and(|r| {
+        r.players.iter().any(|p| {
+            state
+                .players
+                .get(p)
+                .and_then(|s| s.ship.as_ref())
+                .is_some_and(|s| api::space_obj::target(cx, s.ship).unwrap_or(0) == id)
+        })
+    })
+}
+
+/// `FSystemInfo::UpdateNpcShipLives(DeltaTime)` (`:950-1030`), SpaceSupport's
+/// heartbeat with its period: a wingman's life, and that of a ship a player
+/// is near, is refilled; any other mortal ship's life runs down by its
+/// rate, and one whose life ran out is destroyed (`DESTROY_NORMAL`) with
+/// its whole formation, unless one of the formation is a player's ship or
+/// (in single player) a player targets it.
+pub fn update_npc_ship_lives(cx: &mut Cx<'_>, system: u32, dt: f32) {
+    let ships: Vec<crate::events::NpcShipKey> = cx
+        .logic
+        .content
+        .state
+        .systems
+        .get(&system)
+        .map(|r| r.space_objs.clone())
+        .unwrap_or_default();
+    if ships.is_empty() {
+        return;
+    }
+    let single = api::misc::single_player(cx);
+    let mut expired: Vec<crate::events::NpcShipKey> = Vec::new();
+    for key in ships {
+        let Some(ship) = cx.logic.content.state.npc_ships.get(&key) else {
+            continue;
+        };
+        let refill = |cx: &mut Cx<'_>| {
+            if let Some(s) = cx.logic.content.state.npc_ships.get_mut(&key)
+                && s.life_left < s.life_time
+            {
+                s.life_left = s.life_time;
+            }
+        };
+        if ship.base.formation_slot != 0 && ship.base.formation_id != u32::MAX {
+            refill(cx);
+            continue;
+        }
+        if ship.life_time == -1.0 {
+            continue;
+        }
+        let product = npc_ship_life_rate(cx, system, key) * f64::from(dt);
+        let step = product as f32;
+        if product < 0.0 {
+            refill(cx);
+            continue;
+        }
+        let Some(ship) = cx.logic.content.state.npc_ships.get_mut(&key) else {
+            continue;
+        };
+        if !(ship.life_left >= 0.0) {
+            continue;
+        }
+        ship.life_left = (f64::from(ship.life_left) - f64::from(step)) as f32;
+        if !(ship.life_left < 0.0) {
+            continue;
+        }
+        ship.life_left = 0.0;
+        let (id, formation) = (ship.base.ship, ship.base.formation_id);
+        if single && is_targeted_by_player_ship(cx, system, id) {
+            continue;
+        }
+        if formation == u32::MAX {
+            expired.push(key);
+            continue;
+        }
+        let members = super::formations::collect_members(&cx.logic.content.state, formation);
+        let keep = members.iter().any(|&m| {
+            let member = super::ships::id(&cx.logic.content.state, m);
+            super::players::find_by_ship(&cx.logic.content.state.players, member).is_some()
+                || (single && is_targeted_by_player_ship(cx, system, member))
+        });
+        if !keep {
+            // No member is a player's ship (that keeps the formation).
+            expired.extend(members.into_iter().filter_map(|m| match m {
+                super::ships::ShipKey::Npc(k) => Some(k),
+                super::ships::ShipKey::Player(_) => None,
+            }));
+        }
+    }
+    for key in expired {
+        let id = cx
+            .logic
+            .content
+            .state
+            .npc_ships
+            .get(&key)
+            .map_or(0, |s| s.base.ship);
+        let _ = api::space_obj::destroy(cx, id, 0);
     }
 }
 

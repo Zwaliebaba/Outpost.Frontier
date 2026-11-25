@@ -39,9 +39,10 @@
 //!   (cancel, delay, dock, follow, idle, goto) go to the owner as
 //!   `SETDIRECTIVE`; `get_scan_response` tells the owner of the scan
 //!   (`SCANNOTIFY`) and answers 3.
-//! - **Callbacks** are the owner's handles (D194, D710): a content callback
-//!   by its creation type, a directive callback by an id the manager keeps
-//!   in its five slots.
+//! - **Callbacks** are the owner's handles (D194, D710; record 0008 point
+//!   4): a content callback by its handle with the creation type Content's
+//!   object answers, a directive callback by its handle in the manager's
+//!   five slots.
 
 use game_sim::ai::behavior::DirectiveOp;
 use game_sim::ai::manager::BehaviorManager;
@@ -88,8 +89,9 @@ pub enum CallbackArg {
     Keep,
     /// Null.
     Null,
-    /// A callback: a content callback by its `get_creation_type`, a
-    /// directive callback by the owner's handle of it (not 0).
+    /// A callback by the owner's handle of it (not 0, not `u32::MAX`;
+    /// record 0008 point 4): the manager asks a content callback's
+    /// creation type of Content when it is installed.
     Set(u32),
 }
 
@@ -349,6 +351,15 @@ pub fn submit_state(cx: &mut Cx<'_>, flid: u32, op: &BaseOp) -> OpRType {
         return OpRType::FOUR;
     };
     let data = cx.world.data_arc();
+    // `set_content_callback` asks the callback its creation type (record
+    // 0008 point 4): Content's object answers by its handle.
+    let creation_type = match &op.op {
+        Op::SetPersonalityParams(p) => match p.content_callback {
+            CallbackArg::Set(handle) => crate::content::callbacks::creation_type(cx, handle),
+            CallbackArg::Keep | CallbackArg::Null => 3,
+        },
+        _ => 3,
+    };
     with_manager(cx, h, |m, w| match &op.op {
         Op::SetPersonalityParams(p) => {
             m.set_state_graph(w, h, &data.state_graphs, p.state_graph, false);
@@ -360,7 +371,7 @@ pub fn submit_state(cx: &mut Cx<'_>, flid: u32, op: &BaseOp) -> OpRType {
             match p.content_callback {
                 CallbackArg::Keep => {}
                 CallbackArg::Null => m.set_content_callback(None),
-                CallbackArg::Set(kind) => m.set_content_callback(Some(kind)),
+                CallbackArg::Set(handle) => m.set_content_callback(Some((handle, creation_type))),
             }
             if p.set_personality {
                 m.set_personality(w, h, p.personality);

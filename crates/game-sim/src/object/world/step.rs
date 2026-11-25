@@ -256,6 +256,27 @@ pub enum ServerRequest {
         /// The speed.
         speed: f32,
     },
+    /// A change the AI made through the server's wrapper that the
+    /// players are told of (`Ship::set_target`, `EqObj::slot_44`,
+    /// `Ship::slot_50`, `slot_54`, `EqObj::slot_4c`): the world made it
+    /// inside the tick; the server's `notify_*` follows (D857).
+    Changed {
+        /// The ship.
+        ship: ObjHandle,
+        /// The change.
+        change: AiChange,
+    },
+    /// A report of the ship's behaviour manager to its content callback
+    /// (`pub::AI::ContentCallback`, by the owner's handle, D710), in the
+    /// order the tick made it among the requests (record 0008 point 4).
+    Content {
+        /// The ship.
+        ship: ObjHandle,
+        /// The content callback's handle.
+        handle: u32,
+        /// The report.
+        event: crate::ai::content::CombatEvent,
+    },
     /// `stop_tradelane()` (`Ship::stop_tradelane`, IObjAffect slot 26) of
     /// the ship, from the AI or from its `LaneAction`'s end: the world ran
     /// `CShip::stop_tradelane` and read the rings
@@ -269,6 +290,37 @@ pub enum ServerRequest {
         /// What `get_tradelane_exit_ring` answers (the current leg's first
         /// ring, as the reference reads it).
         exit: u32,
+    },
+}
+
+/// A change of [`ServerRequest::Changed`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AiChange {
+    /// `notify_set_target(Id, Equip, Target, SubTarget, 0)`: the ship's
+    /// target (`equip` `SUBOBJ_ID_NONE`) or a gun's.
+    Target {
+        /// The sub-object (`SUBOBJ_ID_NONE` for the ship).
+        equip: crate::equip::SubObjId,
+        /// The target.
+        target: Option<ObjHandle>,
+        /// The sub-target.
+        sub_target: crate::equip::SubObjId,
+    },
+    /// `notify_cruise(Id, bEngage, bArg2, 0)`.
+    Cruise {
+        /// `bEngage`.
+        engage: bool,
+        /// `bArg2`.
+        instant: bool,
+    },
+    /// `notify_thrusters(Id, bActivate, 0)`.
+    Thrusters(bool),
+    /// `notify_activate_equip(Id, Equip, bActivate, 0)`.
+    Equip {
+        /// The item.
+        equip: crate::equip::SubObjId,
+        /// `bActivate`.
+        on: bool,
     },
 }
 
@@ -382,6 +434,37 @@ pub trait ServerHooks {
         let _ = (world, requests);
     }
 
+    /// The answer of the content callback `handle` of `ship`'s manager to
+    /// `request_flee_destination` (`None` for false), asked right before
+    /// the ship's behaviour tick for the flee that may start in it (record
+    /// 0008 point 4): it must not change the server's state, which the
+    /// request itself changes after the tick (`ServerRequest::Content`).
+    /// `None` without a server.
+    fn content_answer(
+        &mut self,
+        world: &mut World,
+        ship: ObjHandle,
+        handle: u32,
+    ) -> Option<crate::ai::content::FleeAnswer> {
+        let _ = (world, ship, handle);
+        None
+    }
+
+    /// `NotifyDirectiveCallbacks` for a directive callback of the server's
+    /// (a handle of the manager's five slots other than the launch
+    /// action's, D710): `OnDirectiveComplete(Word11c, Word118)` after the
+    /// ship's behaviour tick that reported it (D194). Nothing without a
+    /// server.
+    fn directive_complete(
+        &mut self,
+        world: &mut World,
+        ship: ObjHandle,
+        handle: u32,
+        result: (i32, i32),
+    ) {
+        let _ = (world, ship, handle, result);
+    }
+
     /// A phantom's enter or leave event that no object of the world claims
     /// (`CObjectCB::added`, `deleted` of a server wrapper's phantom: a
     /// mine's). Nothing without a server, which makes no such phantom.
@@ -462,6 +545,15 @@ pub trait ServerHooks {
     fn steps_physics(&mut self, world: &World, system: u32) -> bool {
         let _ = (world, system);
         true
+    }
+
+    /// A guided munition's seeker lost its target, which the munition has
+    /// already dropped (`Guided::update`'s `set_target(nullptr,
+    /// SUBOBJ_ID_ROOT, 0)`): on the server, `Guided::set_target` tells the
+    /// players who can see it (`StarSystem::notify_set_target`). Called only
+    /// when the target or sub-target changed. Nothing without a server.
+    fn guided_target_lost(&mut self, world: &mut World, missile: ObjHandle) {
+        let _ = (world, missile);
     }
 
     /// A ship's `JumpInAction` arrived in `system`: the jumping object's
@@ -989,7 +1081,18 @@ impl World {
         self.sync_shield_collisions(h);
         let results = self.directive_results(h);
         if behavior && let Some(mut hook) = self.take_behavior() {
+            // The content callback's flee answer, for a flee that starts in
+            // the tick (record 0008 point 4).
+            let handle = self
+                .behavior_managers
+                .get(&h)
+                .map_or(0, |m| m.state.content_handle);
+            if handle != 0 {
+                let answer = hooks.content_answer(self, h, handle);
+                self.content_answer = Some((h, answer));
+            }
             hook.update_behavior_tick(self, h, dt);
+            self.content_answer = None;
             self.put_behavior(Some(hook));
         }
         // The requests the tick made, to the server (`Ship::slot_5c` and
@@ -998,10 +1101,10 @@ impl World {
         if !requests.is_empty() {
             hooks.server_requests(self, requests);
         }
-        // The launch action's directive callback, which the tick's
-        // `NotifyDirectiveCallbacks` calls at its end in the reference
-        // (D722).
-        self.launch_directive_callbacks(h, results, hooks);
+        // The directive callbacks, which the tick's
+        // `NotifyDirectiveCallbacks` calls at its end in the reference: the
+        // launch action's (D722) and the server's (D194).
+        self.directive_callbacks(h, results, hooks);
         self.update_docking_animations(h);
     }
 
