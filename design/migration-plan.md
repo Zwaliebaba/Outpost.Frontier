@@ -164,6 +164,10 @@ Phase 0 ──> Phase 1 ──┬──> Phase 2 ──> Phase 3 ──┐
 Phase 4 (client engine) depends only on Phase 1 and runs alongside Phases 2
 and 3.
 
+The owner started Phase 5 beside the rest of Phase 3 on 2026-11-25 (decision
+O50): Gate G5 still needs the whole of Phase 3, and P5.9 and P5.10 wait for
+P3.6e and P3.7b on their server side.
+
 ### Phase 0 — make the migration verifiable
 
 | ID | Work | Where it runs | Size |
