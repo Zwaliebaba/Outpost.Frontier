@@ -140,7 +140,14 @@ pub fn lookup(cx: &Cx<'_>, id: u32) -> Option<HandlerOwner> {
 }
 
 /// `RouteMessage(Msg, Delay, Target, Sender, Scope)` (`:49-89`).
-pub fn route(cx: &mut Cx<'_>, mut message: RmMessage, delay: f32, target: u32, sender: u32, scope: i32) {
+pub fn route(
+    cx: &mut Cx<'_>,
+    mut message: RmMessage,
+    delay: f32,
+    target: u32,
+    sender: u32,
+    scope: i32,
+) {
     if cx.logic.content.state.router.is_none() {
         return;
     }

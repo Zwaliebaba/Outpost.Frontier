@@ -114,7 +114,7 @@ pub(super) fn construct(cx: &mut Cx<'_>, id: ControllerId) {
     };
     if let Some(r) = rm_mut(cx, id) {
         r.dest_system = dest;
-        // The first offer's type, read without an empty test (D1027).
+        // The first offer's type, read without an empty test (D1025).
         if let Some(kind) = first_kind {
             r.kind = kind;
         }
@@ -135,7 +135,8 @@ pub(super) fn construct(cx: &mut Cx<'_>, id: ControllerId) {
 /// `~StateMachineGroup`: the members left, front to back, and the group's
 /// own handler.
 pub(super) fn destruct(cx: &mut Cx<'_>, id: ControllerId) {
-    let Some((handler, running, data)) = rm(cx, id).map(|r| (r.handler, r.running_machines.clone(), r.data))
+    let Some((handler, running, data)) =
+        rm(cx, id).map(|r| (r.handler, r.running_machines.clone(), r.data))
     else {
         return;
     };
@@ -181,7 +182,7 @@ fn set_player(cx: &mut Cx<'_>, id: ControllerId, player: u32) {
     }
     if player == 0 || !cx.logic.content.state.players.contains_key(&player) {
         // `PlayerState` is null: the C++ reads the group through it only
-        // when the player has a state (D1027).
+        // when the player has a state (D1025).
         return;
     }
     let members = api::player::group_members(cx, player).unwrap_or_default();
@@ -306,7 +307,12 @@ pub(super) fn slot2(host: &mut Host<'_, '_>, event: &Event<'_>, state: i32) -> b
                     .rm()
                     .and_then(|r| r.data)
                     .and_then(|k| host.cx.logic.content.state.rm.missions.get(k))
-                    .map(|d| (d.description.clone(), d.offers.first().map_or(0, |o| o.kind)));
+                    .map(|d| {
+                        (
+                            d.description.clone(),
+                            d.offers.first().map_or(0, |o| o.kind),
+                        )
+                    });
                 if let Some(r) = host.rm_mut() {
                     let (text, kind) = description.unwrap_or((FmtStr::new(0), 0));
                     r.title = FmtStr::new(0x32fa + u32::from(kind));
@@ -417,7 +423,7 @@ fn append_unique(ids: &mut Vec<u32>, id: u32) {
 
 /// `CreateRuntimeMachines` (`:229-249`): a machine per offer, added to the
 /// group, its id appended to the pending list. A type outside 1 to 3
-/// builds none, and the C++ reads its id through null (D1027).
+/// builds none, and the C++ reads its id through null (D1025).
 fn create_runtime_machines(host: &mut Host<'_, '_>) {
     let Some((me, count)) = host.rm().map(|r| {
         let count = r
@@ -461,7 +467,10 @@ fn player_save(host: &mut Host<'_, '_>, client: u32) {
     {
         return;
     }
-    let Some(data) = data.and_then(|k| host.cx.logic.content.state.rm.missions.get(k)).cloned() else {
+    let Some(data) = data
+        .and_then(|k| host.cx.logic.content.state.rm.missions.get(k))
+        .cloned()
+    else {
         return;
     };
     if let Some(file) = host.save.as_deref_mut() {
@@ -530,7 +539,11 @@ fn random_mission_object(host: &mut Host<'_, '_>, event: &Event<'_>) -> bool {
         Controller::AbortMission(player) => on_player_left_group(host, player),
         Controller::ObjectDestroyed { player, .. } => {
             if host.is_mapped(player) && decrement_player_count(host) <= 0 {
-                let reason = if api::misc::single_player(host.cx) { 2 } else { 3 };
+                let reason = if api::misc::single_player(host.cx) {
+                    2
+                } else {
+                    3
+                };
                 fail_mission(host, reason);
             }
         }
@@ -583,7 +596,10 @@ fn mission_object(host: &mut Host<'_, '_>, message: Controller) {
             }
             if player == gone {
                 // `Slot15` is false: the first remaining record's player.
-                let next = host.rm().and_then(|r| r.records.iter().next().copied()).unwrap_or(0);
+                let next = host
+                    .rm()
+                    .and_then(|r| r.records.iter().next().copied())
+                    .unwrap_or(0);
                 set_player(host.cx, host.mission, next);
             }
             let now = host.rm().map_or(0, |r| r.player);
@@ -599,7 +615,8 @@ fn mission_object(host: &mut Host<'_, '_>, message: Controller) {
             }
         }
         Controller::Docked { ship, .. } => {
-            if let Some(dead) = crate::content::players::find_by_ship(&host.cx.logic.content.state.players, ship)
+            if let Some(dead) =
+                crate::content::players::find_by_ship(&host.cx.logic.content.state.players, ship)
                 && let Some(r) = host.rm_mut()
             {
                 r.dead_players.push(dead);
@@ -810,12 +827,26 @@ fn event_rate(host: &Host<'_, '_>, event: usize) -> (u32, f32) {
         .and_then(|r| r.data)
         .and_then(|k| host.cx.logic.content.state.rm.missions.get(k))
         .map_or(u32::MAX, |d| d.offer_group as u32);
-    (group, host.cx.logic.content.tables.faction_event_rate(group, event))
+    (
+        group,
+        host.cx
+            .logic
+            .content
+            .tables
+            .faction_event_rate(group, event),
+    )
 }
 
 /// `ChangePlayerReputation` (slot 41, `:1439-1455`): once per player name
 /// and group unless forced.
-fn change_player_reputation(host: &mut Host<'_, '_>, player: u32, group: u32, delta: f32, force: bool, empathy: bool) {
+fn change_player_reputation(
+    host: &mut Host<'_, '_>,
+    player: u32,
+    group: u32,
+    delta: f32,
+    force: bool,
+    empathy: bool,
+) {
     let name = api::player::name(host.cx, player).unwrap_or_default();
     if !force && has_reputation_entry(host, &name, group) {
         return;
@@ -837,18 +868,27 @@ fn change_player_reputation(host: &mut Host<'_, '_>, player: u32, group: u32, de
 /// end of the multimap, any entry of the group.
 fn has_reputation_entry(host: &Host<'_, '_>, name: &[u16], group: u32) -> bool {
     let Some(r) = host.rm() else { return false };
-    let Some(start) = r.reputation_changes.iter().position(|(n, _)| n.as_slice() >= name) else {
+    let Some(start) = r
+        .reputation_changes
+        .iter()
+        .position(|(n, _)| n.as_slice() >= name)
+    else {
         return false;
     };
     if r.reputation_changes[start].0.as_slice() != name {
         return false;
     }
-    r.reputation_changes[start..].iter().any(|&(_, g)| g == group)
+    r.reputation_changes[start..]
+        .iter()
+        .any(|&(_, g)| g == group)
 }
 
 /// `ChangeGroupReputation` (slot 43): slot 41 for every mapped player.
 fn change_group_reputation(host: &mut Host<'_, '_>, group: u32, delta: f32, empathy: bool) {
-    let players: Vec<u32> = host.rm().map(|r| r.player_map.iter().copied().collect()).unwrap_or_default();
+    let players: Vec<u32> = host
+        .rm()
+        .map(|r| r.player_map.iter().copied().collect())
+        .unwrap_or_default();
     for p in players {
         change_player_reputation(host, p, group, delta, false, empathy);
     }
@@ -856,7 +896,10 @@ fn change_group_reputation(host: &mut Host<'_, '_>, group: u32, delta: f32, empa
 
 /// `ChangeGroupReputationAlways` (slot 44): with empathy, always.
 fn change_group_reputation_always(host: &mut Host<'_, '_>, group: u32, delta: f32) {
-    let players: Vec<u32> = host.rm().map(|r| r.player_map.iter().copied().collect()).unwrap_or_default();
+    let players: Vec<u32> = host
+        .rm()
+        .map(|r| r.player_map.iter().copied().collect())
+        .unwrap_or_default();
     for p in players {
         let vibe = api::player::rep(host.cx, p).unwrap_or(0);
         apply_faction_reputation_change(host.cx, vibe, delta, group, true);
@@ -916,7 +959,13 @@ pub(super) fn fail_mission(host: &mut Host<'_, '_>, reason: i32) {
 /// TU47's (`:1261-1289`).
 fn remove_mission_player(host: &mut Host<'_, '_>, player: u32, reason: i32) {
     trace::mission(host.cx, "remove_player", i64::from(player));
-    let _ = api::player::display_mission_message(host.cx, player, &FmtStr::new(reason_ids(reason)), 2, false);
+    let _ = api::player::display_mission_message(
+        host.cx,
+        player,
+        &FmtStr::new(reason_ids(reason)),
+        2,
+        false,
+    );
     let (group, rate) = event_rate(host, if reason == 1 { 3 } else { 2 });
     change_player_reputation(host, player, group, rate, false, true);
     if let Some(r) = host.rm_mut() {
@@ -924,13 +973,16 @@ fn remove_mission_player(host: &mut Host<'_, '_>, player: u32, reason: i32) {
         r.player_map.remove(&player);
         r.players = r.player_map.iter().copied().collect();
     }
-    let next = host.rm().and_then(|r| r.player_map.iter().next().copied()).unwrap_or(0);
+    let next = host
+        .rm()
+        .and_then(|r| r.player_map.iter().next().copied())
+        .unwrap_or(0);
     if let Some(r) = host.rm_mut() {
         r.player = next;
     }
     let kind = host.rm().map_or(0, |r| r.kind);
     let Some(s) = host.cx.logic.content.state.players.get_mut(&player) else {
-        // The C++ reads the missing state (D1027).
+        // The C++ reads the missing state (D1025).
         return;
     };
     s.flags = 0;
@@ -952,7 +1004,10 @@ fn remove_mission_player(host: &mut Host<'_, '_>, player: u32, reason: i32) {
 /// cleared, the teardown asked for.
 fn end_mission(host: &mut Host<'_, '_>) {
     trace::mission(host.cx, "end", 0);
-    let running = host.rm().map(|r| r.running_machines.clone()).unwrap_or_default();
+    let running = host
+        .rm()
+        .map(|r| r.running_machines.clone())
+        .unwrap_or_default();
     for m in running {
         machine::shutdown(host, m);
     }

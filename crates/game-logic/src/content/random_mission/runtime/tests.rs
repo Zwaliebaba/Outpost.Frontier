@@ -35,7 +35,13 @@ fn with_mission(run: impl FnOnce(&mut Cx<'_>, RmDataKey)) {
         logic: &mut logic,
     };
     for name in [&b"GameSupport"[..], b"SpaceSupport"] {
-        let id = controller::create(&mut cx, b"Content.dll", name, &CreateParams::None, Priority::Normal);
+        let id = controller::create(
+            &mut cx,
+            b"Content.dll",
+            name,
+            &CreateParams::None,
+            Priority::Normal,
+        );
         assert_ne!(id.0, 0);
     }
     let mut state = PlayerState::new(&cx, PLAYER);
@@ -94,10 +100,13 @@ fn start(cx: &mut Cx<'_>, key: RmDataKey) -> ControllerId {
 
 /// The mission's vignette machine and its state.
 fn vignette(cx: &Cx<'_>, mission: ControllerId) -> Option<(u32, i32)> {
-    rm(cx, mission)?.machines.iter().find_map(|(&id, m)| match m.kind {
-        MachineKind::Vignette(_) => Some((id, m.sm.state())),
-        _ => None,
-    })
+    rm(cx, mission)?
+        .machines
+        .iter()
+        .find_map(|(&id, m)| match m.kind {
+            MachineKind::Vignette(_) => Some((id, m.sm.state())),
+            _ => None,
+        })
 }
 
 /// A machine's sub-machine of `pick`.
@@ -139,9 +148,30 @@ fn the_router_queues_by_time_and_fires_its_head() {
         let first = router::register(cx, router::HandlerOwner::Component);
         let second = router::register(cx, router::HandlerOwner::Component);
         assert_eq!(second, first + 1);
-        router::route(cx, RmMessage::plain(MessageType::Timeout), 2.0, first, second, -1);
-        router::route(cx, RmMessage::plain(MessageType::Cookie), 1.0, first, second, -1);
-        router::route(cx, RmMessage::plain(MessageType::CountdownTick), 1.0, first, second, -1);
+        router::route(
+            cx,
+            RmMessage::plain(MessageType::Timeout),
+            2.0,
+            first,
+            second,
+            -1,
+        );
+        router::route(
+            cx,
+            RmMessage::plain(MessageType::Cookie),
+            1.0,
+            first,
+            second,
+            -1,
+        );
+        router::route(
+            cx,
+            RmMessage::plain(MessageType::CountdownTick),
+            1.0,
+            first,
+            second,
+            -1,
+        );
         let pending: Vec<_> = cx
             .logic
             .content
@@ -165,12 +195,25 @@ fn the_router_queues_by_time_and_fires_its_head() {
         // Three timers on SpaceSupport; the first to expire delivers the
         // head, whichever message armed it.
         controller::fire_timers(cx, 1.5);
-        let left = cx.logic.content.state.router.as_ref().expect("router").pending().len();
+        let left = cx
+            .logic
+            .content
+            .state
+            .router
+            .as_ref()
+            .expect("router")
+            .pending()
+            .len();
         assert_eq!(left, 1);
         router::unregister(cx, first);
         controller::fire_timers(cx, 1.0);
         let lines = trace::stop(cx);
-        assert!(lines.iter().any(|l| l.contains("\"type\":\"Timeout\"") && l.contains("\"found\":0")), "{lines:#?}");
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("\"type\":\"Timeout\"") && l.contains("\"found\":0")),
+            "{lines:#?}"
+        );
         // An immediate message to no handler is dropped.
         router::route(cx, RmMessage::plain(MessageType::Timeout), 0.0, 999, 0, -1);
     });
@@ -227,7 +270,10 @@ fn a_destroy_solars_machine_succeeds() {
         assert!(rm(cx, mission).is_none_or(|r| r.pending_destroy));
         controller::tick(cx, 0.0);
         assert!(!cx.logic.content.instances.contains_key(&mission));
-        assert!(matches!(cx.logic.content.instances.values().next(), Some(Instance::GameSupport | Instance::SpaceSupport)));
+        assert!(matches!(
+            cx.logic.content.instances.values().next(),
+            Some(Instance::GameSupport | Instance::SpaceSupport)
+        ));
     });
 }
 

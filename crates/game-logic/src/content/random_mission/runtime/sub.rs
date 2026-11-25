@@ -8,7 +8,9 @@ use neuron_core::math::Vector;
 use neuron_core::num::trunc_to_i32;
 
 use super::message::{Body, Controller, MessageType, RmMessage};
-use super::{Event, Host, Loot, Machine, MachineKind, NpcShip, controller_of, is_enter, message_of};
+use super::{
+    Event, Host, Loot, Machine, MachineKind, NpcShip, controller_of, is_enter, message_of,
+};
 use crate::api;
 use crate::content::game_support::time_distance;
 use crate::content::players;
@@ -153,7 +155,14 @@ impl SubMachine {
     /// `FRmLootMachine::Query(Field6c, Kind, Field60, State, Holder)`: 0
     /// matches any.
     #[must_use]
-    pub fn query_loot(&self, mode: i32, kind: i32, parent: u32, state: i32, holder: u32) -> Vec<usize> {
+    pub fn query_loot(
+        &self,
+        mode: i32,
+        kind: i32,
+        parent: u32,
+        state: i32,
+        holder: u32,
+    ) -> Vec<usize> {
         (0..self.records.len())
             .filter(|&i| {
                 let r = &self.records[i];
@@ -302,7 +311,12 @@ pub(super) fn sub_machine(kind: fn(SubMachine) -> MachineKind, owner: u32) -> Ma
 
 /// `FRmSolarMachine` slot 2 (`:595-614`): in state 0, `ObjectDestroyed`
 /// of a record makes it destroyed and tells the owner.
-pub(super) fn solar_slot2(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>, state: i32) -> bool {
+pub(super) fn solar_slot2(
+    host: &mut Host<'_, '_>,
+    key: u32,
+    event: &Event<'_>,
+    state: i32,
+) -> bool {
     if state != 0 {
         return false;
     }
@@ -403,7 +417,11 @@ pub(super) fn loot_slot2(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>, s
     if let Some(m) = message_of(event)
         && m.is(MessageType::LootDrop, current)
     {
-        let Body::Loot { object, value: ship } = m.body else {
+        let Body::Loot {
+            object,
+            value: ship,
+        } = m.body
+        else {
             return true;
         };
         drop_loot(host, key, owner, object, ship);
@@ -419,7 +437,9 @@ pub(super) fn loot_slot2(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>, s
             kind,
             ..
         } => {
-            let Some(s) = sub_mut(host, key) else { return true };
+            let Some(s) = sub_mut(host, key) else {
+                return true;
+            };
             let Some(i) = s.find_by_id(object) else {
                 return true;
             };
@@ -428,20 +448,40 @@ pub(super) fn loot_slot2(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>, s
             if kind == 1 {
                 host.send_immediate(
                     key,
-                    RmMessage::new(MessageType::LootDestroyedByPlayer, Body::Loot { object: id, value: 0 }),
+                    RmMessage::new(
+                        MessageType::LootDestroyedByPlayer,
+                        Body::Loot {
+                            object: id,
+                            value: 0,
+                        },
+                    ),
                     owner,
                 );
             } else if kind == 0 {
                 host.send_immediate(
                     key,
-                    RmMessage::new(MessageType::LootDestroyed, Body::Loot { object: id, value: 0 }),
+                    RmMessage::new(
+                        MessageType::LootDestroyed,
+                        Body::Loot {
+                            object: id,
+                            value: 0,
+                        },
+                    ),
                     owner,
                 );
             }
-            if loot_kind == 2 && sub(host, key).is_some_and(|s| s.query_loot(0, 2, 0, 2, 0).is_empty()) {
+            if loot_kind == 2
+                && sub(host, key).is_some_and(|s| s.query_loot(0, 2, 0, 2, 0).is_empty())
+            {
                 host.send_immediate(
                     key,
-                    RmMessage::new(MessageType::CriticalLootGone, Body::Loot { object: id, value: killer }),
+                    RmMessage::new(
+                        MessageType::CriticalLootGone,
+                        Body::Loot {
+                            object: id,
+                            value: killer,
+                        },
+                    ),
                     owner,
                 );
             }
@@ -454,8 +494,11 @@ pub(super) fn loot_slot2(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>, s
             good,
             count,
         } => {
-            let holder = players::find_by_ship(&host.cx.logic.content.state.players, ship).unwrap_or(0);
-            let Some(s) = sub_mut(host, key) else { return true };
+            let holder =
+                players::find_by_ship(&host.cx.logic.content.state.players, ship).unwrap_or(0);
+            let Some(s) = sub_mut(host, key) else {
+                return true;
+            };
             let Some(i) = s.find_by_id(loot) else {
                 return true;
             };
@@ -470,20 +513,35 @@ pub(super) fn loot_slot2(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>, s
             let (id, loot_kind) = (r.object, r.loot_kind);
             host.send_immediate(
                 key,
-                RmMessage::new(MessageType::LootPickedUp, Body::Loot { object: id, value: ship }),
+                RmMessage::new(
+                    MessageType::LootPickedUp,
+                    Body::Loot {
+                        object: id,
+                        value: ship,
+                    },
+                ),
                 owner,
             );
-            if loot_kind == 2 && sub(host, key).is_some_and(|s| s.query_loot(0, 2, 0, 2, 0).is_empty()) {
+            if loot_kind == 2
+                && sub(host, key).is_some_and(|s| s.query_loot(0, 2, 0, 2, 0).is_empty())
+            {
                 host.send_immediate(
                     key,
-                    RmMessage::new(MessageType::CriticalLootGone, Body::Loot { object: id, value: ship }),
+                    RmMessage::new(
+                        MessageType::CriticalLootGone,
+                        Body::Loot {
+                            object: id,
+                            value: ship,
+                        },
+                    ),
                     owner,
                 );
             }
             true
         }
         Controller::Docked { ship, base } => {
-            let Some(player) = players::find_by_ship(&host.cx.logic.content.state.players, ship) else {
+            let Some(player) = players::find_by_ship(&host.cx.logic.content.state.players, ship)
+            else {
                 return true;
             };
             let held: Vec<u32> = sub(host, key).map_or_else(Vec::new, |s| {
@@ -495,7 +553,10 @@ pub(super) fn loot_slot2(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>, s
             for object in held {
                 host.send_immediate(
                     key,
-                    RmMessage::new(MessageType::LootHolderDocked, Body::LootPlayer { object, ship, base }),
+                    RmMessage::new(
+                        MessageType::LootHolderDocked,
+                        Body::LootPlayer { object, ship, base },
+                    ),
                     owner,
                 );
             }
@@ -503,7 +564,9 @@ pub(super) fn loot_slot2(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>, s
         }
         Controller::SystemUnloaded(system) => {
             let first = sub(host, key).and_then(|s| {
-                s.query_loot(0, 2, 0, 2, 0).first().map(|&i| s.records[i].object)
+                s.query_loot(0, 2, 0, 2, 0)
+                    .first()
+                    .map(|&i| s.records[i].object)
             });
             if let Some(object) = first {
                 let in_system = api::space_obj::system(host.cx, object).unwrap_or(0);
@@ -568,7 +631,9 @@ fn drop_loot(host: &mut Host<'_, '_>, key: u32, owner: u32, object: u32, ship: u
     // `CreateLoot(Record->ObjectId, Info)`: the record takes the new id.
     let created = api::space_obj::create_loot(host.cx, &info).ok();
     let Some(s) = sub_mut(host, key) else { return };
-    let Some(i) = s.find_by_id(object) else { return };
+    let Some(i) = s.find_by_id(object) else {
+        return;
+    };
     let r = &mut s.records[i];
     if let Some(id) = created {
         r.object = id;
@@ -580,7 +645,13 @@ fn drop_loot(host: &mut Host<'_, '_>, key: u32, owner: u32, object: u32, ship: u
     r.cargo_slot = SUBOBJ_ID_NONE;
     host.send_immediate(
         key,
-        RmMessage::new(MessageType::LootRespawned, Body::Loot { object, value: ship }),
+        RmMessage::new(
+            MessageType::LootRespawned,
+            Body::Loot {
+                object,
+                value: ship,
+            },
+        ),
         owner,
     );
 }
@@ -603,7 +674,12 @@ fn trigger_mut<'a>(host: &'a mut Host<'_, '_>, key: u32) -> Option<&'a mut Trigg
 
 /// `FRmTrigger::Slot2` (`:94-109`): the state picks the slot; its result
 /// is dropped.
-pub(super) fn trigger_slot2(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>, state: i32) -> bool {
+pub(super) fn trigger_slot2(
+    host: &mut Host<'_, '_>,
+    key: u32,
+    event: &Event<'_>,
+    state: i32,
+) -> bool {
     match state {
         0 => {
             if is_enter(event) {
@@ -628,7 +704,10 @@ pub(super) fn trigger_slot2(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>
             }
         }
         3 => {
-            if matches!(controller_of(event).map(|c| c.message), Some(Controller::Heartbeat(_))) {
+            if matches!(
+                controller_of(event).map(|c| c.message),
+                Some(Controller::Heartbeat(_))
+            ) {
                 let now = host.cx.logic.content.state.game_time;
                 let Some(t) = trigger(host, key) else {
                     return false;

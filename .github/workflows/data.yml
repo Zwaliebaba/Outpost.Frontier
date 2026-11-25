@@ -246,6 +246,20 @@ jobs:
             exit $code
           }
           "base_session: $(@(Get-Content "$basesession\base.jsonl").Count) records" | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+          # P3.7b (record 0008 points 3 and 10): the Tier B router and machine trace, a vendor random
+          # mission at he01_01_Base accepted, run for twelve seconds, aborted and torn down after the
+          # same start-up (CppSource/Oracle/rm_session.txt, Content.dll's OracleDumpRmSession over
+          # Server.dll's OracleBusFireTimers and OracleBusTick), into
+          # outpost-oracle\rm_session\rm.jsonl, which game-logic's data_dump_rm_session reads.
+          $rmsession = "$env:RUNNER_TEMP\outpost-oracle\rm_session"
+          & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\rm_session.txt" $rmsession | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+          $code = $LASTEXITCODE
+          "Oracle.exe sim rm_session.txt exited with $code" | Add-Content "$env:RUNNER_TEMP\oracle-dump.log"
+          if ($code -ne 0) {
+            Get-Content "$rmsession\session.jsonl" -Tail 20 -ErrorAction SilentlyContinue | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+            exit $code
+          }
+          "rm_session: $(@(Get-Content "$rmsession\rm.jsonl").Count) records" | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
       - name: Run the scenario oracle
         # Work package P2.3 (design/adr/0003-simulation-oracle.md, design/reference-build.md
         # section 10): every scenario in CppSource/Oracle/scenarios three times, each run in a
@@ -582,8 +596,10 @@ jobs:
           # (crates/game-logic/tests/mission_trace.rs, against outpost-oracle\mission_trace;
           # summary rust-mission-trace.txt, exact to the first divergence), and P3.6e's Tier B base
           # session trace (crates/game-logic/tests/base_session.rs, against
-          # outpost-oracle\base_session; summary rust-base-session.txt, exact to the first divergence
-          # but where D955 explains it).
+          # outpost-oracle\base_session; summary rust-base-session.txt, exact to the first
+          # divergence), and P3.7b's Tier B router and machine trace (crates/game-logic/tests/
+          # rm_session.rs, against outpost-oracle\rm_session; summary rust-rm-session.txt, exact to
+          # the first divergence).
           cmd /c "cargo test --locked --release -p game-logic --tests -- data_dump_ --nocapture 2>&1" | Tee-Object -FilePath $log -Append
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Keep the summaries
@@ -801,6 +817,7 @@ jobs:
             "$env:RUNNER_TEMP\outpost-oracle\rust-random-mission-saves.txt",
             "$env:RUNNER_TEMP\outpost-oracle\rust-mission-trace.txt",
             "$env:RUNNER_TEMP\outpost-oracle\rust-base-session.txt",
+            "$env:RUNNER_TEMP\outpost-oracle\rust-rm-session.txt",
             "$env:RUNNER_TEMP\outpost-sim-summaries\rust-mission-save-loads.txt",
             "$env:RUNNER_TEMP\outpost-sim-summaries\rust-random-mission-save-loads.txt",
             "$env:RUNNER_TEMP\outpost-sim-summaries\rust-system-loads.txt",

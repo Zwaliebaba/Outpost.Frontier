@@ -145,7 +145,10 @@ impl Session {
     fn message(&self, cx: &mut Cx<'_>, id: u32) {
         trace::push(
             cx,
-            format!("{{\"rec\":\"message\",\"step\":{},\"msg\":{id}}}", self.step),
+            format!(
+                "{{\"rec\":\"message\",\"step\":{},\"msg\":{id}}}",
+                self.step
+            ),
         );
     }
 
@@ -175,7 +178,12 @@ impl Session {
     }
 
     /// GameSupport's case for a base message, then BaseSupport's.
-    fn base_send(&self, cx: &mut Cx<'_>, ids: (ControllerId, ControllerId), mut message: ControllerMessage<'_>) {
+    fn base_send(
+        &self,
+        cx: &mut Cx<'_>,
+        ids: (ControllerId, ControllerId),
+        mut message: ControllerMessage<'_>,
+    ) {
         self.message(cx, message.id());
         game_support::handle_message(cx, ids.0, &mut message);
         base_support::handle_message(cx, ids.1, &mut message);
@@ -310,10 +318,16 @@ fn compare(rust: &[String], oracle: &[String], names: &[&str]) -> (Vec<String>, 
     let step = |line: Option<&String>| {
         line.and_then(|l| {
             let at = l.find("\"step\":")? + 7;
-            l[at..].split(|c: char| !c.is_ascii_digit()).next()?.parse::<usize>().ok()
+            l[at..]
+                .split(|c: char| !c.is_ascii_digit())
+                .next()?
+                .parse::<usize>()
+                .ok()
         })
     };
-    let s = step(rust.get(at)).or_else(|| step(oracle.get(at))).unwrap_or(0);
+    let s = step(rust.get(at))
+        .or_else(|| step(oracle.get(at)))
+        .unwrap_or(0);
     let mut lines = vec![format!(
         "rm_session: first divergence at record {at} (step {s}, {}) of rust {} / oracle {}",
         names.get(s).copied().unwrap_or("?"),
@@ -322,8 +336,14 @@ fn compare(rust: &[String], oracle: &[String], names: &[&str]) -> (Vec<String>, 
     )];
     for i in at.saturating_sub(REPORT_WINDOW)..=at + REPORT_WINDOW {
         let mark = if i == at { ">" } else { " " };
-        lines.push(format!("{mark} {i}: rust   {}", rust.get(i).map_or("-", String::as_str)));
-        lines.push(format!("{mark} {i}: oracle {}", oracle.get(i).map_or("-", String::as_str)));
+        lines.push(format!(
+            "{mark} {i}: rust   {}",
+            rust.get(i).map_or("-", String::as_str)
+        ));
+        lines.push(format!(
+            "{mark} {i}: oracle {}",
+            oracle.get(i).map_or("-", String::as_str)
+        ));
     }
     (lines, true)
 }
@@ -372,7 +392,11 @@ fn data_dump_rm_session() {
         "random-mission session ({}, {} steps{}): {} records; {}",
         String::from_utf8_lossy(BASE),
         names.len(),
-        if accepted { "" } else { ", no mission accepted" },
+        if accepted {
+            ""
+        } else {
+            ", no mission accepted"
+        },
         lines.len(),
         counts(&lines)
     );
@@ -431,21 +455,26 @@ fn the_rm_session_runs_on_outdir() {
         logic: &mut logic,
     };
     let (lines, names, accepted) = run_session(&mut cx);
-    if let Some(out) = std::env::var_os("OUTPOST_RM_SESSION_OUT") {
-        let _ = std::fs::write(out, lines.join("\n"));
-    }
-    assert!(accepted, "no vendor mission was accepted: {}", counts(&lines));
+    assert!(
+        accepted,
+        "no vendor mission was accepted: {}",
+        counts(&lines)
+    );
     let summary = counts(&lines);
 
     // The acceptance: the mission's group registers and enters state 0,
     // which routes its timeout 1.1 s later.
     let accept = step_lines(&lines, &names, "accept_vendor");
     assert!(
-        accept.iter().any(|l| l.contains("\"kind\":\"mission\",\"event\":1,\"state\":0")),
+        accept
+            .iter()
+            .any(|l| l.contains("\"kind\":\"mission\",\"event\":1,\"state\":0")),
         "{accept:#?}"
     );
     assert!(
-        accept.iter().any(|l| l.contains("\"rec\":\"route\"") && l.contains("\"type\":\"Timeout\"")),
+        accept
+            .iter()
+            .any(|l| l.contains("\"rec\":\"route\"") && l.contains("\"type\":\"Timeout\"")),
         "{accept:#?}"
     );
 
@@ -460,48 +489,86 @@ fn the_rm_session_runs_on_outdir() {
         .collect();
     let tick = |n: usize| -> Vec<&str> {
         let tag = format!("\"step\":{},", ticks[n]);
-        lines.iter().filter(|l| l.contains(&tag)).map(String::as_str).collect()
+        lines
+            .iter()
+            .filter(|l| l.contains(&tag))
+            .map(String::as_str)
+            .collect()
     };
     let second = tick(1);
     assert!(
-        second.iter().any(|l| l.contains("\"rec\":\"deliver\"") && l.contains("\"type\":\"Timeout\"") && l.contains("\"found\":1")),
+        second.iter().any(|l| l.contains("\"rec\":\"deliver\"")
+            && l.contains("\"type\":\"Timeout\"")
+            && l.contains("\"found\":1")),
         "{second:#?}"
     );
-    assert!(second.iter().any(|l| l.contains("\"kind\":\"vignette\"")), "{second:#?}");
+    assert!(
+        second.iter().any(|l| l.contains("\"kind\":\"vignette\"")),
+        "{second:#?}"
+    );
     let third = tick(2);
     assert!(
-        third.iter().any(|l| l.contains("\"type\":\"StartMachine\"") && l.contains("\"found\":1")),
+        third
+            .iter()
+            .any(|l| l.contains("\"type\":\"StartMachine\"") && l.contains("\"found\":1")),
         "{third:#?}"
     );
     assert!(
-        third.iter().any(|l| l.contains("\"type\":\"MachineStarted\"")),
+        third
+            .iter()
+            .any(|l| l.contains("\"type\":\"MachineStarted\"")),
         "{third:#?}"
     );
     assert!(
-        third.iter().any(|l| l.contains("\"kind\":\"vignette\",\"event\":1,\"state\":8")
-            || l.contains("\"kind\":\"vignette\",\"event\":1,\"state\":10")),
+        third.iter().any(
+            |l| l.contains("\"kind\":\"vignette\",\"event\":1,\"state\":8")
+                || l.contains("\"kind\":\"vignette\",\"event\":1,\"state\":10")
+        ),
         "{third:#?}"
     );
 
     // The abort fails the mission (reason 1), ends it and counts it.
     let abort = step_lines(&lines, &names, "abort");
-    assert!(abort.iter().any(|l| l.contains("\"event\":\"fail\",\"value\":1")), "{abort:#?}");
-    assert!(abort.iter().any(|l| l.contains("\"event\":\"end\"")), "{abort:#?}");
+    assert!(
+        abort
+            .iter()
+            .any(|l| l.contains("\"event\":\"fail\",\"value\":1")),
+        "{abort:#?}"
+    );
+    assert!(
+        abort.iter().any(|l| l.contains("\"event\":\"end\"")),
+        "{abort:#?}"
+    );
     let end = abort.last().expect("the end record");
     assert!(end.contains("\"aborted\":[["), "{end}");
 
     // The teardown unregisters every machine and the mission's group.
     let teardown = step_lines(&lines, &names, "teardown");
-    let registered = lines.iter().filter(|l| l.contains("\"rec\":\"register\"")).count();
-    let unregistered = lines.iter().filter(|l| l.contains("\"rec\":\"unregister\"")).count();
+    let registered = lines
+        .iter()
+        .filter(|l| l.contains("\"rec\":\"register\""))
+        .count();
+    let unregistered = lines
+        .iter()
+        .filter(|l| l.contains("\"rec\":\"unregister\""))
+        .count();
     assert!(
-        teardown.iter().filter(|l| l.contains("\"rec\":\"unregister\"")).count() >= 5,
+        teardown
+            .iter()
+            .filter(|l| l.contains("\"rec\":\"unregister\""))
+            .count()
+            >= 5,
         "{teardown:#?}"
     );
     assert!(unregistered <= registered, "{summary}");
     assert!(mission_id(&cx).is_none(), "the mission was torn down");
     assert!(
-        cx.logic.content.state.router.as_ref().is_some_and(|r| r.pending().is_empty()),
+        cx.logic
+            .content
+            .state
+            .router
+            .as_ref()
+            .is_some_and(|r| r.pending().is_empty()),
         "{summary}"
     );
 }

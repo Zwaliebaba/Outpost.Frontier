@@ -667,9 +667,7 @@ pub fn group_process_in<H: MachineHost + ?Sized>(
     let mut index = 0;
     while let Some(member) = host.member(group, index) {
         dispatch_in(host, member, event);
-        index = host
-            .member_index(group, member)
-            .map_or(index, |at| at + 1);
+        index = host.member_index(group, member).map_or(index, |at| at + 1);
     }
     host.remove_dying(group);
 }
@@ -987,7 +985,14 @@ mod tests {
         // pass; a routed message reaches the group alone.
         host.calls.clear();
         let data = ();
-        dispatch_in(&mut host, 0, &SmEvent::Controller { id: 0x20, data: &data });
+        dispatch_in(
+            &mut host,
+            0,
+            &SmEvent::Controller {
+                id: 0x20,
+                data: &data,
+            },
+        );
         assert_eq!(host.members, [2, 3]);
         assert!(host.machines[1].is_none());
         host.calls.clear();

@@ -208,8 +208,12 @@ fn offer_system(host: &Host<'_, '_>, key: u32) -> u32 {
 
 /// The objective of `key` in `component`'s map (`RmComponentObjective`;
 /// the C++ inserts a null entry for a missing key and calls through it, a
-/// key no offer of the shipped data lacks, D1026).
-fn component_objective(o: &mut Offer, component: ComponentKind, key: i32) -> Option<&mut Objective> {
+/// key no offer of the shipped data lacks, D1025).
+fn component_objective(
+    o: &mut Offer,
+    component: ComponentKind,
+    key: i32,
+) -> Option<&mut Objective> {
     let map = match component {
         ComponentKind::General => &mut o.general.objectives,
         ComponentKind::TargetShips => &mut o.target_ships.component.objectives,
@@ -250,7 +254,9 @@ fn away_from_origin(at: Vector) -> bool {
 /// An active objective's `GetPosition` (slot 7).
 fn objective_position(host: &Host<'_, '_>, key: u32, a: &ActiveObjective) -> Option<Vector> {
     match &a.source {
-        ObjectiveSource::Countdown(c) => away_from_origin(c.marker_position).then_some(c.marker_position),
+        ObjectiveSource::Countdown(c) => {
+            away_from_origin(c.marker_position).then_some(c.marker_position)
+        }
         ObjectiveSource::Offer(component, map_key) => {
             let o = offer(host, key)?;
             let map = match component {
@@ -370,7 +376,12 @@ pub(super) fn build(host: &mut Host<'_, '_>, offer_index: usize) -> Option<u32> 
 }
 
 /// A trigger of this machine made and registered.
-fn new_trigger(host: &mut Host<'_, '_>, cookie: u32, owner: u32, kind: TriggerKind) -> (u32, Machine) {
+fn new_trigger(
+    host: &mut Host<'_, '_>,
+    cookie: u32,
+    owner: u32,
+    kind: TriggerKind,
+) -> (u32, Machine) {
     let id = host.register();
     (
         id,
@@ -444,7 +455,10 @@ fn area_plus(host: &Host<'_, '_>, key: u32, d: f64) -> f32 {
 
 /// `FindObjective`.
 fn find_objective(host: &Host<'_, '_>, key: u32, objective: i32) -> Option<usize> {
-    vig(host, key)?.active.iter().position(|a| a.key == objective)
+    vig(host, key)?
+        .active
+        .iter()
+        .position(|a| a.key == objective)
 }
 
 fn has_objective(host: &Host<'_, '_>, key: u32, objective: i32) -> bool {
@@ -463,7 +477,13 @@ fn add_objective(host: &mut Host<'_, '_>, key: u32, objective: i32, source: Obje
 }
 
 /// `InsertObjective` before `at` (`:2049-2061`).
-fn insert_objective(host: &mut Host<'_, '_>, key: u32, objective: i32, source: ObjectiveSource, at: usize) {
+fn insert_objective(
+    host: &mut Host<'_, '_>,
+    key: u32,
+    objective: i32,
+    source: ObjectiveSource,
+    at: usize,
+) {
     let Some(v) = vig_mut(host, key) else { return };
     let at = at.min(v.active.len());
     v.active.insert(
@@ -482,7 +502,9 @@ fn rebuild_objective(host: &mut Host<'_, '_>, key: u32, objective: i32) -> bool 
     let Some(at) = find_objective(host, key, objective) else {
         return false;
     };
-    let Some(v) = vig_mut(host, key) else { return false };
+    let Some(v) = vig_mut(host, key) else {
+        return false;
+    };
     let entry = v.active.remove(at);
     insert_objective(host, key, entry.key, entry.source, at);
     true
@@ -499,7 +521,14 @@ fn remove_objective(host: &mut Host<'_, '_>, key: u32, objective: i32) -> Option
 }
 
 /// `FRmObjectiveType2::SetMarker` on a component objective.
-fn set_marker(host: &mut Host<'_, '_>, key: u32, component: ComponentKind, objective: i32, system: u32, at: Vector) {
+fn set_marker(
+    host: &mut Host<'_, '_>,
+    key: u32,
+    component: ComponentKind,
+    objective: i32,
+    system: u32,
+    at: Vector,
+) {
     if let Some(o) = offer_mut(host, key)
         && let Some(ob) = component_objective(o, component, objective)
     {
@@ -523,7 +552,9 @@ fn set_targets(
 ) {
     let players = host.players();
     let old = {
-        let Some(o) = offer_mut(host, key) else { return };
+        let Some(o) = offer_mut(host, key) else {
+            return;
+        };
         let Some(ob) = component_objective(o, component, objective) else {
             return;
         };
@@ -681,7 +712,10 @@ fn send_conversations(host: &mut Host<'_, '_>, key: u32, trigger: i32, player: O
         }
         host.send_delayed(
             sender,
-            RmMessage::new(MessageType::Conversation, Body::Conversation(Box::new(prepared))),
+            RmMessage::new(
+                MessageType::Conversation,
+                Body::Conversation(Box::new(prepared)),
+            ),
             delay,
             key,
         );
@@ -691,7 +725,12 @@ fn send_conversations(host: &mut Host<'_, '_>, key: u32, trigger: i32, player: O
 /// `PrepareConversation` (`:383-411`): `MarkReady`; each line's speaker
 /// and listeners are resolved by the machine (their playback is the comm
 /// system's, P3.6b, D1022).
-fn prepare_conversation(_host: &mut Host<'_, '_>, _key: u32, conversation: &mut Conversation, _player: Option<u32>) {
+fn prepare_conversation(
+    _host: &mut Host<'_, '_>,
+    _key: u32,
+    conversation: &mut Conversation,
+    _player: Option<u32>,
+) {
     conversation.ready = true;
 }
 
@@ -731,7 +770,12 @@ fn player_by_ship(host: &Host<'_, '_>, ship: u32) -> Option<u32> {
 // ---------------------------------------------------------------------------
 
 /// A trigger-fired message of `site`'s cookie: `(sender, last, activator)`.
-fn fired(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>, site: CookieSite) -> Option<(u32, bool, u32)> {
+fn fired(
+    host: &mut Host<'_, '_>,
+    key: u32,
+    event: &Event<'_>,
+    site: CookieSite,
+) -> Option<(u32, bool, u32)> {
     let m = message_of(event)?;
     let current = host.state_of(key);
     if !m.is(MessageType::TriggerFired, current) {
@@ -749,7 +793,12 @@ fn fired(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>, site: CookieSite)
 }
 
 /// The routed message of `kind` for the current state.
-fn routed<'a>(host: &Host<'_, '_>, key: u32, event: &'a Event<'_>, kind: MessageType) -> Option<&'a RmMessage> {
+fn routed<'a>(
+    host: &Host<'_, '_>,
+    key: u32,
+    event: &'a Event<'_>,
+    kind: MessageType,
+) -> Option<&'a RmMessage> {
     let m = message_of(event)?;
     m.is(kind, host.state_of(key)).then_some(m)
 }
@@ -809,7 +858,8 @@ fn any_state(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
                 refresh_objectives(host, key);
                 return true;
             }
-            Controller::SpaceEnter { system, player } | Controller::SystemEnter { system, player } => {
+            Controller::SpaceEnter { system, player }
+            | Controller::SystemEnter { system, player } => {
                 send_system_conversations(host, key, player, system);
                 return true;
             }
@@ -826,7 +876,9 @@ fn any_state(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
                 return true;
             }
             Controller::Docked { ship, .. } => {
-                if !api::misc::single_player(host.cx) || !vig(host, key).is_some_and(|v| v.area_reached) {
+                if !api::misc::single_player(host.cx)
+                    || !vig(host, key).is_some_and(|v| v.area_reached)
+                {
                     return true;
                 }
                 let Some(player) = player_by_ship(host, ship) else {
@@ -858,7 +910,11 @@ fn any_state(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
                     return true;
                 }
                 send_conversations(host, key, comm::GLOBAL_FAIL_OTHER, Some(player));
-                let reason = if api::misc::single_player(host.cx) { 2 } else { 3 };
+                let reason = if api::misc::single_player(host.cx) {
+                    2
+                } else {
+                    3
+                };
                 if let Some(v) = vig_mut(host, key) {
                     v.fail_reason = reason;
                 }
@@ -904,7 +960,9 @@ fn any_state(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
         let system = offer_system(host, key);
         let position = vig(host, key).map_or(Vector::ZERO, |v| v.position);
         let str_id = offer_mut(host, key)
-            .and_then(|o| component_objective(o, ComponentKind::General, 9).map(|ob| ob.text.str_id))
+            .and_then(|o| {
+                component_objective(o, ComponentKind::General, 9).map(|ob| ob.text.str_id)
+            })
             .unwrap_or(0);
         let mut countdown = Countdown {
             str_id,
@@ -914,7 +972,12 @@ fn any_state(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
             marker_position: Vector::ZERO,
             seconds: 0,
         };
-        set_countdown(&mut countdown, trunc_to_i32(f64::from(delay)), system, position);
+        set_countdown(
+            &mut countdown,
+            trunc_to_i32(f64::from(delay)),
+            system,
+            position,
+        );
         insert_objective(host, key, 9, ObjectiveSource::Countdown(countdown), 0);
         let reenter = cookie(host.cx, CookieSite::ReenterArea);
         let radius = area_plus(host, key, -250.0);
@@ -955,7 +1018,11 @@ fn any_state(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
         }
         let by = player_by_ship(host, activator);
         send_conversations(host, key, comm::GLOBAL_FAIL_COMBAT_RANGE, by);
-        let reason = if api::misc::single_player(host.cx) { 0xb } else { 0xc };
+        let reason = if api::misc::single_player(host.cx) {
+            0xb
+        } else {
+            0xc
+        };
         if let Some(v) = vig_mut(host, key) {
             v.fail_reason = reason;
             v.left_area_time = -1.0;
@@ -994,7 +1061,10 @@ fn any_state(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
     if m.is(MessageType::ShipDestroyed, current) {
         if let Body::Ship { object, .. } = m.body {
             let ships = vig(host, key).map_or(0, |v| v.ships);
-            let record = sub::records(host, ships).iter().find(|r| object != 0 && r.object == object).cloned();
+            let record = sub::records(host, ships)
+                .iter()
+                .find(|r| object != 0 && r.object == object)
+                .cloned();
             if let Some(record) = record {
                 spawn_record_loot(host, key, &record);
             }
@@ -1056,28 +1126,64 @@ fn critical_loot_spawned(host: &mut Host<'_, '_>, key: u32, object: u32) {
         set_target_records(host, key, component, map_key, loot, &critical, system, at);
         rebuild_objective(host, key, objective);
     } else {
-        let index = sub::records(host, loot).iter().position(|r| r.object == record.object);
+        let index = sub::records(host, loot)
+            .iter()
+            .position(|r| r.object == record.object);
         let indices: Vec<usize> = index.into_iter().collect();
-        set_target_records(host, key, ComponentKind::General, objective, loot, &indices, system, at);
-        add_objective(host, key, objective, ObjectiveSource::Offer(ComponentKind::General, objective));
+        set_target_records(
+            host,
+            key,
+            ComponentKind::General,
+            objective,
+            loot,
+            &indices,
+            system,
+            at,
+        );
+        add_objective(
+            host,
+            key,
+            objective,
+            ObjectiveSource::Offer(ComponentKind::General, objective),
+        );
     }
 }
 
-fn sub_query_loot(host: &Host<'_, '_>, loot: u32, mode: i32, kind: i32, parent: u32, state: i32, holder: u32) -> Vec<usize> {
+fn sub_query_loot(
+    host: &Host<'_, '_>,
+    loot: u32,
+    mode: i32,
+    kind: i32,
+    parent: u32,
+    state: i32,
+    holder: u32,
+) -> Vec<usize> {
     match host.machine_ref(loot).map(|m| &m.kind) {
         Some(MachineKind::Loot(s)) => s.query_loot(mode, kind, parent, state, holder),
         _ => Vec::new(),
     }
 }
 
-fn sub_query_ships(host: &Host<'_, '_>, ships: u32, kind: i32, state: i32, mask: u32) -> Vec<usize> {
+fn sub_query_ships(
+    host: &Host<'_, '_>,
+    ships: u32,
+    kind: i32,
+    state: i32,
+    mask: u32,
+) -> Vec<usize> {
     match host.machine_ref(ships).map(|m| &m.kind) {
         Some(MachineKind::Ships(s)) => s.query_ships(kind, state, mask),
         _ => Vec::new(),
     }
 }
 
-fn sub_query_solars(host: &Host<'_, '_>, solars: u32, kind: i32, state: i32, mask: u32) -> Vec<usize> {
+fn sub_query_solars(
+    host: &Host<'_, '_>,
+    solars: u32,
+    kind: i32,
+    state: i32,
+    mask: u32,
+) -> Vec<usize> {
     match host.machine_ref(solars).map(|m| &m.kind) {
         Some(MachineKind::Solars(s)) => s.query_solars(kind, state, mask),
         _ => Vec::new(),
@@ -1103,11 +1209,21 @@ fn start(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
     };
     if target_active {
         set_marker(host, key, ComponentKind::General, 1, system, target_pos);
-        add_objective(host, key, 1, ObjectiveSource::Offer(ComponentKind::General, 1));
+        add_objective(
+            host,
+            key,
+            1,
+            ObjectiveSource::Offer(ComponentKind::General, 1),
+        );
         host.set_state(key, 8);
     } else {
         set_marker(host, key, ComponentKind::General, 2, system, center);
-        add_objective(host, key, 2, ObjectiveSource::Offer(ComponentKind::General, 2));
+        add_objective(
+            host,
+            key,
+            2,
+            ObjectiveSource::Offer(ComponentKind::General, 2),
+        );
         host.set_state(key, 10);
     }
     if let Some(v) = vig_mut(host, key) {
@@ -1130,7 +1246,8 @@ fn start(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
 fn pre_battle(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
     let far = cookie(host.cx, CookieSite::TargetFar);
     let near = cookie(host.cx, CookieSite::TargetNear);
-    let (system, target) = offer(host, key).map_or((0, Vector::ZERO), |o| (o.system, o.target_ships.position));
+    let (system, target) =
+        offer(host, key).map_or((0, Vector::ZERO), |o| (o.system, o.target_ships.position));
     if is_enter(event) {
         if let Some(v) = vig_mut(host, key) {
             v.position = target;
@@ -1197,7 +1314,14 @@ fn target_battle(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
         let ships = vig(host, key).map_or(0, |v| v.ships);
         match mode {
             1 => {
-                add_state_machine(host, key, target_done, TriggerKind::Timer { delay: value as f32 });
+                add_state_machine(
+                    host,
+                    key,
+                    target_done,
+                    TriggerKind::Timer {
+                        delay: value as f32,
+                    },
+                );
             }
             2 => {
                 add_state_machine(
@@ -1242,9 +1366,16 @@ fn target_battle(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
         } else {
             send_conversations(host, key, comm::NOT_KILLED_ALL_GOING_TO_MAIN, None);
         }
-        let (system, center) = offer(host, key).map_or((0, Vector::ZERO), |o| (o.system, main_center(o)));
+        let (system, center) =
+            offer(host, key).map_or((0, Vector::ZERO), |o| (o.system, main_center(o)));
         set_marker(host, key, ComponentKind::TargetShips, 3, system, center);
-        insert_objective(host, key, 2, ObjectiveSource::Offer(ComponentKind::TargetShips, 3), 0);
+        insert_objective(
+            host,
+            key,
+            2,
+            ObjectiveSource::Offer(ComponentKind::TargetShips, 3),
+            0,
+        );
         host.set_state(key, 10);
         return true;
     }
@@ -1291,7 +1422,12 @@ fn target_battle(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
             return true;
         }
         send_conversations(host, key, comm::KILLED_ALL_GOING_TO_MAIN, None);
-        add_objective(host, key, 2, ObjectiveSource::Offer(ComponentKind::TargetShips, 3));
+        add_objective(
+            host,
+            key,
+            2,
+            ObjectiveSource::Offer(ComponentKind::TargetShips, 3),
+        );
         host.set_state(key, 10);
         return true;
     }
@@ -1316,8 +1452,9 @@ fn approach_main(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
     let main_far = cookie(host.cx, CookieSite::MainFar);
     let main_near = cookie(host.cx, CookieSite::MainNear);
     let leave_cookie = cookie(host.cx, CookieSite::LeaveArea);
-    let (system, center, target_active) =
-        offer(host, key).map_or((0, Vector::ZERO, false), |o| (o.system, main_center(o), o.target_ships.component.active));
+    let (system, center, target_active) = offer(host, key).map_or((0, Vector::ZERO, false), |o| {
+        (o.system, main_center(o), o.target_ships.component.active)
+    });
     if is_enter(event) {
         let old = vig(host, key).map_or(Vector::ZERO, |v| v.position);
         let count = vig(host, key).map_or(0, |v| v.active.len());
@@ -1338,7 +1475,8 @@ fn approach_main(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
             match a.source {
                 ObjectiveSource::Countdown(_) => {
                     if let Some(v) = vig_mut(host, key)
-                        && let Some(ObjectiveSource::Countdown(c)) = v.active.get_mut(i).map(|a| &mut a.source)
+                        && let Some(ObjectiveSource::Countdown(c)) =
+                            v.active.get_mut(i).map(|a| &mut a.source)
                     {
                         c.marker_position = center;
                     }
@@ -1372,7 +1510,10 @@ fn approach_main(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
         if offer(host, key).is_some_and(|o| has_unspawned(o, false)) {
             return true;
         }
-        if [7, 4, 6, 5, 0xa, 0xb, 0xc, 0xd].iter().any(|&k| has_objective(host, key, k)) {
+        if [7, 4, 6, 5, 0xa, 0xb, 0xc, 0xd]
+            .iter()
+            .any(|&k| has_objective(host, key, k))
+        {
             return true;
         }
         host.set_state(key, 5);
@@ -1408,7 +1549,10 @@ fn approach_main(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
         if offer(host, key).is_some_and(|o| has_unspawned(o, false)) {
             return true;
         }
-        if [0xa, 0xb, 0xc, 0xd, 7, 4, 6, 5].iter().any(|&k| has_objective(host, key, k)) {
+        if [0xa, 0xb, 0xc, 0xd, 7, 4, 6, 5]
+            .iter()
+            .any(|&k| has_objective(host, key, k))
+        {
             return true;
         }
         if has_objective(host, key, 9) {
@@ -1478,28 +1622,57 @@ fn main_battle(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
         if let Some(v) = vig_mut(host, key) {
             v.area_radius = 3500.0;
         }
-        let (system, center, groups) = offer(host, key).map_or((0, Vector::ZERO, Vec::new()), |o| {
-            (
-                o.system,
-                main_center(o),
-                o.ships
-                    .groups
-                    .iter()
-                    .map(|g| (g.serial, g.field_0x04, g.field_0x08))
-                    .collect::<Vec<_>>(),
-            )
-        });
+        let (system, center, groups) =
+            offer(host, key).map_or((0, Vector::ZERO, Vec::new()), |o| {
+                (
+                    o.system,
+                    main_center(o),
+                    o.ships
+                        .groups
+                        .iter()
+                        .map(|g| (g.serial, g.field_0x04, g.field_0x08))
+                        .collect::<Vec<_>>(),
+                )
+            });
         let position = vig(host, key).map_or(Vector::ZERO, |v| v.position);
         let solars = vig(host, key).map_or(0, |v| v.solars);
         let others = sub_query_solars(host, solars, 1, 2, 2);
         if !others.is_empty() {
-            set_target_records(host, key, ComponentKind::Solars, 5, solars, &others, system, position);
-            add_objective(host, key, 5, ObjectiveSource::Offer(ComponentKind::Solars, 5));
+            set_target_records(
+                host,
+                key,
+                ComponentKind::Solars,
+                5,
+                solars,
+                &others,
+                system,
+                position,
+            );
+            add_objective(
+                host,
+                key,
+                5,
+                ObjectiveSource::Offer(ComponentKind::Solars, 5),
+            );
         }
         let big = sub_query_solars(host, solars, 0, 2, 2);
         if !big.is_empty() {
-            set_target_records(host, key, ComponentKind::Solars, 4, solars, &big, system, position);
-            add_objective(host, key, 4, ObjectiveSource::Offer(ComponentKind::Solars, 4));
+            set_target_records(
+                host,
+                key,
+                ComponentKind::Solars,
+                4,
+                solars,
+                &big,
+                system,
+                position,
+            );
+            add_objective(
+                host,
+                key,
+                4,
+                ObjectiveSource::Offer(ComponentKind::Solars, 4),
+            );
         }
         if let Some(&(first, first_mode, _)) = groups.first() {
             if first_mode != 1 {
@@ -1522,7 +1695,9 @@ fn main_battle(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
     }
     if let Some((sender, last, activator)) = fired(host, key, event, CookieSite::MainNextGroup) {
         retire(host, key, sender, last);
-        if !offer(host, key).is_some_and(|o| has_unspawned(o, false)) && !has_target_objectives(host, key) {
+        if !offer(host, key).is_some_and(|o| has_unspawned(o, false))
+            && !has_target_objectives(host, key)
+        {
             return true;
         }
         spawn_group_with_triggers(host, key, activator, false, next_group);
@@ -1590,7 +1765,13 @@ fn drop_held(host: &mut Host<'_, '_>, key: u32, object: u32, holder: u32) {
     let loot = vig(host, key).map_or(0, |v| v.loot);
     host.send_immediate(
         key,
-        RmMessage::new(MessageType::LootDrop, Body::Loot { object, value: ship }),
+        RmMessage::new(
+            MessageType::LootDrop,
+            Body::Loot {
+                object,
+                value: ship,
+            },
+        ),
         loot,
     );
 }
@@ -1600,7 +1781,10 @@ fn critical_loot(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
     if is_enter(event) {
         return true;
     }
-    if matches!(controller_of(event).map(|c| c.message), Some(Controller::Docked { .. })) {
+    if matches!(
+        controller_of(event).map(|c| c.message),
+        Some(Controller::Docked { .. })
+    ) {
         return true;
     }
     let loot = vig(host, key).map_or(0, |v| v.loot);
@@ -1637,7 +1821,11 @@ fn critical_loot(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
             .cloned()
     };
     if let Some(m) = routed(host, key, event, MessageType::LootPickedUp) {
-        let Body::Loot { object, value: ship } = m.body else {
+        let Body::Loot {
+            object,
+            value: ship,
+        } = m.body
+        else {
             return true;
         };
         let Some(record) = record_of(host, object) else {
@@ -1665,10 +1853,24 @@ fn critical_loot(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
         // the holder's ship).
         let base = offer(host, key).map_or(0, |o| o.offer_base);
         let dock = super::super::mission::find_dock_object_id(host.cx, base);
-        let (where_, _) = api::space_obj::location(host.cx, dock).unwrap_or((Vector::ZERO, neuron_core::math::Matrix::IDENTITY));
+        let (where_, _) = api::space_obj::location(host.cx, dock)
+            .unwrap_or((Vector::ZERO, neuron_core::math::Matrix::IDENTITY));
         let base_system = api::misc::base_system(host.cx, base).unwrap_or(0);
-        set_targets(host, key, ComponentKind::General, 0xc, vec![dock], base_system, where_);
-        add_objective(host, key, 0xc, ObjectiveSource::Offer(ComponentKind::General, 0xc));
+        set_targets(
+            host,
+            key,
+            ComponentKind::General,
+            0xc,
+            vec![dock],
+            base_system,
+            where_,
+        );
+        add_objective(
+            host,
+            key,
+            0xc,
+            ObjectiveSource::Offer(ComponentKind::General, 0xc),
+        );
         return true;
     }
     if let Some(m) = routed(host, key, event, MessageType::LootRespawned) {
@@ -1688,8 +1890,22 @@ fn critical_loot(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
                 .position(|r| r.object == record.object)
                 .into_iter()
                 .collect();
-            set_target_records(host, key, ComponentKind::General, 0xb, loot, &index, system, at);
-            add_objective(host, key, 0xb, ObjectiveSource::Offer(ComponentKind::General, 0xb));
+            set_target_records(
+                host,
+                key,
+                ComponentKind::General,
+                0xb,
+                loot,
+                &index,
+                system,
+                at,
+            );
+            add_objective(
+                host,
+                key,
+                0xb,
+                ObjectiveSource::Offer(ComponentKind::General, 0xb),
+            );
             return true;
         }
         if record.mode != 1 && record.mode != 2 {
@@ -1697,7 +1913,9 @@ fn critical_loot(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
         }
         let objective = if record.mode == 1 { 0xa } else { 0xb };
         let critical = sub_query_loot(host, loot, record.mode, 2, 0, 2, 0);
-        let Some(a) = find_objective(host, key, objective).and_then(|i| vig(host, key).map(|v| v.active[i].clone())) else {
+        let Some(a) = find_objective(host, key, objective)
+            .and_then(|i| vig(host, key).map(|v| v.active[i].clone()))
+        else {
             return true;
         };
         if let ObjectiveSource::Offer(component, map_key) = a.source {
@@ -1707,7 +1925,11 @@ fn critical_loot(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
         return true;
     }
     if let Some(m) = routed(host, key, event, MessageType::LootDestroyedByPlayer) {
-        let Body::Loot { object, value: ship } = m.body else {
+        let Body::Loot {
+            object,
+            value: ship,
+        } = m.body
+        else {
             return true;
         };
         let Some(record) = record_of(host, object) else {
@@ -1747,7 +1969,9 @@ fn critical_loot(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
         host.set_state(key, 6);
         return true;
     }
-    if let Some(Controller::ObjectDestroyed { player, .. }) = controller_of(event).map(|c| c.message) {
+    if let Some(Controller::ObjectDestroyed { player, .. }) =
+        controller_of(event).map(|c| c.message)
+    {
         if !host.is_mapped(player) {
             return false;
         }
@@ -1798,7 +2022,12 @@ fn succeeded(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
     if routed(host, key, event, MessageType::Timeout).is_some() {
         on_succeeded(host, key);
         let mission = host.rm().map_or(0, |r| r.handler);
-        host.send_delayed(key, RmMessage::plain(MessageType::MachineSucceeded), 0.001, mission);
+        host.send_delayed(
+            key,
+            RmMessage::plain(MessageType::MachineSucceeded),
+            0.001,
+            mission,
+        );
         host.set_state(key, 7);
         return true;
     }
@@ -1871,8 +2100,12 @@ fn clear_solar_targets(host: &mut Host<'_, '_>, key: u32) {
 fn clear_targets(host: &mut Host<'_, '_>, machine: u32, indices: Vec<usize>) {
     for i in indices {
         let object = {
-            let Some(s) = sub::sub_mut(host, machine) else { return };
-            let Some(r) = s.records.get_mut(i) else { continue };
+            let Some(s) = sub::sub_mut(host, machine) else {
+                return;
+            };
+            let Some(r) = s.records.get_mut(i) else {
+                continue;
+            };
             r.flags = 0;
             r.object
         };
@@ -1906,7 +2139,13 @@ fn on_flagged_ships_lost(host: &mut Host<'_, '_>, key: u32, object: u32) {
 }
 
 /// `SpawnGroupWithTriggers(Serial, Component, Cookie)` (`:325-400`).
-fn spawn_group_with_triggers(host: &mut Host<'_, '_>, key: u32, serial: u32, target: bool, group_cookie: u32) {
+fn spawn_group_with_triggers(
+    host: &mut Host<'_, '_>,
+    key: u32,
+    serial: u32,
+    target: bool,
+    group_cookie: u32,
+) {
     let Some((index, spawned, clears)) = offer(host, key).and_then(|o| {
         let groups = &ship_component(o, target).groups;
         groups
@@ -1929,7 +2168,8 @@ fn spawn_group_with_triggers(host: &mut Host<'_, '_>, key: u32, serial: u32, tar
         _ => Vec::new(),
     };
     mark_group_targets(host, key, &members, target);
-    let friendly = offer(host, key).is_some_and(|o| ship_component(o, target).groups[index].field_0x40 > 0.0);
+    let friendly =
+        offer(host, key).is_some_and(|o| ship_component(o, target).groups[index].field_0x40 > 0.0);
     if friendly {
         if !vig(host, key).is_some_and(|v| v.friendly_sent) {
             send_conversations(host, key, comm::FIRST_FRIENDLY_SPAWN, None);
@@ -1939,9 +2179,14 @@ fn spawn_group_with_triggers(host: &mut Host<'_, '_>, key: u32, serial: u32, tar
         }
     } else if !vig(host, key).is_some_and(|v| v.big_sent && v.defensive_sent) {
         let records = sub::records(host, ships);
-        let defensive = members.iter().any(|&i| records.get(i).is_some_and(|r| r.ship_kind == 1));
-        let big = members.iter().any(|&i| records.get(i).is_some_and(|r| r.ship_kind == 2));
-        let (big_sent, defensive_sent) = vig(host, key).map_or((true, true), |v| (v.big_sent, v.defensive_sent));
+        let defensive = members
+            .iter()
+            .any(|&i| records.get(i).is_some_and(|r| r.ship_kind == 1));
+        let big = members
+            .iter()
+            .any(|&i| records.get(i).is_some_and(|r| r.ship_kind == 2));
+        let (big_sent, defensive_sent) =
+            vig(host, key).map_or((true, true), |v| (v.big_sent, v.defensive_sent));
         if !big_sent && big {
             send_conversations(host, key, comm::FIRST_BIG_SHIP_SPAWN, None);
             if let Some(v) = vig_mut(host, key) {
@@ -1975,7 +2220,12 @@ fn spawn_group_with_triggers(host: &mut Host<'_, '_>, key: u32, serial: u32, tar
     if next_mode == 2 {
         host.send_to_me_self(
             key,
-            RmMessage::new(MessageType::Cookie, Body::Cookie { cookie: next_serial }),
+            RmMessage::new(
+                MessageType::Cookie,
+                Body::Cookie {
+                    cookie: next_serial,
+                },
+            ),
             next_value as f32,
         );
     } else if next_mode == 3 {
@@ -2037,8 +2287,15 @@ fn mark_group_targets(host: &mut Host<'_, '_>, key: u32, members: &[usize], targ
                 rebuild_objective(host, key, k);
             }
         } else {
-            set_target_records(host, key, component, objective, ships, members, system, position);
-            add_objective(host, key, objective, ObjectiveSource::Offer(component, objective));
+            set_target_records(
+                host, key, component, objective, ships, members, system, position,
+            );
+            add_objective(
+                host,
+                key,
+                objective,
+                ObjectiveSource::Offer(component, objective),
+            );
         }
         remove_objective(host, key, 8);
         marked = true;
@@ -2049,7 +2306,12 @@ fn mark_group_targets(host: &mut Host<'_, '_>, key: u32, members: &[usize], targ
     if !(first.attitude < 0.0) {
         return;
     }
-    let has_8 = offer(host, key).is_some_and(|o| ship_component(o, target).component.objectives.contains_key(&8));
+    let has_8 = offer(host, key).is_some_and(|o| {
+        ship_component(o, target)
+            .component
+            .objectives
+            .contains_key(&8)
+    });
     if !has_8 || marked || [8, 6, 7].iter().any(|&k| has_objective(host, key, k)) {
         return;
     }
@@ -2061,7 +2323,11 @@ fn mark_group_targets(host: &mut Host<'_, '_>, key: u32, members: &[usize], targ
 /// with the mission ships' spawn of P3.5c2 (D1023).
 fn spawn_ship_group(host: &mut Host<'_, '_>, key: u32, target: bool, index: usize) {
     if let Some(o) = offer_mut(host, key) {
-        let component = if target { &mut o.target_ships } else { &mut o.ships };
+        let component = if target {
+            &mut o.target_ships
+        } else {
+            &mut o.ships
+        };
         if let Some(g) = component.groups.get_mut(index) {
             g.field_0x01 = 1;
         }
@@ -2074,14 +2340,23 @@ fn spawn_ship_group(host: &mut Host<'_, '_>, key: u32, target: bool, index: usiz
 /// flag, its attitude towards the mission players; the record kept and the
 /// solar listed as a mission object of its system.
 fn spawn_solar(host: &mut Host<'_, '_>, key: u32, index: usize) -> bool {
-    let Some((system_of_offer, solar)) = offer(host, key).map(|o| (o.system, o.solars.solars.get(index).cloned())) else {
+    let Some((system_of_offer, solar)) =
+        offer(host, key).map(|o| (o.system, o.solars.solars.get(index).cloned()))
+    else {
         return false;
     };
     if system_of_offer == 0 {
         return false;
     }
     let Some(solar) = solar else { return false };
-    let system = if host.cx.logic.content.state.systems.contains_key(&solar.dest_sys) {
+    let system = if host
+        .cx
+        .logic
+        .content
+        .state
+        .systems
+        .contains_key(&solar.dest_sys)
+    {
         solar.dest_sys
     } else {
         0
@@ -2089,7 +2364,8 @@ fn spawn_solar(host: &mut Host<'_, '_>, key: u32, index: usize) -> bool {
     let name = FmtStr::new((solar.arch_string_id.wrapping_add(0x507d0)) as u32);
     let vibe = api::reputation::alloc(host.cx, &name, &FmtStr::new(0)).unwrap_or(-1);
     let _ = api::reputation::set_affiliation(host.cx, vibe, solar.faction);
-    let mut info = api::space_obj::SolarInfo::new(system, solar.archetype, &solar.nickname, solar.position);
+    let mut info =
+        api::space_obj::SolarInfo::new(system, solar.archetype, &solar.nickname, solar.position);
     info.orientation = solar.orientation;
     info.hit_pts = solar.hitpoints;
     info.loadout = solar.loadout;
@@ -2119,11 +2395,24 @@ fn spawn_solar(host: &mut Host<'_, '_>, key: u32, index: usize) -> bool {
         &api::ai::BaseOp::new(api::ai::Op::SetPersonalityParams(Box::new(op))),
     );
     if solar.mode_flag & 1 != 0 {
-        let _ = api::space_obj::set_invincible(host.cx, object, true, solar.field_0x4e0 != 0, solar.invincible_duration);
+        let _ = api::space_obj::set_invincible(
+            host.cx,
+            object,
+            true,
+            solar.field_0x4e0 != 0,
+            solar.invincible_duration,
+        );
     }
     if solar.field_0x4c8 != -2.0 {
         for p in host.players() {
-            let rep = host.cx.logic.content.state.players.get(&p).map_or(-1, |s| s.reputation);
+            let rep = host
+                .cx
+                .logic
+                .content
+                .state
+                .players
+                .get(&p)
+                .map_or(-1, |s| s.reputation);
             let _ = api::reputation::set_attitude(host.cx, vibe, rep, solar.field_0x4c8);
         }
     }
@@ -2152,7 +2441,12 @@ fn spawn_solar(host: &mut Host<'_, '_>, key: u32, index: usize) -> bool {
 /// `SpawnLoot` (slot 25, `:1910-1980`): only a critical loot gets a record
 /// and a message; a loot placed beside its parent is made only when the
 /// parent exists.
-fn spawn_loot(host: &mut Host<'_, '_>, key: u32, loot: &super::super::offer::LootSpawn, parent: u32) {
+fn spawn_loot(
+    host: &mut Host<'_, '_>,
+    key: u32,
+    loot: &super::super::offer::LootSpawn,
+    parent: u32,
+) {
     let system = offer_system(host, key);
     if system == 0 {
         return;
@@ -2175,7 +2469,8 @@ fn spawn_loot(host: &mut Host<'_, '_>, key: u32, loot: &super::super::offer::Loo
     if loot.rel_pos != 0 {
         if parent & 0x3fff_ffff != 0 {
             let at = api::space_obj::location(host.cx, parent).map_or(Vector::ZERO, |(p, _)| p);
-            let (linear, angular) = api::space_obj::motion(host.cx, parent).unwrap_or((Vector::ZERO, Vector::ZERO));
+            let (linear, angular) =
+                api::space_obj::motion(host.cx, parent).unwrap_or((Vector::ZERO, Vector::ZERO));
             info.position = Vector::new(
                 (f64::from(at.x) + f64::from(loot.rel_pos_offset.x)) as f32,
                 (f64::from(at.y) + f64::from(loot.rel_pos_offset.y)) as f32,
@@ -2211,7 +2506,10 @@ fn spawn_loot(host: &mut Host<'_, '_>, key: u32, loot: &super::super::offer::Loo
     }
     host.send_immediate(
         machine,
-        RmMessage::new(MessageType::CriticalLootSpawned, Body::Loot { object, value: 0 }),
+        RmMessage::new(
+            MessageType::CriticalLootSpawned,
+            Body::Loot { object, value: 0 },
+        ),
         key,
     );
 }
@@ -2226,7 +2524,14 @@ fn spawn_record_loot(host: &mut Host<'_, '_>, key: u32, record: &sub::SpawnRecor
 /// `SetPlayerAttitudes` (slot 21, `:1527-1551`): every alive ship's and
 /// solar's attitude (unless -2) towards the player.
 fn set_player_attitudes(host: &mut Host<'_, '_>, key: u32, player: u32) {
-    let rep = host.cx.logic.content.state.players.get(&player).map_or(-1, |s| s.reputation);
+    let rep = host
+        .cx
+        .logic
+        .content
+        .state
+        .players
+        .get(&player)
+        .map_or(-1, |s| s.reputation);
     let (ships, solars) = vig(host, key).map_or((0, 0), |v| (v.ships, v.solars));
     let ship_records: Vec<_> = sub_query_ships(host, ships, 0, 2, 0)
         .into_iter()
@@ -2236,9 +2541,12 @@ fn set_player_attitudes(host: &mut Host<'_, '_>, key: u32, player: u32) {
         if r.attitude == -2.0 {
             continue;
         }
-        let ship_rep = r
-            .npc_ship
-            .map_or(-1, |k| crate::content::ships::reputation(&host.cx.logic.content.state, crate::content::ships::ShipKey::Npc(k)));
+        let ship_rep = r.npc_ship.map_or(-1, |k| {
+            crate::content::ships::reputation(
+                &host.cx.logic.content.state,
+                crate::content::ships::ShipKey::Npc(k),
+            )
+        });
         let _ = api::reputation::set_attitude(host.cx, ship_rep, rep, r.attitude);
     }
     let solar_records: Vec<_> = sub_query_solars(host, solars, -1, 2, 0)
@@ -2266,13 +2574,23 @@ fn on_player_joined(host: &mut Host<'_, '_>, key: u32, player: u32) {
         let ObjectiveSource::Offer(component, map_key) = a.source else {
             continue;
         };
-        let Some(ob) = offer_mut(host, key).and_then(|o| component_objective(o, component, map_key).cloned()) else {
+        let Some(ob) =
+            offer_mut(host, key).and_then(|o| component_objective(o, component, map_key).cloned())
+        else {
             continue;
         };
         if ob.kind != 3 {
             continue;
         }
-        set_targets(host, key, component, map_key, ob.targets.clone(), ob.marker_system, ob.marker_position);
+        set_targets(
+            host,
+            key,
+            component,
+            map_key,
+            ob.targets.clone(),
+            ob.marker_system,
+            ob.marker_position,
+        );
         rebuild_objective(host, key, a.key);
     }
     refresh_objectives(host, key);
@@ -2308,7 +2626,11 @@ fn unmark_objects(host: &mut Host<'_, '_>, key: u32, players: &[u32]) {
     }
     let held: Vec<(u32, u16)> = sub_query_loot(host, loot, 0, 0, 0, 4, 0)
         .into_iter()
-        .filter_map(|i| sub::records(host, loot).get(i).map(|r| (r.holder, r.cargo_slot)))
+        .filter_map(|i| {
+            sub::records(host, loot)
+                .get(i)
+                .map(|r| (r.holder, r.cargo_slot))
+        })
         .collect();
     for (holder, slot) in held {
         let _ = api::player::remove_cargo(host.cx, holder, slot, 1);
@@ -2351,7 +2673,11 @@ pub(super) fn shutdown(host: &mut Host<'_, '_>, key: u32) {
     }
     let alive_loot: Vec<(u32, i32)> = sub_query_loot(host, loot, 0, 0, 0, 2, 0)
         .into_iter()
-        .filter_map(|i| sub::records(host, loot).get(i).map(|r| (r.object, r.loot_kind)))
+        .filter_map(|i| {
+            sub::records(host, loot)
+                .get(i)
+                .map(|r| (r.object, r.loot_kind))
+        })
         .collect();
     for (object, kind) in alive_loot {
         if kind == 2 {
@@ -2381,7 +2707,14 @@ fn on_succeeded(host: &mut Host<'_, '_>, key: u32) {
     let position = vig(host, key).map_or(Vector::ZERO, |v| v.position);
     let players = host.players();
     for &p in &players {
-        let has_ship = host.cx.logic.content.state.players.get(&p).is_some_and(|s| s.ship.is_some());
+        let has_ship = host
+            .cx
+            .logic
+            .content
+            .state
+            .players
+            .get(&p)
+            .is_some_and(|s| s.ship.is_some());
         let near = has_ship && {
             let at = player_position(host.cx, p);
             let dx = f64::from(at.x) - f64::from(position.x);

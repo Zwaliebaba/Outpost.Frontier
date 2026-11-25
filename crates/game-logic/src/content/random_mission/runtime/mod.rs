@@ -30,8 +30,8 @@
 //! P3.6b), the ship groups' spawn (P3.5c2's NPC blocks) and the mission
 //! object's body beyond what a random mission's players reach (D973).
 
-pub mod message;
 mod machine;
+pub mod message;
 mod mission;
 mod sub;
 #[cfg(test)]
@@ -43,9 +43,7 @@ use std::io::Write;
 
 use game_sim::protocol::fmtstr::FmtStr;
 use neuron_core::math::Vector;
-use neuron_core::util::state_machine::{
-    self as sm, EventType, MachineHost, SmEvent, StateMachine,
-};
+use neuron_core::util::state_machine::{self as sm, EventType, MachineHost, SmEvent, StateMachine};
 use neuron_server::controller::ControllerId;
 
 use self::message::{Controller, ControllerEvent, RmMessage};
@@ -579,10 +577,10 @@ pub fn construct(cx: &mut Cx<'_>, id: ControllerId, params: &CreateParams) -> In
     };
     // The instance goes into its slot first: the constructor's group
     // process can route a message to the mission at once.
-    cx.logic
-        .content
-        .instances
-        .insert(id, Instance::RandomMission(Box::new(RandomMission::new(data))));
+    cx.logic.content.instances.insert(
+        id,
+        Instance::RandomMission(Box::new(RandomMission::new(data))),
+    );
     mission::construct(cx, id);
     cx.logic
         .content

@@ -119,7 +119,10 @@ fn the_counter_hands_out_the_load_time_ids_then_the_routers() {
         &CreateParams::None,
         Priority::Highest,
     );
-    assert_eq!(cx.logic.content.state.router.as_ref().map(|r| r.timer_id()), Some(7));
+    assert_eq!(
+        cx.logic.content.state.router.as_ref().map(|r| r.timer_id()),
+        Some(7)
+    );
     assert_eq!(cx.logic.content.state.ids.peek(), 8);
 }
 
@@ -375,7 +378,10 @@ fn the_last_content_controller_unloads_the_dll() {
         Priority::Highest,
     );
     assert_ne!(again, game);
-    assert_eq!(cx.logic.content.state.router.as_ref().map(|r| r.timer_id()), Some(6));
+    assert_eq!(
+        cx.logic.content.state.router.as_ref().map(|r| r.timer_id()),
+        Some(6)
+    );
 }
 
 #[test]

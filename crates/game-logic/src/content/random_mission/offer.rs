@@ -520,7 +520,9 @@ pub fn zone_at_position(cx: &mut Cx<'_>, system: u32, position: Vector) -> u32 {
 /// `RandomMissionRuntime.cpp:463-518`): when a name was made, it goes back
 /// to its faction's names at once unless a ship of a group with `+0x01`
 /// carries it (the first ship with the name found decides); then the
-/// components unregister from the router, the last member first.
+/// components unregister from the router, the last member first. The
+/// type 3 objectives' destructor unmarks their targets for the players of
+/// a mission that is gone by then; the port unmarks nothing (D1026).
 pub fn release_offer(cx: &mut Cx<'_>, offer: &Offer) {
     release_target_name(cx, offer);
     // The members in reverse order: the components' `~MessageHandler`.
