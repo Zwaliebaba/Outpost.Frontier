@@ -609,6 +609,14 @@ impl ServerHooks for Hooks<'_> {
         crate::transfer::slot_74(&mut cx, object, system);
     }
 
+    fn guided_target_lost(&mut self, world: &mut World, missile: ObjHandle) {
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        crate::munitions::target_lost(&mut cx, missile);
+    }
+
     fn launch_complete(&mut self, world: &mut World, object: ObjHandle, base: u32) {
         let mut cx = Cx {
             world,

@@ -541,6 +541,15 @@ pub trait ServerHooks {
         true
     }
 
+    /// A guided munition's seeker lost its target, which the munition has
+    /// already dropped (`Guided::update`'s `set_target(nullptr,
+    /// SUBOBJ_ID_ROOT, 0)`): on the server, `Guided::set_target` tells the
+    /// players who can see it (`StarSystem::notify_set_target`). Called only
+    /// when the target or sub-target changed. Nothing without a server.
+    fn guided_target_lost(&mut self, world: &mut World, missile: ObjHandle) {
+        let _ = (world, missile);
+    }
+
     /// A ship's `JumpInAction` arrived in `system`: the jumping object's
     /// `IObjAffect::slot_74(system)`, which on the server's `Ship` tells
     /// the bus (`JumpInComplete`) and ends the jump's invincibility.
