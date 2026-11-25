@@ -1095,7 +1095,7 @@ The comparison is exact, record by record, to the first difference, but in
 step `accept_vendor` past its `acceptance` record: the `DestroyMission`
 controller the acceptance makes runs in the C++ and not in the port (D955),
 so the rest of that step is compared and listed under "D955" in the summary
-`rust-base-session.txt` without being judged. The port's trace is kept as
+`rust-base-session.txt` without being judged (accepted by the owner on 2026-11-25 until P3.7b, which ports the `DestroyMission` constructor, makes the step exact and drops the exception). The port's trace is kept as
 `rust-base.jsonl`.
 
 ## `spread.jsonl` (`--runs N`)
