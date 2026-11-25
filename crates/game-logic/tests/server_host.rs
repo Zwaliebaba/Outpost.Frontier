@@ -163,16 +163,15 @@ fn a_connection_hears_its_id_and_the_news_and_logs_in() {
     assert!(drain(&mut client).is_empty());
     assert_eq!(host.logic.stats.logins, 1);
 
-    // A message no entry point takes yet is counted.
+    // Every message reaches its entry point: the single-player difficulty
+    // is refused on a dedicated server, and nothing is left unrouted.
     let scale = ToServer::Client(ClientMessage::ReqDifficultyScale(
         game_sim::protocol::to_server::ReqDifficultyScale { value: 0.5 },
     ));
     client.send(LOOPBACK_CONNECTION, scale).unwrap();
     host.frame(0.0, 0.0);
-    assert_eq!(
-        host.unrouted.get("FLPACKET_CLIENT_REQDIFFICULTYSCALE"),
-        Some(&1)
-    );
+    assert!(host.unrouted.is_empty(), "{:?}", host.unrouted);
+    assert_eq!(host.logic.players.get(1).unwrap().difficulty_scale, 1.0);
 
     // The client goes: the session logs out and its slot is free.
     drop(client);

@@ -3,7 +3,9 @@
 //! `get_shield_battery_capacity_remaining`, `get_ammo_capacity_remaining`,
 //! `get_space_for_cargo_type`; `Common/common_cship.cpp`) and the scanner's
 //! cargo scan (`CEScanner::ScanCargo`, `GetEquipDesc` of each item;
-//! `common_cescanner.cpp`, `common_cequip.cpp`, `common_cecargo.cpp`).
+//! `common_cescanner.cpp`, `common_cequip.cpp`, `common_cecargo.cpp`),
+//! and the hold made to match a list (`CEqObj::sync_cargo`,
+//! `common_ceqobj.cpp:204`).
 //!
 //! The hold counts every item of the internal mask `0x1ff0000` (mounted
 //! internal equipment its volume once, a cargo stack its count times its
@@ -13,7 +15,8 @@
 //! counter-measures by the constant `MAX_PLAYER_AMMO`; each limit is read
 //! against the first cargo stack of the kind.
 
-use crate::equip::{EquipKind, SubObjId, types};
+use crate::data::equip_desc::EquipDesc;
+use crate::equip::{Equip, EquipKind, SubObjId, types};
 use crate::object::ObjHandle;
 
 use super::World;
@@ -74,6 +77,50 @@ pub struct ScannedEquip {
 }
 
 impl World {
+    /// `CEqObj::sync_cargo(List)`: every cargo stack that is not destroyed
+    /// takes the count of the list's first line with its id and the line's
+    /// health of its maximum hit points, or the count 0 (it is then
+    /// destroyed) when the list has no such line; then every carried line
+    /// whose id no item has (destroyed ones included) becomes a new stack,
+    /// as `add_cargo_item` builds it. The C++ builds a line of an unknown
+    /// archetype through null; here it is left out (D884). False for an
+    /// object without equipment, where the C++ is called on a ship only.
+    pub fn sync_cargo(&mut self, h: ObjHandle, list: &[EquipDesc]) -> bool {
+        let data = &self.data;
+        let Some(eq) = self
+            .objects
+            .get_mut(h)
+            .and_then(|o| o.equipped.as_deref_mut())
+        else {
+            return false;
+        };
+        for slot in eq.equipment.traverse(types::CARGO, false) {
+            let Some(item) = eq.equipment.get_mut(slot) else {
+                continue;
+            };
+            let line = list.iter().find(|d| d.id == item.id);
+            if let EquipKind::Cargo(c) = &mut item.kind {
+                c.count = line.map_or(0, |d| u32::from_ne_bytes(d.count.to_ne_bytes()));
+            }
+            if let Some(d) = line {
+                let hit = r(e(item.max_hit_points()) * e(d.health));
+                item.set_hit_points(hit);
+            }
+        }
+        for d in list {
+            if d.equipped != 0 || eq.equipment.find_by_id(d.id).is_some() {
+                continue;
+            }
+            let Some(arch) = data.archetypes.equipment.get(&d.arch_id) else {
+                continue;
+            };
+            let count = u32::from_ne_bytes(d.count.to_ne_bytes());
+            eq.equipment
+                .add(Equip::cargo(d.id, arch, d.mission, d.health, count));
+        }
+        true
+    }
+
     /// The ship's archetype, for a live ship.
     fn ship_arch(&self, h: ObjHandle) -> Option<&crate::data::archetype::eq_obj::Ship> {
         let o = self.objects.get(h)?;

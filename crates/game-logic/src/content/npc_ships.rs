@@ -813,7 +813,7 @@ pub fn pick_voice_line(cx: &mut Cx<'_>, name: &[u8], suffix: &[u8], voice: u32) 
 
 /// `FSystemInfo::SendComm(Sender, Target, TextId, 0, 0, null, 0.5)`
 /// (`SystemInfo.cpp:2019-2037`): one line, interrupting.
-fn send_comm(cx: &mut Cx<'_>, sender: u32, target: u32, text: u32) {
+pub(crate) fn send_comm(cx: &mut Cx<'_>, sender: u32, target: u32, text: u32) {
     let request = CommRequest {
         sender,
         target,

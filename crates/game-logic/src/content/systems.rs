@@ -820,6 +820,51 @@ pub fn load_dyn_sys_info(cx: &mut Cx<'_>, reader: &mut IniReader) {
     }
 }
 
+/// `FSystemInfo::FindObjectIdByName(&Name, ControllerId)`
+/// (`SystemInfo.cpp:2117-2149`): 0 for an empty name; `Player` is the
+/// ship of the player whose live mission is the controller (in single
+/// player, else the first player's); else the first of the record's NPC
+/// ships with the nickname; else the nickname's id when an object of a
+/// type of `0xfdff` has it (`IsSpaceObjTypeSet`). The C++ reads the
+/// record without a test; no record finds only the player and the
+/// nickname id.
+#[must_use]
+pub fn find_object_id_by_name(cx: &Cx<'_>, system: u32, name: &[u8], controller: u32) -> u32 {
+    let name = neuron_core::hash::c_str(name);
+    if name.is_empty() {
+        return 0;
+    }
+    let state = &cx.logic.content.state;
+    if name == b"Player" {
+        let player = state
+            .players
+            .values()
+            .find(|p| p.live_mission == controller)
+            .or_else(|| {
+                if crate::api::misc::single_player(cx) {
+                    state.players.values().next()
+                } else {
+                    None
+                }
+            });
+        return player.and_then(|p| p.ship.as_ref()).map_or(0, |s| s.ship);
+    }
+    if let Some(record) = state.systems.get(&system) {
+        for key in &record.space_objs {
+            if let Some(ship) = state.npc_ships.get(key)
+                && neuron_core::hash::c_str(&ship.nickname) == name
+            {
+                return ship.base.ship;
+            }
+        }
+    }
+    let id = crate::api::misc::nickname_id(name);
+    match crate::api::space_obj::object_type(cx, id) {
+        Ok(kind) if kind & 0xfdff != 0 => id,
+        _ => 0,
+    }
+}
+
 /// The ship of a player in the record's players with this id
 /// (`FSystemInfo::FindShip`'s first loop): the player's id. The NPC ships
 /// of the second loop are P3.6c's. A player no longer in the player states

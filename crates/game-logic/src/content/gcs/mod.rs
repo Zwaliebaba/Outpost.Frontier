@@ -29,8 +29,8 @@
 //!
 //! **Not here.** `FGcsPlayerListLine` and `FGcsConversationManager::Add`,
 //! the random missions' conversations (TU61), are P3.7b's (D939). The patrol
-//! guide's scanner (P3.6c's follow-up) queues its events through
-//! [`queue_conversation`] with [`Event::Scan`].
+//! guide's scanner queues its events through [`queue_conversation`] with
+//! [`Event::Scan`].
 
 // The x87 comparisons keep their NaN outcome as written (`!(a > b)`).
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
@@ -383,48 +383,39 @@ fn record(cx: &Cx<'_>, system: u32) -> Option<u32> {
         .then_some(system)
 }
 
-/// The trade guide's trade good and return good (`FTradeGuide` slots
-/// `+0x4c` and `+0x50`), read by the trade lines of a ship whose guide
-/// type is 2. No guide of type 2 is ported before P3.6c's follow-up, so
-/// none answers a good (D938).
-#[must_use]
-pub fn trade_goods(cx: &Cx<'_>, ship: Option<ShipKey>) -> (u32, u32) {
+/// The guide of a ship, `None` for a ship that is no NPC's or has none.
+fn ship_guide(cx: &Cx<'_>, ship: Option<ShipKey>) -> Option<super::guides::GuideRef> {
     let Some(ShipKey::Npc(npc)) = ship else {
-        return (0, 0);
+        return None;
     };
-    let guide = cx
-        .logic
+    cx.logic
         .content
         .state
         .npc_ships
         .get(&npc)
         .and_then(|s| s.guide)
-        .and_then(|g| cx.logic.content.state.guides.get(g));
-    match guide.map(|g| &g.kind) {
-        Some(super::guides::GuideKind::Nothing { .. }) | None => (0, 0),
-    }
+}
+
+/// The trade guide's trade good and return good (`FTradeGuide` slots
+/// `+0x4c` and `+0x50`, [`super::guides::trade_goods`]), read by the trade
+/// lines of a ship whose guide type is 2. Any other guide, which the C++
+/// casts unchecked, has none (D935).
+#[must_use]
+pub fn trade_goods(cx: &Cx<'_>, ship: Option<ShipKey>) -> (u32, u32) {
+    ship_guide(cx, ship)
+        .and_then(|g| super::guides::trade_goods(cx, g))
+        .unwrap_or((0, 0))
 }
 
 /// The patrol guide's points to go (`FPatrolGuide::GetPathPointsToGo`,
-/// slot `+0x4c`), read by the patrol lines of a ship whose guide type is
-/// 3. No guide of type 3 is ported before P3.6c's follow-up, so none has
-/// points left (D938).
+/// slot `+0x4c`, [`super::guides::path_points_to_go`]), read by the patrol
+/// lines of a ship whose guide type is 3. Any other guide, which the C++
+/// casts unchecked, has none (D935).
 #[must_use]
 pub fn path_points_to_go(cx: &Cx<'_>, ship: Option<ShipKey>) -> i32 {
-    let Some(ShipKey::Npc(npc)) = ship else {
-        return 0;
-    };
-    let guide = cx
-        .logic
-        .content
-        .state
-        .npc_ships
-        .get(&npc)
-        .and_then(|s| s.guide)
-        .and_then(|g| cx.logic.content.state.guides.get(g));
-    match guide.map(|g| &g.kind) {
-        Some(super::guides::GuideKind::Nothing { .. }) | None => 0,
-    }
+    ship_guide(cx, ship)
+        .and_then(|g| super::guides::path_points_to_go(cx, g))
+        .unwrap_or(0)
 }
 
 // ---- InitGcs and the admission -------------------------------------------------------------

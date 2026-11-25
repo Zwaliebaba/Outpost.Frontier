@@ -574,3 +574,60 @@ fn the_bare_world_launches_without_a_server() {
 fn position_of(world: &World, h: ObjHandle) -> Vector {
     world.get(h).unwrap().engine.position
 }
+
+/// The velocity is forward along the orientation's third column (a ship
+/// flies along its negated third column): the sine of the
+/// angle between them is below 1e-5 (the push's own rounding is about
+/// 1e-7).
+fn pushed_along(v: Vector, orient: &Matrix) -> bool {
+    let c = [e(orient.m[0][2]), e(orient.m[1][2]), e(orient.m[2][2])];
+    let v = [e(v.x), e(v.y), e(v.z)];
+    let cross = [
+        v[1] * c[2] - v[2] * c[1],
+        v[2] * c[0] - v[0] * c[2],
+        v[0] * c[1] - v[1] * c[0],
+    ];
+    let norm = |a: [f64; 3]| (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt();
+    let speed = norm(v);
+    let forward = -(v[0] * c[0] + v[1] * c[1] + v[2] * c[2]);
+    speed > 1e-3 && forward > 0.0 && norm(cross) < 1e-5 * speed * norm(c)
+}
+
+/// The ring's launch beams the ship from inside its controller
+/// (`PhySys::BeamR`), which writes the object's `Orientation` and
+/// `WorldPosition` at once (`Common/common_physys_query.cpp:599`): the
+/// engine, whose controller runs after the launch's in the PSI, pushes
+/// along the launch orientation's third column, not along the ship's pose
+/// before the beam. The launch keeps the throttle at 0; the test opens it
+/// to see the push.
+#[test]
+fn a_ring_launch_beam_turns_the_ship_before_the_engine_pushes() {
+    let Some((mut world, mut logic)) = setup("a ring launch's beam") else {
+        return;
+    };
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    let controller = he01_with_a_player(&mut cx);
+    let ring = solar(&cx, b"Dock_Ring_he01_01");
+    let ring_id = id(&cx, ring);
+    let npc = fighter(&mut cx, controller, Vector::new(-33000.0, 100.0, -28500.0));
+    let npc_id = id(&cx, npc);
+    let (_, _, orient) = cx.world.launch_pos(ring, 1);
+    // The ship's pose before the launch is the identity, far from the
+    // launch orientation.
+    assert!((e(orient.m[2][2]) - 1.0).abs() > 0.1, "{orient:?}");
+    space_obj::launch(&mut cx, npc_id, ring_id, 0).unwrap();
+    cx.world
+        .get_mut(npc)
+        .unwrap()
+        .as_ship_mut()
+        .unwrap()
+        .flight
+        .throttle = 1.0;
+    world::physics_update(&mut cx, FRAME);
+    let v = cx.world.velocity(npc);
+    assert!(pushed_along(v, &orient), "{v:?} {orient:?}");
+    assert!(!pushed_along(v, &Matrix::IDENTITY), "{v:?}");
+}
