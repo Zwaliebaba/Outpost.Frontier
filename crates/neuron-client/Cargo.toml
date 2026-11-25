@@ -21,6 +21,8 @@ windows.workspace = true
 # The scene-script round trip compiles saved source before reloading it
 # (decision O18); a development tool, never a normal dependency.
 lua32-compiler.workspace = true
+# The QUIC end-to-end test runs the server's host (P3.8); a dev-only edge.
+neuron-server.workspace = true
 # The QUIC tests' stand-in server makes a self-signed certificate (P3.8).
 rcgen.workspace = true
 

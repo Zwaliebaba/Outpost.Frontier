@@ -4,8 +4,8 @@
 //!
 //! The server is a plain quinn endpoint written here from the framing of
 //! `neuron_core::net::frame`, so the client is checked against the
-//! protocol rather than against the server crate (which this crate may not
-//! use).
+//! protocol, including what the host never sends; `quic_end_to_end` runs
+//! it against the host itself.
 
 use std::collections::VecDeque;
 use std::net::{SocketAddr, UdpSocket};

@@ -37,6 +37,9 @@ data root (O31).
   scene scripts, their chunk format and stored number text (decision O18).
   It uses NeuronCore only and forbids unsafe code; xtask depends on it, and
   NeuronClient only as a dev-dependency, for its scene-script tests.
+- NeuronClient uses NeuronServer only as a dev-dependency, for the
+  end-to-end test of the QUIC transport (P3.8). NeuronServer never
+  depends on NeuronClient.
 - Keep startup wiring in `apps/` and put reusable code in the owning crate
   under `crates/`.
 - `cargo xtask check-policy` enforces these edges. The table is in
