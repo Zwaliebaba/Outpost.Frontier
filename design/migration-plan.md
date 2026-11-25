@@ -164,6 +164,14 @@ Phase 0 ──> Phase 1 ──┬──> Phase 2 ──> Phase 3 ──┐
 Phase 4 (client engine) depends only on Phase 1 and runs alongside Phases 2
 and 3.
 
+The owner started Phase 5 beside the rest of Phase 3 on 2026-11-25 (decision
+O50), in a separate session that the owner runs; the session carrying Phase 3
+does no Phase 5 work. Phase 5 begins with its own design record and with the
+check whether the C++ client's `+oracle` mode runs in CI. Gate G5 still needs
+the whole of Phase 3, and P5.9 and P5.10 wait for P3.6e and P3.7b on their
+server side. O50 sets which session owns which crates and how the two keep the
+divergence and decision registers apart.
+
 ### Phase 0 — make the migration verifiable
 
 | ID | Work | Where it runs | Size |
@@ -352,6 +360,10 @@ The owner re-sequenced Phase 3 on 2026-11-25 (decision O48): the packages
 Gate G3 needs (P3.7a, P3.7c, P3.8, P3.9) come first, P3.8 and P3.9 on their
 own branches beside Content, and the other Content packages finish the phase
 after the milestone.
+
+The owner signed off Gate G3 on 2026-11-25, on the data run of #165
+(run 45614252212): every criterion above is met, the three scenarios bit for
+bit equal to the oracle through the Rust server.
 
 ### Phase 4 — client engine (`neuron-client`)
 
