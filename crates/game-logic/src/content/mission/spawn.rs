@@ -2021,3 +2021,56 @@ pub fn apply_vibe_infos(cx: &mut Cx<'_>, id: ControllerId) {
         let _ = api::reputation::set_attitude(cx, a, b, row.attitude);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_anchor_placement_faces_away_from_the_anchor() {
+        let placed = place_facing_anchor(&Transform::IDENTITY, 0.0, 100.0);
+        assert_eq!(placed.translation, Vector::new(100.0, 0.0, 0.0));
+        // The third column is the forward axis: from the anchor outwards.
+        let m = placed.rotation.m;
+        assert_eq!([m[0][2], m[1][2], m[2][2]], [1.0, 0.0, 0.0]);
+        // Right is (z, 0, -x) of the forward axis, normalised; up their
+        // cross product, negated.
+        assert_eq!([m[0][0], m[1][0], m[2][0]], [0.0, 0.0, -1.0]);
+        assert_eq!([m[0][1], m[1][1], m[2][1]], [0.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn an_arm_left_without_members_goes() {
+        let mut o = MissionObject::new(ControllerId(1));
+        o.rand_encs.push(super::super::rand_enc::MissionRandEnc {
+            nickname: b"enc".to_vec(),
+            enabled: true,
+            nickname_id: create_id(b"enc"),
+            formation_index: 2,
+            params: None,
+            npc_count: 0,
+            arms: vec![
+                RandEncArm {
+                    name: 1,
+                    formation_ref: 9,
+                    id: 1,
+                    members: vec![10, 11],
+                },
+                RandEncArm {
+                    name: 2,
+                    formation_ref: 8,
+                    id: 2,
+                    members: vec![12],
+                },
+            ],
+        });
+        remove_rand_enc_member(&mut o, 12);
+        assert_eq!(o.rand_encs[0].arms.len(), 1);
+        assert_eq!(o.rand_encs[0].formation_index, 2);
+        remove_rand_enc_member(&mut o, 10);
+        remove_rand_enc_member(&mut o, 11);
+        // No arm left: the counter starts again.
+        assert!(o.rand_encs[0].arms.is_empty());
+        assert_eq!(o.rand_encs[0].formation_index, 0);
+    }
+}

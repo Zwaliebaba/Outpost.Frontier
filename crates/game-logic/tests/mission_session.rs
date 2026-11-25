@@ -646,7 +646,7 @@ fn compare_objects(
             let d = dist(vector(*pa), vector(*pb));
             if *tick <= judged {
                 worst = worst.max(d);
-                if !(d <= GROSS_POSITION) {
+                if d.is_nan() || d > GROSS_POSITION {
                     failures.push(format!("{name} at tick {tick}: {d:.3} m from the oracle's"));
                 }
             }

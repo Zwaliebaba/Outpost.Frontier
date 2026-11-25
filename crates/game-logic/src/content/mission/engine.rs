@@ -1321,6 +1321,43 @@ Act_StartDialog = some_dialog, 2
     }
 
     #[test]
+    fn the_gate_locks_and_marks_of_p3_5c2_have_their_effect() {
+        let text = "\
+[Trigger]
+nickname = lock
+InitState = ACTIVE
+Cnd_True = no_params
+Act_LockDock = Everyone, some_gate, lock
+Act_MarkObj = nothing_here, 1
+Act_Invulnerable = Player, true
+";
+        with_mission(text, |cx| {
+            send(cx, 0, ControllerMessage::MissionStart);
+            let gate = create_id(b"some_gate");
+            let locks = &cx.logic.content.state.gate_locks;
+            assert!(locks.is_locked(7, gate));
+            assert!(locks.is_npc_locked(gate));
+            // No label at or after the key: the label's object (none) is
+            // marked, and the name is listed for a later spawn.
+            let s = script(cx, ID).unwrap();
+            assert_eq!(s.object.mark_obj_names, [b"nothing_here".to_vec()]);
+        });
+        let text = "\
+[Trigger]
+nickname = unlock
+InitState = ACTIVE
+Cnd_True = no_params
+Act_LockDock = Player, some_gate, lock
+Act_LockDock = Player, some_gate, unlock
+";
+        with_mission(text, |cx| {
+            send(cx, 0, ControllerMessage::MissionStart);
+            let gate = create_id(b"some_gate");
+            assert!(!cx.logic.content.state.gate_locks.is_locked(7, gate));
+        });
+    }
+
+    #[test]
     fn a_logout_tears_the_triggers_down() {
         with_mission(ENGINE, |cx| {
             send(cx, 0, ControllerMessage::MissionStart);
