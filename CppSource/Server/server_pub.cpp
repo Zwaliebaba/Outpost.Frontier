@@ -5736,6 +5736,7 @@ SERVER_API int __cdecl ReportWhyMissionVendorEmpty(unsigned int client_id, MVEmp
     // reason): the first argument is the ClientId the packet goes to (it was misnamed
     // `base_id` until 2026-10-16; Content's callers pass the mission state's PlayerId).
     // is called through with no null test (module storage .. 06d18422).
+    OracleBaseDbTrace(5, 0, client_id, (unsigned int)reason, 0, nullptr, 0);   // Oracle instrumentation (P3.6e)
     ::g_pClientInterface->SendServerGFMissionVendorWhyEmpty(client_id, (unsigned int)reason);
     return 0;
 }

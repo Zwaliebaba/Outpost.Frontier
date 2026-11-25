@@ -39,7 +39,8 @@
 //! (`FMissionObject::HandleMissionMessage`) but for `AbortMission`,
 //! `Msg0x27` and the dead players of `SpaceEnter`; the random encounters'
 //! messages (P3.6d); the cut scenes, ambient scenes and costume hints of
-//! the base, location and space cases (P3.5c4, P3.6e); the objectives, the
+//! the base, location and space cases (P3.5c4, over P3.6e's bar scenes,
+//! `content::bar::create_bar_scene`); the objectives, the
 //! NN path and the nags of the tail (P3.5c5); and the NPC registration of
 //! `NpcShipCreated` (P3.5c2).
 
