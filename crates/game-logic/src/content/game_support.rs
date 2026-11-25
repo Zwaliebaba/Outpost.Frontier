@@ -25,7 +25,7 @@
 //!
 //! A base's bar characters on `BaseEnter` and `BaseExit`
 //! (`FContentBase::OnPlayerEnter`, `OnPlayerExit`) are BaseSupport's run
-//! time (P3.6e).
+//! time ([`super::bar`], P3.6e).
 
 use std::io::Write;
 use std::sync::Arc;
@@ -100,13 +100,15 @@ pub fn handle_message(cx: &mut Cx<'_>, _id: ControllerId, message: &mut Controll
             on_base_change(cx, player, base);
             if cx.logic.content.state.bases.contains_key(&base) {
                 load_base(cx, base);
-                // `Base->OnPlayerEnter(PlayerId)`: the bar characters (P3.6e).
+                super::bar::on_player_enter(cx, base, player);
             }
         }
-        ControllerMessage::BaseExit { player, .. } => {
-            let player = *player;
+        ControllerMessage::BaseExit { base, player } => {
+            let (base, player) = (*base, *player);
             if cx.logic.content.state.players.contains_key(&player) {
-                // `Base->OnPlayerExit(PlayerId)`: the bar characters (P3.6e).
+                if cx.logic.content.state.bases.contains_key(&base) {
+                    super::bar::on_player_exit(cx, base, player);
+                }
                 on_base_change(cx, player, 0);
             }
         }

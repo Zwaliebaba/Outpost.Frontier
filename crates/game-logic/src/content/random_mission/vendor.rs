@@ -3,17 +3,19 @@
 //! `FBarOffer::Accept`, `Content/BaseDB.cpp:884-943`; work package P3.7c,
 //! record 0008 points 8 and 10).
 //!
-//! BaseSupport (P3.6e) holds the offers: a base visit's vendor offers
-//! (`FBaseVisit::VendorOffers`, built on entering the base and cleared on
-//! leaving it, `BaseSupport.cpp:288`, `:330`, `:495-496`) and the bar
-//! characters' offers (`FBaseNpc::ChooseOffer`, `BaseDB.cpp:1521-1620`,
-//! through BasePop). This module stops where BaseSupport calls in:
-//! [`build_mission_vendor_offers`] returns the records the visit keeps,
-//! [`clear_mission_vendor_offers`] takes them back, [`create_bar_mission_offer`]
-//! is what `ChooseOffer` calls, [`accept`] is BaseSupport's `MissionResponse`
-//! for a bar character, and a bribe's `RefreshMissionVendorOffers` is left
-//! to the caller ([`Accepted::refresh_vendor_offers`]). Until P3.6e nothing
-//! in the server calls them (D956).
+//! BaseSupport holds the offers (P3.6e, [`crate::content::base_support`]):
+//! a base visit's vendor offers (`FBaseVisit::VendorOffers`, built on
+//! entering the base and cleared on leaving it, `BaseSupport.cpp:288`,
+//! `:330`, `:495-496`) and the bar characters' offers
+//! (`FBaseNpc::ChooseOffer`, `BaseDB.cpp:1521-1620`,
+//! [`crate::content::bar::choose_offer`]). This module stops where
+//! BaseSupport calls in: [`build_mission_vendor_offers`] returns the records
+//! the visit keeps, [`clear_mission_vendor_offers`] takes them back,
+//! [`create_bar_mission_offer`] is what `ChooseOffer` calls, [`accept`] is
+//! BaseSupport's `MissionResponse` for a bar character, and a bribe's
+//! `RefreshMissionVendorOffers` is left to the caller
+//! ([`Accepted::refresh_vendor_offers`],
+//! [`crate::content::base_support::refresh_mission_vendor_offers`]).
 
 use game_sim::protocol::base_props::MissionVendorProperties;
 use neuron_server::controller::{ControllerId, Priority};
@@ -21,7 +23,7 @@ use neuron_server::controller::{ControllerId, Priority};
 use super::mission::{self, Loader, MissionRequest, result};
 use super::{RmDataKey, register_dest_system};
 use crate::api;
-use crate::content::bases::{BaseNpcKnow, BaseNpcMission, ContentBase};
+use crate::content::bases::{BaseNpcKnow, BaseNpcMission, BaseNpcRumor, ContentBase};
 use crate::content::{cargo, combat_reputation, players};
 use crate::events::ControllerMessage;
 use crate::server::{CreateParams, Cx};
@@ -340,7 +342,10 @@ pub struct BribeOffer {
     pub text_ids: i32,
 }
 
-/// `FBarOffer`: what a bar character offers (`EBarOfferKind`).
+/// `FBarOffer`: what a bar character offers (`EBarOfferKind`). A mission
+/// offer owns its loader: the holder releases it when the offer is dropped
+/// ([`crate::content::bar::release_offer`]), where the C++'s reference count
+/// reaches 0; a clone is a borrowed view and is not released.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum BarOffer {
     /// 0.
@@ -350,10 +355,25 @@ pub enum BarOffer {
     Bribe(BribeOffer),
     /// 2, `FBarMissionOffer`.
     Mission(BarMissionOfferData),
-    /// 3, a rumor (`FBaseNpcRumor`).
-    Rumor,
+    /// 3, a rumor (`FBaseNpcRumor`; `None` where the C++ holds a null
+    /// pointer, which `ChooseOffer` leaves when no rumor is picked).
+    Rumor(Option<BaseNpcRumor>),
     /// 4, `FBaseNpcKnow`.
     Know(BaseNpcKnow),
+}
+
+impl BarOffer {
+    /// `Kind`: the `EBarOfferKind` number.
+    #[must_use]
+    pub fn kind(&self) -> i32 {
+        match self {
+            Self::None => 0,
+            Self::Bribe(_) => 1,
+            Self::Mission(_) => 2,
+            Self::Rumor(_) => 3,
+            Self::Know(_) => 4,
+        }
+    }
 }
 
 /// What [`accept`] answers.
@@ -448,7 +468,7 @@ pub fn accept(cx: &mut Cx<'_>, offer: &BarOffer, player: u32, character: u32) ->
             );
             out.refresh_vendor_offers = true;
         }
-        BarOffer::Rumor | BarOffer::None => {}
+        BarOffer::Rumor(_) | BarOffer::None => {}
     }
     out
 }
