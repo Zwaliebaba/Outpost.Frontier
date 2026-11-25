@@ -425,7 +425,10 @@ fn the_shipped_encounters_stay_in_bounds() {
             for e in &zone.population.encounters {
                 encounters += 1;
                 let p = &e.parameters;
-                let at = format!("system {id:#x} zone {:#x} encounter {:#x}", zone.zone_id, p.nickname);
+                let at = format!(
+                    "system {id:#x} zone {:#x} encounter {:#x}",
+                    zone.zone_id, p.nickname
+                );
                 if zone.population.valid && p.current_permutation.is_none() {
                     problems.push(format!("{at}: no current permutation"));
                 }
