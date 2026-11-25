@@ -50,7 +50,7 @@ use super::npc_ships::{self, set_goto_destination};
 use super::ships::{self, ShipKey};
 use crate::api;
 use crate::api::ai::BaseOp;
-use crate::events::NpcShipKey;
+use crate::events::{ControllerMessage, NpcShipKey};
 use crate::server::Cx;
 
 pub mod goto;
@@ -266,6 +266,422 @@ pub struct Guide {
 pub struct GuideArena {
     next: u32,
     entries: BTreeMap<GuideRef, (u32, Guide)>,
+    /// The guides whose slot runs on a copy now ([`with_guide`]).
+    running: Vec<GuideRef>,
+    /// The messages that reached a running guide, delivered when its slot
+    /// returns (D860).
+    deferred: Vec<(GuideRef, GuideMessage)>,
+}
+
+/// A message a guide reads, kept while the guide's slot runs (D860).
+#[derive(Clone, Debug, PartialEq)]
+pub enum GuideMessage {
+    /// `CommComplete` (0x0b).
+    CommComplete {
+        /// The listener.
+        listener: u32,
+        /// The system.
+        system: u32,
+        /// The speaker.
+        speaker: u32,
+        /// The line.
+        line: u32,
+        /// The result.
+        result: crate::events::CommResult,
+    },
+    /// `DockComplete` (0x11).
+    DockComplete {
+        /// The ship.
+        ship: u32,
+        /// The dock.
+        dock: u32,
+        /// The system.
+        system: u32,
+    },
+    /// `TradelaneRequest` (0x14).
+    TradelaneRequest {
+        /// The ship.
+        ship: u32,
+        /// The ring.
+        ring: u32,
+        /// The end ring.
+        end_ring: u32,
+        /// The system.
+        system: u32,
+    },
+    /// `TradelaneEnter` (0x16).
+    TradelaneEnter {
+        /// The ship.
+        ship: u32,
+        /// The entrance.
+        entrance: u32,
+        /// The exit.
+        exit: u32,
+        /// The system.
+        system: u32,
+    },
+    /// `TradelaneExit` (0x17).
+    TradelaneExit {
+        /// The ship.
+        ship: u32,
+        /// The entrance.
+        entrance: u32,
+        /// The exit.
+        exit: u32,
+        /// The system.
+        system: u32,
+    },
+    /// `LootAcquired` (0x18).
+    LootAcquired {
+        /// The loot.
+        loot: u32,
+        /// The ship.
+        ship: u32,
+        /// The sub-object.
+        sub_object: u16,
+        /// The good.
+        good: u32,
+        /// How many.
+        count: i32,
+    },
+    /// `FormationRequest` (0x19).
+    FormationRequest {
+        /// The ship.
+        ship: u32,
+        /// The leader.
+        leader: u32,
+        /// The system.
+        system: u32,
+    },
+    /// `Heartbeat` (0x20).
+    Heartbeat {
+        /// The elapsed time.
+        elapsed: f32,
+    },
+    /// `CargoJettisoned` (0x23).
+    CargoJettisoned {
+        /// The ship.
+        ship: u32,
+        /// The sub-object.
+        equip: u16,
+        /// The good.
+        good: u32,
+        /// How many.
+        count: i32,
+    },
+    /// `Msg0x27`.
+    Msg0x27 {
+        /// The ship.
+        ship: u32,
+        /// The base.
+        base: u32,
+        /// The target.
+        target: u32,
+        /// Landing.
+        land: bool,
+    },
+    /// `LootSpawned` (0x2b).
+    LootSpawned {
+        /// The loot.
+        loot: u32,
+        /// Its source.
+        source: u32,
+        /// The good.
+        good: u32,
+        /// How many.
+        count: i32,
+    },
+    /// `ObjectDestroyed` (0x39).
+    ObjectDestroyed(crate::events::ObjectDestroyed),
+    /// `SystemExit` (0x3a).
+    SystemExit {
+        /// The system.
+        system: u32,
+        /// The destination.
+        destination: u32,
+        /// The player.
+        player: u32,
+    },
+    /// `CombatState` (0x1001).
+    CombatState {
+        /// The state.
+        state: u32,
+        /// The first id.
+        param1: u32,
+        /// The second id.
+        param2: u32,
+        /// The system.
+        system: u32,
+    },
+}
+
+impl GuideMessage {
+    /// The copy of a message a guide reads; none for the others.
+    fn of(message: &ControllerMessage<'_>) -> Option<Self> {
+        use ControllerMessage as M;
+        Some(match message {
+            M::CommComplete {
+                listener,
+                system,
+                speaker,
+                line,
+                result,
+            } => Self::CommComplete {
+                listener: *listener,
+                system: *system,
+                speaker: *speaker,
+                line: *line,
+                result: *result,
+            },
+            M::DockComplete { ship, dock, system } => Self::DockComplete {
+                ship: *ship,
+                dock: *dock,
+                system: *system,
+            },
+            M::TradelaneRequest {
+                ship,
+                ring,
+                end_ring,
+                system,
+            } => Self::TradelaneRequest {
+                ship: *ship,
+                ring: *ring,
+                end_ring: *end_ring,
+                system: *system,
+            },
+            M::TradelaneEnter {
+                ship,
+                entrance,
+                exit,
+                system,
+            } => Self::TradelaneEnter {
+                ship: *ship,
+                entrance: *entrance,
+                exit: *exit,
+                system: *system,
+            },
+            M::TradelaneExit {
+                ship,
+                entrance,
+                exit,
+                system,
+            } => Self::TradelaneExit {
+                ship: *ship,
+                entrance: *entrance,
+                exit: *exit,
+                system: *system,
+            },
+            M::LootAcquired {
+                loot,
+                ship,
+                sub_object,
+                good,
+                count,
+            } => Self::LootAcquired {
+                loot: *loot,
+                ship: *ship,
+                sub_object: *sub_object,
+                good: *good,
+                count: *count,
+            },
+            M::FormationRequest {
+                ship,
+                leader,
+                system,
+            } => Self::FormationRequest {
+                ship: *ship,
+                leader: *leader,
+                system: *system,
+            },
+            M::Heartbeat { elapsed } => Self::Heartbeat { elapsed: *elapsed },
+            M::CargoJettisoned {
+                ship,
+                equip,
+                good,
+                count,
+            } => Self::CargoJettisoned {
+                ship: *ship,
+                equip: *equip,
+                good: *good,
+                count: *count,
+            },
+            M::Msg0x27 {
+                ship,
+                base,
+                target,
+                land,
+            } => Self::Msg0x27 {
+                ship: *ship,
+                base: *base,
+                target: *target,
+                land: *land,
+            },
+            M::LootSpawned {
+                loot,
+                source,
+                good,
+                count,
+            } => Self::LootSpawned {
+                loot: *loot,
+                source: *source,
+                good: *good,
+                count: *count,
+            },
+            M::ObjectDestroyed(event) => Self::ObjectDestroyed(event.clone()),
+            M::SystemExit {
+                system,
+                destination,
+                player,
+            } => Self::SystemExit {
+                system: *system,
+                destination: *destination,
+                player: *player,
+            },
+            M::CombatState {
+                state,
+                param1,
+                param2,
+                system,
+            } => Self::CombatState {
+                state: *state,
+                param1: *param1,
+                param2: *param2,
+                system: *system,
+            },
+            _ => return None,
+        })
+    }
+
+    /// The message again.
+    fn message(self) -> ControllerMessage<'static> {
+        use ControllerMessage as M;
+        match self {
+            Self::CommComplete {
+                listener,
+                system,
+                speaker,
+                line,
+                result,
+            } => M::CommComplete {
+                listener,
+                system,
+                speaker,
+                line,
+                result,
+            },
+            Self::DockComplete { ship, dock, system } => M::DockComplete { ship, dock, system },
+            Self::TradelaneRequest {
+                ship,
+                ring,
+                end_ring,
+                system,
+            } => M::TradelaneRequest {
+                ship,
+                ring,
+                end_ring,
+                system,
+            },
+            Self::TradelaneEnter {
+                ship,
+                entrance,
+                exit,
+                system,
+            } => M::TradelaneEnter {
+                ship,
+                entrance,
+                exit,
+                system,
+            },
+            Self::TradelaneExit {
+                ship,
+                entrance,
+                exit,
+                system,
+            } => M::TradelaneExit {
+                ship,
+                entrance,
+                exit,
+                system,
+            },
+            Self::LootAcquired {
+                loot,
+                ship,
+                sub_object,
+                good,
+                count,
+            } => M::LootAcquired {
+                loot,
+                ship,
+                sub_object,
+                good,
+                count,
+            },
+            Self::FormationRequest {
+                ship,
+                leader,
+                system,
+            } => M::FormationRequest {
+                ship,
+                leader,
+                system,
+            },
+            Self::Heartbeat { elapsed } => M::Heartbeat { elapsed },
+            Self::CargoJettisoned {
+                ship,
+                equip,
+                good,
+                count,
+            } => M::CargoJettisoned {
+                ship,
+                equip,
+                good,
+                count,
+            },
+            Self::Msg0x27 {
+                ship,
+                base,
+                target,
+                land,
+            } => M::Msg0x27 {
+                ship,
+                base,
+                target,
+                land,
+            },
+            Self::LootSpawned {
+                loot,
+                source,
+                good,
+                count,
+            } => M::LootSpawned {
+                loot,
+                source,
+                good,
+                count,
+            },
+            Self::ObjectDestroyed(event) => M::ObjectDestroyed(event),
+            Self::SystemExit {
+                system,
+                destination,
+                player,
+            } => M::SystemExit {
+                system,
+                destination,
+                player,
+            },
+            Self::CombatState {
+                state,
+                param1,
+                param2,
+                system,
+            } => M::CombatState {
+                state,
+                param1,
+                param2,
+                system,
+            },
+        }
+    }
 }
 
 impl GuideArena {
@@ -307,16 +723,37 @@ pub fn ship_position(cx: &Cx<'_>, ship: NpcShipKey) -> Vector {
 }
 
 /// A slot on a copy of the guide, written back when it returns (unless the
-/// guide is gone by then); `None` for a guide that is gone.
+/// guide is gone by then); `None` for a guide that is gone. A message that
+/// reaches the guide meanwhile (a server call of the slot that dispatches
+/// one, as the scanner's jettison does) waits until then (D860).
 fn with_guide<R>(
     cx: &mut Cx<'_>,
     guide: GuideRef,
     f: impl FnOnce(&mut Cx<'_>, &mut Guide) -> R,
 ) -> Option<R> {
     let mut g = cx.logic.content.state.guides.get(guide)?.clone();
+    cx.logic.content.state.guides.running.push(guide);
     let r = f(cx, &mut g);
-    if let Some(slot) = cx.logic.content.state.guides.get_mut(guide) {
+    let arena = &mut cx.logic.content.state.guides;
+    if let Some(at) = arena.running.iter().rposition(|&r| r == guide) {
+        arena.running.remove(at);
+    }
+    if let Some(slot) = arena.get_mut(guide) {
         *slot = g;
+    }
+    if !arena.running.contains(&guide) {
+        while let Some(at) = cx
+            .logic
+            .content
+            .state
+            .guides
+            .deferred
+            .iter()
+            .position(|(r, _)| *r == guide)
+        {
+            let (_, message) = cx.logic.content.state.guides.deferred.remove(at);
+            handle_event(cx, guide, &message.message());
+        }
     }
     Some(r)
 }
@@ -595,6 +1032,12 @@ pub fn handle_event(
     guide: GuideRef,
     message: &crate::events::ControllerMessage<'_>,
 ) {
+    if cx.logic.content.state.guides.running.contains(&guide) {
+        if let Some(m) = GuideMessage::of(message) {
+            cx.logic.content.state.guides.deferred.push((guide, m));
+        }
+        return;
+    }
     let _ = with_guide(cx, guide, |cx, g| {
         let ship = g.ship;
         let Guide { kind, done, .. } = g;
