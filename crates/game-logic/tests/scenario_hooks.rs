@@ -5,12 +5,18 @@
 //! [`Logic`] instead of `NoServerHooks`. The oracle's harness forces the
 //! physics of a scenario's system on (`GOracleSimHooks.StepSystemId`),
 //! where the server steps it only while the system has players, so the
-//! hooks are wrapped ([`ScenarioHooks`]) to step it every sub-step. A
-//! scenario marked `# rust: server` (the trade lanes: SpaceSupport answers
+//! hooks are wrapped ([`ScenarioHooks`]) to step it every sub-step. Every
+//! scenario runs on the oracle's start-up (`Oracle.exe sim`'s reduced
+//! `[Initial MP DLLs]`: Content's GameSupport, SpaceSupport and
+//! BaseSupport, then `Server_LoadWorldState` over `InitialWorld.ini`), so
+//! SpaceSupport runs on both sides (P3.6a). A scenario marked `# rust:
+//! server` sends the AI's requests to the server
+//! (`ServerHooks::server_requests`): the trade lanes (SpaceSupport answers
 //! `dock_trade_lane`'s lane request, and the server's
-//! `notify_stop_tradelane` ends both lanes' behaviours) gets a SpaceSupport
-//! controller and sends the AI's requests to the server
-//! (`ServerHooks::server_requests`); the other scenarios do not.
+//! `notify_stop_tradelane` ends both lanes' behaviours) and
+//! `dock_at_station` (SpaceSupport's dock queues answer the dock request:
+//! the fighter is no Content ship, so the answer is 5 with port -1, as the
+//! oracle's); the other scenarios do not.
 //!
 //! With `OUTPOST_ORACLE_DIR` set, each run is judged against the oracle's
 //! `tick.jsonl` as `game-sim/tests/scenario_replay.rs` judges the run
@@ -40,19 +46,22 @@ use game_sim::scenario::{
     self, dist, judge, needs_ai, oracle_ai_inputs, oracle_run, parse, report_guided,
     scenario_files, world_config,
 };
+use neuron_core::ini::IniReader;
 use neuron_core::math::Vector;
 use neuron_core::vfs::Host;
 use neuron_server::controller::Priority;
 
-/// The scenarios run without the oracle: two contacts, an AI ship and the
+/// The scenarios run without the oracle: two contacts, an AI ship, the
 /// two trade lanes (the instant one and the dock behaviour's, whose
-/// request SpaceSupport answers).
-const SMOKE: [&str; 5] = [
+/// request SpaceSupport answers) and the dock at a station, whose request
+/// SpaceSupport's dock queues answer.
+const SMOKE: [&str; 6] = [
     "ram_ship",
     "ram_asteroid",
     "turn_to_heading",
     "trade_lane",
     "dock_trade_lane",
+    "dock_at_station",
 ];
 
 fn outdir() -> PathBuf {
@@ -137,6 +146,32 @@ impl ServerHooks for ScenarioHooks<'_> {
     }
 }
 
+/// The oracle's start-up (`Oracle.exe sim`, `WriteServerIni` and
+/// `Server_LoadWorldState`): Content's GameSupport, SpaceSupport and
+/// BaseSupport, then `LoadGame` over `InitialWorld.ini`, which builds the
+/// system records. The constructors' heartbeat draws come before the
+/// driver's seeding point, as the oracle's do.
+fn content_start_up(cx: &mut Cx<'_>) {
+    for (name, priority) in [
+        (&b"GameSupport"[..], Priority::Highest),
+        (&b"SpaceSupport"[..], Priority::Normal),
+        (&b"BaseSupport"[..], Priority::Normal),
+    ] {
+        let id = neuron_server::controller::create(
+            cx,
+            b"Content.dll",
+            name,
+            &CreateParams::None,
+            priority,
+        );
+        assert_ne!(id.0, 0, "{}", String::from_utf8_lossy(name));
+    }
+    let text = fs::read(outdir().join("data/initialworld.ini")).unwrap_or_default();
+    let mut reader = IniReader::new();
+    reader.open_memory(&text);
+    game_logic::selection::load_world_state(cx, &mut reader);
+}
+
 #[test]
 fn scenarios_through_the_server_hooks() {
     let Some(data) = game_data() else {
@@ -172,22 +207,12 @@ fn scenarios_through_the_server_hooks() {
         let mut world = World::new(data.clone(), world_config(&s))
             .with_assets(Assets::new(outdir().join("data")));
         let mut logic = Logic::new(Box::new(RecordingSink::default()), 16, true);
-        if s.rust_server.is_some() {
-            // The oracle's server runs Content's controllers (`[Initial MP
-            // DLLs]`); a scenario that needs their answers gets SpaceSupport,
-            // whose trade-lane handlers the port has.
+        {
             let mut cx = Cx {
                 world: &mut world,
                 logic: &mut logic,
             };
-            let id = neuron_server::controller::create(
-                &mut cx,
-                b"Content.dll",
-                b"SpaceSupport",
-                &CreateParams::None,
-                Priority::Normal,
-            );
-            assert_ne!(id.0, 0, "SpaceSupport");
+            content_start_up(&mut cx);
         }
         let mut hooks = ScenarioHooks {
             server: Hooks { logic: &mut logic },

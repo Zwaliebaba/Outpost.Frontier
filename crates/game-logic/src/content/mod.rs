@@ -45,7 +45,11 @@
 //! paths of [`space_paths`]), the missions' constructors and parser (P3.5a,
 //! [`mission`]), the rest of the missions and the story (P3.5), SpaceSupport's
 //! other steps, the populators and BaseSupport (P3.6) and the random
-//! missions (P3.7) come with their packages.
+//! missions (P3.7) come with their packages. P3.6a brings SpaceSupport's
+//! core ([`space_support`]): its handler's order, the dock queues
+//! ([`dock_queues`]), the formations ([`formations`]) over Content's ships
+//! ([`ships`]), the loot preparation, and the trade-lane requests
+//! ([`tradelane_requests`]) moved in from `crate::tradelane`.
 
 pub mod base_support;
 /// `missions\mBases.ini` (TU17, TU22; P3.4c).
@@ -53,8 +57,12 @@ pub mod bases;
 /// The faction, archetype and cargo helpers (TU44; P3.4c).
 pub mod cargo;
 pub mod counter;
+/// The dock queues (TU53 `DockQueues.cpp`; P3.6a).
+pub mod dock_queues;
 /// The encounter parameters (TU29; P3.4c).
 pub mod encounter_params;
+/// The formation helpers (TU53 `DockQueues.cpp`; P3.6a).
+pub mod formations;
 pub mod game_support;
 /// The gate locks (TU53; P3.4d).
 pub mod gate_locks;
@@ -68,6 +76,8 @@ pub mod players;
 pub mod population;
 pub mod random_mission;
 pub mod router;
+/// Content's ships, the ship base of TU50 (P3.6a).
+pub mod ships;
 /// The solar NPCs (TU24; P3.4d).
 pub mod solar_npcs;
 /// The space paths (TU53 `SpacePaths.cpp`; P3.4d).
@@ -81,6 +91,8 @@ pub mod systems;
 /// The static tables of `LoadContentGameTables` (`Content/Encounters.cpp:497-591`;
 /// P3.4b).
 pub mod tables;
+/// The trade-lane requests (TU55; P3.3, moved into Content with P3.6a).
+pub mod tradelane_requests;
 /// The zones of a system record (TU64, TU30; P3.4c).
 pub mod zones;
 
@@ -167,6 +179,12 @@ pub struct ContentState {
     /// `GStoryDebugFlag` (`Story.cpp:28`): `[StoryInfo]`'s `debug`, shared by
     /// every Story (P3.5b).
     pub story_debug: u8,
+    /// The dock lists, the terminal states and the launch queues of TU53
+    /// (`Content/DockQueues.cpp:35-39`; P3.6a, [`dock_queues`]).
+    pub dock_queues: dock_queues::DockQueues,
+    /// `GLastFormationId` (`Content/GameSupport.cpp:770`): the last
+    /// formation id handed out (P3.6a, [`formations::allocate_id`]).
+    pub last_formation_id: u32,
 }
 
 impl ContentState {
@@ -197,6 +215,8 @@ impl ContentState {
             mission_dialogs: BTreeMap::new(),
             clamps: mission::save::Clamps::default(),
             story_debug: 0,
+            dock_queues: dock_queues::DockQueues::default(),
+            last_formation_id: 0,
         }
     }
 }

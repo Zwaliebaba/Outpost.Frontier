@@ -547,8 +547,12 @@ namespace
         }
         if (Out.System.empty() || !bTicks)
             return Error = "a scenario needs `system` and `ticks`", false;
-        if (Out.Objects.empty() && !Out.bDumpSystemLoads && !Out.bDumpContentTables &&
-            !Out.bDumpMissionScripts && !Out.bDumpMissionSaves && !Out.bDumpMissionSaveLoads)
+        // A dump session needs no object: every `dump` line but `replication`, which records
+        // the objects the session spawns (P3.6a: `content_systems` joins the list).
+        bool const bObjectlessDump = Out.bDumpSystemLoads || Out.bDumpContentTables ||
+                                     Out.bDumpContentSystems || Out.bDumpMissionScripts ||
+                                     Out.bDumpMissionSaves || Out.bDumpMissionSaveLoads;
+        if (Out.Objects.empty() && !bObjectlessDump)
             return Error = "a scenario needs at least one object", false;
         std::stable_sort(Out.Commands.begin(), Out.Commands.end(),
                          [](FCommand const& A, FCommand const& B) { return A.Tick < B.Tick; });

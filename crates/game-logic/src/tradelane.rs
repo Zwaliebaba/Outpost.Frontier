@@ -1,19 +1,13 @@
 //! The trade lanes on the server (work package P3.3, decision record 0007):
 //! the server's `Ship::go_tradelane` and `stop_tradelane`
 //! (`Server/server_gameobject.cpp:6076-6137`) around game-sim's
-//! `LaneAction` (`object::world::lane_action`), and SpaceSupport's answer
-//! to a ship's lane request (`Content/TradelaneRequests.cpp`, TU55, which
-//! `Content/SpaceSupport.cpp` calls for the messages 0x14 and 0x15).
+//! `LaneAction` (`object::world::lane_action`).
 //!
 //! - **The request.** An NPC's dock behaviour asks for the lane at the
 //!   ring (`Ship::slot_5c` type 2, [`crate::dock::request`]), which the
-//!   bus hears as `TradelaneRequest`. SpaceSupport answers
-//!   ([`handle_request`]): an object that is not a lane ring (type bit
-//!   0x80) gets response 5; a ring grants it with response 4
-//!   (`pub::SpaceObj::LaneResponse`, which reaches the requesting
-//!   behaviour through `Ship::request_returned`) and is activated for the
-//!   ship (`pub::SpaceObj::Activate(Ring, true, Ship)`). The cancel
-//!   (`TradelaneRelease`) deactivates it ([`handle_release`]).
+//!   bus hears as `TradelaneRequest`. Content's SpaceSupport answers it
+//!   in its switch (`Content/TradelaneRequests.cpp`,
+//!   [`crate::content::tradelane_requests`]; moved there with P3.6a).
 //! - **The hand-off.** The behaviour, at the ring's mount, sends the ship
 //!   into the lane (`IObjAffect::go_tradelane`): the world makes the
 //!   action at once and the server's part follows the behaviour tick as a
@@ -33,35 +27,7 @@
 use game_sim::object::world::ServerRequest;
 use game_sim::object::{ObjHandle, ObjectKind};
 
-use crate::events::ControllerMessage;
 use crate::server::Cx;
-
-/// `DOCK_HOST_RESPONSE` 4: the lane is granted.
-pub const LANE_GRANTED: i32 = 4;
-
-/// `DOCK_HOST_RESPONSE` 5: refused (not a lane ring).
-pub const LANE_REFUSED: i32 = 5;
-
-/// `DOCK_HOST_RESPONSE` 1: the player's route is closed.
-pub const LANE_ROUTE_CLOSED: i32 = 1;
-
-/// The route check of the player whose ship object is `ship`
-/// (`FindContentPlayerStateByShip`, then `CheckTradelaneRoute(ring,
-/// end_ring)` over the rings of `ring`'s lane in the player's system
-/// record; an unknown ring reads no rings); `None` for a ship that is no
-/// player's.
-fn route_check(cx: &Cx<'_>, ship: u32, ring: u32, end_ring: u32) -> Option<i32> {
-    let content = &cx.logic.content.state;
-    let player = crate::content::players::find_by_ship(&content.players, ship)?;
-    let state = content.players.get(&player)?;
-    let lane: Vec<u32> = state
-        .system
-        .and_then(|s| content.systems.get(&s))
-        .and_then(|r| r.lane_rings_of_ring(ring))
-        .map(|rings| rings.iter().map(|r| r.object).collect())
-        .unwrap_or_default();
-    Some(state.check_tradelane_route(&lane, ring, end_ring))
-}
 
 /// The ship's system (`OwnerSystem`), none for an object in transit.
 fn owner_system(cx: &Cx<'_>, h: ObjHandle) -> Option<u32> {
@@ -161,59 +127,6 @@ fn notify_stop(cx: &mut Cx<'_>, ship: ObjHandle, entrance: u32, exit: u32) {
     };
     let id = id_of(cx, Some(ship));
     crate::replication::stop_tradelane(cx, system, id, entrance, exit);
-}
-
-/// `HandleTradelaneRequest` (SpaceSupport's message 0x14,
-/// `Content/TradelaneRequests.cpp:24-66`): response 5 unless the object
-/// asked for is a lane ring (`pub::SpaceObj::GetType`'s bit 0x80). For a
-/// ring, a player's ship asks the player's route check
-/// (`FContentPlayerState::CheckTradelaneRoute` over the rings of the ring's
-/// lane in the player's system record): 1 and 2 answer 1; otherwise the
-/// ring grants the lane (4). The answer goes to the ship
-/// (`pub::SpaceObj::LaneResponse`), and a granted ring is activated for
-/// it (`pub::SpaceObj::Activate(Ring, true, Ship)`). The comm system's
-/// "granted" conversation is not ported (D734); an unknown ring, whose
-/// type the C++ reads from a stale stack slot, reads 0 (D735).
-pub fn handle_request(cx: &mut Cx<'_>, ship: u32, ring: u32, end_ring: u32, _system: u32) {
-    let ring_type = crate::api::space_obj::object_type(cx, ring).unwrap_or(0);
-    let response = if ring_type & 0x80 != 0 {
-        match route_check(cx, ship, ring, end_ring) {
-            Some(1 | 2) => LANE_ROUTE_CLOSED,
-            _ => LANE_GRANTED,
-        }
-    } else {
-        LANE_REFUSED
-    };
-    let _ = crate::api::space_obj::lane_response(cx, ship, response);
-    if response == LANE_GRANTED {
-        let _ =
-            crate::api::space_obj::activate(cx, ring, true, i32::from_ne_bytes(ship.to_ne_bytes()));
-    }
-}
-
-/// `HandleTradelaneRelease` (SpaceSupport's message 0x15): the ring
-/// deactivated for the ship (`pub::SpaceObj::Activate(Ring, false, Ship)`).
-pub fn handle_release(cx: &mut Cx<'_>, ship: u32, ring: u32) {
-    let _ =
-        crate::api::space_obj::activate(cx, ring, false, i32::from_ne_bytes(ship.to_ne_bytes()));
-}
-
-/// SpaceSupport's trade-lane messages (`Content/SpaceSupport.cpp:669-676`),
-/// the cases of its main switch that Content's SpaceSupport handler
-/// ([`crate::content::space_support`]) hands here: `TradelaneRequest` and
-/// `TradelaneRelease` to their handlers; any other message is not this
-/// module's.
-pub fn space_support(cx: &mut Cx<'_>, message: &ControllerMessage<'_>) {
-    match *message {
-        ControllerMessage::TradelaneRequest {
-            ship,
-            ring,
-            end_ring,
-            system,
-        } => handle_request(cx, ship, ring, end_ring, system),
-        ControllerMessage::TradelaneRelease { ship, ring, .. } => handle_release(cx, ship, ring),
-        _ => {}
-    }
 }
 
 /// The AI's trade-lane requests of the server, in the order the world

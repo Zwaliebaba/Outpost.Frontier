@@ -79,8 +79,18 @@ pub struct PlayerShip {
     pub class_ids: Vec<u32>,
     /// `System` (TU20 `+0xdc`): the system record, by its id.
     pub system: Option<u32>,
-    /// `FormationId` (TU50, -1 for none).
+    /// `FormationId` (TU50 `+0x154`, -1 for none).
     pub formation_id: u32,
+    /// `FormationSlot` (TU50 `+0x14c`, 0 for the leader; -1 from the
+    /// player ship's parameters).
+    pub formation_slot: u32,
+    /// `Formation` (TU50 `+0x150`): the formation the ship flies in, by its
+    /// nickname id in [`ContentTables::formations`](super::ContentTables);
+    /// `None` for the null pointer.
+    pub formation: Option<u32>,
+    /// `Damage` (TU50 `+0x13c`): the damage each attacker dealt
+    /// (`AddDamage`), in the order they first hit.
+    pub damage: Vec<(u32, f32)>,
     /// `+0x120`: the lane's entry ring while the ship travels a lane, else 0.
     pub lane_entry: u32,
     /// `+0x124`: the lane's end ring.
@@ -95,6 +105,32 @@ pub struct PlayerShip {
     pub calm_since: f64,
     /// `HostileContactCount` (`+0x18c`).
     pub hostile_contact_count: i32,
+}
+
+impl PlayerShip {
+    /// `FContentPlayerShip(Params)` as GameSupport's `SpaceEnter` makes it:
+    /// the parameters' defaults (no formation: slot and id -1, a null
+    /// formation), no damage, calm.
+    #[must_use]
+    pub fn new(ship: u32, archetype: u32, class_ids: Vec<u32>, system: Option<u32>) -> Self {
+        Self {
+            ship,
+            archetype,
+            class_ids,
+            system,
+            formation_id: u32::MAX,
+            formation_slot: u32::MAX,
+            formation: None,
+            damage: Vec::new(),
+            lane_entry: 0,
+            lane_end: 0,
+            in_combat: false,
+            scan_target: false,
+            target: 0,
+            calm_since: -1.0,
+            hostile_contact_count: 0,
+        }
+    }
 }
 
 /// One player's state (`FContentPlayerState`, 0x10c bytes).
