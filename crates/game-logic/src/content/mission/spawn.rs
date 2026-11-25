@@ -26,10 +26,9 @@
 //! C++; the port reads what the mission noted of it when it registered it
 //! (its space object and nickname, D979).
 //!
-//! The name builder's gender, voice and costume picks and the reputation
-//! handles of a mission's named NPCs are small copies of the P3.6c
-//! follow-up's (PR #169), which is not merged: when it lands they become
-//! calls to `npc_names`.
+//! The name builder's gender and voice picks and the reputation handles of
+//! a mission's named NPCs are the P3.6c follow-up's (`npc_names`); the
+//! space costume pick, which only the mission spawns use, is here.
 //!
 //! The C++'s comparisons are kept as written (a NaN fails an x87 `FCOMP`).
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
@@ -59,7 +58,6 @@ use crate::content::directives::{self, DirectiveList};
 use crate::content::guides::GuideDesc;
 use crate::content::npc_names::{self, NpcNameParams};
 use crate::content::npc_ships::{self, NpcShipParams};
-use crate::content::rep_handles::{RepHandle, RepKind};
 use crate::content::ships::ShipKey;
 use crate::content::tables::NpcShipArch;
 use crate::content::tables::factions::FactionProps;
@@ -119,48 +117,6 @@ fn rand_index(cx: &mut Cx<'_>, count: i32) -> i32 {
     cx.world.rng().rand().wrapping_mul(count) / 32768
 }
 
-/// `FFactionProps::PickGender` (`FactionProps.cpp:301-317`): the male
-/// voices counted (role 1), one draw over all the voices: below the count
-/// male (1), else female (2). `None` without voices (no draw).
-fn pick_gender(cx: &mut Cx<'_>, props: &FactionProps) -> Option<i32> {
-    let tables = cx.logic.content.tables.clone();
-    let male = props
-        .voices
-        .iter()
-        .filter(|&&v| {
-            find_voice_properties(&tables.voice_properties, v).is_some_and(|p| p.supports_roles(1))
-        })
-        .count() as u32;
-    if props.voices.is_empty() {
-        return None;
-    }
-    let draw = rand_index(cx, props.voices.len() as i32) as u32;
-    Some(if draw < male { 1 } else { 2 })
-}
-
-/// `FFactionProps::PickVoice(Roles, &Out)` (`FactionProps.cpp:275-298`):
-/// from a copy of the voices, a random one (no draw for the last) that
-/// supports every role of `roles`; the others leave the copy.
-fn pick_voice(cx: &mut Cx<'_>, props: &FactionProps, roles: u32) -> Option<u32> {
-    let tables = cx.logic.content.tables.clone();
-    let mut candidates = props.voices.clone();
-    while !candidates.is_empty() {
-        let count = candidates.len() as i32;
-        let pick = if count == 1 { 0 } else { rand_index(cx, count) };
-        let at = usize::try_from(pick)
-            .ok()
-            .filter(|&i| i < candidates.len())?;
-        let voice = candidates[at];
-        if find_voice_properties(&tables.voice_properties, voice)
-            .is_some_and(|p| p.supports_roles(roles))
-        {
-            return Some(voice);
-        }
-        candidates.remove(at);
-    }
-    None
-}
-
 /// `FFactionProps::PickSpaceCostume(Gender, &Out)` (`FactionProps.cpp:241-272`):
 /// the costumes whose skeleton is of `gender`, one drawn; `None` (no draw)
 /// when none is.
@@ -179,43 +135,6 @@ fn pick_space_costume(cx: &mut Cx<'_>, props: &FactionProps, gender: i32) -> Opt
         .ok()
         .and_then(|i| matches.get(i).copied())?;
     props.space_costumes.get(at).cloned()
-}
-
-/// `PickNpcNameGender` (`NpcNames.cpp:136-140`): the faction's gender pick
-/// into the name. The C++ reads the faction's properties without a test;
-/// without them nothing is picked (D980).
-fn pick_npc_name_gender(cx: &mut Cx<'_>, affiliation: u32, name: &mut NpcNameParams) {
-    let tables = cx.logic.content.tables.clone();
-    if let Some(gender) = tables
-        .faction_props(affiliation)
-        .and_then(|p| pick_gender(cx, p))
-    {
-        name.gender = gender;
-    }
-}
-
-/// `CreateNpcNameReputation` (`NpcNames.cpp:267-275`): a named handle whose
-/// vibe is allocated from the name (-1 when that fails) with the name's
-/// affiliation.
-fn create_npc_name_reputation(cx: &mut Cx<'_>, name: &NpcNameParams) -> RepHandle {
-    let vibe = api::reputation::alloc(cx, &name.first, &name.second).unwrap_or(-1);
-    let _ = api::reputation::set_affiliation(cx, vibe, name.affiliation);
-    cx.logic
-        .content
-        .state
-        .rep_handles
-        .create(vibe, RepKind::Named)
-}
-
-/// `CreateMsnNpcReputation` (`NpcNames.cpp:278-293`): the same for an
-/// `[NPC]`: an empty first name, the second its `individual_name`.
-fn create_msn_npc_reputation(cx: &mut Cx<'_>, individual_name: u32, affiliation: u32) -> RepHandle {
-    let name = NpcNameParams {
-        second: FmtStr::new(individual_name),
-        affiliation,
-        ..NpcNameParams::default()
-    };
-    create_npc_name_reputation(cx, &name)
 }
 
 /// `ApplyNpcShipArch(Params, Arch, null, null)` (`NpcShip.cpp:155-202`):
@@ -379,18 +298,20 @@ pub fn spawn_ship_group(cx: &mut Cx<'_>, id: ControllerId, group: &ShipGroup) {
         let mut name = NpcNameParams::default();
         if ship.random_name {
             if npc.voice == 0 {
-                pick_npc_name_gender(cx, npc.affiliation, &mut name);
+                let _ = npc_names::pick_npc_name_gender(cx, npc.affiliation, &mut name);
             } else {
                 match find_voice_properties(&tables.voice_properties, npc.voice) {
                     Some(v) if v.supports_roles(1) => name.gender = 1,
                     Some(v) if v.supports_roles(2) => name.gender = 2,
-                    _ => pick_npc_name_gender(cx, npc.affiliation, &mut name),
+                    _ => {
+                        let _ = npc_names::pick_npc_name_gender(cx, npc.affiliation, &mut name);
+                    }
                 }
             }
             let _ = npc_names::build_default_npc_name(cx, npc.affiliation, &mut name, false);
-            params.reputation = Some(create_npc_name_reputation(cx, &name));
+            params.reputation = Some(npc_names::create_npc_name_reputation(cx, &name));
         } else {
-            params.reputation = Some(create_msn_npc_reputation(
+            params.reputation = Some(npc_names::create_msn_npc_reputation(
                 cx,
                 npc.individual_name.cast_unsigned(),
                 npc.affiliation,
@@ -417,7 +338,7 @@ pub fn spawn_ship_group(cx: &mut Cx<'_>, id: ControllerId, group: &ShipGroup) {
                     params.costume = costume;
                 }
                 if npc.voice & ID_MASK == 0
-                    && let Some(voice) = pick_voice(cx, props, name.gender.cast_unsigned())
+                    && let Some(voice) = npc_names::pick_voice(cx, props, name.gender.cast_unsigned())
                 {
                     params.voice = voice;
                 }
@@ -628,14 +549,14 @@ pub fn spawn_solar_record(cx: &mut Cx<'_>, id: ControllerId, index: usize) -> bo
     if record.space_costume.part_ids[0] & ID_MASK == 0 || record.voice_id & ID_MASK == 0 {
         let tables = cx.logic.content.tables.clone();
         if let Some(props) = tables.faction_props(record.faction) {
-            let gender = pick_gender(cx, props).unwrap_or(gender_slot);
+            let gender = npc_names::pick_gender(cx, props).unwrap_or(gender_slot);
             if record.space_costume.part_ids[0] & ID_MASK == 0
                 && let Some(costume) = pick_space_costume(cx, props, gender)
             {
                 info.costume = costume;
             }
             if record.voice_id & ID_MASK == 0
-                && let Some(voice) = pick_voice(cx, props, gender.cast_unsigned())
+                && let Some(voice) = npc_names::pick_voice(cx, props, gender.cast_unsigned())
             {
                 info.voice = voice;
             }

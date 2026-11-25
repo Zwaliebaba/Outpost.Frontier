@@ -981,46 +981,6 @@ pub fn destroy_mission_objects(cx: &mut Cx<'_>, system: u32) {
     }
 }
 
-/// `FSystemInfo::FindObjectIdByName(Name, ControllerId)` (`:2117-2149`):
-/// `Player` is the ship of the player whose live mission is the controller
-/// (in single player, else the first player); another name the first of
-/// the record's NPC ships of that nickname (`TString ==`), else the
-/// universe object of that nickname when it has a type.
-#[must_use]
-pub fn find_object_id_by_name(cx: &Cx<'_>, system: u32, name: &[u8], controller: u32) -> u32 {
-    let name = c_str(name);
-    if name.is_empty() {
-        return 0;
-    }
-    let state = &cx.logic.content.state;
-    if name == b"Player" {
-        let player = state
-            .players
-            .values()
-            .find(|p| p.live_mission == controller)
-            .or_else(|| {
-                api::misc::single_player(cx)
-                    .then(|| state.players.values().next())
-                    .flatten()
-            });
-        return player.and_then(|p| p.ship.as_ref()).map_or(0, |s| s.ship);
-    }
-    if let Some(record) = state.systems.get(&system) {
-        for key in &record.space_objs {
-            if let Some(n) = state.npc_ships.get(key)
-                && c_str(&n.nickname) == name
-            {
-                return n.base.ship;
-            }
-        }
-    }
-    let id = api::misc::nickname_id(name);
-    match api::space_obj::object_type(cx, id) {
-        Ok(kind) if kind & 0xfdff != 0 => id,
-        _ => 0,
-    }
-}
-
 /// `FSystemInfo::DestroyFlaggedObjectsAwayFromPlayers` (`:897-923`),
 /// SpaceSupport's heartbeat: each flagged object with no player's ship
 /// within 10000 is destroyed (`DESTROY_NORMAL`) and leaves the mission
