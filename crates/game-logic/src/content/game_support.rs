@@ -130,17 +130,21 @@ pub fn handle_message(cx: &mut Cx<'_>, _id: ControllerId, message: &mut Controll
             }
         }
         ControllerMessage::SpaceExit { player, .. } => {
-            if let Some(state) = cx.logic.content.state.players.get_mut(player) {
-                state.ship = None;
+            let state = &mut cx.logic.content.state;
+            if let Some(ship) = state.players.get_mut(player).and_then(|p| p.ship.take()) {
+                super::npc_ships::release_queue(state, ship.directives);
             }
         }
         ControllerMessage::ObjectDestroyed(event) => {
-            let states = &mut cx.logic.content.state.players;
-            if let Some(player) = players::find_by_ship(states, event.id)
-                && let Some(state) = states.get_mut(&player)
+            let state = &mut cx.logic.content.state;
+            if let Some(player) = players::find_by_ship(&state.players, event.id)
+                && let Some(p) = state.players.get_mut(&player)
             {
-                state.ship = None;
-                state.ship_destroyed = true;
+                let ship = p.ship.take();
+                p.ship_destroyed = true;
+                if let Some(ship) = ship {
+                    super::npc_ships::release_queue(state, ship.directives);
+                }
             }
         }
         ControllerMessage::SystemExit { player, .. } => {
@@ -772,8 +776,12 @@ fn player_launch(cx: &mut Cx<'_>, player: u32) {
         ship,
         &BaseOp::new(Op::SetPersonalityParams(Box::new(op))),
     );
-    if let Some(state) = cx.logic.content.state.players.get_mut(&player) {
-        state.ship = Some(PlayerShip::new(ship, archetype, class_ids, system));
+    let state = &mut cx.logic.content.state;
+    if let Some(p) = state.players.get_mut(&player) {
+        let old = p.ship.replace(PlayerShip::new(ship, archetype, class_ids, system));
+        if let Some(old) = old {
+            super::npc_ships::release_queue(state, old.directives);
+        }
     }
 }
 
