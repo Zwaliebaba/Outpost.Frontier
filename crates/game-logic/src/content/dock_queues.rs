@@ -401,7 +401,7 @@ pub fn cancel_ship_docking(cx: &mut Cx<'_>, ship: u32, _pass_through: u32, forma
     }
 }
 
-/// `SetObjectAttitude(ObjA, ObjB, Lo, Hi)` (`DockQueues.cpp:553-569`):
+/// `SetObjectAttitude(ObjA, ObjB, Lo, Hi)` (`DockQueues.cpp:553-570`):
 /// -2 when either object's reputation is unknown (`pub::SpaceObj::GetRep`);
 /// else `Lo`, or with `Lo != Hi` (unordered too) `rand() / 32768` of the
 /// way from `Lo` to `Hi` (in `double`, stored as a `float`), set as A's

@@ -4,7 +4,7 @@
 //! `Act_SetVibe`, `Act_SetVibeLbl`, `Act_SetVibeLblToShip`,
 //! `Act_SetVibeShipToLbl`, `Act_SetVibeOfferBaseHack`, `Act_SetRep` and
 //! `Act_RepChangeRequest`, with the script's `SetObjectVibe`
-//! (`MissionAct.cpp:3945-4027`).
+//! (`MissionAct.cpp:3945-4028`).
 //!
 //! The mission's `[ObjList]` lists are handed out as the shared counted
 //! directives the spawns use ([`spawn::obj_list_refs`]); a ship runs them
@@ -76,7 +76,7 @@ fn record_vibe_solar(cx: &mut Cx<'_>, id: ControllerId, object: u32) {
     }
 }
 
-/// `FMissionScript::SetObjectVibe(A, B, Lo, Hi)` (`MissionAct.cpp:4012-4027`):
+/// `FMissionScript::SetObjectVibe(A, B, Lo, Hi)` (`MissionAct.cpp:4012-4028`):
 /// A's attitude towards B ([`dock_queues::set_object_attitude`]); when A
 /// is one of the mission's NPC ships that leads its formation or flies in
 /// none, every member of its formation takes the same attitude towards B;
@@ -101,7 +101,7 @@ pub fn set_object_vibe(cx: &mut Cx<'_>, id: ControllerId, a: u32, b: u32, lo: f3
     result
 }
 
-/// `Act_GiveObjList` (`MissionAct.cpp:2876-2898`): with a live player, the
+/// `Act_GiveObjList` (`MissionAct.cpp:2841-2863`): with a live player, the
 /// NPC ship of the label, else the player's ship for `Player`, takes the
 /// `[ObjList]` (an NPC ship drops its guide first, `SetGuide(null, true,
 /// false)`), at priority 0.
@@ -136,7 +136,7 @@ fn give_obj_list(cx: &mut Cx<'_>, id: ControllerId, npc: &[u8], list: u32) {
     npc_ships::set_directives(cx, ship, &refs, 0);
 }
 
-/// `Act_GiveMB` (`MissionAct.cpp:2811-2829`): the NPC ship of the label
+/// `Act_GiveMB` (`MissionAct.cpp:2801-2819`): the NPC ship of the label
 /// cancels its directives and takes the guide of the `[MetaBehavior]`'s
 /// first object, started (`SetGuideFromDesc(First, true)`); an empty list
 /// gives none.
@@ -155,7 +155,7 @@ fn give_mb(cx: &mut Cx<'_>, id: ControllerId, npc: &[u8], list: u32) {
     guides::set_guide_from_desc(cx, key, &GuideDesc::from_meta(first), true);
 }
 
-/// `Act_SetFlee` (`MissionAct.cpp:2705-2724`).
+/// `Act_SetFlee` (`MissionAct.cpp:2705-2725`).
 fn set_flee(cx: &mut Cx<'_>, id: ControllerId, a: &super::super::action::SetFlee) {
     let Some(key) = npc_by_name(cx, id, &a.npc) else {
         return;
@@ -173,7 +173,7 @@ fn set_flee(cx: &mut Cx<'_>, id: ControllerId, a: &super::super::action::SetFlee
     }
 }
 
-/// `Act_PlayerForm` (`MissionAct.cpp:3826-3836`): with a live player, the
+/// `Act_PlayerForm` (`MissionAct.cpp:3826-3835`): with a live player, the
 /// player's ship and the label's NPC ship form the action's formation. The
 /// C++ passes a null ship on as it is, which `FormFormation` dereferences;
 /// the port leaves it out (D991).
@@ -201,7 +201,7 @@ fn player_form(cx: &mut Cx<'_>, id: ControllerId, a: &super::super::action::Play
     formations::form_formation(cx, &mut ships, a.formation, false);
 }
 
-/// `Act_SetVibeLbl` (`MissionAct.cpp:4088-4129`): for each NPC ship of the
+/// `Act_SetVibeLbl` (`MissionAct.cpp:4088-4130`): for each NPC ship of the
 /// mission labelled A, every NPC ship labelled B and then every
 /// `[MsnSolar]` labelled B; then for each `[MsnSolar]` labelled A, every
 /// NPC ship labelled B. The C++ tests only the inner NPC ships for null
@@ -275,7 +275,7 @@ fn set_vibe_offer_base_hack(cx: &mut Cx<'_>, id: ControllerId, base: u32) {
     let _ = api::reputation::set_attitude(cx, base_rep, player_rep, 1.0);
 }
 
-/// `Act_SetRep` (`MissionAct.cpp:3877-3901`): false for a label that finds
+/// `Act_SetRep` (`MissionAct.cpp:3877-3899`): false for a label that finds
 /// no object (but `Player`) or an unknown group; `Player` with a live
 /// player is the player's reputation, any other label its object's, set
 /// towards the group. The second label lookup of the C++'s object branch
@@ -313,7 +313,7 @@ pub fn execute(cx: &mut Cx<'_>, id: ControllerId, action: &mut Action) -> bool {
             give_mb(cx, id, &a.npc, a.list_id);
             true
         }
-        // `Act_SetPriority` (`MissionAct.cpp:2638-2655`): every NPC ship
+        // `Act_SetPriority` (`MissionAct.cpp:2638-2653`): every NPC ship
         // under the label takes the priority.
         Action::SetPriority(a) => {
             for member in label_members(cx, id, a.formation_id) {
@@ -352,7 +352,7 @@ pub fn execute(cx: &mut Cx<'_>, id: ControllerId, action: &mut Action) -> bool {
             set_vibe_lbl(cx, id, a);
             true
         }
-        // `Act_SetVibeLblToShip` (`MissionAct.cpp:4157-4168`): every member
+        // `Act_SetVibeLblToShip` (`MissionAct.cpp:4157-4169`): every member
         // under the label towards the ship.
         Action::SetVibeLblToShip(a) => {
             let ship = label_object(cx, id, &a.ship);
@@ -363,7 +363,7 @@ pub fn execute(cx: &mut Cx<'_>, id: ControllerId, action: &mut Action) -> bool {
             }
             true
         }
-        // `Act_SetVibeShipToLbl` (`MissionAct.cpp:4195-4206`): the ship
+        // `Act_SetVibeShipToLbl` (`MissionAct.cpp:4195-4207`): the ship
         // towards every member under the label.
         Action::SetVibeShipToLbl(a) => {
             let ship = label_object(cx, id, &a.ship);
