@@ -25,11 +25,20 @@
 //! `Act_MarkObj`, `Act_SetLifeTime`, `Act_LockDock`, `Act_DockRequest` and
 //! `Act_PobjIdle`.
 //!
-//! The other 36 classes (and `Act_StartDialog` but for its delay) run
-//! without an effect until their increment (D970): P3.5c3 the AI and
-//! reputation actions, P3.5c4 the comms, cameras, cut scenes and bases,
-//! P3.5c5 the objectives, nags and the NN path. The trace records each of
-//! them as it runs, as the C++'s does.
+//! P3.5c3 ports the 13 AI and reputation classes ([`ai_rep`]):
+//! `Act_GiveObjList`, `Act_GiveMB`, `Act_SetPriority`, `Act_PilotParams`,
+//! `Act_SetFlee`, `Act_PlayerForm`, `Act_SetVibe`, `Act_SetVibeLbl`,
+//! `Act_SetVibeLblToShip`, `Act_SetVibeShipToLbl`,
+//! `Act_SetVibeOfferBaseHack`, `Act_SetRep` and `Act_RepChangeRequest`,
+//! with the script's `SetObjectVibe` ([`set_object_vibe`]); the
+//! `[ObjList]` directives they hand out run through
+//! [`super::obj_list_execute`].
+//!
+//! The other 23 classes (and `Act_StartDialog` but for its delay) run
+//! without an effect until their increment (D970): P3.5c4 the comms,
+//! cameras, cut scenes, ambient scenes and offers, P3.5c5 the objectives,
+//! nags and the NN path. The trace records each of them as it runs, as the
+//! C++'s does.
 //!
 //! An action is cloned out of its trigger before it runs and written back
 //! after it (the engine, [`super::engine`]): `Act_StartDialog` keeps its
@@ -47,10 +56,13 @@ use crate::api;
 use crate::api::audio::Tryptich;
 use crate::server::Cx;
 
+mod ai_rep;
 mod objects;
 
-/// The actions P3.5c1 runs with their effect; the rest run without one
-/// until their increment (D970).
+pub use ai_rep::set_object_vibe;
+
+/// The actions P3.5c1 to P3.5c3 run with their effect; the rest run
+/// without one until their increment (D970).
 #[must_use]
 pub fn is_ported(action: &Action) -> bool {
     matches!(
@@ -105,6 +117,20 @@ pub fn is_ported(action: &Action) -> bool {
             | Action::LockDock(_)
             | Action::DockRequest(_)
             | Action::PobjIdle(_)
+            // P3.5c3.
+            | Action::GiveObjList(_)
+            | Action::GiveMb(_)
+            | Action::SetPriority(_)
+            | Action::PilotParams(_)
+            | Action::SetFlee(_)
+            | Action::PlayerForm(_)
+            | Action::SetVibe(_)
+            | Action::SetVibeLbl(_)
+            | Action::SetVibeLblToShip(_)
+            | Action::SetVibeShipToLbl(_)
+            | Action::SetVibeOfferBaseHack(_)
+            | Action::SetRep(_)
+            | Action::RepChangeRequest(_)
     )
 }
 
@@ -330,6 +356,19 @@ pub fn execute(
             let _ = api::space_obj::drain_shields(cx, a.ring_id);
             true
         }
+        Action::GiveObjList(_)
+        | Action::GiveMb(_)
+        | Action::SetPriority(_)
+        | Action::PilotParams(_)
+        | Action::SetFlee(_)
+        | Action::PlayerForm(_)
+        | Action::SetVibe(_)
+        | Action::SetVibeLbl(_)
+        | Action::SetVibeLblToShip(_)
+        | Action::SetVibeShipToLbl(_)
+        | Action::SetVibeOfferBaseHack(_)
+        | Action::SetRep(_)
+        | Action::RepChangeRequest(_) => ai_rep::execute(cx, id, action),
         _ => objects::execute(cx, id, action),
     }
 }

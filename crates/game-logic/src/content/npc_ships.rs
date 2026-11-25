@@ -197,6 +197,10 @@ pub struct NpcShip {
     pub loadout: u32,
     /// `+0x1c8`: the life left.
     pub life_left: f32,
+    /// `+0x1cc`, the ship's own pilot: cleared by the constructor and
+    /// written by nothing in Content; `SubmitNpcPersonality`'s mode 1 reads
+    /// it before the archetype's pilot.
+    pub field_0x1cc: u32,
     /// `Personality` (`+0x1d0`).
     pub personality: Personality,
     /// `+0x5a8`.
@@ -296,6 +300,7 @@ pub fn construct(cx: &mut Cx<'_>, params: &NpcShipParams) -> NpcShipKey {
         loadout: params.loadout,
         life_left: params.life_left,
         personality: params.personality,
+        field_0x1cc: 0,
         field_0x5a8: params.field_0x78,
         encounter_params: 0,
     };

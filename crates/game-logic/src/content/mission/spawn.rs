@@ -234,7 +234,7 @@ fn empty_place(cx: &mut Cx<'_>, system: u32, base: &Transform, radius: f32) -> V
 
 /// The `[ObjList]` of `list` as counted objects, made from the parsed list
 /// the first time it is handed out; `None` for an unknown list.
-fn obj_list_refs(cx: &mut Cx<'_>, id: ControllerId, list: u32) -> Option<DirectiveList> {
+pub fn obj_list_refs(cx: &mut Cx<'_>, id: ControllerId, list: u32) -> Option<DirectiveList> {
     let object = object(cx, id)?;
     if let Some(refs) = object.obj_list_refs.get(&list) {
         return Some(refs.clone());
@@ -409,10 +409,7 @@ pub fn spawn_ship_group(cx: &mut Cx<'_>, id: ControllerId, group: &ShipGroup) {
         }
         let meta = object(cx, id)
             .and_then(|o| o.meta_behaviors.get(&ship.init_meta_behavior))
-            .map(|list| {
-                list.first()
-                    .map(super::meta_behavior::MetaBehavior::type_code)
-            });
+            .map(|list| list.first().cloned());
         if let Some(first) = meta {
             directives::clear_list(
                 &mut cx.logic.content.state.directives,
@@ -420,10 +417,7 @@ pub fn spawn_ship_group(cx: &mut Cx<'_>, id: ControllerId, group: &ShipGroup) {
             );
             // The C++ reads the first object without an empty test; an
             // empty list gives no guide here (D980).
-            params.guide = first.map(|kind| GuideDesc {
-                kind,
-                ..GuideDesc::default()
-            });
+            params.guide = first.map(GuideDesc::from_meta);
         }
         blocks.push(params);
     }
@@ -874,7 +868,8 @@ pub fn submit_npc_personality(cx: &mut Cx<'_>, key: NpcShipKey, mode: i32) {
     let Some(n) = cx.logic.content.state.npc_ships.get(&key) else {
         return;
     };
-    let (flid, callback, archetype) = (n.base.ship, n.callback, n.base.archetype);
+    let (flid, callback, archetype, own_pilot) =
+        (n.base.ship, n.callback, n.base.archetype, n.field_0x1cc);
     let Some(mut personality) = api::ai::personality(cx, flid) else {
         return;
     };
@@ -889,15 +884,20 @@ pub fn submit_npc_personality(cx: &mut Cx<'_>, key: NpcShipKey, mode: i32) {
         job.flee_no_weapons_style = 0;
     } else if mode == 1 {
         let tables = cx.logic.content.tables.clone();
-        // The ship's own pilot is the NPC ship's `+0x1cc`, which nothing
-        // the port makes sets: the archetype's pilot.
-        let pilot = tables
-            .npc_ships
-            .values()
-            .find(|a| a.ship_archetype == archetype)
-            .map_or(0, |a| a.pilot);
+        // The ship's own pilot (`+0x1cc`), else the pilot of the first
+        // `npcships.ini` entry of its archetype (`FindNpcShipArchByShip`);
+        // nothing loads without one.
         let mut from = Personality::default();
-        if tables.pilots.personality(pilot, &mut from) {
+        let loaded = if own_pilot == 0 {
+            tables
+                .npc_ships
+                .values()
+                .find(|a| a.ship_archetype == archetype)
+                .is_some_and(|a| tables.pilots.personality(a.pilot, &mut from))
+        } else {
+            tables.pilots.personality(own_pilot, &mut from)
+        };
+        if loaded {
             let job = &mut personality.job;
             job.flee_scene_threat_style = from.job.flee_scene_threat_style;
             job.flee_when_hull_damaged_percent = from.job.flee_when_hull_damaged_percent;

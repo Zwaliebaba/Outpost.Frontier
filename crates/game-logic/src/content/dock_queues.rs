@@ -401,6 +401,24 @@ pub fn cancel_ship_docking(cx: &mut Cx<'_>, ship: u32, _pass_through: u32, forma
     }
 }
 
+/// `SetObjectAttitude(ObjA, ObjB, Lo, Hi)` (`DockQueues.cpp:553-569`):
+/// -2 when either object's reputation is unknown (`pub::SpaceObj::GetRep`);
+/// else `Lo`, or with `Lo != Hi` (unordered too) `rand() / 32768` of the
+/// way from `Lo` to `Hi` (in `double`, stored as a `float`), set as A's
+/// attitude towards B (`pub::Reputation::SetAttitude`) and returned.
+pub fn set_object_attitude(cx: &mut Cx<'_>, a: u32, b: u32, lo: f32, hi: f32) -> f32 {
+    let (Ok(rep_a), Ok(rep_b)) = (api::space_obj::rep(cx, a), api::space_obj::rep(cx, b)) else {
+        return -2.0;
+    };
+    let mut result = lo;
+    if lo != hi {
+        let random = f64::from(cx.world.rng().rand()) * (1.0 / 32768.0);
+        result = (random * (f64::from(hi) - f64::from(lo)) + f64::from(lo)) as f32;
+    }
+    let _ = api::reputation::set_attitude(cx, rep_a, rep_b, result);
+    result
+}
+
 /// `UpdateDockQueues` (`:581-656`): per docking entry, one that may time
 /// out (neither flag set) and has waited more than 90 s kicks its ship
 /// (a ship Content does not know is cancelled by id; a leader or a ship
