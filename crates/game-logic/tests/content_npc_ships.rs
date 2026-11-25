@@ -160,3 +160,45 @@ fn an_npc_ship_is_its_managers_callbacks_and_runs_its_guide() {
     assert_eq!(cx.logic.content.state.callbacks.owner(ship.callback), None);
     assert!(cx.logic.content.state.guides.get(guide).is_none());
 }
+
+#[test]
+fn a_ship_queued_at_a_station_launches_from_a_berth() {
+    let Some((mut world, mut logic)) = setup() else {
+        return;
+    };
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    let he01 = create_id(b"he01");
+    let station = cx
+        .world
+        .get(cx.world.find(create_id(b"he01_11")).expect("he01_11"))
+        .unwrap()
+        .simple
+        .id;
+    let mut params = fighter_params(&cx);
+    params.class_ids = vec![create_id(b"can_use_berths")];
+    params.guide = None;
+    let (result, key) = npc_ships::create_in_system(&mut cx, he01, &params, station);
+    // Made at once: the queue is empty again (`operator[]` leaves it in the
+    // map for the next pass to drop), so the block counts as not queued
+    // (0), and a ship whose life is -1 is not the pass's result.
+    assert_eq!(result, 0);
+    assert_eq!(key, None);
+    assert!(cx.logic.content.state.dock_queues.launch[&station].is_empty());
+    let ships = cx.logic.content.state.systems[&he01].space_objs.clone();
+    assert_eq!(ships.len(), 1);
+    let ship = npc_ships::get(&cx, ships[0]).unwrap().clone();
+    // The launch directive leads, running; the ship is in the docking list
+    // as launched from the station.
+    let q = npc_ships::queue(&cx, ShipKey::Npc(ships[0])).unwrap();
+    assert_eq!(q.list.len(), 1);
+    let first = cx.logic.content.state.directives.get(q.list[0]).unwrap();
+    assert_eq!(first.kind.type_code(), 0x15);
+    let entry =
+        game_logic::content::dock_queues::docking_entry_of(&cx.logic.content.state, ship.base.ship)
+            .expect("a docking entry");
+    assert_eq!(entry.target, station);
+    assert!(entry.inside);
+}

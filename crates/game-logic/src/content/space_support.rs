@@ -459,7 +459,7 @@ fn erase_launch_queues_unless_occupied(cx: &mut Cx<'_>, system: u32) {
             .get(&system)
             .is_some_and(|r| !r.players.is_empty());
     if !occupied {
-        cx.logic.content.state.dock_queues.launch.clear();
+        dock_queues::erase_all_launch_queues(cx);
     }
 }
 
@@ -793,8 +793,8 @@ fn object_destroyed(cx: &mut Cx<'_>, event: &mut ObjectDestroyed) {
         let _ = api::audio::set_music(cx, event.owner_player, &track);
     }
     let single_player = api::misc::single_player(cx);
+    dock_queues::erase_launch_queue_of(cx, object);
     let state = &mut cx.logic.content.state;
-    state.dock_queues.launch.remove(&object);
     state.gate_locks.remove_npc(object);
     state.gate_locks.unregister(0, object, single_player);
     if has_record {
