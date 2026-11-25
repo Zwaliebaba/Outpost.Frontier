@@ -540,6 +540,8 @@ pub fn destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32, killer: u32) -> bool {
                 let client = cx.logic.players.get(to).map_or(0, |p| p.client_id);
                 crate::group::send_notice(cx, client, 0x14, session);
             }
+            // `++GServerStats.Field_0x10` (`server_gameobject.cpp:1150`).
+            cx.logic.stats.player_deaths += 1;
         }
     }
     if let Some(o) = cx.world.get_mut(h) {

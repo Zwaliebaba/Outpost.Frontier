@@ -399,3 +399,39 @@ fn scripted_clients_log_in_create_characters_launch_and_see_each_other() {
     assert!(status.success());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// An interrupt (SIGINT, as Ctrl-C sends) stops the server as `quit` does:
+/// the players are logged out and saved, the server reports its stop and
+/// exits normally. Signals are sent with `kill`, so the test is Unix only;
+/// on Windows the same handler takes Ctrl-C and the console's close.
+#[cfg(unix)]
+#[test]
+fn an_interrupt_stops_the_server_as_quit_does() {
+    if !outdir().join("OutpostFrontier.ini").is_file() {
+        println!("outdir/ is missing: the interrupt test was not run");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("outpost-sigint-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut server = start_server(&dir);
+    let address: SocketAddr = server
+        .wait_for("Listening on ", START_WAIT)
+        .parse()
+        .expect("an address");
+    let fingerprint = server.wait_for("Certificate fingerprint ", STEP_WAIT);
+    server.wait_for("Server running, ready for log in.", STEP_WAIT);
+    let pilot = join(address, &fingerprint, ACCOUNTS[0], "Gate Five", 1);
+    let sent = Command::new("kill")
+        .arg("-INT")
+        .arg(server.child.id().to_string())
+        .status()
+        .expect("kill runs");
+    assert!(sent.success());
+    server.wait_for("LOG: Logout on account", STEP_WAIT);
+    server.wait_for("Server stopped.", STEP_WAIT);
+    let status = server.child.wait().expect("the server ends");
+    assert!(status.success());
+    drop(pilot);
+    let _ = std::fs::remove_dir_all(&dir);
+}

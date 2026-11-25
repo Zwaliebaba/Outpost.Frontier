@@ -25,7 +25,7 @@ port = 14041
 # the executable's folder.
 install_dir = ""
 # The user-data folder; the accounts are in its Accts/MultiPlayer. Empty for
-# Documents/My Games/OutpostFrontier in the user's profile.
+# My Games/OutpostFrontier in the user's Documents folder.
 user_data = ""
 
 [log]

@@ -6,6 +6,9 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+ctrlc.workspace = true
+dirs.workspace = true
+jiff.workspace = true
 game-logic.workspace = true
 game-sim.workspace = true
 neuron-core.workspace = true

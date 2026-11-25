@@ -428,3 +428,38 @@ fn chat_news_players_and_status() {
     assert!(status.contains(&"Connections: 1".to_owned()));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn the_dispatching_handlers_reach_the_bus_and_the_counters() {
+    use game_sim::protocol::to_server::{AbortMission, DbgConsole, RequestNewCharInfo};
+    let dir = temp_dir("dispatch");
+    let (mut host, mut client) = host(&dir);
+    host.frame(0.0, 0.0);
+    login(&mut client, "pilot");
+    host.frame(0.0, 0.0);
+    for message in [
+        ClientMessage::AbortMission(AbortMission { value: 7 }),
+        ClientMessage::RequestNewCharInfo(RequestNewCharInfo {}),
+        ClientMessage::DbgConsole(DbgConsole::default()),
+    ] {
+        client
+            .send(LOOPBACK_CONNECTION, ToServer::Client(message))
+            .unwrap();
+    }
+    host.update();
+    assert_eq!(host.logic.stats.aborted_missions, 1);
+    assert!(host.unrouted.is_empty(), "{:?}", host.unrouted);
+    let report = host
+        .logic
+        .reports
+        .0
+        .last()
+        .expect("the debug packet's report");
+    assert_eq!(report.source, "Network\\OutpostServerPacketHandler.cpp");
+    assert_eq!(report.line, 0x204);
+    assert_eq!(
+        report.text,
+        "*** ERROR: FLPACKET_CLIENT_DBGCONSOLE encountered in release mode"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -194,6 +194,7 @@ where
             return;
         }
         if crate::session::route(&mut cx, &files, client, message)
+            || crate::session::route_common(&mut cx, client, message)
             || crate::receive::deliver(&mut cx, client, message)
         {
             return;

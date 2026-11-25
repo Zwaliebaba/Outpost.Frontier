@@ -9,6 +9,7 @@
 //! (`RemoteClient/RemoteClient_main.cpp:258-690`); the others go to
 //! [`crate::receive::deliver`].
 
+use game_sim::protocol::common::CommonMessage;
 use game_sim::protocol::costume::Costume as WireCostume;
 use game_sim::protocol::fmtstr::FmtStr;
 use game_sim::protocol::records::{CollisionGroup, EquipRecord};
@@ -593,7 +594,269 @@ pub fn route(cx: &mut Cx<'_>, files: &ServerFiles, session: u32, message: &ToSer
         ClientMessage::RequestCreateShip(_) => crate::dock::request_create_ship(cx, session),
         ClientMessage::RequestLaunch(p) => crate::dock::player_launch(cx, p.value, session),
         ClientMessage::LaunchComplete(p) => launch_complete(cx, p.field_00, p.field_04),
+        // `case 0x0A` is an empty `break`; `NewCharacterInfoReq` and
+        // `ReqCargo` have empty bodies; `SaveGame` returns on a multiplayer
+        // server (the single-player save is `crate::saves`).
+        ClientMessage::GfRequestShipInfo(_)
+        | ClientMessage::RequestNewCharInfo(_)
+        | ClientMessage::ReqCargo(_) => {}
+        ClientMessage::SaveGame(_) if !cx.world.config().single_player => {}
+        ClientMessage::DbgCreateShip(_) => release_mode(cx, 0x26a, "DBGCREATESHIP", "release"),
+        ClientMessage::DbgLoadSystem(_) => release_mode(cx, 0x217, "DBGLOADSYSTEM", "release"),
+        ClientMessage::DbgDestroyObject(_) => {
+            release_mode(cx, 0x1e4, "DBGDESTROYOBJECT", "Final Release");
+        }
+        ClientMessage::DbgConsole(_) => release_mode(cx, 0x204, "DBGCONSOLE", "release"),
+        ClientMessage::DbgFreeSystem(_) => release_mode(cx, 0x227, "DBGFREESYSTEM", "release"),
+        ClientMessage::DbgRelocateShip(_) => {
+            release_mode(cx, 0x1f5, "DBGRELOCATE_SHIP", "Final Release");
+        }
+        ClientMessage::DestroyChar(p) => {
+            destroy_character(cx, files, &CharacterId::new(&p.character_id), session);
+        }
+        ClientMessage::ReqShipArch(p) => req_ship_arch(cx, p.value, session),
+        ClientMessage::ReqHullStatus(p) => req_hull_status(cx, p.value, session),
+        ClientMessage::ReqSetCash(p) => {
+            if in_entered_base(cx, session) {
+                crate::player::set_cash(cx, session, p.value);
+            }
+        }
+        ClientMessage::ReqChangeCash(p) => {
+            if in_entered_base(cx, session) {
+                crate::player::adjust_cash(cx, session, p.value, false);
+            }
+        }
+        ClientMessage::RequestEvent(p) => crate::dock::request_event(
+            cx,
+            i32::from(p.event_type),
+            p.arg1,
+            p.arg2,
+            p.arg3,
+            i32::from(p.field_10 as i8) as u32,
+        ),
+        ClientMessage::RequestCancel(p) => crate::dock::request_cancel(
+            cx,
+            i32::from(p.event_type),
+            p.arg1,
+            p.arg2,
+            i32::from(p.field_0c as i8) as u32,
+        ),
+        ClientMessage::GfSelectObject(p) => gf_obj_select(cx, p.value, session),
+        ClientMessage::GfGoodBuy(p) => broadcast(
+            cx,
+            &mut ControllerMessage::GfGoodBuy {
+                info: [p.field_00, p.field_04, p.field_08, p.field_0c],
+                player: session,
+            },
+        ),
+        ClientMessage::GfGoodSell(p) => broadcast(
+            cx,
+            &mut ControllerMessage::GfGoodSell {
+                info: [p.field_00, p.field_04, p.field_08],
+                player: session,
+            },
+        ),
+        ClientMessage::GfGoodVaporized(p) => broadcast(
+            cx,
+            &mut ControllerMessage::GfGoodVaporized {
+                info: [p.field_00, p.field_04, p.field_08],
+                player: session,
+            },
+        ),
+        ClientMessage::MissionResponse(p) => broadcast(
+            cx,
+            &mut ControllerMessage::MissionResponse {
+                offer: p.field_00,
+                kind: p.mission_id,
+                accepted: p.accepted != 0,
+                player: session,
+            },
+        ),
+        ClientMessage::Hail(p) => {
+            if cx.world.find(p.field_00).is_some() {
+                broadcast(
+                    cx,
+                    &mut ControllerMessage::Hail {
+                        object: p.field_00,
+                        arg1: p.field_04,
+                        arg2: p.field_08,
+                    },
+                );
+            }
+        }
+        ClientMessage::CargoScan(p) => broadcast(
+            cx,
+            &mut ControllerMessage::CargoScanned {
+                scanner: p.field_00,
+                target: p.field_04,
+            },
+        ),
+        ClientMessage::CommComplete(p) => {
+            comm_complete(cx, p.field_00, p.field_04, p.field_08, p.field_0c);
+        }
+        ClientMessage::InterfaceItemUsed(p) => broadcast(
+            cx,
+            &mut ControllerMessage::InterfaceItemUsed {
+                player: session,
+                item: p.value,
+            },
+        ),
+        ClientMessage::AbortMission(p) => {
+            broadcast(
+                cx,
+                &mut ControllerMessage::AbortMission {
+                    player: session,
+                    mission: p.value,
+                },
+            );
+            cx.logic.stats.aborted_missions += 1;
+        }
+        ClientMessage::RtcDone(p) => broadcast(
+            cx,
+            &mut ControllerMessage::RtcDone {
+                player: session,
+                rtc: p.value,
+            },
+        ),
         _ => return false,
     }
     true
+}
+
+/// `DispatchClientPacket`'s channel-1 messages that reach `IServerImpl`'s
+/// player slots here: `SetWeaponGroup` and `RequestPlayerStats`.
+pub fn route_common(cx: &mut Cx<'_>, session: u32, message: &ToServer) -> bool {
+    let ToServer::Common(message) = message else {
+        return false;
+    };
+    match message {
+        CommonMessage::SetWeaponGroup(p) => set_weapon_group(cx, session, &p.data),
+        CommonMessage::RequestPlayerStats(_) => {
+            if logged_in(cx, session) {
+                broadcast(
+                    cx,
+                    &mut ControllerMessage::RequestPlayerStats { player: session },
+                );
+            }
+        }
+        _ => return false,
+    }
+    true
+}
+
+/// `DispatchClientPacket`'s answer to a debug packet: an error report and
+/// nothing else.
+fn release_mode(cx: &mut Cx<'_>, line: u32, packet: &str, mode: &str) {
+    cx.logic.reports.push(
+        "Network\\OutpostServerPacketHandler.cpp",
+        line,
+        format!("*** ERROR: FLPACKET_CLIENT_{packet} encountered in {mode} mode"),
+    );
+}
+
+/// `PlayerDB_GetPlayer`'s test: a session from 1 to the limit whose slot
+/// has a client.
+fn logged_in(cx: &Cx<'_>, session: u32) -> bool {
+    cx.logic.players.is_valid(session)
+}
+
+/// The `Req*` handlers' gate: single player, or a base entered
+/// (`entered_base_id != 0`). The C++ indexes the slot unchecked; a session
+/// without one is refused.
+fn in_entered_base(cx: &Cx<'_>, session: u32) -> bool {
+    cx.logic
+        .players
+        .get(session)
+        .is_some_and(|s| cx.world.config().single_player || s.entered_base_id != 0)
+}
+
+/// `IServerImpl::DestroyCharacter`: for a valid session, the character
+/// goes (`PlayerData_DestroyCharacter`) and the list is sent again.
+pub fn destroy_character(cx: &mut Cx<'_>, files: &ServerFiles, id: &CharacterId, session: u32) {
+    if !cx.logic.players.is_valid(session) {
+        return;
+    }
+    let _ = login::destroy_character(cx, files, session, id);
+    character_info_req(cx, session, false);
+}
+
+/// `IServerImpl::ReqShipArch`: in a base entered, the slot's ship.
+pub fn req_ship_arch(cx: &mut Cx<'_>, arch: u32, session: u32) {
+    if in_entered_base(cx, session) {
+        crate::player::set_ship_arch(cx, session, arch);
+    }
+}
+
+/// `IServerImpl::ReqHullStatus`: for a valid session in a base entered and
+/// docked, the hull's health, a negative one taken as 0, told back to the
+/// client.
+pub fn req_hull_status(cx: &mut Cx<'_>, health: f32, session: u32) {
+    if !cx.logic.players.is_valid(session) || !in_entered_base(cx, session) {
+        return;
+    }
+    if cx
+        .logic
+        .players
+        .get(session)
+        .is_none_or(|s| s.current_base & ID_MASK == 0)
+    {
+        return;
+    }
+    let health = if health < 0.0 { 0.0 } else { health };
+    crate::player::set_relative_health(cx, session, health, true);
+}
+
+/// `IServerImpl::GFObjSelect`: for a session in a base the universe has,
+/// `GFObjSelect` goes to the bus.
+pub fn gf_obj_select(cx: &mut Cx<'_>, object: u32, session: u32) {
+    let Some(base) = cx.logic.players.get(session).map(|s| s.current_base) else {
+        return;
+    };
+    if base & ID_MASK == 0 || !cx.world.data().universe.bases.contains_key(&base) {
+        return;
+    }
+    broadcast(
+        cx,
+        &mut ControllerMessage::GfObjSelect {
+            object,
+            player: session,
+        },
+    );
+}
+
+/// `IServerImpl::CommComplete(arg0, arg1, arg2, result)`: the system of
+/// the object `arg1`, else of `arg0` (0 when neither is in one), then
+/// `CommComplete` with `{arg1, system, arg0, arg2, result}`.
+pub fn comm_complete(cx: &mut Cx<'_>, arg0: u32, arg1: u32, arg2: u32, result: u32) {
+    let system_of = |cx: &Cx<'_>, id: u32| {
+        cx.world
+            .find(id)
+            .and_then(|h| cx.world.get(h))
+            .and_then(|o| o.simple.system)
+    };
+    let system = system_of(cx, arg1)
+        .or_else(|| system_of(cx, arg0))
+        .unwrap_or(0);
+    broadcast(
+        cx,
+        &mut ControllerMessage::CommComplete {
+            listener: arg1,
+            system,
+            speaker: arg0,
+            line: arg2,
+            result: crate::events::CommResult::from_u32(result),
+        },
+    );
+}
+
+/// `IServerImpl::SetWeaponGroup`: a valid session's weapon groups become
+/// the text up to its first NUL (`basic_string::assign(const char*)`).
+pub fn set_weapon_group(cx: &mut Cx<'_>, session: u32, data: &[u8]) {
+    if !logged_in(cx, session) {
+        return;
+    }
+    let end = data.iter().position(|&b| b == 0).unwrap_or(data.len());
+    if let Some(slot) = cx.logic.players.get_mut(session) {
+        slot.weapon_groups = data[..end].to_vec();
+    }
 }

@@ -6,6 +6,7 @@
 //! frame loop of `ServerThreadProc` (`OutpostServer.cpp:337-410`).
 #![forbid(unsafe_code)]
 
+pub mod clock;
 pub mod config;
 pub mod console;
 
@@ -156,7 +157,10 @@ pub fn run(
         seed: clock_seed(),
     };
     let mut machine = PortableMachine::default();
-    let started = startup(&info, &mut machine, &mut ClockSeed::default())?;
+    let mut started = startup(&info, &mut machine, &mut ClockSeed::default())?;
+    // The saves' `tstamp`, autosave descriptions and cheat log in the
+    // machine's local time (`GetLocalTime`).
+    started.logic.saves.clock = Box::new(clock::HostClock);
     let identity = ServerIdentity::load_or_generate(accounts.path())?;
     let settings = HostSettings {
         max_players: config.max_players,
@@ -197,7 +201,11 @@ pub fn run(
     }
     game_logic::host::drain_reports(&mut host.logic.reports);
     notice("Server running, ready for log in.");
-    let commands = console::spawn(input)?;
+    let (tx, commands) = std::sync::mpsc::channel();
+    if let Err(error) = console::interrupt_quits(tx.clone()) {
+        tracing::warn!(target: NOTICE_TARGET, "No interrupt handler: {error}");
+    }
+    console::spawn_into(input, tx)?;
     serve(&mut host, &transport, &commands);
     shutdown(&mut host);
     notice("Server stopped.");

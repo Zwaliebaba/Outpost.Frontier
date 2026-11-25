@@ -343,8 +343,8 @@ impl ServerConfig {
     }
 
     /// The user-data folder: the configured one, or
-    /// `Documents\My Games\OutpostFrontier` under the user's profile
-    /// (`USERPROFILE`, else `HOME`), or the working folder without either.
+    /// `My Games\OutpostFrontier` in the user's Documents folder
+    /// ([`default_user_data`]).
     #[must_use]
     pub fn user_data_dir(&self) -> PathBuf {
         self.user_data.clone().unwrap_or_else(default_user_data)
@@ -362,14 +362,20 @@ impl ServerConfig {
     }
 }
 
-/// `Documents\My Games\OutpostFrontier` under the user's profile.
+/// `My Games\OutpostFrontier` in the user's Documents folder (decision
+/// O41): the known folder on Windows, redirection followed, and the XDG
+/// documents folder elsewhere (`dirs::document_dir`). Without one,
+/// `Documents` under the home folder (`USERPROFILE`, else `HOME`), else
+/// the working folder.
 #[must_use]
 pub fn default_user_data() -> PathBuf {
-    std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
-        .map(PathBuf::from)
+    dirs::document_dir()
+        .or_else(|| {
+            std::env::var_os("USERPROFILE")
+                .or_else(|| std::env::var_os("HOME"))
+                .map(|home| PathBuf::from(home).join("Documents"))
+        })
         .unwrap_or_default()
-        .join("Documents")
         .join("My Games")
         .join("OutpostFrontier")
 }

@@ -178,8 +178,8 @@ pub trait LocalClock {
 }
 
 /// The clock of a server whose host gives none: the system clock in UTC,
-/// because the standard library knows no time zone (D750). A host on
-/// Windows gives the local time instead.
+/// because the standard library knows no time zone: for tests and hosts
+/// that give none. `OutpostServer` gives the machine's local time (P3.9).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct UtcClock;
 

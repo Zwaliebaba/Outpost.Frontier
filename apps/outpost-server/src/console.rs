@@ -6,7 +6,7 @@
 //! under `LockServer`.
 
 use std::io::BufRead;
-use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc::{self, Receiver, Sender};
 
 use game_logic::admin::Command;
 
@@ -184,6 +184,17 @@ pub fn parse(line: &str) -> Option<Input> {
 /// The thread cannot be started.
 pub fn spawn(input: impl BufRead + Send + 'static) -> std::io::Result<Receiver<Input>> {
     let (tx, rx) = mpsc::channel();
+    spawn_into(input, tx)?;
+    Ok(rx)
+}
+
+/// As [`spawn`], into a channel the caller made, so other senders (the
+/// interrupt handler, [`interrupt_quits`]) share it.
+///
+/// # Errors
+///
+/// The thread cannot be started.
+pub fn spawn_into(input: impl BufRead + Send + 'static, tx: Sender<Input>) -> std::io::Result<()> {
     std::thread::Builder::new()
         .name("console".to_owned())
         .spawn(move || {
@@ -198,7 +209,21 @@ pub fn spawn(input: impl BufRead + Send + 'static) -> std::io::Result<Receiver<I
                 }
             }
         })?;
-    Ok(rx)
+    Ok(())
+}
+
+/// An interrupt (Ctrl-C, Ctrl-Break, the console window's close, a
+/// termination signal) becomes [`Input::Quit`] on `tx`, so the loop logs
+/// the players out and saves them as `quit` does (`BeginShutdown`). Only
+/// one handler can be set in a process.
+///
+/// # Errors
+///
+/// The handler cannot be installed.
+pub fn interrupt_quits(tx: Sender<Input>) -> Result<(), ctrlc::Error> {
+    ctrlc::set_handler(move || {
+        let _ = tx.send(Input::Quit);
+    })
 }
 
 #[cfg(test)]
