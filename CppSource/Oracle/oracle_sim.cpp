@@ -1747,8 +1747,10 @@ namespace
             }
         }
         Write(FileDispatch, J);
-        // P3.5c2: a delivery to the session's mission is its trace's `message` record.
-        if (GMissionDeliver != nullptr && Flid == GMissionController)
+        // P3.5c2: a delivery to the session's mission is its trace's `message` record. Every delivery
+        // goes to Content, which keeps the mission's own: MissionStart comes from OracleSimMissionBegin,
+        // before GMissionController holds the mission's id.
+        if (GMissionDeliver != nullptr)
             GMissionDeliver(GTick, Flid, MsgId);
     }
 
