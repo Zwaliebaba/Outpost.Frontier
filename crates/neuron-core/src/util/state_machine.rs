@@ -134,6 +134,13 @@ impl StateMachine {
         self.current
     }
 
+    /// `PendingState`: the state a pending change goes to (the last one
+    /// set, read whether a change is pending or not).
+    #[must_use]
+    pub const fn pending_state(&self) -> i32 {
+        self.pending
+    }
+
     /// Whether [`process`](Self::process) is running (`bProcessing`).
     #[must_use]
     pub const fn is_processing(&self) -> bool {

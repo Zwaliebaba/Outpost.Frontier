@@ -329,7 +329,7 @@ pub enum Instance {
     /// `GenericMission` ([`mission::MissionScript`]).
     Mission(Box<mission::MissionScript>),
     /// `DestroyMission` ([`random_mission::RandomMission`]).
-    RandomMission(random_mission::RandomMission),
+    RandomMission(Box<random_mission::RandomMission>),
 }
 
 /// Content's state in the server (record 0008 point 1).
@@ -506,8 +506,6 @@ pub fn destroy_instance(cx: &mut Cx<'_>, id: ControllerId, kind: ControllerKind)
         ControllerKind::GameSupport => game_support::destruct(cx, id),
         ControllerKind::BaseSupport => base_support::destruct(cx, id),
         ControllerKind::StoryLauncher => story::destruct_launcher(cx, id),
-        // The random mission's release of its data (P3.7c; the rest of its
-        // destructor is P3.7b's).
         ControllerKind::DestroyMission => random_mission::destruct(cx, id),
         // No destructor body: SpaceSupport, SpacePop and BasePop have none,
         // Story's is the default one, and the missions' come with P3.5.
@@ -529,8 +527,9 @@ pub fn destroy_instance(cx: &mut Cx<'_>, id: ControllerId, kind: ControllerKind)
 
 /// `IDLL::HandleMessage` of controller `id` of `kind`: the kind's handler.
 /// The kinds without a ported handler ignore the message for now; the
-/// script missions' handler came with P3.5c1 ([`mission::engine`]) and
-/// BaseSupport's with P3.6e ([`base_support`]).
+/// script missions' handler came with P3.5c1 ([`mission::engine`]),
+/// BaseSupport's with P3.6e ([`base_support`]) and `DestroyMission`'s with
+/// P3.7b ([`random_mission::runtime`]).
 pub fn deliver(
     cx: &mut Cx<'_>,
     id: ControllerId,
@@ -545,11 +544,11 @@ pub fn deliver(
         | ControllerKind::Mission01b
         | ControllerKind::Mission(_)
         | ControllerKind::GenericMission => mission::engine::handle_message(cx, id, message),
+        ControllerKind::DestroyMission => random_mission::runtime::handle_message(cx, id, message),
         ControllerKind::SpacePop
         | ControllerKind::BasePop
         | ControllerKind::StoryLauncher
-        | ControllerKind::Story
-        | ControllerKind::DestroyMission => {}
+        | ControllerKind::Story => {}
     }
 }
 
@@ -589,6 +588,6 @@ pub(crate) fn data_source(cx: &Cx<'_>) -> Box<dyn DataSource> {
 /// `pub::Controller::SetHeartbeatInterval(id, interval)` from a
 /// constructor. The id is the controller being made, which the bus has
 /// listed already, so the call cannot fail; it draws one `rand()`.
-fn set_heartbeat(cx: &mut Cx<'_>, id: ControllerId, interval: f32) {
+pub(crate) fn set_heartbeat(cx: &mut Cx<'_>, id: ControllerId, interval: f32) {
     let _ = crate::api::controller::set_heartbeat_interval(cx, id, interval);
 }

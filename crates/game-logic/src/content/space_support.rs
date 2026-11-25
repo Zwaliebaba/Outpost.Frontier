@@ -409,9 +409,9 @@ fn main_switch(cx: &mut Cx<'_>, message: &mut ControllerMessage<'_>) {
                 let _ = api::audio::cancel_music(cx, param2);
             }
             // The faction-name queues (`HandleFactionNameTimer`, P3.6c with
-            // the NPC name builder) and the message router
-            // (`GMessageRouter->OnTimerExpired`, P3.7b): neither sets a
-            // timer yet.
+            // the NPC name builder) set no timer yet; then the message
+            // router (`GMessageRouter->OnTimerExpired`, P3.7b).
+            super::router::on_timer_expired(cx, param1);
         }
         ControllerMessage::DamageReputation {
             provoked,
