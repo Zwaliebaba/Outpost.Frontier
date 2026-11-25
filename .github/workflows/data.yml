@@ -189,6 +189,20 @@ jobs:
             exit $code
           }
           "mission_saves: $(@(Get-ChildItem $saves -Filter *.ini).Count) saves"
+          # P3.7a (record 0008 point 8, Gate G3): the random-mission tables, the vignette tree
+          # and the offers built from a seed after the same start-up
+          # (CppSource/Oracle/random_missions.txt, Content.dll's OracleDumpRandomMissions), one
+          # rm_<table>.txt each, into outpost-oracle\random_missions, which game-logic's
+          # data_dump_random_missions reads.
+          $random = "$env:RUNNER_TEMP\outpost-oracle\random_missions"
+          & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\random_missions.txt" $random | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+          $code = $LASTEXITCODE
+          "Oracle.exe sim random_missions.txt exited with $code" | Add-Content "$env:RUNNER_TEMP\oracle-dump.log"
+          if ($code -ne 0) {
+            Get-Content "$random\session.jsonl" -Tail 20 -ErrorAction SilentlyContinue | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
+            exit $code
+          }
+          Get-ChildItem $random -Filter rm_*.txt | ForEach-Object { "$($_.Name): $(@(Get-Content $_.FullName).Count) lines" } | Tee-Object -FilePath "$env:RUNNER_TEMP\oracle-dump.log" -Append
       - name: Run the scenario oracle
         # Work package P2.3 (design/adr/0003-simulation-oracle.md, design/reference-build.md
         # section 10): every scenario in CppSource/Oracle/scenarios three times, each run in a
@@ -515,7 +529,9 @@ jobs:
           # outpost-oracle\missions; summary rust-mission-scripts.txt), and the missions' and
           # Story's save sections of P3.5b against the C++ writer
           # (crates/game-logic/tests/mission_saves.rs, against outpost-oracle\mission_saves;
-          # summary rust-mission-saves.txt).
+          # summary rust-mission-saves.txt), and the random-mission tables, vignette tree and
+          # offers of P3.7a (crates/game-logic/tests/random_missions.rs, against
+          # outpost-oracle\random_missions; summary rust-random-missions.txt).
           cmd /c "cargo test --locked --release -p game-logic --tests -- data_dump_ --nocapture 2>&1" | Tee-Object -FilePath $log -Append
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Keep the summaries
@@ -694,6 +710,7 @@ jobs:
             "$env:RUNNER_TEMP\outpost-oracle\rust-content-loaders.txt",
             "$env:RUNNER_TEMP\outpost-oracle\rust-mission-scripts.txt",
             "$env:RUNNER_TEMP\outpost-oracle\rust-mission-saves.txt",
+            "$env:RUNNER_TEMP\outpost-oracle\rust-random-missions.txt",
             "$env:RUNNER_TEMP\outpost-sim-summaries\rust-mission-save-loads.txt",
             "$env:RUNNER_TEMP\outpost-sim-summaries\rust-system-loads.txt",
             "$env:RUNNER_TEMP\outpost-sim-summaries\rust-content-systems.txt",

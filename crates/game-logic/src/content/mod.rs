@@ -81,7 +81,8 @@ pub mod guides;
 pub mod mission;
 /// The NPC character descriptions and the specific NPCs (TU42; P3.4c).
 pub mod npc_desc;
-/// The NPC name builder (TU42; P3.6c).
+/// The faction name reservations and the default NPC name (TU48, TU42;
+/// the part P3.7a needs of P3.6c's name builder).
 pub mod npc_names;
 /// The NPC ships and their event list (TU43, TU53; P3.6c).
 pub mod npc_ships;
@@ -203,6 +204,12 @@ pub struct ContentState {
     /// `GLastFormationId` (`Content/GameSupport.cpp:770`): the last
     /// formation id handed out (P3.6a, [`formations::allocate_id`]).
     pub last_formation_id: u32,
+    /// The random-mission counters and destination systems (P3.7a,
+    /// [`random_mission::RmState`]).
+    pub rm: random_mission::RmState,
+    /// The faction name reservations, by faction (`FFactionNames`'s use
+    /// lists; P3.7a, [`npc_names`]).
+    pub faction_name_uses: npc_names::FactionNameUses,
     /// The NPC ships (`FContentNpcShip`, P3.6c, [`npc_ships`]), by key.
     pub npc_ships: BTreeMap<crate::events::NpcShipKey, npc_ships::NpcShip>,
     /// The last NPC ship key handed out.
@@ -253,6 +260,8 @@ impl ContentState {
             story_debug: 0,
             dock_queues: dock_queues::DockQueues::default(),
             last_formation_id: 0,
+            rm: random_mission::RmState::default(),
+            faction_name_uses: npc_names::FactionNameUses::new(),
             npc_ships: BTreeMap::new(),
             next_npc_ship: 0,
             callbacks: callbacks::CallbackHandles::default(),
@@ -301,6 +310,12 @@ pub enum Instance {
 pub struct Content {
     /// The tables the C++ never changes after loading.
     pub tables: Arc<ContentTables>,
+    /// The random-mission generator's tables and tree, loaded with the DLL
+    /// (P3.7a, [`random_mission::RmData`]).
+    pub rm: Arc<random_mission::RmData>,
+    /// Whether the DLL's static initialisers have run since the last load
+    /// (the generator's load).
+    rm_loaded: bool,
     /// The live globals.
     pub state: ContentState,
     /// Each controller's own state, by controller id.
@@ -324,6 +339,8 @@ impl Content {
     pub fn new() -> Self {
         Self {
             tables: Arc::new(ContentTables::default()),
+            rm: Arc::new(random_mission::RmData::default()),
+            rm_loaded: false,
             state: ContentState::load(),
             instances: BTreeMap::new(),
             #[cfg(debug_assertions)]
@@ -370,6 +387,8 @@ impl Content {
     /// The delivery count is the bus's and stays.
     fn unload(&mut self) {
         self.tables = Arc::new(ContentTables::default());
+        self.rm = Arc::new(random_mission::RmData::default());
+        self.rm_loaded = false;
         self.state = ContentState::load();
         self.instances.clear();
     }
@@ -431,6 +450,7 @@ pub fn instantiate(
     params: &CreateParams,
 ) -> Option<ControllerKind> {
     let kind = ControllerKind::from_instance_name(name)?;
+    load_statics(cx);
     let instance = match kind {
         ControllerKind::GameSupport => game_support::construct(cx, id),
         ControllerKind::SpaceSupport => space_support::construct(cx, id),
@@ -501,6 +521,20 @@ pub fn deliver(
         | ControllerKind::GenericMission
         | ControllerKind::DestroyMission => {}
     }
+}
+
+/// The static initialisers of a freshly loaded Content.dll that read data:
+/// the random-mission generator object (`GRandomMissionGeneratorInstance`,
+/// `RandomMissionGen.cpp:1090`), whose constructor loads its tables and
+/// the vignette tree. They run once per load, before the first controller.
+fn load_statics(cx: &mut Cx<'_>) {
+    if cx.logic.content.rm_loaded {
+        return;
+    }
+    cx.logic.content.rm_loaded = true;
+    let source = data_source(cx);
+    let rm = random_mission::RmData::load(cx, &*source);
+    cx.logic.content.rm = Arc::new(rm);
 }
 
 /// A data source that has no files: a world without a data root.

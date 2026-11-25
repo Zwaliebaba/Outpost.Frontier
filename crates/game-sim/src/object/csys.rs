@@ -1,6 +1,7 @@
 //! Frame helpers of Common the object model uses: `LookMatrix`
 //! (`common_csys.cpp:207`), `RandomVector` (`common_misc.cpp:481`),
-//! `random_inside_sphere` (`common_misc.cpp:527`) and
+//! `random_inside_sphere` (`common_misc.cpp:527`), `random_inside_ring`
+//! (`common_misc.cpp:601`) and
 //! `RotateWorldToObjectSpace` (`common_cobject_internal.h`).
 
 use neuron_core::math::{Matrix, Vector, transpose_transform};
@@ -85,6 +86,28 @@ pub fn random_inside_sphere(radius: f32, rng: &mut CrtRand) -> Vector {
         r(phi.sin() * e(sin_scaled)),
         r(e(cos_theta) * e(scaled)),
         r(phi.cos() * e(sin_scaled)),
+    )
+}
+
+/// `random_inside_ring(outer, inner, half_height)`
+/// (`Common/common_misc.cpp:601`): three draws; the radius
+/// `sqrt(u1) * (outer - inner) + inner` (stored), the height
+/// `(h - (-h)) * u2 + (-h)` and `phi = u3 * 2 pi`; the result
+/// `(sin(phi) R, height, cos(phi) R)` around the y axis. The x87 `FSIN` and
+/// `FCOS` are `f64`'s (D879).
+#[must_use]
+pub fn random_inside_ring(outer: f32, inner: f32, half_height: f32, rng: &mut CrtRand) -> Vector {
+    const UNIT: f64 = 3.051_757_812_5e-5;
+    const TWO_PI: f64 = 6.283_185_482_025_146_5;
+    let u1 = f64::from(rng.rand()) * UNIT;
+    let scaled = r(u1.sqrt() * (e(outer) - e(inner)) + e(inner));
+    let neg_half = -half_height;
+    let t = f64::from(rng.rand()) * UNIT;
+    let phi = f64::from(rng.rand()) * UNIT * TWO_PI;
+    Vector::new(
+        r(phi.sin() * e(scaled)),
+        r((e(half_height) - e(neg_half)) * t + e(neg_half)),
+        r(phi.cos() * e(scaled)),
     )
 }
 

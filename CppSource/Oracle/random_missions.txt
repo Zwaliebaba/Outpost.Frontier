@@ -1,0 +1,10 @@
+# Oracle.exe sim session (P3.7a, decision record 0008 point 8, Gate G3): not a scenario. The
+# server starts as a multiplayer server (GameSupport's tables, then LoadGame's system records and
+# bases), then Content.dll writes the random-mission tables and vignette tree its generator object
+# loaded, and the offers the generator builds for a fixed set of bases, factions, difficulties and
+# seeds, as rm_<table>.txt (OracleDumpRandomMissions). No system loads and nothing is stepped; the
+# parser still wants `system` and `ticks`.
+
+system he01
+ticks 1
+dump random_missions
