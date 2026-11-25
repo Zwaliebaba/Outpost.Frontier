@@ -180,6 +180,10 @@ pub struct ContentState {
     /// `OnSystemChange` does not count as visited, looked up on every call
     /// (a miss keeps the last value).
     pub relay_seven_system: u32,
+    /// `GSpacePopExclusionSpheres` (`Content/Populators.cpp`): the spheres
+    /// the missions keep free of random encounters, `[x, y, z, radius]`
+    /// (P3.5c1, [`population::add_exclusion_sphere`]).
+    pub exclusion_spheres: Vec<[f32; 4]>,
     /// `GSpacePopSolarDetection` (`Content/Populators.cpp:47`, true),
     /// stored in single player only ([`population::set_solar_detection`]).
     pub solar_detection: bool,
@@ -254,6 +258,7 @@ impl ContentState {
             systems: systems::SystemInfos::new(),
             gate_locks: gate_locks::GateLocks::default(),
             relay_seven_system: 0,
+            exclusion_spheres: Vec::new(),
             solar_detection: true,
             mission_dialogs: BTreeMap::new(),
             clamps: mission::save::Clamps::default(),
@@ -501,7 +506,8 @@ pub fn destroy_instance(cx: &mut Cx<'_>, id: ControllerId, kind: ControllerKind)
 }
 
 /// `IDLL::HandleMessage` of controller `id` of `kind`: the kind's handler.
-/// The kinds without a ported handler ignore the message for now.
+/// The kinds without a ported handler ignore the message for now; the
+/// script missions' handler came with P3.5c1 ([`mission::engine`]).
 pub fn deliver(
     cx: &mut Cx<'_>,
     id: ControllerId,
@@ -511,15 +517,15 @@ pub fn deliver(
     match kind {
         ControllerKind::GameSupport => game_support::handle_message(cx, id, message),
         ControllerKind::SpaceSupport => space_support::handle_message(cx, id, message),
+        ControllerKind::Mission01a
+        | ControllerKind::Mission01b
+        | ControllerKind::Mission(_)
+        | ControllerKind::GenericMission => mission::engine::handle_message(cx, id, message),
         ControllerKind::BaseSupport
         | ControllerKind::SpacePop
         | ControllerKind::BasePop
         | ControllerKind::StoryLauncher
         | ControllerKind::Story
-        | ControllerKind::Mission01a
-        | ControllerKind::Mission01b
-        | ControllerKind::Mission(_)
-        | ControllerKind::GenericMission
         | ControllerKind::DestroyMission => {}
     }
 }
