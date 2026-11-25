@@ -653,7 +653,12 @@ fn stop_in_step(lane: &mut Lane, exclusion: &mut Option<&mut u32>, throttle: &mu
 pub(crate) fn lane_controller(obj: &mut Object, dt: f32, context: &mut ControllerContext<'_>) {
     let position = obj.engine.position;
     let orientation = obj.engine.orientation;
-    let Object { equipped, data, .. } = obj;
+    let Object {
+        equipped,
+        data,
+        engine,
+        ..
+    } = obj;
     let mut exclusion = equipped.as_deref_mut().map(|eq| &mut eq.control_exclusion);
     let KindData::Ship(ship) = data else {
         return;
@@ -814,4 +819,10 @@ pub(crate) fn lane_controller(obj: &mut Object, dt: f32, context: &mut Controlle
     }
     ship.tradelane_speed = lane_speed;
     context.beam_optimized(l.pose.translation, l.pose.rotation);
+    // `PhySys::BeamR` writes the object's `Orientation` and
+    // `WorldPosition` at once (`PhySys_BeamObject`), so the controllers
+    // that run after this one in the PSI (the engine's push along the
+    // third column) read the beamed pose, not the pose of the last step.
+    engine.orientation = l.pose.rotation;
+    engine.position = l.pose.translation;
 }
