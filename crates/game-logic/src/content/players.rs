@@ -113,6 +113,14 @@ pub struct PlayerShip {
     /// `Attackers` (TU20 `+0x14`): the ship's hits on each victim
     /// ([`super::combat_reputation`], P3.6c).
     pub attackers: [super::combat_reputation::Attacker; 8],
+    /// TU50 `Directives`, `CurrentDirective`, `Priority` and
+    /// `ActiveDirective` (`+0x158` to `+0x16c`) of a player's ship object:
+    /// a mission's `Act_GiveObjList` for `Player` fills it (P3.5c3). The
+    /// player's ship has no directive callback, so only the directives that
+    /// finish at once advance it. An NPC ship keeps its queue in
+    /// [`NpcShip::directives`](super::npc_ships::NpcShip::directives) and
+    /// leaves its base's empty.
+    pub directives: super::directives::ShipDirectives,
 }
 
 impl PlayerShip {
@@ -139,6 +147,7 @@ impl PlayerShip {
             hostile_contact_count: 0,
             hostile_contacts: Vec::new(),
             attackers: [super::combat_reputation::Attacker::default(); 8],
+            directives: super::directives::ShipDirectives::default(),
         }
     }
 }

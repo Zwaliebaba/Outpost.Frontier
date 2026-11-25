@@ -1,0 +1,19 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): content_flee with Content's
+# comm system on (P3.6b, record 0008 point 10: "a scenario without `comms off`"). The same
+# two fighters, the rogue Content's NPC ship (`content`, OracleSimCreateNpcShip) with its
+# flee position, but no `comms off`: Content's GCS runs on both sides. The rogue is owned by
+# SpaceSupport, so it is no SpacePop ship and only the combat categories open to such ships
+# are admitted (6, 7, 8, 0xa, 0xb, 0xd, 0xe, 0xf, 0x10, InitGcs): its combat-state reports
+# (no engage 0xb, combat over 0xa), its FleeRequest (0xe) when the flee behaviour starts and
+# its death fuse (7, chance 0.4) each draw IsGcsCommAllowed's roll, and a line whose voice has
+# the roles draws its rand() test and its PickVoiceLine. The police is the harness's ship and
+# reports nothing. Multiplayer stepping.
+
+# rust: server Content makes the rogue (content) and its comm system draws (comms on)
+
+system he01
+ticks 1500
+stepping mp
+
+ship police he_fighter li_p_he_fighter_loadout01 15000 3000 -25000 ai FIGHTER pilot pilot_police_med faction he_p_grp psi
+ship rogue pi_fighter fc_lr_pi_fighter_loadout01 15000 3000 -26500 heading 180 ai FIGHTER pilot pilot_pirate_med faction fc_lr_grp hp 400 content flee 9000 3000 -32000 800 psi

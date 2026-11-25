@@ -805,6 +805,7 @@ pub fn load_rand_encs(cx: &mut Cx<'_>, reader: &mut IniReader, object: &mut Miss
                 formation_index: 0,
                 params,
                 npc_count: 0,
+                arms: Vec::new(),
             });
         }
     }

@@ -80,6 +80,8 @@ pub mod formations;
 pub mod game_support;
 /// The gate locks (TU53; P3.4d).
 pub mod gate_locks;
+/// The comm system, GCS (TU25; P3.6b).
+pub mod gcs;
 pub mod generic_scripts;
 /// The NPC guides (TU37; P3.6c).
 pub mod guides;
@@ -250,6 +252,9 @@ pub struct ContentState {
     /// `GBarSceneBases` (`Content/BaseDB.cpp:611`): the base of each bar
     /// scene, by scene id; nothing reads it.
     pub bar_scene_bases: BTreeMap<i32, u32>,
+    /// The comm system (TU25's admission tables, `GGcsHandlers` and
+    /// `GGcsConversations`; P3.6b, [`gcs`]).
+    pub gcs: gcs::Gcs,
 }
 
 impl ContentState {
@@ -297,6 +302,7 @@ impl ContentState {
             generic_scripts: generic_scripts::GenericScripts::default(),
             next_bar_scene: bar::FIRST_SCENE_ID,
             bar_scene_bases: BTreeMap::new(),
+            gcs: gcs::Gcs::default(),
         }
     }
 }
@@ -347,6 +353,10 @@ pub struct Content {
     pub state: ContentState,
     /// Each controller's own state, by controller id.
     pub instances: BTreeMap<ControllerId, Instance>,
+    /// The Tier B traces of the missions the bus tore down while a session
+    /// recorded them (a test seam; empty in a game run, where no mission
+    /// has a trace): the session reads the last records here (P3.5c2).
+    pub finished_traces: Vec<(ControllerId, mission::trace::Trace)>,
     /// The bus's deliveries so far (debug builds): a take of an item out
     /// of its slot asserts that this does not change before it is put back.
     #[cfg(debug_assertions)]
@@ -370,6 +380,7 @@ impl Content {
             rm_loaded: false,
             state: ContentState::load(),
             instances: BTreeMap::new(),
+            finished_traces: Vec::new(),
             #[cfg(debug_assertions)]
             deliveries: 0,
         }
@@ -519,9 +530,17 @@ pub fn destroy_instance(cx: &mut Cx<'_>, id: ControllerId, kind: ControllerKind)
         | ControllerKind::GenericMission => {}
     }
     let content = &mut cx.logic.content;
-    content.instances.remove(&id);
-    if content.instances.is_empty() {
-        content.unload();
+    if let Some(Instance::Mission(script)) = content.instances.remove(&id)
+        && let Some(trace) = script.trace
+    {
+        content.finished_traces.push((id, trace));
+    }
+    if cx.logic.content.instances.is_empty() {
+        // The DLL's static destructors: `~FGcsHandlerSet` deletes the dock
+        // hail handler, whose destructor destroys every system's phantoms
+        // (`Gcs.cpp:3716-3721`).
+        gcs::on_system_unloaded(cx, 0);
+        cx.logic.content.unload();
     }
 }
 

@@ -956,6 +956,31 @@ pub fn remove_mission_object(cx: &mut Cx<'_>, system: u32, object: u32) {
     }
 }
 
+/// `FSystemInfo::AddMissionObject(Id)` (`:465-470`): appended.
+pub fn add_mission_object(cx: &mut Cx<'_>, system: u32, object: u32) {
+    if let Some(record) = cx.logic.content.state.systems.get_mut(&system) {
+        record.mission_objects.push(object);
+    }
+}
+
+/// `FSystemInfo::DestroyMissionObjects` (`:523-536`): each of a copy of the
+/// mission objects destroyed (`DESTROY_NORMAL`), then
+/// [`remove_mission_object`].
+pub fn destroy_mission_objects(cx: &mut Cx<'_>, system: u32) {
+    let objects = cx
+        .logic
+        .content
+        .state
+        .systems
+        .get(&system)
+        .map(|r| r.mission_objects.clone())
+        .unwrap_or_default();
+    for object in objects {
+        let _ = api::space_obj::destroy(cx, object, 0);
+        remove_mission_object(cx, system, object);
+    }
+}
+
 /// `FSystemInfo::DestroyFlaggedObjectsAwayFromPlayers` (`:897-923`),
 /// SpaceSupport's heartbeat: each flagged object with no player's ship
 /// within 10000 is destroyed (`DESTROY_NORMAL`) and leaves the mission

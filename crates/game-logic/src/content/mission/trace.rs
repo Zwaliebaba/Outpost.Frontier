@@ -19,6 +19,7 @@
 //! | `deactivate` | `tick`, `trigger` | `DeactivateMissionTrigger` drops an active trigger |
 //! | `state` | `tick`, `from`, `to` | `ApplyDesiredMissionState` applies a new state |
 //! | `final` | `tick`, `active`, `pending` | the session's end: the active triggers in order and the pending activations |
+//! | `gone` | `tick` | the session's end when the bus has torn the mission down (P3.5c2's session) |
 //!
 //! Ids are the `CreateID` values, written as unsigned decimal numbers; an
 //! action is named by its trigger and its place in the trigger's list.
@@ -95,6 +96,11 @@ pub enum TraceRecord {
         /// The new state.
         to: i32,
     },
+    /// The session's end when the bus has torn the mission down (P3.5c2).
+    Gone {
+        /// The session's tick.
+        tick: u32,
+    },
     /// The session's end.
     Final {
         /// The session's tick.
@@ -142,6 +148,7 @@ impl TraceRecord {
             Self::State { tick, from, to } => {
                 format!(r#"{{"rec":"state","tick":{tick},"from":{from},"to":{to}}}"#)
             }
+            Self::Gone { tick } => format!(r#"{{"rec":"gone","tick":{tick}}}"#),
             Self::Final {
                 tick,
                 active,

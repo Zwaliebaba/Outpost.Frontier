@@ -234,7 +234,8 @@ pub fn find_npc_by_name(cx: &Cx<'_>, s: &MissionScript, label: &[u8]) -> Option<
 
 /// `FindFormationNpc` (`MissionObject.cpp:2029-2059`): each slot of each
 /// record named `label`, the first NPC with the slot's nickname, returned
-/// when it is no formation's follower.
+/// when it is no formation's follower; else the random encounters' arms
+/// (`FindRandEncFormationNpc`, [`super::spawn::find_rand_enc_formation_npc`]).
 #[must_use]
 pub fn find_formation_npc(cx: &Cx<'_>, s: &MissionScript, label: &[u8]) -> Option<NpcShipKey> {
     for group in &s.object.ships {
@@ -252,10 +253,7 @@ pub fn find_formation_npc(cx: &Cx<'_>, s: &MissionScript, label: &[u8]) -> Optio
             }
         }
     }
-    // FindRandEncFormationNpc: the random encounters' arms are filled by
-    // AttachRandEncNpc on NpcShipCreated, which comes with the spawns
-    // (P3.5c2, D975); no arm has a member before.
-    None
+    super::spawn::find_rand_enc_formation_npc(cx, s, label)
 }
 
 /// `GetLabelShipId` (`MissionObject.cpp:1984-2003`): 0 without a player
@@ -300,7 +298,8 @@ pub fn label_object_id(cx: &Cx<'_>, s: &MissionScript, label: &[u8]) -> u32 {
 /// `GetSolarId` (`MissionObject.cpp:2125-2149`): a spawned `[MsnSolar]`
 /// (`strcmp`), else the universe object of that nickname when it exists
 /// with a type (`IsSpaceObjTypeSet`, `:69-76`).
-fn solar_id(cx: &Cx<'_>, s: &MissionScript, label: &[u8]) -> u32 {
+#[must_use]
+pub fn solar_id(cx: &Cx<'_>, s: &MissionScript, label: &[u8]) -> u32 {
     if live_ship(cx, s).is_none() {
         return 0;
     }
