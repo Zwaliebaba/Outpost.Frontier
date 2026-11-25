@@ -369,7 +369,9 @@ fn an_npc_in_he01_takes_its_state_and_its_directives() {
     assert_eq!(ai::state_graph_id(&mut cx, ship_id), graph);
     let m = cx.world.behavior_manager(ship).unwrap();
     assert!(m.state.content_callback);
-    assert_eq!(m.state.creation_type, 2);
+    assert_eq!(m.state.content_handle, 2);
+    // Content has no object of handle 2: the base's creation type, 3.
+    assert_eq!(m.state.creation_type, 3);
     assert_eq!(m.state.directive_callbacks, [77, 0, 0, 0, 0]);
     assert_eq!(ai::personality(&mut cx, ship_id), Some(before));
     // The same callback again keeps its slot; -1 keeps both; null clears

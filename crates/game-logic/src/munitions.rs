@@ -479,6 +479,28 @@ pub fn set_target(
     0
 }
 
+/// `Guided::update`'s lost target (`server_guided.cpp:297`): the seeker
+/// dropped it in the world, so `Guided::set_target(nullptr,
+/// SUBOBJ_ID_ROOT, 0)` changed the pair and tells the players
+/// (`notify_set_target` on the root, from no client).
+pub fn target_lost(cx: &mut Cx<'_>, missile: ObjHandle) {
+    if let Some((system, id)) = cx
+        .world
+        .get(missile)
+        .map(|o| (o.physical.system, o.simple.id))
+    {
+        crate::replication::target_changed(
+            cx,
+            system,
+            id,
+            game_sim::equip::SUBOBJ_ID_ROOT,
+            None,
+            game_sim::equip::SUBOBJ_ID_ROOT,
+            0,
+        );
+    }
+}
+
 /// The explosion of a mine or counter-measure destroyed by damage or a hit
 /// (`Mine::destroy`, `CounterMeasure::destroy`): with an explosion
 /// archetype whose radius exceeds 1e-4 and that has some impulse, hull or

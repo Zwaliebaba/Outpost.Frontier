@@ -7,12 +7,13 @@
 //! guide leads. Every sampling period it measures how much closer the
 //! guided ship came to the destination and whether it points there, and
 //! switches between the two; each switch would be a guide event to the
-//! content callback (`lead_object_event`). It ends once both it is at the
+//! content callback (`lead_object_event`, queued for after the tick). It ends once both it is at the
 //! destination and the guided ship is close.
 
 use neuron_core::math::Vector;
 
 use super::behavior::{AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, FollowOp, GotoOp, ids};
+use super::content::CombatEvent;
 use super::follower::FollowBehavior;
 use super::fp::{e, normalize3, r, sub};
 use super::gun_convergence::FormationState;
@@ -184,20 +185,42 @@ impl GuideBehavior {
         } else {
             self.elapsed = r(e(self.elapsed) + e(self.base.tick_delta));
         }
-        // Each guide event goes to `NotifyManagerGuideEvent`, which reads
-        // and changes nothing without a content callback, and only
-        // reports to one.
+        // Each guide event goes to `NotifyManagerGuideEvent`, which
+        // reports it to the content callback while the ship is in an
+        // attack state and guides (`FireGuideEvent`).
+        let (own_id, watched, point) = (own.id, a.id, self.destination);
+        let fire = move |cx: &mut Cx<'_, W>, progress: i32| {
+            let event = CombatEvent::Lead {
+                own: own_id,
+                watched,
+                progress,
+                value: clearance,
+                position: point,
+            };
+            let _ = cx.notify_content(&[ids::GUIDE], event);
+        };
         let dt = self.base.tick_delta;
         let mut skip_radial = false;
         if self.following != 0 {
             if sampled {
                 if self.field_58 < self.low {
+                    if !inside_radial {
+                        fire(cx, 8);
+                    }
                     self.following = 0;
                 } else if self.field_58 > self.high {
                     if self.field_5c > self.angle {
+                        if !inside_radial {
+                            fire(cx, 6);
+                        }
                         self.following = 0;
+                    } else {
+                        fire(cx, 5);
                     }
                 } else if clearance < self.field_44 {
+                    if !inside_radial {
+                        fire(cx, 7);
+                    }
                     self.following = 0;
                 }
             }
@@ -208,16 +231,28 @@ impl GuideBehavior {
                 self.engage_goto(cx);
             }
         } else {
-            if sampled && !leader_is_self && !(self.field_58 < self.low && !inside_radial) {
-                let far_ahead = self.field_58 > self.high;
-                let inside_3c = clearance < self.field_3c;
-                let c0 = !(clearance >= self.field_3c);
-                if far_ahead {
-                    if inside_3c && self.field_5c <= self.angle {
+            if sampled {
+                if leader_is_self {
+                    fire(cx, 4);
+                } else if self.field_58 < self.low && !inside_radial {
+                    fire(cx, 3);
+                } else {
+                    let far_ahead = self.field_58 > self.high;
+                    let inside_3c = clearance < self.field_3c;
+                    let c0 = !(clearance >= self.field_3c);
+                    if far_ahead {
+                        if inside_3c {
+                            if self.field_5c <= self.angle {
+                                fire(cx, 1);
+                                self.following = 1;
+                            }
+                        } else if inside_radial {
+                            fire(cx, 4);
+                        }
+                    } else if !c0 && !inside_radial {
+                        fire(cx, 2);
                         self.following = 1;
                     }
-                } else if !c0 && !inside_radial {
-                    self.following = 1;
                 }
             }
             if self.following != 0 {

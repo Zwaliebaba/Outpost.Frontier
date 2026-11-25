@@ -532,8 +532,9 @@ Paths are relative to `CppSource/`.
    - **Directive results.** After a ship's behaviour tick, at the point
      where D722 runs the launch action, game-logic reads
      `ManagerState::completed`. It calls each handle in the manager's
-     slots in slot order (`npc::on_directive_complete`). Content's handles
-     and the reserved one share the slots under the one slot rule.
+     slots in slot order (through `ServerHooks::directive_complete` into
+     `content::callbacks`; amended with P3.6c). Content's handles and the
+     reserved one share the slots under the one slot rule.
    - **Content callbacks inside the tick.** The content callback has ten
      slots. `get_creation_type` is asked when the callback is submitted
      (above). game-sim queues the seven callbacks that only report (follow,
@@ -543,12 +544,28 @@ Paths are relative to `CppSource/`.
      so their order relative to those calls is the C++'s; they reach
      Content after the tick (D622). The two callbacks that answer,
      `request_flee_destination` and `information_request`, are answered
-     during the tick. game-sim gains a read-only hook,
-     `ServerHooks::content_answer(&World, ship, query)`, which game-logic
-     answers from `&Logic` and `&World`. The side effects of an answer, the
-     guide's new directive and `FleeRequest`, are queued behind it. This
-     removes D168 and D184, rewrites D194 and adds one row for the moves
-     within the tick. Open question 3 offers the synchronous alternative.
+     read-only. As built with P3.6c (amended by the owner on 2026-11-25),
+     the world asks game-sim's hook `ServerHooks::content_answer` just
+     before the behaviour tick of a ship whose manager has a content
+     callback, and the flee takes that answer when it starts; nothing the
+     answer reads changes within the tick. The hook takes `&mut World` but
+     only reads it, because the hooks cannot be threaded into the manager.
+     An answer is not purely a read in the C++: `FTargetGuide`'s
+     `RequestFleeDestination` swaps the guide's targets (`SwapTargets`,
+     `Guides.cpp:346-416`). That swap, the NPC ship's new active goto
+     directive and `FleeRequest` are queued behind the answer and made
+     after the tick. This removes D168 and D184, rewrites D194 and adds
+     D852 for the moves out of the tick. Open question 3 offers the
+     synchronous alternative.
+   - **Shared directives.** The C++'s directive objects are reference
+     counted and shared, and running one writes into it (`FollowDirectivesOf`
+     writes the dock port into the leader's, `Execute` the default
+     priority). The owner chose on 2026-11-25 to keep them shared: Content
+     holds them in a counted arena (`content::directives`) and hands out an
+     opaque `DirectiveRef`, so the writes reach every holder as in the C++
+     and need no row. P3.6c uses it for the directives its guides, launches
+     and flee answers create; P3.5c uses it for the missions' `[ObjList]`
+     map.
 
 5. **The static tables are typed data from `outdir/`, compared with the
    oracle (P3.4, Tier A).**

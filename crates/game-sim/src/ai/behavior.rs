@@ -219,6 +219,29 @@ impl<'a, W: AiEnv + ?Sized> Cx<'a, W> {
         Some(f(&mut **b, &mut cx))
     }
 
+    /// The content-callback report of `IBehaviorManager::NotifyFollowEvent`,
+    /// `NotifyTetherEvent` and `GuideBehavior::NotifyManagerGuideEvent`:
+    /// made only while the ship is in an attack state (`AttackState != 0`)
+    /// and its current behaviour is one of `behaviors`, and only to an
+    /// installed callback ([`super::world::AiWorld::content_event`]).
+    /// True when it was made; without a callback the reference asks the
+    /// ship `is_player()` for nothing.
+    pub fn notify_content(
+        &mut self,
+        behaviors: &[i32],
+        event: super::content::CombatEvent,
+    ) -> bool {
+        if self.state.sys.attack_state() == 0 || !behaviors.contains(&self.state.behavior) {
+            return false;
+        }
+        let handle = self.state.content_handle;
+        if handle == 0 {
+            return false;
+        }
+        self.world.content_event(self.ship, handle, event);
+        true
+    }
+
     /// `rand()`.
     pub fn rand(&mut self) -> i32 {
         self.world.rand()

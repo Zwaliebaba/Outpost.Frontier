@@ -11,12 +11,15 @@
 //! immediate releases, `BuildNpcName` for a default request (a named
 //! leader without a ship type: `0x3f24` and `0x3f23`), and the four name
 //! readers. The delayed releases with their timers, the ship-type names and
-//! the reputation handles stay with P3.6c.
+//! the rest of the reputation handles stay with P3.6c's follow-up; P3.6c
+//! brought the reputation handle's destructor as far as the ships need it
+//! ([`release_name_reputation`]).
 
 use std::collections::BTreeMap;
 
 use game_sim::protocol::fmtstr::{FmtStr, FmtValue};
 
+use crate::api;
 use crate::content::tables::FactionNames;
 use crate::content::tables::factions::NameList;
 use crate::server::Cx;
@@ -397,4 +400,10 @@ pub fn release_name_now(cx: &mut Cx<'_>, name: &NpcNameParams) {
     let (_, desig) = first_name_value(&name.first);
     let (_, number) = first_name_last_value(&name.first);
     release_pair(&mut uses.formation_desig, desig, number);
+}
+
+/// `~FNpcNameReputation` (`NpcNames.cpp:52-120`): the name's pool entries
+/// go back to the faction's tables and the vibe is freed.
+pub fn release_name_reputation(cx: &mut Cx<'_>, vibe: i32) {
+    let _ = api::reputation::free(cx, vibe);
 }

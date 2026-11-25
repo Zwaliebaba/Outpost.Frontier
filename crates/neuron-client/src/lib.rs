@@ -6,6 +6,7 @@ pub mod audio;
 pub mod engine;
 pub mod input;
 pub mod media;
+pub mod net;
 #[cfg(windows)]
 pub mod platform;
 pub mod render;

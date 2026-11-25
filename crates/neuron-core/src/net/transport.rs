@@ -66,6 +66,59 @@ pub enum DisconnectReason {
     Rejected(RejectReason),
     /// The network or the connection attempt failed.
     Failed,
+    /// The server presented a certificate other than the pinned one
+    /// (decision T16); the client did not log in.
+    CertificateChanged,
+}
+
+/// The QUIC application close code of a normal close.
+const CLOSE_CLOSED: u32 = 0;
+/// The close code of a kick.
+const CLOSE_KICKED: u32 = 1;
+/// The close code of a protocol violation.
+const CLOSE_PROTOCOL: u32 = 2;
+/// The close code of a failure the closing side reports.
+const CLOSE_FAILED: u32 = 3;
+/// The close code of a timeout the closing side detected.
+const CLOSE_TIMED_OUT: u32 = 4;
+/// The close code of a pin mismatch, sent by the client.
+const CLOSE_CERTIFICATE: u32 = 5;
+/// Added to a [`RejectReason`] code for the close after a refused
+/// handshake.
+const CLOSE_REJECTED: u32 = 0x100;
+
+impl DisconnectReason {
+    /// The QUIC application error code a side closes a connection with, so
+    /// the peer reports the same reason (decision T17).
+    #[must_use]
+    pub const fn close_code(self) -> u32 {
+        match self {
+            Self::Closed => CLOSE_CLOSED,
+            Self::Kicked => CLOSE_KICKED,
+            Self::Protocol => CLOSE_PROTOCOL,
+            Self::Failed => CLOSE_FAILED,
+            Self::TimedOut => CLOSE_TIMED_OUT,
+            Self::CertificateChanged => CLOSE_CERTIFICATE,
+            Self::Rejected(reason) => CLOSE_REJECTED | reason.code() as u32,
+        }
+    }
+
+    /// The reason a peer's close code names; an unknown code is
+    /// [`DisconnectReason::Failed`].
+    #[must_use]
+    pub const fn from_close_code(code: u64) -> Self {
+        if code >= CLOSE_REJECTED as u64 && code <= (CLOSE_REJECTED | 0xff) as u64 {
+            return Self::Rejected(RejectReason::from_code((code & 0xff) as u8));
+        }
+        match code {
+            0 => Self::Closed,
+            1 => Self::Kicked,
+            2 => Self::Protocol,
+            4 => Self::TimedOut,
+            5 => Self::CertificateChanged,
+            _ => Self::Failed,
+        }
+    }
 }
 
 /// What [`Transport::poll`] reports.
@@ -185,6 +238,21 @@ pub trait Transport {
 
     /// The link state of an open connection.
     fn link_stats(&self, connection: ConnectionId) -> Option<LinkStats>;
+
+    /// Hands every message queued by [`Transport::send`] to the network.
+    /// A transport that batches sends a batch when it is full, here, and
+    /// at its next [`Transport::poll`]; one that does not has nothing to
+    /// do.
+    fn flush(&mut self) {}
+
+    /// `GetLinkSaturation`: how loaded the link to `connection` is, from
+    /// the send backlog (decision T17). The server's observers stop
+    /// sending object updates at 0.9. A transport without a governor, and
+    /// a connection that is not open, answer 0, as `rpclocal` does.
+    fn link_saturation(&self, connection: ConnectionId) -> f64 {
+        let _ = connection;
+        0.0
+    }
 }
 
 /// The one connection of each loopback end.
@@ -640,6 +708,41 @@ mod tests {
         }
         worker.join().unwrap();
         assert_eq!(back, (0..100).map(Sample::Ping).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn close_codes_name_their_reason() {
+        let reasons = [
+            DisconnectReason::Closed,
+            DisconnectReason::Kicked,
+            DisconnectReason::TimedOut,
+            DisconnectReason::Protocol,
+            DisconnectReason::Failed,
+            DisconnectReason::CertificateChanged,
+            DisconnectReason::Rejected(RejectReason::Password),
+            DisconnectReason::Rejected(RejectReason::Other(200)),
+        ];
+        for reason in reasons {
+            assert_eq!(
+                DisconnectReason::from_close_code(u64::from(reason.close_code())),
+                reason
+            );
+        }
+        assert_eq!(
+            DisconnectReason::from_close_code(99),
+            DisconnectReason::Failed
+        );
+        assert_eq!(
+            DisconnectReason::from_close_code(0x200),
+            DisconnectReason::Failed
+        );
+    }
+
+    #[test]
+    fn the_loopback_has_no_governor() {
+        let (mut client, _server) = loopback::<u32, u32>();
+        client.flush();
+        assert_eq!(client.link_saturation(LOOPBACK_CONNECTION), 0.0);
     }
 
     #[test]

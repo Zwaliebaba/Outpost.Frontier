@@ -11,10 +11,14 @@
 //! delivery goes to Content's handler of the kind
 //! ([`crate::content::deliver`]), then to the optional test hook.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use game_sim::object::World;
 use game_sim::protocol::ToClient;
 use neuron_core::hash::eq_ignore_case;
 use neuron_core::ini::IniReader;
+use neuron_core::net::transport::{ConnectionId, Transport};
 use neuron_server::controller::{
     self, BusHost, ControllerBus, ControllerId, read_initial_controllers,
 };
@@ -147,7 +151,8 @@ pub trait ClientSink {
     /// `IClient::GetLinkSaturation`: how loaded the link to a client is,
     /// from the transport's backlog (decision T17); the observers stop
     /// sending at 0.9 ([`crate::replication`]). rpclocal's answer, and the
-    /// loopback's until the network transport of P3.8, is 0.
+    /// loopback's, is 0; [`TransportSink`] reports the QUIC host's
+    /// governor.
     fn link_saturation(&self, client: u32) -> f64 {
         let _ = client;
         0.0
@@ -184,6 +189,47 @@ pub struct RecordingSink {
 impl ClientSink for RecordingSink {
     fn send(&mut self, client: u32, message: ToClient) {
         self.sent.push((client, message));
+    }
+}
+
+/// The client sink over a transport (P3.8): a message for client `n` goes
+/// to the transport's connection `n`, as the QUIC host numbers its
+/// connections by client id (`CRemoteClientProxy::OnConnect`), and the
+/// saturation is the transport's ([`Transport::link_saturation`]). The
+/// server loop polls the same transport, hence the shared cell.
+///
+/// A message for a client without an open connection is dropped, as
+/// `CClientImpl::PushToClient` drops one for a slot without a proxy.
+#[derive(Debug)]
+pub struct TransportSink<T> {
+    transport: Rc<RefCell<T>>,
+}
+
+impl<T> TransportSink<T> {
+    /// The sink over `transport`.
+    #[must_use]
+    pub const fn new(transport: Rc<RefCell<T>>) -> Self {
+        Self { transport }
+    }
+}
+
+impl<T> ClientSink for TransportSink<T>
+where
+    T: Transport,
+    T::Outgoing: From<ToClient>,
+{
+    fn send(&mut self, client: u32, message: ToClient) {
+        // Dropped for a client without an open connection.
+        let _ = self
+            .transport
+            .borrow_mut()
+            .send(ConnectionId::new(client), message.into());
+    }
+
+    fn link_saturation(&self, client: u32) -> f64 {
+        self.transport
+            .borrow()
+            .link_saturation(ConnectionId::new(client))
     }
 }
 
@@ -452,5 +498,86 @@ impl Cx<'_> {
         message: &mut ControllerMessage<'_>,
     ) -> Result<(), controller::BusError> {
         controller::dispatch(self, target, message)
+    }
+}
+
+#[cfg(test)]
+mod transport_sink_tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use game_sim::protocol::to_client::ConnectResponse;
+    use neuron_core::net::transport::{
+        ConnectionId, DisconnectReason, LOOPBACK_CONNECTION, LinkStats, Transport, TransportError,
+        TransportEvent, loopback,
+    };
+
+    use super::{ClientSink, ToClient, TransportSink};
+
+    /// A transport that keeps what it is sent and reports a fixed
+    /// saturation for connection 2.
+    #[derive(Default)]
+    struct Fake {
+        sent: Vec<(ConnectionId, ToClient)>,
+    }
+
+    impl Transport for Fake {
+        type Outgoing = ToClient;
+        type Incoming = ();
+
+        fn send(
+            &mut self,
+            connection: ConnectionId,
+            message: ToClient,
+        ) -> Result<(), TransportError> {
+            if connection.get() == 9 {
+                return Err(TransportError::UnknownConnection(connection));
+            }
+            self.sent.push((connection, message));
+            Ok(())
+        }
+
+        fn poll(&mut self) -> Option<TransportEvent<()>> {
+            None
+        }
+
+        fn disconnect(
+            &mut self,
+            _: ConnectionId,
+            _: DisconnectReason,
+        ) -> Result<(), TransportError> {
+            Ok(())
+        }
+
+        fn link_stats(&self, _: ConnectionId) -> Option<LinkStats> {
+            None
+        }
+
+        fn link_saturation(&self, connection: ConnectionId) -> f64 {
+            if connection.get() == 2 { 0.95 } else { 0.0 }
+        }
+    }
+
+    #[test]
+    fn the_sink_addresses_connections_by_client_id() {
+        let transport = Rc::new(RefCell::new(Fake::default()));
+        let mut sink = TransportSink::new(Rc::clone(&transport));
+        let message = ToClient::Server(ConnectResponse { value: 2 }.into());
+        sink.send(2, message.clone());
+        sink.send(9, message.clone());
+        assert_eq!(transport.borrow().sent, [(ConnectionId::new(2), message)]);
+        assert_eq!(sink.link_saturation(2), 0.95);
+        assert_eq!(sink.link_saturation(1), 0.0);
+    }
+
+    #[test]
+    fn the_loopback_reports_no_saturation() {
+        let (_client, server) = loopback::<game_sim::protocol::ToServer, ToClient>();
+        let server = Rc::new(RefCell::new(server));
+        let mut sink = TransportSink::new(Rc::clone(&server));
+        sink.send(1, ToClient::Server(ConnectResponse { value: 1 }.into()));
+        assert_eq!(sink.link_saturation(1), 0.0);
+        let stats = server.borrow().link_stats(LOOPBACK_CONNECTION).unwrap();
+        assert_eq!(stats.queued_messages, 1);
     }
 }
