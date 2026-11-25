@@ -775,3 +775,8 @@ jobs:
             if (Test-Path $summary) { "--- $(Split-Path $summary -Leaf) (start) ---"; Get-Content $summary -TotalCount 40 }
             else { "--- $(Split-Path $summary -Leaf): not written ---" }
           }
+          # Gate G3's scenarios through the server's hooks (dock_at_station, trade_lane,
+          # dock_trade_lane and the others), each with its judgement, for the gate's review.
+          $hooks = "$env:RUNNER_TEMP\outpost-sim-summaries\rust-scenario-hooks.txt"
+          if (Test-Path $hooks) { "--- rust-scenario-hooks.txt (start) ---"; Get-Content $hooks -TotalCount 200 }
+          else { "--- rust-scenario-hooks.txt: not written ---" }
