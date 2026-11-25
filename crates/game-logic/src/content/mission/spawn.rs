@@ -338,7 +338,8 @@ pub fn spawn_ship_group(cx: &mut Cx<'_>, id: ControllerId, group: &ShipGroup) {
                     params.costume = costume;
                 }
                 if npc.voice & ID_MASK == 0
-                    && let Some(voice) = npc_names::pick_voice(cx, props, name.gender.cast_unsigned())
+                    && let Some(voice) =
+                        npc_names::pick_voice(cx, props, name.gender.cast_unsigned())
                 {
                     params.voice = voice;
                 }

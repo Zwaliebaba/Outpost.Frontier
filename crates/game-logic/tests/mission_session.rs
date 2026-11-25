@@ -66,12 +66,12 @@ use game_logic::content::mission::execute;
 use game_logic::content::mission::meta_behavior::{MbGuide, MetaBehavior};
 use game_logic::content::mission::obj_list::{self, DirectiveKind, Goto, Idle, ObjListDirective};
 use game_logic::content::mission::runtime;
-use game_logic::content::npc_ships;
-use game_logic::content::ships::{self, ShipKey};
 use game_logic::content::mission::trace::{Trace, TraceRecord};
 use game_logic::content::mission::trigger::Trigger;
 use game_logic::content::mission::{MissionScript, engine};
+use game_logic::content::npc_ships;
 use game_logic::content::players::{PlayerShip, PlayerState};
+use game_logic::content::ships::{self, ShipKey};
 use game_logic::events::{CommResult, ControllerMessage, NpcShipKey};
 use game_logic::server::{ControllerKind, CreateParams, Cx, Logic, RecordingSink};
 use game_logic::{selection, world};
@@ -796,7 +796,8 @@ fn data_dump_mission_session() {
         println!("notice: CppSource/Oracle/mission_session.txt does not parse");
         return;
     };
-    let Some(ours) = run_session(&root.join("EXE"), &root.join("DATA"), &file, &mut no_probe) else {
+    let Some(ours) = run_session(&root.join("EXE"), &root.join("DATA"), &file, &mut no_probe)
+    else {
         println!("notice: the session could not start on the dump root");
         return;
     };
@@ -1290,7 +1291,10 @@ fn the_ai_and_reputation_actions_on_outdir() {
             id,
             Action::SetVibeOfferBaseHack(action::SetVibeOfferBaseHack { base_id: base })
         ));
-        assert_eq!(solar_rep.map(|r| api::reputation::attitude(cx, r, -1)), before);
+        assert_eq!(
+            solar_rep.map(|r| api::reputation::attitude(cx, r, -1)),
+            before
+        );
 
         // `Act_SetVibe` with a range draws one `rand()` between its ends.
         assert!(run(

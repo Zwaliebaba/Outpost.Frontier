@@ -131,12 +131,18 @@ fn find_space_obj_by_nickname(
 ) -> Option<crate::events::NpcShipKey> {
     let state = &cx.logic.content.state;
     let name = neuron_core::hash::c_str(name);
-    state.systems.get(&system)?.space_objs.iter().copied().find(|k| {
-        state
-            .npc_ships
-            .get(k)
-            .is_some_and(|n| neuron_core::hash::c_str(&n.nickname) == name)
-    })
+    state
+        .systems
+        .get(&system)?
+        .space_objs
+        .iter()
+        .copied()
+        .find(|k| {
+            state
+                .npc_ships
+                .get(k)
+                .is_some_and(|n| neuron_core::hash::c_str(&n.nickname) == name)
+        })
 }
 
 /// The resolved names and the priority default written into the shared
@@ -256,7 +262,9 @@ pub fn execute(cx: &mut Cx<'_>, ship: ShipKey, directive: DirectiveRef) -> bool 
         // `FObjListGotoShip::Execute` (`:353-382`) and `ExecuteGotoToObject`
         // of `GotoSpline` and `GotoVec` (`:325-350`): `GotoShip`'s target
         // into `Field_1C`, the object name into `Field_5C`.
-        DirectiveKind::GotoShip(goto) => run_goto(cx, ship, directive, goto, DirectiveKind::GotoShip),
+        DirectiveKind::GotoShip(goto) => {
+            run_goto(cx, ship, directive, goto, DirectiveKind::GotoShip)
+        }
         DirectiveKind::GotoSpline(goto) => {
             run_goto(cx, ship, directive, goto, DirectiveKind::GotoSpline)
         }
@@ -430,11 +438,8 @@ pub fn execute(cx: &mut Cx<'_>, ship: ShipKey, directive: DirectiveRef) -> bool 
                     {
                         formations::remove_from_formation(cx, member);
                     }
-                    let leader = formations::slot_position(
-                        cx,
-                        f.formation,
-                        leader_slot.cast_unsigned(),
-                    );
+                    let leader =
+                        formations::slot_position(cx, f.formation, leader_slot.cast_unsigned());
                     let at = formations::slot_position(cx, f.formation, member_slot);
                     member_slot += 1;
                     let mut op = FollowOp {

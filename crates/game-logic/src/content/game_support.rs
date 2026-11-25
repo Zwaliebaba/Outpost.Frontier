@@ -778,7 +778,9 @@ fn player_launch(cx: &mut Cx<'_>, player: u32) {
     );
     let state = &mut cx.logic.content.state;
     if let Some(p) = state.players.get_mut(&player) {
-        let old = p.ship.replace(PlayerShip::new(ship, archetype, class_ids, system));
+        let old = p
+            .ship
+            .replace(PlayerShip::new(ship, archetype, class_ids, system));
         if let Some(old) = old {
             super::npc_ships::release_queue(state, old.directives);
         }
