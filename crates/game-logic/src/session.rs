@@ -8,18 +8,34 @@
 //! that reach them, as `RemoteClient`'s `DispatchClientPacket` does
 //! (`RemoteClient/RemoteClient_main.cpp:258-690`); the others go to
 //! [`crate::receive::deliver`].
+//!
+//! The player-state requests (work package P3.10b,
+//! `Server/IServerImpl.cpp:857-935`, `2071-2330`, `2708`) are here too:
+//! the equipment, item and collision-group requests a client makes in a
+//! base (`ReqEquipment`, `ReqAddItem`, `ReqRemoveItem`, `ReqModifyItem`,
+//! `ReqCollisionGroups`), the state it hands the server to keep
+//! (`SetVisitedState`, `SetMissionLog`, `SetInterfaceState`), its
+//! questions (`RequestRankLevel`, `RequestBestPath`,
+//! `RequestGroupPositions`), `PopUpDialog` and the single-player
+//! `ReqDifficultyScale`. [`route_common`] also hands the player trades to
+//! [`crate::trade`]. The C++ reads a client's block without its size; a
+//! block shorter than what a handler reads is taken only as far as it
+//! goes (D881).
 
 use game_sim::protocol::common::CommonMessage;
 use game_sim::protocol::costume::Costume as WireCostume;
 use game_sim::protocol::fmtstr::FmtStr;
+use game_sim::data::equip_desc::EquipDesc;
 use game_sim::protocol::records::{CollisionGroup, EquipRecord};
 use game_sim::protocol::to_client::{
     CharSelectVerified, CharacterInfo, CharacterRecord, LoginResponse, MiscObjUpdate, Relation,
     SetReputation,
 };
+use game_sim::protocol::to_server::{ReqAddItem, ReqModifyItem};
 use game_sim::protocol::{ClientMessage, ToClient, ToServer};
 use neuron_server::controller::ControllerId;
 
+use crate::character_file::CollisionGroupDesc;
 use crate::events::ControllerMessage;
 use crate::login::{self, CharacterSet, CreateCharacterInfo, LoginInfo, ServerFiles};
 use crate::player::CharacterId;
@@ -615,6 +631,18 @@ pub fn route(cx: &mut Cx<'_>, files: &ServerFiles, session: u32, message: &ToSer
             destroy_character(cx, files, &CharacterId::new(&p.character_id), session);
         }
         ClientMessage::ReqShipArch(p) => req_ship_arch(cx, p.value, session),
+        ClientMessage::ReqEquipment(p) => {
+            let list = equip_desc_list(cx, &p.records);
+            req_equipment(cx, &list, session);
+        }
+        ClientMessage::ReqAddItem(p) => req_add_item(cx, p, session),
+        ClientMessage::ReqRemoveItem(p) => {
+            req_remove_item(cx, low_word(p.equip_id), p.count, session);
+        }
+        ClientMessage::ReqModifyItem(p) => req_modify_item(cx, p, session),
+        ClientMessage::ReqCollisionGroups(p) => req_collision_groups(cx, &p.groups, session),
+        ClientMessage::ReqDifficultyScale(p) => req_difficulty_scale(cx, p.value, session),
+        ClientMessage::TradeResponse(p) => crate::trade::trade_response(cx, session, p),
         ClientMessage::ReqHullStatus(p) => req_hull_status(cx, p.value, session),
         ClientMessage::ReqSetCash(p) => {
             if in_entered_base(cx, session) {
@@ -724,13 +752,22 @@ pub fn route(cx: &mut Cx<'_>, files: &ServerFiles, session: u32, message: &ToSer
 }
 
 /// `DispatchClientPacket`'s channel-1 messages that reach `IServerImpl`'s
-/// player slots here: `SetWeaponGroup` and `RequestPlayerStats`.
+/// player slots here: `SetWeaponGroup`, `RequestPlayerStats`, the
+/// player-state requests and the player trades.
 pub fn route_common(cx: &mut Cx<'_>, session: u32, message: &ToServer) -> bool {
     let ToServer::Common(message) = message else {
         return false;
     };
     match message {
         CommonMessage::SetWeaponGroup(p) => set_weapon_group(cx, session, &p.data),
+        CommonMessage::PlayerTrade(p) => crate::trade::deliver_player_trade(cx, session, p),
+        CommonMessage::SetVisitedState(p) => set_visited_state(cx, session, &p.data),
+        CommonMessage::RequestBestPath(p) => request_best_path(cx, session, &p.data),
+        CommonMessage::RequestGroupPositions(_) => request_group_positions(cx, session),
+        CommonMessage::SetMissionLog(p) => set_mission_log(cx, session, &p.data),
+        CommonMessage::RequestRankLevel(_) => request_rank_level(cx, session),
+        CommonMessage::PopUpDialog(p) => pop_up_dialog(cx, session, p.field_10),
+        CommonMessage::SetInterfaceState(p) => set_interface_state(cx, session, &p.data),
         CommonMessage::RequestPlayerStats(_) => {
             if logged_in(cx, session) {
                 broadcast(
@@ -859,4 +896,318 @@ pub fn set_weapon_group(cx: &mut Cx<'_>, session: u32, data: &[u8]) {
     if let Some(slot) = cx.logic.players.get_mut(session) {
         slot.weapon_groups = data[..end].to_vec();
     }
+}
+
+// ---------------------------------------------------------------------------
+// The player-state requests (P3.10b).
+
+/// The `EquipDescList` `DispatchClientPacket` builds of a `REQEQUIPMENT`
+/// (`RemoteClient_main.cpp:419-452`): each record a new `EquipDesc` with
+/// its archetype, count, health, id and mounted byte, on the hardpoint it
+/// names (`StringAlloc`) or, without one, in the cargo bay; the record's
+/// last byte is not read.
+#[must_use]
+pub fn equip_desc_list(cx: &mut Cx<'_>, records: &[EquipRecord]) -> Vec<EquipDesc> {
+    records
+        .iter()
+        .map(|record| {
+            let mut desc = EquipDesc::new(cx.world.strings());
+            desc.arch_id = record.arch_id;
+            desc.count = record.count;
+            desc.health = record.health;
+            desc.id = record.id;
+            desc.equipped = record.equipped;
+            if record.hardpoint.is_empty() {
+                desc.make_internal(cx.world.strings());
+            } else {
+                desc.hardpoint = cx.world.strings_mut().alloc(&record.hardpoint, false);
+            }
+            desc
+        })
+        .collect()
+}
+
+/// `IServerImpl::ReqEquipment` (`IServerImpl.cpp:866`): in a base entered
+/// (or in single player), the list replaces the slot's equipment
+/// ([`crate::player::load_equipment`]).
+pub fn req_equipment(cx: &mut Cx<'_>, list: &[EquipDesc], session: u32) {
+    if in_entered_base(cx, session) {
+        crate::player::load_equipment(cx, session, list);
+    }
+}
+
+/// `IServerImpl::ReqAddItem` (`IServerImpl.cpp:903`): in a base entered,
+/// the item joins the slot's equipment on the hardpoint the block names
+/// (`StringAlloc`), combined where it may and told back to the client
+/// ([`crate::player::add_equipment`]).
+pub fn req_add_item(cx: &mut Cx<'_>, p: &ReqAddItem, session: u32) {
+    if !in_entered_base(cx, session) {
+        return;
+    }
+    let hardpoint = cx.world.strings_mut().alloc(&p.hardpoint, false);
+    crate::player::add_equipment(
+        cx, session, p.arch_id, hardpoint, p.count, p.health, p.mounted, false, true,
+    );
+}
+
+/// `IServerImpl::ReqRemoveItem` (`IServerImpl.cpp:918`): in a base
+/// entered, the count leaves the item; the client, which asked, is not
+/// told ([`crate::player::remove_equipment`]).
+pub fn req_remove_item(cx: &mut Cx<'_>, id: u16, count: i32, session: u32) {
+    if in_entered_base(cx, session) {
+        crate::player::remove_equipment(cx, session, id, count, false);
+    }
+}
+
+/// `IServerImpl::ReqModifyItem` (`IServerImpl.cpp:929`): in a base
+/// entered, the item takes the hardpoint, count, health and mounted byte
+/// ([`crate::player::modify_equipment`]); the id is the packet's low word.
+pub fn req_modify_item(cx: &mut Cx<'_>, p: &ReqModifyItem, session: u32) {
+    if !in_entered_base(cx, session) {
+        return;
+    }
+    let hardpoint = cx.world.strings_mut().alloc(&p.hardpoint, false);
+    crate::player::modify_equipment(
+        cx,
+        session,
+        low_word(p.equip_id),
+        hardpoint,
+        p.count,
+        p.health,
+        p.mounted,
+    );
+}
+
+/// The `unsigned short` of a packet's dword.
+fn low_word(value: u32) -> u16 {
+    let [a, b, ..] = value.to_le_bytes();
+    u16::from_le_bytes([a, b])
+}
+
+/// `IServerImpl::ReqCollisionGroups` (`IServerImpl.cpp:857`): in a base
+/// entered, the groups replace the slot's and go back to the client
+/// ([`crate::player::set_collision_groups`]).
+pub fn req_collision_groups(cx: &mut Cx<'_>, groups: &[CollisionGroup], session: u32) {
+    if !in_entered_base(cx, session) {
+        return;
+    }
+    let groups: Vec<CollisionGroupDesc> = groups
+        .iter()
+        .map(|g| CollisionGroupDesc {
+            id: g.id,
+            health: g.health,
+        })
+        .collect();
+    crate::player::set_collision_groups(cx, session, &groups);
+}
+
+/// `IServerImpl::ReqDifficultyScale` (`IServerImpl.cpp:2708`): in single
+/// player, a valid session's difficulty becomes the scale held to 0 ..= 2
+/// (a NaN is 0).
+pub fn req_difficulty_scale(cx: &mut Cx<'_>, scale: f32, session: u32) {
+    if !cx.world.config().single_player || !logged_in(cx, session) {
+        return;
+    }
+    let scale = if scale > 0.0 { scale } else { 0.0 };
+    let scale = if scale < 2.0 { scale } else { 2.0 };
+    if let Some(slot) = cx.logic.players.get_mut(session) {
+        slot.difficulty_scale = scale;
+    }
+}
+
+/// The little-endian dword at `at` of a client's block, `None` past its
+/// end.
+fn dword(data: &[u8], at: usize) -> Option<u32> {
+    let bytes = data.get(at..at.checked_add(4)?)?;
+    Some(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+}
+
+/// `IServerImpl::SetVisitedState` (`IServerImpl.cpp:2071`): for a valid
+/// session, each of the block's records (a signed count, then an id and a
+/// flag byte each) is ORed into the slot's visits or added to them.
+pub fn set_visited_state(cx: &mut Cx<'_>, session: u32, data: &[u8]) {
+    if !logged_in(cx, session) {
+        return;
+    }
+    let Some(count) = dword(data, 0) else {
+        return;
+    };
+    let count = usize::try_from(i32::from_ne_bytes(count.to_ne_bytes())).unwrap_or(0);
+    let Some(slot) = cx.logic.players.get_mut(session) else {
+        return;
+    };
+    let (records, _) = data[4..].as_chunks::<5>();
+    for &[a, b, c, d, flags] in records.iter().take(count) {
+        *slot.visits.entry(u32::from_le_bytes([a, b, c, d])).or_insert(0) |= flags;
+    }
+}
+
+/// `IServerImpl::SetMissionLog` (`IServerImpl.cpp:2237`): for a valid
+/// session, operation 0 empties the slot's mission log; operation 1 puts
+/// each of the block's format strings (a signed count at +4, the strings
+/// from +8) at the front of it, so the last comes first; any other does
+/// nothing.
+pub fn set_mission_log(cx: &mut Cx<'_>, session: u32, data: &[u8]) {
+    if !logged_in(cx, session) {
+        return;
+    }
+    let Some(op) = dword(data, 0) else {
+        return;
+    };
+    match op {
+        0 => {
+            if let Some(slot) = cx.logic.players.get_mut(session) {
+                slot.mission_log.clear();
+            }
+        }
+        1 => {
+            let Some(count) = dword(data, 4) else {
+                return;
+            };
+            let mut count = i32::from_ne_bytes(count.to_ne_bytes());
+            let mut at = 8;
+            let mut entries = Vec::new();
+            while count > 0 {
+                let Ok((entry, used)) = FmtStr::unflatten(&data[at..]) else {
+                    break;
+                };
+                entries.push(entry);
+                at += used;
+                count -= 1;
+            }
+            if let Some(slot) = cx.logic.players.get_mut(session) {
+                for entry in entries {
+                    slot.mission_log.insert(0, entry);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `IServerImpl::SetInterfaceState` (`IServerImpl.cpp:2283`): for a valid
+/// session, the block's first dword is the slot's interface state.
+pub fn set_interface_state(cx: &mut Cx<'_>, session: u32, data: &[u8]) {
+    if !logged_in(cx, session) {
+        return;
+    }
+    let Some(state) = dword(data, 0) else {
+        return;
+    };
+    if let Some(slot) = cx.logic.players.get_mut(session) {
+        slot.interface_state = state;
+    }
+}
+
+/// `IServerImpl::RequestRankLevel` (`IServerImpl.cpp:2290`): a valid
+/// session's client hears its rank in single player, 0xFFFFFFFF on a
+/// multiplayer server (`SendCommonRequestRankLevel`, four bytes). The
+/// request's block is not read.
+pub fn request_rank_level(cx: &mut Cx<'_>, session: u32) {
+    if !logged_in(cx, session) {
+        return;
+    }
+    let rank = if cx.world.config().single_player {
+        cx.logic.players.get(session).map_or(0, |s| s.rank_level)
+    } else {
+        0xFFFF_FFFF
+    };
+    crate::client::request_rank_level(cx, session, rank.to_le_bytes().to_vec());
+}
+
+/// `IServerImpl::RequestBestPath` (`IServerImpl.cpp:2100`): for a valid
+/// session, `RequestBestPath` goes to the bus with the session and the
+/// block's dwords at +0x00, +0x1c, +0x0c, +0x10, +0x14, +0x20, +0x24,
+/// +0x28 and +0x30.
+pub fn request_best_path(cx: &mut Cx<'_>, session: u32, data: &[u8]) {
+    if !logged_in(cx, session) {
+        return;
+    }
+    let mut words = [0u32; 9];
+    for (word, at) in words
+        .iter_mut()
+        .zip([0x00, 0x1c, 0x0c, 0x10, 0x14, 0x20, 0x24, 0x28, 0x30])
+    {
+        let Some(value) = dword(data, at) else {
+            return;
+        };
+        *word = value;
+    }
+    broadcast(
+        cx,
+        &mut ControllerMessage::RequestBestPath {
+            player: session,
+            words,
+        },
+    );
+}
+
+/// `IServerImpl::RequestGroupPositions` (`IServerImpl.cpp:2171`): a valid
+/// session's client hears where its group's other members are
+/// (`SendCommonRequestGroupPositions`): their count, then per member its
+/// position, base, system and vibe (0x18 bytes). A member with a ship
+/// gives the ship's position in its system (zeros when the system has no
+/// such ship) and base 0; one without gives its base and, where the C++
+/// leaves the position as allocated, zeros (D882). Without a group the
+/// block is the count 0. The request's block is not read.
+pub fn request_group_positions(cx: &mut Cx<'_>, session: u32) {
+    if !logged_in(cx, session) {
+        return;
+    }
+    let Some(group) = cx.logic.players.get(session).and_then(|s| s.group) else {
+        crate::client::request_group_positions(cx, session, vec![0; 4]);
+        return;
+    };
+    let members: Vec<u32> = cx
+        .logic
+        .groups
+        .get(group)
+        .map(|g| g.members.iter().copied().collect())
+        .unwrap_or_default();
+    let others = members.len().saturating_sub(1);
+    let size = others * 0x18 + 4;
+    let mut data = Vec::with_capacity(size);
+    data.extend_from_slice(&u32::try_from(others).unwrap_or(u32::MAX).to_le_bytes());
+    for member in members {
+        if member == session {
+            continue;
+        }
+        let (system, vibe, ship, base) = cx.logic.players.get(member).map_or((0, 0, 0, 0), |m| {
+            (m.system_id, m.rep_vibe, m.ship_object_id, m.current_base)
+        });
+        let (position, base) = if ship != 0 {
+            let at = crate::transfer::lookup_system(cx, system)
+                .and_then(|system| crate::replication::find_in_system(cx.world, system, ship))
+                .and_then(|h| cx.world.get(h))
+                .map_or([0.0; 3], |o| {
+                    let p = o.engine.position;
+                    [p.x, p.y, p.z]
+                });
+            (at, 0)
+        } else {
+            ([0.0; 3], base)
+        };
+        for value in position {
+            data.extend_from_slice(&value.to_le_bytes());
+        }
+        data.extend_from_slice(&base.to_le_bytes());
+        data.extend_from_slice(&system.to_le_bytes());
+        data.extend_from_slice(&vibe.to_le_bytes());
+    }
+    // The block is as long as the count says, as the C++ allocates it.
+    data.resize(size, 0);
+    crate::client::request_group_positions(cx, session, data);
+}
+
+/// `IServerImpl::PopUpDialog(session, button)` (`IServerImpl.cpp:2138`):
+/// `PopUpDialog` goes to the bus with the session and the packet's last
+/// dword, unchecked.
+pub fn pop_up_dialog(cx: &mut Cx<'_>, session: u32, button: u32) {
+    broadcast(
+        cx,
+        &mut ControllerMessage::PopUpDialog {
+            player: session,
+            button,
+        },
+    );
 }

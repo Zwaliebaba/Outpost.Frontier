@@ -499,9 +499,9 @@ fn goes_before(new: &CharacterInfo, existing: &CharacterInfo) -> bool {
 /// save failure count moves to the list.
 ///
 /// On a multiplayer server a slot with a selected character is first
-/// autosaved ([`crate::saves::auto_save`]). The rest of that prologue
-/// (leaving the system and the base, `SystemExit`, ending a trade) is not
-/// ported yet.
+/// autosaved ([`crate::saves::auto_save`]) and a trade it is in ends with
+/// reason 4 ([`end_trade`]). The rest of that prologue (leaving the system
+/// and the base, `SystemExit`) is not ported yet.
 pub fn build_character_set(cx: &mut Cx<'_>, session: u32) -> Option<CharacterSet> {
     if cx.logic.multiplayer_server
         && cx
@@ -511,6 +511,8 @@ pub fn build_character_set(cx: &mut Cx<'_>, session: u32) -> Option<CharacterSet
             .is_some_and(|s| s.selected_character.is_valid())
     {
         let _ = crate::saves::auto_save(cx, session);
+        let client = cx.logic.players.get(session).map_or(0, |s| s.client_id);
+        end_trade(cx, client);
     }
     let slot = cx.logic.players.get_mut(session)?;
     let mut set = CharacterSet::default();
@@ -849,8 +851,9 @@ pub fn saved_character<'a>(
 /// down (`PlayerData_Teardown`): its vibe is freed, its character, ship,
 /// cargo, costumes, places and selection are wiped, cash is the C++'s
 /// fill value 666, the account is marked logged out and the slot's client
-/// id is 0, which frees it. Trades are not ported, so none can be live
-/// (steps 4 and the teardown's trade requests).
+/// id is 0, which frees it. A trade the player is in ends with reason 4
+/// before `PlayerLogout`, and the teardown withdraws the trade requests
+/// ([`crate::trade::teardown_requests`]).
 pub fn logout(cx: &mut Cx<'_>, session: u32) {
     let max = cx.logic.players.max_players() as u32;
     if session == 0 || session > max {
@@ -904,6 +907,7 @@ pub fn logout(cx: &mut Cx<'_>, session: u32) {
     }
     // The vestigial SystemExit of a system id still set: LeaveSystem
     // cleared it, so it never fires.
+    end_trade(cx, session);
     let _ = cx.dispatch(
         neuron_server::controller::ControllerId::BROADCAST,
         &mut crate::events::ControllerMessage::PlayerLogout { player: session },
@@ -949,10 +953,26 @@ pub fn logout(cx: &mut Cx<'_>, session: u32) {
     teardown(cx, session);
 }
 
-/// `PlayerData_Teardown` without the trade requests (trades are not
-/// ported). The C++ fills the account name and the costumes with 0xcd;
-/// the port empties them.
+/// The `TerminateTrade(session, 4)` of a player leaving the game in a
+/// trade (`PlayerDB::logout` step 4, `PlayerData_BuildCharacterSet`,
+/// `PlayerData_SelectCharacter`).
+pub fn end_trade(cx: &mut Cx<'_>, session: u32) {
+    if cx
+        .logic
+        .players
+        .get(session)
+        .is_some_and(|s| s.trade_offer.is_some())
+    {
+        crate::trade::terminate_trade(cx, session, 4);
+    }
+}
+
+/// `PlayerData_Teardown`: the trade requests are withdrawn
+/// ([`crate::trade::teardown_requests`]), then the vibe and the fields.
+/// The C++ fills the account name and the costumes with 0xcd; the port
+/// empties them.
 fn teardown(cx: &mut Cx<'_>, session: u32) {
+    crate::trade::teardown_requests(cx, session);
     let vibe = cx.logic.players.get(session).map_or(-1, |s| s.rep_vibe);
     if vibe != -1 {
         let _ = cx.world.vibes().0.free(vibe);

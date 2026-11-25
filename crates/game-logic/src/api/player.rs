@@ -327,7 +327,7 @@ pub fn enumerate_cargo(cx: &Cx<'_>, player: u32) -> Result<Vec<CargoLine>, PubEr
 /// times its archetype's volume added to a float total, stored as a float
 /// after each line. A line of an unknown archetype counts as volume 0
 /// (D116).
-fn cargo_space_occupied(cx: &Cx<'_>, items: &[EquipDesc]) -> f32 {
+pub(crate) fn cargo_space_occupied(cx: &Cx<'_>, items: &[EquipDesc]) -> f32 {
     let data = cx.world.data();
     let strings = cx.world.strings();
     let mut total = 0.0f32;
