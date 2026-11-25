@@ -104,6 +104,8 @@ pub mod solar_npcs;
 /// The space paths (TU53 `SpacePaths.cpp`; P3.4d).
 pub mod space_paths;
 pub mod space_support;
+/// The placement of an encounter spawn (TU53 `SpawnPlacement.cpp`; P3.6d).
+pub mod spawn_placement;
 pub mod story;
 /// The system paths and their `[SystemConnections]` writer (TU41; P3.4c).
 pub mod system_paths;

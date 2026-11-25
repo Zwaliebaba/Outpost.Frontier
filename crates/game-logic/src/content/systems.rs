@@ -1154,7 +1154,7 @@ fn player_lanes(cx: &Cx<'_>, system: u32) -> Vec<(u32, u32)> {
 
 /// `IsNearPlayerField124Object(&Point, &Radius)` (`:712-731`): a player's
 /// ship in a lane whose end ring is within the radius.
-fn is_near_player_lane_end(cx: &Cx<'_>, system: u32, point: Vector, radius: f32) -> bool {
+pub fn is_near_player_lane_end(cx: &Cx<'_>, system: u32, point: Vector, radius: f32) -> bool {
     let radius_square = (f64::from(radius) * f64::from(radius)) as f32;
     player_lanes(cx, system).into_iter().any(|(_, end)| {
         let at = api::space_obj::location(cx, end).map_or(Vector::ZERO, |(p, _)| p);
@@ -1397,4 +1397,366 @@ mod tests {
         unload(&mut unload_me);
         assert!(unload_me.jumps.is_empty());
     }
+}
+
+// ---- the population's lookups (P3.6d) ---------------------------------------------------------
+
+/// `FSystemInfo::IsSeenByPlayerShip(&Point, &MaxDistance, &ConeAngle)`
+/// (`:694-709`): a player's ship of the record whose view cone holds the
+/// point ([`is_point_in_view_cone`]).
+#[must_use]
+pub fn is_seen_by_player_ship(
+    cx: &Cx<'_>,
+    system: u32,
+    point: Vector,
+    max_distance: f32,
+    cone_angle: f32,
+) -> bool {
+    let state = &cx.logic.content.state;
+    let Some(record) = state.systems.get(&system) else {
+        return false;
+    };
+    record.players.iter().any(|p| {
+        let Some(ship) = state.players.get(p).and_then(|s| s.ship.as_ref()) else {
+            return false;
+        };
+        let (position, orientation) =
+            api::space_obj::location(cx, ship.ship).unwrap_or((Vector::ZERO, Matrix::IDENTITY));
+        is_point_in_view_cone(point, position, &orientation, max_distance, cone_angle)
+    })
+}
+
+/// `FSystemInfo::FindSmallestZoneAt(&Position)` (`:1043-1072`): of the zones
+/// at the position (at most 8, `pub::System::InZones` with radius 0) that
+/// the record knows, the one of the smallest radius (the first on a tie).
+pub fn find_smallest_zone_at(cx: &mut Cx<'_>, system: u32, position: Vector) -> Option<usize> {
+    let ids = api::system::in_zones(cx, system, position, 0.0, 8).unwrap_or_default();
+    let mut best = None;
+    let mut best_radius = f32::MAX;
+    for id in ids {
+        let Some(z) = cx
+            .logic
+            .content
+            .state
+            .systems
+            .get(&system)
+            .and_then(|r| r.find_zone(id))
+        else {
+            continue;
+        };
+        let radius = api::zone::radius(cx, id);
+        if radius < best_radius {
+            best_radius = radius;
+            best = Some(z);
+        }
+    }
+    best
+}
+
+/// `FSystemInfo::FindTradeLanesNear(&Position, Radius, Out)` (`:1731-1774`):
+/// the lanes (by index) whose segment from the start to the end ring comes
+/// within the radius (squared, stored as a float; strictly below), each
+/// once; every lane for a radius of exactly -1.
+#[must_use]
+pub fn find_trade_lanes_near(record: &SystemInfo, position: Vector, radius: f32) -> Vec<usize> {
+    if radius == -1.0 {
+        return (0..record.trade_lanes.len()).collect();
+    }
+    let radius_squared = radius * radius;
+    record
+        .trade_lanes
+        .iter()
+        .enumerate()
+        .filter(|(_, lane)| {
+            let (d, _) =
+                super::patrol_paths::distance_squared_to_segment(position, lane.start, lane.end);
+            d < f64::from(radius_squared)
+        })
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// `FSystemInfo::FindTradeLaneRingListsNear(&Position, Radius, Out)`
+/// (`:1785-1820`): the ring lists of [`find_trade_lanes_near`]'s lanes,
+/// without a second list whose first ring is the same, with the lane each
+/// came from.
+#[must_use]
+pub fn find_trade_lane_ring_lists_near(
+    record: &SystemInfo,
+    position: Vector,
+    radius: f32,
+) -> Vec<(usize, Vec<TradeLaneRing>)> {
+    let mut out: Vec<(usize, Vec<TradeLaneRing>)> = Vec::new();
+    for lane in find_trade_lanes_near(record, position, radius) {
+        let rings = &record.trade_lanes[lane].rings;
+        let same = |list: &Vec<TradeLaneRing>| {
+            !list.is_empty() && !rings.is_empty() && list[0].object == rings[0].object
+        };
+        if !out.iter().any(|(_, l)| same(l)) {
+            out.push((lane, rings.clone()));
+        }
+    }
+    out
+}
+
+/// `FSystemInfo::GetTradeLaneRingOrder(&First, &Second)` (`:2272-2289`): 0
+/// when either ring is 0; 1 when the second ring follows the first on the
+/// first ring's lane, else -1. A ring of no lane, which the C++ reads
+/// through null, is -1 (D1062).
+#[must_use]
+pub fn trade_lane_ring_order(record: &SystemInfo, first: u32, second: u32) -> i32 {
+    if first == 0 || second == 0 {
+        return 0;
+    }
+    let Some(lane) = record.lane_of_ring(first) else {
+        return -1;
+    };
+    let rings = &record.trade_lanes[lane].rings;
+    let first_at = rings
+        .iter()
+        .position(|r| r.object == first)
+        .unwrap_or(rings.len());
+    let second_at = rings
+        .iter()
+        .position(|r| r.object == second)
+        .unwrap_or(rings.len());
+    if second_at == first_at + 1 { 1 } else { -1 }
+}
+
+/// `FSystemInfo::GetLaneShipDistance(&Direction, &Ring, &Position, &Out)`
+/// (`:2292-2347`): of the ships travelling the ring's lane in the
+/// direction, the nearest to the position (strictly nearer ones win); its
+/// distance, negative when it is behind the position along the lane's z
+/// axis (forward: a dot product below 0; backward: above 0). `None` when no
+/// ship travels that way, or the ring is on no lane (D1062).
+#[must_use]
+pub fn lane_ship_distance(
+    cx: &Cx<'_>,
+    record: &SystemInfo,
+    direction: i32,
+    ring: u32,
+    position: Vector,
+) -> Option<f32> {
+    let lane = &record.trade_lanes[record.lane_of_ring(ring)?];
+    let ships = if direction == 1 {
+        &lane.forward_ships
+    } else {
+        &lane.backward_ships
+    };
+    if ships.is_empty() {
+        return None;
+    }
+    let mut nearest = -1.0_f32;
+    let mut nearest_position = Vector::ZERO;
+    for &ship in ships {
+        let at = api::space_obj::location(cx, ship).map_or(Vector::ZERO, |(p, _)| p);
+        let dx = position.x - at.x;
+        let dy = position.y - at.y;
+        let dz = position.z - at.z;
+        let d = (f64::from(dz) * f64::from(dz) + f64::from(dy) * f64::from(dy))
+            + f64::from(dx) * f64::from(dx);
+        if nearest == -1.0 || d < f64::from(nearest) {
+            nearest = d as f32;
+            nearest_position = at;
+        }
+    }
+    let distance = f64::from(nearest).sqrt() as f32;
+    let ax = f64::from(position.x - nearest_position.x);
+    let ay = f64::from(position.y - nearest_position.y);
+    let az = f64::from(position.z - nearest_position.z);
+    let m = &lane.rotation.m;
+    let (zx, zy, zz) = (f64::from(m[0][2]), f64::from(m[1][2]), f64::from(m[2][2]));
+    let behind = if direction == 1 {
+        (az * zz + ay * zy) + ax * zx < 0.0
+    } else {
+        (az * zz + zy * ay) + zx * ax > 0.0
+    };
+    Some(if behind { -distance } else { distance })
+}
+
+/// `FSystemInfo::GetTimeSinceLaneLeave(&Direction, &Ring)` (`:2350-2360`):
+/// the game time since a ship last left the ring's lane in the direction;
+/// -1 when none has (the time is exactly -1), or the ring is on no lane
+/// (D1062).
+#[must_use]
+pub fn time_since_lane_leave(cx: &Cx<'_>, record: &SystemInfo, direction: i32, ring: u32) -> f64 {
+    let Some(lane) = record.lane_of_ring(ring) else {
+        return -1.0;
+    };
+    let lane = &record.trade_lanes[lane];
+    let leave = if direction == 1 {
+        lane.last_forward_leave
+    } else {
+        lane.last_backward_leave
+    };
+    if leave == -1.0 {
+        return -1.0;
+    }
+    super::game_support::game_time(cx) - f64::from(leave)
+}
+
+/// `IsGroupAtDockBase(&Group, &Object)` (`DockQueues.cpp:1666-1675`): the
+/// object docks at a base whose record lists the group among its factions.
+/// A base without a record, which the C++ reads through null, is false
+/// (D1062).
+fn is_group_at_dock_base(cx: &Cx<'_>, group: u32, object: u32) -> bool {
+    let base = api::space_obj::docking_target(cx, object).unwrap_or(0);
+    if base == 0 {
+        return false;
+    }
+    cx.logic
+        .content
+        .state
+        .bases
+        .get(&base)
+        .is_some_and(|b| b.factions.iter().any(|f| f.group == group))
+}
+
+/// `CanUseDockTarget(&Classes, &ShipRep, &Group, &ShipId, &Target)`
+/// (`DockQueues.cpp:1686-1745`) for the population's picks (no ship, no ship
+/// reputation): the group's feeling towards the target's affiliation (1
+/// without a group or an affiliation) above -0.6, then a terminal of the
+/// target that fits the classes (7 and 8 fit any ship). A target whose
+/// reputation is unknown, where the C++ reads its argument's bits as the
+/// reputation, has no affiliation (D1062).
+fn can_use_dock_target(cx: &mut Cx<'_>, classes: &[u32], group: u32, target: u32) -> bool {
+    let mut attitude = 1.0_f32;
+    if group != u32::MAX {
+        let rep = api::space_obj::rep(cx, target).unwrap_or(-1);
+        let affiliation = api::reputation::affiliation(cx, rep).unwrap_or(u32::MAX);
+        if affiliation != u32::MAX
+            && let Ok(value) = api::reputation::group_reputation(cx, affiliation, group)
+        {
+            attitude = value;
+        }
+    }
+    if !(attitude > super::dock_queues::HOSTILE_ATTITUDE) {
+        return false;
+    }
+    let mut index = 0;
+    while let Ok(info) = api::space_obj::terminal_info(cx, target, index) {
+        if super::dock_queues::terminal_fits(info.value, classes) {
+            return true;
+        }
+        index += 1;
+    }
+    false
+}
+
+/// The dock-target query of the population's picks: the system, the
+/// ship's classes, the group, the object left out, where to look, how far
+/// (-1 everywhere) and the object types.
+#[derive(Clone, Copy, Debug)]
+pub struct DockTargetQuery<'a> {
+    /// The system.
+    pub system: u32,
+    /// The ship's classes.
+    pub classes: &'a [u32],
+    /// The ship's group (-1 none).
+    pub group: u32,
+    /// The object left out (0 none).
+    pub exclude: u32,
+    /// Where to look.
+    pub position: Vector,
+    /// How far (-1 everywhere).
+    pub range: f32,
+    /// The object types.
+    pub type_mask: u32,
+}
+
+/// `FSystemInfo::CollectDockTargets(...)` (`:2162-2200`) for the
+/// population (no ship reputation, no docking ship): the objects of a scan
+/// (32 at most) other than the excluded one that are not NPC-locked gates
+/// and that the classes can use ([`can_use_dock_target`]); an object
+/// without type bits `0xc40` must dock at a base of the group and have a
+/// docking target.
+pub fn collect_dock_targets(cx: &mut Cx<'_>, q: &DockTargetQuery<'_>) -> Vec<u32> {
+    let ids = api::system::scan_objects(cx, q.system, 0x20, q.position, q.range, q.type_mask)
+        .unwrap_or_default();
+    let mut out = Vec::new();
+    for id in ids {
+        if id == q.exclude || cx.logic.content.state.gate_locks.is_npc_locked(id) {
+            continue;
+        }
+        let kind = api::space_obj::object_type(cx, id).unwrap_or(0);
+        if !can_use_dock_target(cx, q.classes, q.group, id) {
+            continue;
+        }
+        if kind & 0xc40 == 0 {
+            if !is_group_at_dock_base(cx, q.group, id) {
+                continue;
+            }
+            if api::space_obj::docking_target(cx, id).unwrap_or(0) == 0 {
+                continue;
+            }
+        }
+        out.push(id);
+    }
+    out
+}
+
+/// `FSystemInfo::PickDockTarget(...)` (`:2203-2214`): one of
+/// [`collect_dock_targets`] uniformly (`rand() * count / 32768`); 0 for
+/// none, without a draw.
+pub fn pick_dock_target(cx: &mut Cx<'_>, q: &DockTargetQuery<'_>) -> u32 {
+    let targets = collect_dock_targets(cx, q);
+    if targets.is_empty() {
+        return 0;
+    }
+    let pick = cx.world.rng().rand().wrapping_mul(targets.len() as i32) / 32768;
+    targets[pick as usize]
+}
+
+/// `FSystemInfo::PickPathDockTarget(...)` (`:2217-2269`): of the path's
+/// objects near the points `[first, last]` ([`PatrolPath::objects_in_range`]),
+/// those other than `exclude` at least `min_distance` (squared) from it,
+/// not NPC-locked, usable ([`can_use_dock_target`]) and, without type bits
+/// `0xc40`, docking at a base of the group; one uniformly, 0 for none.
+#[allow(clippy::too_many_arguments)]
+pub fn pick_path_dock_target(
+    cx: &mut Cx<'_>,
+    path: &PatrolPath,
+    classes: &[u32],
+    group: u32,
+    exclude: u32,
+    first: i32,
+    last: i32,
+    min_distance: f32,
+    type_mask: u32,
+) -> u32 {
+    let objects = path.objects_in_range(cx, first, last, type_mask);
+    let mut candidates = Vec::with_capacity(objects.len());
+    for object in objects {
+        let id = object.object_id;
+        if id == exclude {
+            continue;
+        }
+        let mut distance_sq = 0.0_f64;
+        if exclude != 0 {
+            let from = api::space_obj::location(cx, exclude).map_or(Vector::ZERO, |(p, _)| p);
+            let at = api::space_obj::location(cx, id).map_or(Vector::ZERO, |(p, _)| p);
+            let (dx, dy, dz) = (at.x - from.x, at.y - from.y, at.z - from.z);
+            distance_sq = (f64::from(dz) * f64::from(dz) + f64::from(dy) * f64::from(dy))
+                + f64::from(dx) * f64::from(dx);
+        }
+        if !(distance_sq >= f64::from(min_distance)) {
+            continue;
+        }
+        if cx.logic.content.state.gate_locks.is_npc_locked(id) {
+            continue;
+        }
+        let kind = api::space_obj::object_type(cx, id).unwrap_or(0);
+        if !can_use_dock_target(cx, classes, group, id) {
+            continue;
+        }
+        if kind & 0xc40 == 0 && !is_group_at_dock_base(cx, group, id) {
+            continue;
+        }
+        candidates.push(id);
+    }
+    if candidates.is_empty() {
+        return 0;
+    }
+    let pick = cx.world.rng().rand().wrapping_mul(candidates.len() as i32) / 32768;
+    candidates[pick as usize]
 }
