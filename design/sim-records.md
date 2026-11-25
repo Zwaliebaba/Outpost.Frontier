@@ -1105,7 +1105,9 @@ and nickname, ids not compared. Judged up to the first action that runs
 without effect (D970) in the port's trace, at tick `J`: the trace through
 that record, the deliveries before `J`, the objects within the gross bound
 (500 m) through `J`; reported after (rule accepted by the owner on 2026-11-25). The port's records are kept as
-`rust-mission-session.jsonl` and `rust-mission-objects.jsonl`.
+`rust-mission-session.jsonl` and `rust-mission-objects.jsonl`. On `outdir/`, `J`
+is tick 2: with P3.5c2 at `Act_SetVibe` (18 records), with P3.5c3 at
+`Act_CallSceneScript` (30 records), a P3.5c4 action.
 
 ## `spread.jsonl` (`--runs N`)
 
