@@ -4,8 +4,9 @@
 //! population where a ship launches, jumps in or leaves a lane, and the
 //! lanes' attacks; over the encounters ([`super::encounters`]), their
 //! placement ([`super::spawn_placement`]) and the random encounters
-//! ([`super::random_encounters`]). BasePop's room population waits for
-//! BaseSupport's bar characters (P3.6e, D1003).
+//! ([`super::random_encounters`]). BasePop's handler fills the rooms a
+//! player enters with the base's GF_NPCs ([`handle_base_pop`]) over
+//! BaseSupport's bar characters ([`super::bar`]).
 //!
 //! - **SpacePop** (`FSpacePop::FSpacePop`, `:237-241`): the controller's id
 //!   into `GSpacePopControllerId`, then a 3 s heartbeat (one `rand()`). No
@@ -32,8 +33,11 @@ use neuron_server::controller::ControllerId;
 use neuron_core::math::{Matrix, Transform, Vector, transform_xform};
 
 use super::Instance;
+use super::bar;
+use super::bases::BaseNpc;
 use super::encounters::{self, ZoneRef};
 use super::random_encounters;
+use super::random_mission::vendor::BarOffer;
 use super::spawn_placement::{self, SpawnRequest};
 use super::systems::SystemInfo;
 use crate::api;
@@ -790,4 +794,235 @@ pub fn oracle_populate(
         },
     );
     pop
+}
+
+// ---- BasePop's room population (P3.6d) ----------------------------------------------------------
+
+/// `CollectBasePopPlacements(RoomId, Out)` (`Populators.cpp:815-857`): the
+/// room's character placements whose name, split at `\` and `/` (empty
+/// tokens skipped, as `strtok` does), holds the tokens `zg`, `npc`, one
+/// starting with `m` (any case) and `a`, in this order (`_stricmp`; other
+/// tokens between are skipped); each placement once, at the `a`.
+pub fn collect_base_pop_placements(cx: &mut Cx<'_>, room: u32) -> Vec<i32> {
+    let mut out = Vec::new();
+    let count = api::gf::num_character_placements(cx, room);
+    for index in 0..count {
+        let name = api::gf::character_placement_name(cx, room, index);
+        let mut state = 0;
+        for token in neuron_core::hash::c_str(&name)
+            .split(|&b| b == b'\\' || b == b'/')
+            .filter(|t| !t.is_empty())
+        {
+            match state {
+                0 if neuron_core::hash::stricmp(token, b"zg").is_eq() => state = 1,
+                1 if neuron_core::hash::stricmp(token, b"npc").is_eq() => state = 2,
+                2 if token[0].eq_ignore_ascii_case(&b'm') => state = 3,
+                3 if neuron_core::hash::stricmp(token, b"a").is_eq() => {
+                    state = 4;
+                    out.push(index as i32);
+                }
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
+/// `PickUniform` (`:860-869`): none for an empty list, the first (no draw)
+/// for one, else `rand() * n / 32768`.
+fn pick_uniform(cx: &mut Cx<'_>, count: usize) -> Option<usize> {
+    match count {
+        0 => None,
+        1 => Some(0),
+        n => Some((cx.world.rng().rand().wrapping_mul(n as i32) / 32768) as usize),
+    }
+}
+
+/// `CreateBasePopCharacter(Player, Base, RoomId, Placement, Npc)`
+/// (`:875-904`): a bar character of the GF_NPC for the player on the
+/// placement (its description, the nickname's string as the role, no
+/// fidget) at the front of the room, the GF_NPC's offer for the player
+/// ([`bar::choose_offer`]) and its script.
+fn create_base_pop_character(
+    cx: &mut Cx<'_>,
+    player: u32,
+    base: u32,
+    room: u32,
+    placement: i32,
+    npc: &BaseNpc,
+) -> Option<u32> {
+    let d = &npc.desc;
+    let mut role = if d.nickname == 0 {
+        Vec::new()
+    } else {
+        neuron_core::id::IdString(d.nickname)
+            .to_hex_string()
+            .into_bytes()
+    };
+    role.truncate(31);
+    let desc = bar::BarCharacterDesc {
+        player,
+        affiliation: d.affiliation,
+        individual_name: d.individual_name,
+        appearance: d.appearance.clone(),
+        voice: d.voice,
+        room,
+        placement,
+        nickname: d.nickname,
+        role,
+        ..bar::BarCharacterDesc::default()
+    };
+    let key = bar::add_bar_character(cx, base, &desc)?;
+    let offer = bar::choose_offer(cx, npc, player);
+    bar::set_offer(cx, base, key, offer);
+    super::generic_scripts::start_bar_character_script(cx, base, key);
+    Some(key)
+}
+
+/// `SpawnBasePopCharacters(Placements, Player, Base, RoomId, Out)`
+/// (`:909-967`): the room filled up to its `character_density`, less the
+/// player's characters already there, with GF_NPCs of the base's factions
+/// (those of a weight above 0 and with GF_NPCs that may be in the room: a
+/// GF_NPC with a room list must list it). A faction by weight, one of its
+/// GF_NPCs and a placement uniformly; the placement and the GF_NPC are used
+/// up, an emptied faction is dropped. After the draws (not on the early
+/// returns) the random missions' destination systems are released.
+///
+/// The C++ reads a GF_NPC id missing from the base's map, and an empty
+/// pick, without a test; such a GF_NPC may be in any room, and a pick of
+/// nothing ends the filling (D1068).
+pub fn spawn_base_pop_characters(
+    cx: &mut Cx<'_>,
+    placements: &mut Vec<i32>,
+    player: u32,
+    base: u32,
+    room: u32,
+) -> Vec<u32> {
+    let mut out = Vec::new();
+    let Some(record) = cx.logic.content.state.bases.get(&base) else {
+        return out;
+    };
+    let present = record
+        .room_states
+        .get(&room)
+        .map_or(0, |s| s.count_characters(player));
+    let mut wanted = record.room_density(room) - present;
+    if wanted <= 0 || placements.is_empty() {
+        return out;
+    }
+    let npcs = record.npcs.clone();
+    let mut factions: Vec<super::bases::BaseFaction> = Vec::new();
+    for faction in &record.factions {
+        if !(faction.weight <= 0.0) && !faction.npcs.is_empty() {
+            let mut kept = faction.clone();
+            kept.npcs.retain(|id| {
+                npcs.get(id)
+                    .is_none_or(|n| n.rooms.is_empty() || n.rooms.contains(&room))
+            });
+            if !kept.npcs.is_empty() {
+                factions.push(kept);
+            }
+        }
+    }
+    while !factions.is_empty() && wanted > 0 && !placements.is_empty() {
+        let weights: Vec<(u32, f32)> = factions.iter().map(|f| (f.group, f.weight)).collect();
+        let Some(picked) = super::encounters::weighted_pick(cx, &weights) else {
+            break;
+        };
+        let Some(npc_at) = pick_uniform(cx, factions[picked].npcs.len()) else {
+            break;
+        };
+        let npc_id = factions[picked].npcs[npc_at];
+        let Some(placement_at) = pick_uniform(cx, placements.len()) else {
+            break;
+        };
+        let placement = placements[placement_at];
+        if let Some(npc) = npcs.get(&npc_id)
+            && let Some(key) = create_base_pop_character(cx, player, base, room, placement, npc)
+        {
+            out.push(key);
+        }
+        placements.remove(placement_at);
+        wanted -= 1;
+        factions[picked].npcs.remove(npc_at);
+        if factions[picked].npcs.is_empty() {
+            factions.remove(picked);
+        }
+    }
+    super::random_mission::mission::release_dest_systems(cx);
+    out
+}
+
+/// `FBasePop::HandleMessage` (`Populators.cpp:980-1040`):
+/// - `LocationEnter` of a player in a base: the room's BasePop placements
+///   ([`collect_base_pop_placements`]) without those the player already
+///   has a character or a lock on, filled
+///   ([`spawn_base_pop_characters`]); the characters made are kept for the
+///   player (an existing entry stays as it is);
+/// - `LocationExit` of a player BasePop keeps characters for: each loses
+///   its behaviour and offer and leaves the player's base, and the entry
+///   goes.
+///
+/// The C++ reads the leaving player's state and base without a test;
+/// without them the characters are only forgotten (D1068).
+pub fn handle_base_pop(cx: &mut Cx<'_>, id: ControllerId, message: &mut ControllerMessage<'_>) {
+    match *message {
+        ControllerMessage::LocationEnter { location, player } => {
+            let Some(base) = cx
+                .logic
+                .content
+                .state
+                .players
+                .get(&player)
+                .and_then(|s| s.base)
+            else {
+                return;
+            };
+            if !cx.logic.content.state.bases.contains_key(&base) {
+                return;
+            }
+            let mut placements = collect_base_pop_placements(cx, location);
+            if let Some(state) = cx
+                .logic
+                .content
+                .state
+                .bases
+                .get(&base)
+                .and_then(|b| b.room_states.get(&location))
+            {
+                placements
+                    .retain(|&p| !state.has_character(player, p) && !state.has_lock(player, p));
+            }
+            let characters = spawn_base_pop_characters(cx, &mut placements, player, base, location);
+            if !characters.is_empty()
+                && let Some(Instance::BasePop(pop)) = cx.logic.content.instance_mut(id)
+            {
+                pop.player_npcs.entry(player).or_insert(characters);
+            }
+        }
+        ControllerMessage::LocationExit { player, .. } => {
+            let Some(characters) = (match cx.logic.content.instance_mut(id) {
+                Some(Instance::BasePop(pop)) => pop.player_npcs.remove(&player),
+                _ => None,
+            }) else {
+                return;
+            };
+            let Some(base) = cx
+                .logic
+                .content
+                .state
+                .players
+                .get(&player)
+                .and_then(|s| s.base)
+            else {
+                return;
+            };
+            for key in characters {
+                bar::set_behavior(cx, base, key, u32::MAX);
+                bar::set_offer(cx, base, key, BarOffer::None);
+                bar::remove_bar_character(cx, base, key, None);
+            }
+        }
+        _ => {}
+    }
 }

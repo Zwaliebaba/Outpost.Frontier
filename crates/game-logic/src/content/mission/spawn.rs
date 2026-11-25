@@ -1383,9 +1383,9 @@ pub fn place_jumpers_at_launch(cx: &mut Cx<'_>, id: ControllerId, system: u32, a
 
 /// `RespawnMissionObjects(bKeepHitPoints)` (`MissionObject.cpp:2508-2561`):
 /// every respawn record is made again (its slots' hit points -1 unless
-/// kept); the random encounters' formations wait for the populators
-/// (P3.6d, D984); the first ship of each record takes its directives at its
-/// priority; both lists empty.
+/// kept), then each random encounter's saved formation through its
+/// `[MsnRandEnc]` (P3.6d); the first ship of each record takes its
+/// directives at its priority; both lists empty.
 pub fn respawn_mission_objects(cx: &mut Cx<'_>, id: ControllerId, keep_hit_points: bool) {
     let Some(o) = object_mut(cx, id) else { return };
     if !keep_hit_points {
@@ -1398,6 +1398,46 @@ pub fn respawn_mission_objects(cx: &mut Cx<'_>, id: ControllerId, keep_hit_point
     let groups = o.respawn_ships.clone();
     for group in &groups {
         spawn_ship_group(cx, id, group);
+    }
+    // Every random-encounter formation through the first `[MsnRandEnc]` of
+    // its id: `FRandEncParams::SpawnFormation` with the record's placement,
+    // count, leader directives, ship choices, names and priority, no dock
+    // target (the parameters taken out of the record for the call, which
+    // makes ships).
+    let respawns = object(cx, id).map_or_else(Vec::new, |o| o.rand_enc_respawns.clone());
+    for mut respawn in respawns {
+        let found = object_mut(cx, id).and_then(|o| {
+            let at = o
+                .rand_encs
+                .iter()
+                .position(|r| r.nickname_id == respawn.encounter_id)?;
+            Some((at, o.rand_encs[at].params.take()))
+        });
+        let Some((at, Some(mut params))) = found else {
+            continue;
+        };
+        let arena = &mut cx.logic.content.state.directives;
+        let mut list: DirectiveList = respawn
+            .directives
+            .iter()
+            .cloned()
+            .map(|d| create_directive(arena, d))
+            .collect();
+        crate::content::random_encounters::spawn_formation(
+            cx,
+            &mut params,
+            &respawn.placement,
+            respawn.count,
+            &list,
+            Some(&respawn.choices),
+            Some(&mut respawn.names),
+            respawn.priority,
+            0,
+        );
+        directives::clear_list(&mut cx.logic.content.state.directives, &mut list);
+        if let Some(r) = object_mut(cx, id).and_then(|o| o.rand_encs.get_mut(at)) {
+            r.params = Some(params);
+        }
     }
     for group in &groups {
         let Some(first) = group.ships.first() else {

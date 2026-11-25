@@ -769,8 +769,9 @@ fn player_allows(cx: &mut Cx<'_>, zone: ZoneRef, request: &SpawnRequest, faction
 /// the last formation spawned; an unstarred pass stops at the first.
 ///
 /// The C++ dereferences the current permutation and a permutation entry's
-/// formation without a test; none spawns nothing here (D1061). The arrival
-/// spawn's hails are not yet suppressed (D1064).
+/// formation without a test; none spawns nothing here (D1061). An
+/// arrival's ships made without a launch have their dock hails
+/// suppressed for 30 s.
 pub fn spawn(
     cx: &mut Cx<'_>,
     zone: ZoneRef,
@@ -854,11 +855,17 @@ pub fn spawn(
             let mut plan = SpawnPlan::default();
             let blocks = spawn_formation(cx, request, &params, &formation, &mut plan);
             if !blocks.is_empty() {
-                // The arrival's `FGcsDockHailHandler::SuppressHail` of each
-                // ship made without a launch (30 s) comes with the comm
-                // system (P3.6b; D1064).
                 let dock_target = if plan.kind == 2 { plan.dock_target } else { 0 };
                 let made = npc_ships::create_npc_ships(cx, params.system, &blocks, dock_target);
+                // An arrival's ships made without a launch: the dock hail
+                // handler keeps quiet about each for 30 s
+                // (`FGcsDockHailHandler::SuppressHail`, `:878`).
+                if plan.kind != 2 && request.arrival {
+                    for &key in &made {
+                        let ship = npc_ships::space_obj(cx, key);
+                        super::gcs::suppress_hail(cx, ship, None, 30);
+                    }
+                }
                 for &key in &made {
                     if let Some(s) = npc_ships::get_mut(cx, key) {
                         s.encounter_params = params.nickname;
