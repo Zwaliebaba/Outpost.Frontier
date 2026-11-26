@@ -1233,13 +1233,13 @@ namespace
     void __cdecl OnAiAnswer(int Kind, unsigned int ObjectId, int const* Ints, int IntCount, float const* Floats,
                             int FloatCount)
     {
-        static const char* const kNames[6] = {"request",      "dock_hardpoints", "lane_start",
-                                              "go_tradelane", "gun_target",      "zone_props"};
+        static const char* const kNames[7] = {"request",    "dock_hardpoints", "lane_start", "go_tradelane",
+                                              "gun_target", "zone_props",      "scan_list"};
         FOracleJson J;
         J.Str("rec", "ai_answer");
         J.Uint("tick", Tick());
         J.Uint("seq", GOpen);
-        J.Str("kind", Kind >= 0 && Kind < 6 ? kNames[Kind] : "unknown");
+        J.Str("kind", Kind >= 0 && Kind < 7 ? kNames[Kind] : "unknown");
         IdAndName(J, ObjectId);
         J.BeginArray("i");
         for (int Index = 0; Index < IntCount; ++Index)
@@ -1250,6 +1250,35 @@ namespace
         else
             J.Null("v");
         Write(J);
+        // P3.6d: inside a tick, the objects the answer names that the snapshot lacks (a lane's
+        // next ring, the entrance and exit of a lane, a scan list's entries), role "answer".
+        if (GOpen != 0)
+        {
+            std::vector<unsigned int> Ids;
+            if (Kind == OracleAiAnswerLaneStart && IntCount >= 3)
+            {
+                Ids.push_back(static_cast<unsigned int>(Ints[0]));
+                Ids.push_back(static_cast<unsigned int>(Ints[2]));
+            }
+            else if (Kind == OracleAiAnswerGoTradeLane && IntCount >= 2)
+            {
+                Ids.push_back(static_cast<unsigned int>(Ints[0]));
+                Ids.push_back(static_cast<unsigned int>(Ints[1]));
+            }
+            else if (Kind == OracleAiAnswerScanList)
+            {
+                for (int Index = 2; Index < IntCount; ++Index)
+                    Ids.push_back(static_cast<unsigned int>(Ints[Index]));
+            }
+            for (unsigned int Id : Ids)
+            {
+                if (Id == 0 || GWritten.count(Id) != 0)
+                    continue;
+                IObjRW* const Found = FindById(Id);
+                if (Found != nullptr)
+                    WriteObject(Found, std::vector<std::string>(1, "answer"));
+            }
+        }
     }
 
     const char* QueryName(int Kind)

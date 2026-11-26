@@ -584,12 +584,20 @@ impl AiWorld for ReplayWorld<'_> {
         out
     }
 
+    /// The motion world's ship, with the zone of the snapshot's position
+    /// (the motion model reads the zone's drag modifier and immersion; the
+    /// motion world's ships stand where they were spawned).
     fn motion(&self, h: u32) -> Option<Box<dyn MotionModel + '_>> {
         let (world, handle) = self.motion?;
-        if h != self.ship {
-            return world.motion(*self.others.get(&h)?);
+        let handle = if h == self.ship {
+            handle
+        } else {
+            *self.others.get(&h)?
+        };
+        match self.objects.get(&h) {
+            Some(v) => world.motion_at(handle, v.position),
+            None => world.motion(handle),
         }
-        world.motion(handle)
     }
 
     /// The target list's mask answers the list the tick built; another
@@ -602,6 +610,22 @@ impl AiWorld for ReplayWorld<'_> {
             return None;
         }
         if mask != AI_SCAN_MASK {
+            // The scanner's list the reference handed out for this mask
+            // (`scan_list` answers, P3.6d), in its order; older records
+            // without one: every targetable object of the snapshot.
+            let word_mask = int(mask);
+            if let Some(a) = self.take_answer("scan_list", |a| {
+                a.id == h && a.ints.first() == Some(&word_mask)
+            }) {
+                return Some(
+                    a.ints
+                        .iter()
+                        .skip(2)
+                        .map(|&id| word(id))
+                        .filter(|id| self.objects.contains_key(id))
+                        .collect(),
+                );
+            }
             return Some(
                 self.objects
                     .values()

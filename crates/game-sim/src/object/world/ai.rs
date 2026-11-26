@@ -189,22 +189,45 @@ impl World {
     }
 }
 
+impl World {
+    /// The ship's motion model with the zone of `pos` (its drag modifier
+    /// and immersion, `CSimple::update_zones` there) in place of the zone
+    /// the ship is in: a behaviour-tick replay's motion world, whose ships
+    /// stand where they were spawned, answers for the recorded position.
+    #[must_use]
+    pub fn motion_at(&self, h: ObjHandle, pos: Vector) -> Option<Box<dyn MotionModel + '_>> {
+        let o = self.get(h)?;
+        o.as_ship()?;
+        let zone = o
+            .simple
+            .system
+            .and_then(|system| self.physical_zone_at(system, pos))
+            .map_or((None, 0.0), |(_, drag, immersion)| (Some(drag), immersion));
+        Some(Box::new(ShipMotion {
+            world: self,
+            h,
+            zone: Some(zone),
+        }))
+    }
+}
+
 /// The motion model of one ship (`CShip::get_time_to_accelerate` and the
 /// rest of slots 50 to 63), over the world's data.
 struct ShipMotion<'a> {
     world: &'a World,
     h: ObjHandle,
+    /// The zone's drag modifier and the immersion in place of the
+    /// object's own ([`World::motion_at`]).
+    zone: Option<(Option<f32>, f32)>,
 }
 
 impl ShipMotion<'_> {
     fn parts(&self) -> Option<(&ship::ShipData, &crate::object::Equipped, Option<f32>, f32)> {
         let o = self.world.get(self.h)?;
-        Some((
-            o.as_ship()?,
-            o.as_equipped()?,
-            o.simple.zone_drag,
-            o.simple.scanner_interference,
-        ))
+        let (zone_drag, interference) = self
+            .zone
+            .unwrap_or((o.simple.zone_drag, o.simple.scanner_interference));
+        Some((o.as_ship()?, o.as_equipped()?, zone_drag, interference))
     }
 
     /// `collect_force_components(throttle, type)`.
@@ -622,7 +645,11 @@ impl AiWorld for World {
 
     fn motion(&self, h: ObjHandle) -> Option<Box<dyn MotionModel + '_>> {
         self.get(h)?.as_ship()?;
-        Some(Box::new(ShipMotion { world: self, h }))
+        Some(Box::new(ShipMotion {
+            world: self,
+            h,
+            zone: None,
+        }))
     }
 
     fn system_of(&self, h: ObjHandle) -> Option<u32> {

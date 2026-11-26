@@ -238,7 +238,10 @@ enum EOracleAiAnswer
     // Universe::ISystem::GetSphereProperties(Sphere) (the pathfinder's and the target
     // manager's zone probes): ObjectId = the system's id; Ints = the properties; Floats = the
     // centre and the radius.
-    OracleAiAnswerZoneProperties = 5
+    OracleAiAnswerZoneProperties = 5,
+    // P3.6d: IObjInspectImpl::get_scanlist(OutList, Type, bFlag) as it returns 0: ObjectId =
+    // the scanning object; Ints = Type, bFlag, then the ids of the list's entries in order.
+    OracleAiAnswerScanList = 6
 };
 
 struct FOracleAiHooks
