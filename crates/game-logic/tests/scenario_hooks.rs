@@ -140,6 +140,12 @@ fn take_population(run: &mut Run) -> BTreeMap<String, Vec<State>> {
         .collect()
 }
 
+/// A ship of the population: its name, id and archetype.
+type PopulationShip = (String, u32, u32);
+
+/// Each object's states by name.
+type States = BTreeMap<String, Vec<State>>;
+
 /// `npc<k>`: a ship the population spawned.
 fn is_population_name(name: &str) -> bool {
     name.strip_prefix("npc")
@@ -154,8 +160,8 @@ fn judge_population(
     summary: &mut String,
     gross: &mut Vec<String>,
     s: &Scenario,
-    ours: (&[(String, u32, u32)], BTreeMap<String, Vec<State>>),
-    theirs: (&[(String, u32, u32)], BTreeMap<String, Vec<State>>),
+    ours: (&[PopulationShip], States),
+    theirs: (&[PopulationShip], States),
 ) {
     let (our_ships, our_states) = ours;
     let (their_ships, their_states) = theirs;
