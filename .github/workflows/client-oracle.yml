@@ -278,6 +278,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p game-app --test preferences_data -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p game-app --test page_data -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p outpost-frontier --test local_server -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

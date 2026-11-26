@@ -87,3 +87,106 @@ pub fn opt_list_lines(p: &Preferences, frame: u32, path: &str) -> Vec<String> {
     opt_rows(&mut lines, frame, path, "Video", &p.video);
     lines
 }
+
+/// The lines `UiPageDescLoad(path)` writes at `frame` (`OracleOnPageDescLoaded`):
+/// a `page` head and a `widget` record per entry of a page that loaded.
+#[must_use]
+pub fn page_lines(
+    desc: &neuron_client::ui::page::PageDesc,
+    frame: u32,
+    path: &[u8],
+) -> Vec<String> {
+    use neuron_client::ui::page::{EntryPayload, Style};
+    let entries: &[_] = if desc.ok { &desc.entries } else { &[] };
+    let mut lines = Vec::new();
+    let mut j = head(frame, "page");
+    j.str_bytes("path", path)
+        .bool("ok", desc.ok)
+        .float("aspect", desc.aspect)
+        .uint("entries", index(entries.len()));
+    lines.push(j.finish());
+    for (i, entry) in entries.iter().enumerate() {
+        let mut j = head(frame, "widget");
+        j.str_bytes("path", path)
+            .uint("i", index(i))
+            .str_bytes("type", &entry.type_name)
+            .str_bytes("name", &entry.name)
+            .begin_array("rect");
+        for v in [entry.left, entry.top, entry.right, entry.bottom] {
+            j.item_float(v);
+        }
+        j.end_array().begin_object("payload");
+        match &entry.payload {
+            EntryPayload::Text {
+                right,
+                bottom,
+                caption,
+            } => {
+                j.float("right", *right)
+                    .float("bottom", *bottom)
+                    .wstr("caption", caption);
+            }
+            EntryPayload::TextMsgButton {
+                right,
+                bottom,
+                caption,
+                extra_int,
+                extra_id,
+                style,
+            } => {
+                j.float("right", *right)
+                    .float("bottom", *bottom)
+                    .wstr("caption", caption)
+                    .int("extra_int", *extra_int)
+                    .int("extra_id", *extra_id);
+                match style {
+                    Style::None => j.null("style"),
+                    Style::Default => j.str("style", "<default>"),
+                    Style::Named(name) => j.str_bytes("style", name),
+                };
+            }
+            EntryPayload::WinObject {
+                right,
+                bottom,
+                extra_name,
+                extra_float,
+            } => {
+                j.float("right", *right)
+                    .float("bottom", *bottom)
+                    .str_bytes("extra_name", extra_name)
+                    .float("extra_float", *extra_float);
+            }
+            EntryPayload::Table {
+                right,
+                bottom,
+                int5,
+                int6,
+            } => {
+                j.float("right", *right)
+                    .float("bottom", *bottom)
+                    .int("int5", *int5)
+                    .int("int6", *int6);
+            }
+            EntryPayload::ScrollCycle {
+                right,
+                bottom,
+                extra,
+                flag,
+            } => {
+                j.float("right", *right)
+                    .float("bottom", *bottom)
+                    .begin_array("extra");
+                for v in extra {
+                    j.item_float(*v);
+                }
+                j.end_array().uint("flag", u32::from(*flag));
+            }
+            EntryPayload::Bounds { right, bottom } => {
+                j.float("right", *right).float("bottom", *bottom);
+            }
+        }
+        j.end_object();
+        lines.push(j.finish());
+    }
+    lines
+}

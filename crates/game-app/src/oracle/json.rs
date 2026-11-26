@@ -187,6 +187,13 @@ impl OracleJson {
         self
     }
 
+    /// `Float(nullptr, value)`: the bit pattern, as an element.
+    pub fn item_float(&mut self, value: f32) -> &mut Self {
+        self.sep(None);
+        let _ = write!(self.text, "\"{:08x}\"", value.to_bits());
+        self
+    }
+
     /// `Str(nullptr, value)`: a narrow string element, up to its first NUL.
     pub fn item_str_bytes(&mut self, value: &[u8]) -> &mut Self {
         self.sep(None);
