@@ -681,7 +681,9 @@ fn send_ids_to_owner(cx: &mut Cx<'_>, h: ObjHandle, ids: &[u32]) {
 /// `update_formation_state(Ship, Leader, Offset)`: the ship leaves its old
 /// leader's formation (unless it led itself), takes the new leader (none
 /// for a missing one) and the offset, and joins the new leader's followers
-/// (unless it is the leader), through [`World::update_formation_state`].
+/// (unless it is the leader), through [`World::update_formation_state`];
+/// a player's ship tells its owner twice (`FORMATION_UPDATE`, from
+/// `Ship::set_formation_leader` and `set_formation_offset`).
 /// On a multiplayer server an unchanged leader changes nothing, and the
 /// players of the old formation (its leader's id first when it has
 /// followers, then the followers but the ship) and of the new one (its
@@ -724,7 +726,26 @@ pub fn update_formation_state(
         }
         send_ids_to_owner(cx, old, &ids);
     }
+    // `Ship::set_formation_leader` and `set_formation_offset`
+    // (`Server/server_gameobject.cpp:5619-5658`) each tell a player's ship's
+    // owner its leader and offset (`FORMATION_UPDATE`): the leader with the
+    // offset it had, then the leader it now has with the new offset.
+    let owned = cx
+        .world
+        .get(h)
+        .filter(|o| o.kind == ObjectKind::Ship)
+        .and_then(|o| {
+            o.as_ship()
+                .map(|s| (o.simple.owner_player, s.formation_offset))
+        })
+        .filter(|&(owner, _)| owner != 0);
     cx.world.update_formation_state(h, new, offset);
+    if let Some((owner, old_offset)) = owned {
+        let leader = new.map_or(0, |l| object_id(cx, l));
+        client::formation_update(cx, owner, leader, old_offset);
+        let leader = formation_leader(cx, h).map_or(0, |l| object_id(cx, l));
+        client::formation_update(cx, owner, leader, offset);
+    }
     if !single_player && let Some(new) = new {
         let followers = formation_followers(cx, new);
         let mut ids = vec![object_id(cx, new)];

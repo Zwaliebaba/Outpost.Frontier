@@ -622,6 +622,14 @@ impl ServerHooks for Hooks<'_> {
         crate::equip_fire::equip_event(&mut cx, object, equip, event);
     }
 
+    fn mine_explosion(&mut self, world: &mut World, system: u32, mine: u32, offset: Vector) {
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        crate::replication::mine_explosion(&mut cx, system, mine, offset);
+    }
+
     fn cargo_stack_rule(&mut self, world: &World, object: ObjHandle) -> bool {
         // `EqObj::apply_equip_entry`: the server's equipped objects.
         world.get(object).is_some_and(|o| {
@@ -833,11 +841,16 @@ pub fn badlands_collision(cx: &mut Cx<'_>, system: u32, object: u32, killer: u32
 /// ([`crate::replication::update_observers`]), then the changed
 /// affiliations ([`crate::replication::send_changed_affiliations`]).
 /// Returns the number of sub-steps.
+///
+/// The physics' beam diagnostics of the frame (the objects a bullet's ray
+/// started inside or that the OV test culled), which only the scenario
+/// driver reads, are dropped, so that a running server does not keep them.
 pub fn step_system(cx: &mut Cx<'_>, system: u32, dt: f32) -> u32 {
     let mut hooks = Hooks {
         logic: &mut *cx.logic,
     };
     let iterations = cx.world.step_with(system, dt, &mut hooks);
+    cx.world.discard_beam_diagnostics(system);
     crate::replication::update_observers(cx, system, f64::from(dt));
     crate::replication::send_changed_affiliations(cx, system);
     iterations
@@ -880,6 +893,12 @@ pub fn step_systems(cx: &mut Cx<'_>, dt: f32) {
 /// queued the ship), and the list is emptied. The server phantoms' events
 /// go to the controllers between them
 /// ([`crate::api::phantom::pump_events`]).
+///
+/// The world's event log ([`World::take_events`]) is emptied at the end:
+/// the server hears everything it acts on through its hooks, where the
+/// reference's wrappers hear it (a field mine's blast through
+/// `ServerHooks::mine_explosion`, an item's notices through
+/// `equip_event`), and the log is the tests' and the scenario driver's.
 pub fn physics_update(cx: &mut Cx<'_>, dt: f32) {
     step_systems(cx, dt);
     crate::api::phantom::pump_events(cx);
@@ -904,6 +923,7 @@ pub fn physics_update(cx: &mut Cx<'_>, dt: f32) {
             },
         );
     }
+    let _ = cx.world.take_events();
 }
 
 /// `StarSystem::remove_ship`: every other player of the system hears of
@@ -911,11 +931,20 @@ pub fn physics_update(cx: &mut Cx<'_>, dt: f32) {
 /// then the ship leaves its system's lists, a player's ship on a
 /// multiplayer server stops following its client (`PhySys::RCEnd`), its
 /// body is destroyed and its parameters returned
-/// (`GameObject::leave_system`). `notify_object_left`'s behaviour events
-/// are the behaviour manager's server link; the lookup cache is not
+/// (`GameObject::leave_system`), whose `notify_object_left` first gives
+/// every other ship's and solar's behaviour manager the event 3 of the
+/// ship's leaving ([`World::object_left_event`]); the lookup cache is not
 /// ported (record 0007 point 4).
 pub fn remove_ship(cx: &mut Cx<'_>, ship: ObjHandle) -> Option<CreateParms> {
     crate::replication::ship_removed(cx, ship);
+    if let Some((system, id)) = cx
+        .world
+        .get(ship)
+        .filter(|_| !cx.world.in_transit(ship))
+        .map(|o| (o.physical.system, o.simple.id))
+    {
+        cx.world.object_left_event(system, id, Some(ship));
+    }
     crate::replication::end_remote_control(cx, ship);
     cx.world.leave_system(ship)
 }

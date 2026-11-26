@@ -525,8 +525,10 @@ pub fn create_guided(cx: &mut Cx<'_>, system: u32, launch: &GuidedLaunch) -> Opt
 /// object switches its thrusters off (`slot_54(false, 0)`);
 /// `SrvCounterMeasureDropper`'s incoming missile on an NPC's object drops a
 /// counter-measure (`slot_34(&id, 1, null, -1)`, which fires forward). A
-/// player's object ignores both; the other events change nothing on the
-/// server (a destroyed item's wrapper forgets it by itself).
+/// player's object ignores both. `SrvTractor`'s consume timer (event 0x18)
+/// takes the arm's loot into the hold on any ship
+/// ([`crate::loot::tractor_consume`]). The other events change nothing on
+/// the server (a destroyed item's wrapper forgets it by itself).
 pub fn equip_event(cx: &mut Cx<'_>, h: ObjHandle, equip: SubObjId, event: EquipEvent) {
     let kind = cx.logic.objects.get(h).and_then(|o| {
         o.server_equip
@@ -544,6 +546,9 @@ pub fn equip_event(cx: &mut Cx<'_>, h: ObjHandle, equip: SubObjId, event: EquipE
         }
         (ServerEquipKind::CounterMeasureDropper(_), EquipEvent::IncomingMissile) if npc => {
             fire_weapons(cx, h, &[equip], None, -1);
+        }
+        (ServerEquipKind::Tractor, EquipEvent::TractorConsume(Some(target))) => {
+            crate::loot::tractor_consume(cx, h, equip, target);
         }
         _ => {}
     }

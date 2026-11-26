@@ -524,6 +524,15 @@ pub trait ServerHooks {
         let _ = (world, object, equip, event);
     }
 
+    /// A field mine of `system` blew (`MedMine::update`'s
+    /// `StarSystem::send_mine_explosion`, `Server/server_classes.cpp:
+    /// 5462-5478`), right after its blast: the mine's id and the explosion's
+    /// offset from it. The server tells the system's players
+    /// (`EXPLODEASTEROIDMINE`). Nothing without a server.
+    fn mine_explosion(&mut self, world: &mut World, system: u32, mine: u32, offset: Vector) {
+        let _ = (world, system, mine, offset);
+    }
+
     /// Whether `EqObj::apply_equip_entry`'s cargo rule applies to
     /// `object`'s stacks: an entry of exactly 0 hit points on a stack of
     /// more than one unit takes one unit off (`RemoveFromStack(1)`, the

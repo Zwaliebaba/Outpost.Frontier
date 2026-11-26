@@ -755,9 +755,11 @@ so a broadcast shows as one record per controller in list order.
 | `deliver` | `tick` u (0 for the start-up, before frame 1), `seq` u (from 0, in delivery order), `depth` i (the deliveries already in progress: 0 for one no handler made, 1 for one sent by a handler, and so on), `flid` u (the receiving controller), `msg` i (the `pub::Controller::EMessage` value), `path` s (`broadcast`, `send` or `heartbeat`), [`elapsed` f (`Heartbeat`: the whole periods delivered)], [`p1` u, `p2` u (`TimerExpired`: the timer's two words; `p1` is Content's counter value for Content's timers)], [`csn` u, `p1` u, `p2` u (`CombatState`: the `CSNType` and the two ids of `FSpaceObjCombatStateMsg`; P3.5c4)] |
 
 `crates/game-logic/tests/content_startup.rs` compares the heartbeats
-Content's controllers get with the port's bus and reports the
-`TimerExpired` words against Content's counter (P3.4a). The payloads of
-the other messages are not decoded yet.
+Content's controllers get with the port's bus (P3.4a) and, since P3.11d,
+the `TimerExpired` deliveries to them exactly (tick, controller and both
+words; the dock hail's second word is an address in the C++, D934)
+against the port's run of each scenario as the oracle's server runs it.
+The payloads of the other messages are not decoded yet.
 
 ## Other files of a run
 

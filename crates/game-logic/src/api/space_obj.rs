@@ -755,10 +755,10 @@ pub fn dock_request(cx: &mut Cx<'_>, ship: u32, target: u32) -> i32 {
 /// gets the answer (`request_returned(0, Response, Port)`, [`crate::dock::
 /// request_returned`]); its docking lights go on for responses 3 and 4 and
 /// off otherwise (`ActivateEquipment` with type 3). A waiting answer (3)
-/// ends there. Otherwise a live host queues the ship at `port`, or with a
-/// negative port drops the ship's request (any port). The behaviour event
-/// 5 to the ship's followers comes with the behaviour manager's server
-/// link.
+/// ends there. Otherwise each of the live ship's follow followers hears of
+/// the dock (the behaviour event 5, [`dock_followers_event`]), then a live
+/// host queues the ship at `port`, or with a negative port drops the
+/// ship's request (any port).
 ///
 /// # Errors
 ///
@@ -790,6 +790,10 @@ pub fn dock(
                 response == crate::dock::RESPONSE_PROCEED || response == crate::dock::RESPONSE_WAIT,
             );
         }
+        if response == crate::dock::RESPONSE_WAIT {
+            return result;
+        }
+        dock_followers_event(cx, h, ship, target, port);
     }
     if response == crate::dock::RESPONSE_WAIT {
         return result;
@@ -806,6 +810,36 @@ pub fn dock(
         crate::dock::dequeue_dock_request(cx, host, port, ship);
     }
     Ok(())
+}
+
+/// `pub::SpaceObj::Dock`'s word to the ship's follow followers
+/// (`Server/server_pub.cpp:2771-2800`): a ship gives each live follow
+/// follower's manager (`GetBehaviorManager`, made when missing) the event
+/// 5 of its dock while the target is live: the target's id and object type,
+/// the ship's id and whether the answer named a port (`port != -1`).
+fn dock_followers_event(cx: &mut Cx<'_>, h: ObjHandle, ship: u32, target: u32, port: i32) {
+    let followers: Vec<ObjHandle> = cx
+        .world
+        .get(h)
+        .filter(|o| o.kind == ObjectKind::Ship)
+        .and_then(|o| o.as_ship())
+        .map(|s| s.follow_followers.iter().flatten().copied().collect())
+        .unwrap_or_default();
+    for follower in followers {
+        if cx.world.get(follower).is_none() || !cx.world.ensure_behavior_manager(follower) {
+            continue;
+        }
+        let Some(dock) = crate::dock::lookup_live(cx, target) else {
+            continue;
+        };
+        let event = game_sim::ai::behavior::DockTargetEvent {
+            target,
+            target_type: cx.world.get(dock).map_or(0, |o| o.simple.type_bits),
+            ship,
+            has_port: port != -1,
+        };
+        cx.world.dock_target_event(follower, &event);
+    }
 }
 
 /// `pub::SpaceObj::InstantDock(Ship, Target, Port)`: the ship docks at
