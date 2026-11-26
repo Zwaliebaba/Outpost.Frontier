@@ -12,10 +12,15 @@
 // (pub::Controller::Create, its 3 s heartbeat draws one rand()) and sends it the launch
 // (SpaceEnter {system, player, 0, -1}), whose arrival population is the first of the run. The
 // server's ElapseTime then runs SpacePop's heartbeat every 3 s.
+//
+// OracleSimPopulationShips (reporting only) walks the system record's NPC ships in list order
+// (FSystemInfo::SpaceObjs, which CreateNpcShip appends to), so that the harness can name the
+// ships the population spawns by their spawn order and record them beside the scenario's.
 
 #include "ContentInternal.h"
 #include "ContentPlayerState.h"   // ReplaceContentPlayerState, FContentPlayerShip
 #include "ContentStaticIds.h"     // GIdFighter, GIdFreighter
+#include "NpcShip.h"              // FContentNpcShip::Loadout
 #include "RandomMissionDB.h"      // GetShipMissionProperties
 #include "SystemInfo.h"           // FindSystemInfo, FSystemInfo::AddPlayer
 #include "common_server.h"
@@ -68,4 +73,29 @@ extern "C" __declspec(dllexport) unsigned int __cdecl OracleSimPopulate(unsigned
     unsigned int Launch[4] = {SystemId, PlayerId, 0u, 0xffffffffu};
     pub::Controller::_SendMessage(SpacePop, pub::Controller::EMessage::SpaceEnter, Launch);
     return SpacePop;
+}
+
+// One NPC ship of the record: its space object id and its loadout (FContentNpcShip +0x1c4).
+typedef void(__cdecl* FOracleSimPopulationShipFn)(void* Context, unsigned int SpaceObjId,
+                                                   unsigned int Loadout);
+
+// Calls Fn for every object of the system record's SpaceObjs, in list order, taken as an NPC
+// ship as FSystemInfo's own walks take them (SetNpcShipsField1b1). Returns the count, -1 when
+// the system has no record.
+extern "C" __declspec(dllexport) int __cdecl OracleSimPopulationShips(unsigned int SystemId,
+                                                                      FOracleSimPopulationShipFn Fn,
+                                                                      void* Context)
+{
+    FSystemInfo* System = FindSystemInfo(&SystemId);
+    if (System == nullptr || Fn == nullptr)
+        return -1;
+    int Count = 0;
+    for (std::list<FContentSpaceObj*>::iterator It = System->SpaceObjs.begin(); It != System->SpaceObjs.end();
+         ++It)
+    {
+        FContentNpcShip const* const Ship = static_cast<FContentNpcShip const*>(*It);
+        Fn(Context, Ship->SpaceObjId, Ship->Loadout);
+        ++Count;
+    }
+    return Count;
 }

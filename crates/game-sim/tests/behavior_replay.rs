@@ -29,6 +29,14 @@
 //! and thruster status and so on) follows the commands of the tick as the
 //! reference's `IObjAffect` bodies change it, nested calls included.
 //!
+//! The directives the oracle records (P3.6d, `ai_answer` `directive`:
+//! Content's spawns, guides and `[ObjList]` directives) are submitted to
+//! the ship's manager as the scenario's are, between its ticks; those of
+//! the ship's own tick are its directive callbacks', which the manager
+//! submits where it notifies them (`AiWorld::callback_directives`). The
+//! population's ships (`session.jsonl` `npc`) are spawned into the motion
+//! world by their archetypes and loadouts.
+//!
 //! A tick whose behaviour on entry or exit is not ported yet is counted as
 //! skipped, by behaviour id, and so is a mismatching tick that polled a
 //! behaviour that is not ported. `OUTPOST_ORACLE_DIR` names a folder above
@@ -67,7 +75,8 @@ use neuron_core::math::{Matrix, Transform, Vector};
 use neuron_core::physics::StepMode;
 use support::ai_records::{
     Affect, AiTick, AnswerRecord, BehRecord, EquipRecord, FaceRecord, ManagerRecord,
-    PathfindRecord, QueryRecord, SysRecord, read_affects, read_ai_ticks, read_names,
+    PathfindRecord, QueryRecord, RecordedDirective, SysRecord, read_affects, read_ai_ticks,
+    read_names, recorded_directive,
 };
 use support::records::{find_files, oracle_dir};
 
@@ -82,14 +91,20 @@ const RECORDED_SLOTS: [u8; 15] = [0, 1, 2, 3, 13, 16, 17, 18, 19, 20, 21, 23, 24
 struct MotionWorld {
     world: World,
     ships: BTreeMap<String, ObjHandle>,
+    /// The ships Content's population spawned (`session.jsonl` `npc`,
+    /// P3.6d), by their ids in the run: their archetypes and loadouts
+    /// spawned apart from the scenario's, for their motion models.
+    population: BTreeMap<u32, ObjHandle>,
     /// The scenario's commands: tick, object name, arguments.
     commands: Vec<(u32, String, Vec<String>)>,
 }
 
 impl MotionWorld {
     /// The ships of `CppSource/Oracle/scenarios/<scenario>.txt`, spawned
-    /// where the scenario puts them.
-    fn new(scenario: &str) -> Option<Self> {
+    /// where the scenario puts them, and the ships the run's population
+    /// spawned (the `npc` records of the run's `session.jsonl`), each 2 km
+    /// below the last.
+    fn new(scenario: &str, run: Option<&Path>) -> Option<Self> {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../CppSource/Oracle/scenarios")
             .join(format!("{scenario}.txt"));
@@ -132,9 +147,32 @@ impl MotionWorld {
             }
         }
         let commands = support::directives::commands(&text);
+        let mut population = BTreeMap::new();
+        if let (Some(system), Some(run)) = (system, run) {
+            for r in support::records::read_lines(&run.join("session.jsonl")) {
+                if r.get("rec").and_then(support::records::Json::as_str) != Some("npc") {
+                    continue;
+                }
+                let field = |k: &str| r.get(k).and_then(support::records::Json::as_u32);
+                let (Some(id), Some(arch)) = (field("id"), field("arch")) else {
+                    continue;
+                };
+                let below = -2000.0 * (population.len() + 1) as f32;
+                let spawn = ShipSpawn::new(
+                    arch,
+                    field("loadout").unwrap_or(0),
+                    Vector::new(0.0, below, 0.0),
+                    Matrix::IDENTITY,
+                );
+                if let Ok(h) = world.spawn_ship(system, &spawn) {
+                    population.insert(id, h);
+                }
+            }
+        }
         Some(Self {
             world,
             ships,
+            population,
             commands,
         })
     }
@@ -182,6 +220,11 @@ struct ReplayWorld<'a> {
     /// get_behavior_interface`; a formation leader's directive is read by
     /// its wingmen).
     managers: BTreeMap<u32, (i32, [i32; 3])>,
+    /// The directives the reference's directive callbacks submitted to
+    /// the ship inside the tick (`ai_answer` `directive` of the tick's
+    /// `seq`, P3.6d), with their priorities: the manager submits them when
+    /// it notifies the callbacks ([`AiWorld::callback_directives`]).
+    callback: Vec<(DirectiveOp, i32)>,
 }
 
 impl<'a> ReplayWorld<'a> {
@@ -206,11 +249,21 @@ impl<'a> ReplayWorld<'a> {
                 )
                 .filter(|(id, _)| *id != t.id)
                 .filter_map(|(id, name)| m.ships.get(name).map(|h| (id, *h)))
+                .chain(
+                    m.population
+                        .iter()
+                        .filter(|(id, _)| **id != t.id)
+                        .map(|(id, h)| (*id, *h)),
+                )
                 .collect()
         });
         let motion = motion.and_then(|m| {
-            let h = *m.ships.get(t.obj.as_deref()?)?;
-            Some((&m.world, h))
+            let h = t
+                .obj
+                .as_deref()
+                .and_then(|n| m.ships.get(n))
+                .or_else(|| m.population.get(&t.id))?;
+            Some((&m.world, *h))
         });
         let own = t.objects.iter().find(|o| o.id == t.id);
         Self {
@@ -253,6 +306,7 @@ impl<'a> ReplayWorld<'a> {
             ],
             unanswered: Vec::new(),
             managers: BTreeMap::new(),
+            callback: Vec::new(),
         }
     }
 
@@ -374,6 +428,24 @@ impl<'a> ReplayWorld<'a> {
 
 impl AiWorld for ReplayWorld<'_> {
     type Handle = u32;
+
+    /// The recorded directives of the tick's callbacks, once. The draws
+    /// Content made in its callback (`rand_mod` `Content.dll`) at this
+    /// point of the tick are passed over.
+    fn callback_directives(&mut self, h: u32) -> Vec<(DirectiveOp, i32)> {
+        if h != self.ship || self.callback.is_empty() {
+            return Vec::new();
+        }
+        let at = self.rand.consumed();
+        let content = self
+            .rand_mod
+            .iter()
+            .skip(at)
+            .take_while(|m| m.as_str() == "Content.dll")
+            .count();
+        self.rand.skip(content);
+        std::mem::take(&mut self.callback)
+    }
 
     fn inspect(&self, h: u32) -> Option<ObjectView> {
         self.objects.get(&h).cloned()
@@ -1614,7 +1686,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         .and_then(Path::file_name)
         .and_then(|n| n.to_str())
         .unwrap_or("");
-    let motion = MotionWorld::new(scenario);
+    let motion = MotionWorld::new(scenario, path.parent());
     // The scenario's names of the objects (the directives name them).
     let object_ids = read_names(path);
     let resolve = |name: &str| object_ids.get(name).copied();
@@ -1756,9 +1828,28 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         for a in &t.before {
             queued.entry(a.id).or_default().push(a.clone());
         }
+        // The directives the reference submitted inside this tick (P3.6d):
+        // the ship's own are its callbacks' (Content advancing its
+        // `[ObjList]` when a directive completes), which the manager
+        // submits when it notifies them; another ship's wait for that
+        // ship's next tick.
+        for a in t.answers.iter().filter(|a| a.kind == "directive") {
+            if a.id == t.id {
+                if let Some(d) = recorded_directive(a) {
+                    world.callback.push((d.op, d.priority));
+                }
+            } else {
+                queued.entry(a.id).or_default().push(a.clone());
+            }
+        }
         let batch = queued.remove(&t.id).unwrap_or_default();
         let saved_answers = world.set_answers(batch.clone());
-        if !pending.is_empty() {
+        // The directives others submitted since the ship's last tick (P3.6d:
+        // Content's spawns, its guides and its directive lists), in their
+        // order with the server's answers.
+        let recorded: Vec<Option<RecordedDirective>> =
+            batch.iter().map(recorded_directive).collect();
+        if !pending.is_empty() || recorded.iter().any(Option::is_some) {
             let before = last_out.get(&t.id).cloned().unwrap_or_else(|| {
                 let mut r = t.input.clone();
                 r.behavior = int(r.f120);
@@ -1769,7 +1860,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             if let Some(f) = &before.face {
                 restore_face(manager, f);
             }
-            let recorded = std::mem::take(&mut world.rand);
+            let recorded_rand = std::mem::take(&mut world.rand);
             for op in pending {
                 if let DirectiveOp::Face(f) = &op {
                     face_point = Some(f.point);
@@ -1779,14 +1870,24 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
                 }
                 manager.submit_directive(&mut world, t.id, &op, 0);
             }
-            world.rand = recorded;
+            world.rand = recorded_rand;
             world.commands.clear();
         }
-        // The server's later answers to a request, with what the callbacks
-        // asked meanwhile.
+        // The answers outside the tick in their order: a recorded directive
+        // is submitted, a request's answer returned to the ship.
         if !batch.is_empty() {
-            let recorded = std::mem::take(&mut world.rand);
-            for a in batch.iter().filter(|a| a.kind == "request") {
+            let recorded_rand = std::mem::take(&mut world.rand);
+            for (a, directive) in batch.iter().zip(&recorded) {
+                if let Some(d) = directive {
+                    if let DirectiveOp::Face(f) = &d.op {
+                        face_point = Some(f.point);
+                    }
+                    let _ = manager.submit_directive(&mut world, t.id, &d.op, d.priority);
+                    continue;
+                }
+                if a.kind != "request" {
+                    continue;
+                }
                 let k = world
                     .answers
                     .iter()
@@ -1803,7 +1904,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
                     a.ints.get(2).copied().unwrap_or(-1),
                 );
             }
-            world.rand = recorded;
+            world.rand = recorded_rand;
             world.commands.clear();
         }
         (world.answers, world.used) = saved_answers;
@@ -1822,6 +1923,16 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         }
         let orient_before = face_snapshot(manager).map(|f| f.orient);
         manager.update_behavior_tick(&mut world, t.id, t.dt);
+        // A directive of the tick that no callback took (the manager
+        // notified none) waits for the ship's next tick.
+        if !std::mem::take(&mut world.callback).is_empty() {
+            queued.entry(t.id).or_default().extend(
+                t.answers
+                    .iter()
+                    .filter(|a| a.kind == "directive" && a.id == t.id)
+                    .cloned(),
+            );
+        }
         avoid_shuffled = world.avoid_shuffled;
         last_out.insert(t.id, out.clone());
         let ours = snapshot(&manager.state);

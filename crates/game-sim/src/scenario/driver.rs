@@ -348,6 +348,18 @@ pub trait ScenarioServer {
     fn after_step(&mut self, world: &mut World, system: u32, tick: u32, dt: f32) {
         let _ = (world, system, tick, dt);
     }
+
+    /// The objects the server made that the run records beside the
+    /// scenario's, by the names the oracle's `tick.jsonl` gives them (P3.6d:
+    /// the ships Content's population spawned, `npc<k>` in spawn order),
+    /// asked before each tick is recorded; a name keeps its object once
+    /// given. Their states are recorded from the tick they are first named
+    /// (not alive before it), and nothing else of the run looks at them.
+    /// None by default.
+    fn recorded_objects(&mut self, world: &World) -> Vec<(String, ObjHandle)> {
+        let _ = world;
+        Vec::new()
+    }
 }
 
 /// The plain hooks of [`run`], as a [`ScenarioServer`] that does nothing
@@ -553,6 +565,26 @@ pub fn run_with(
     };
     record(&world, &mut out.states, &handles);
     record_cores(&world, &mut out.cores, &handles);
+    // The server's own objects (P3.6d), padded with "not alive" up to the
+    // tick they are first named.
+    let mut extra: BTreeMap<String, Option<ObjHandle>> = BTreeMap::new();
+    let mut record_extra = |world: &World,
+                            states: &mut BTreeMap<String, Vec<State>>,
+                            server: &mut dyn ScenarioServer,
+                            tick: u32| {
+        for (name, h) in server.recorded_objects(world) {
+            if handles.contains_key(&name) || extra.contains_key(&name) {
+                continue;
+            }
+            states
+                .entry(name.clone())
+                .or_default()
+                .resize(tick as usize, State::default());
+            extra.insert(name, Some(h));
+        }
+        record(world, states, &extra);
+    };
+    record_extra(&world, &mut out.states, server, 0);
     out.probes.insert(0, turret_probes(&world, &handles));
     let mut next = 0;
     for tick in 1..=s.ticks {
@@ -701,6 +733,7 @@ pub fn run_with(
         }
         record(&world, &mut out.states, &handles);
         record_cores(&world, &mut out.cores, &handles);
+        record_extra(&world, &mut out.states, server, tick);
         record_guided(&world, system, tick, &names, &mut out);
         out.probes.insert(tick, turret_probes(&world, &handles));
         for (name, h) in &handles {

@@ -463,11 +463,19 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
         result
     }
 
-    /// `NotifyDirectiveCallbacks`: the result goes to the owner.
-    fn notify_directive_callbacks(&mut self) {
+    /// `NotifyDirectiveCallbacks`: the result goes to the owner, whose
+    /// callbacks run after the tick (D194). The directives the world
+    /// answers that the callbacks submit inside the tick
+    /// ([`AiWorld::callback_directives`]: a behaviour-tick replay answers
+    /// the reference's recorded ones, the server none) are submitted here,
+    /// as the reference's callbacks submit them before the tick goes on.
+    fn notify_directive_callbacks(&mut self, world: &mut W, ship: W::Handle) {
         self.state
             .completed
             .push((self.state.f11c, self.state.f118));
+        for (op, priority) in world.callback_directives(ship) {
+            let _ = self.submit_directive(world, ship, &op, priority);
+        }
     }
 
     /// `set_current_directive(Dir, Op)`.
@@ -1231,7 +1239,7 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
                     self.state.directive[0] = 0;
                     let fallback = self.state.f120;
                     self.set_current_behavior(world, ship, fallback, true, None);
-                    self.notify_directive_callbacks();
+                    self.notify_directive_callbacks(world, ship);
                 }
                 self.state.f11c = -1;
                 return;
@@ -1283,7 +1291,7 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
             self.state.directive[0] = 0;
             let fallback = self.state.f120;
             self.set_current_behavior(world, ship, fallback, true, None);
-            self.notify_directive_callbacks();
+            self.notify_directive_callbacks(world, ship);
         }
         self.state.f11c = -1;
     }

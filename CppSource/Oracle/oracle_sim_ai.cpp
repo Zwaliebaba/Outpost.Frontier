@@ -126,6 +126,48 @@ namespace
             J.Null("obj");
     }
 
+    // P3.6d: the directives the behaviour managers heard (GOracleAiHooks.OnDirective), from
+    // OracleSimAiDirectivesBegin on. Those before the file opens (the populated scenario's
+    // arrival spawns) are held and written after `ai_start`; the harness's own scenario
+    // directives (OracleSimAiHarnessDirective) are left out.
+    struct FHeldDirective
+    {
+        unsigned int ObjectId;
+        std::vector<int> Words;
+        int Result;
+    };
+    std::vector<FHeldDirective> GHeldDirectives;
+    int GHarnessDirective = 0;
+
+    void WriteDirective(unsigned int ObjectId, int const* Words, int WordCount, int Result)
+    {
+        FOracleJson J;
+        J.Str("rec", "ai_answer");
+        J.Uint("tick", Tick());
+        J.Uint("seq", GOpen);
+        J.Str("kind", "directive");
+        IdAndName(J, ObjectId);
+        J.BeginArray("i");
+        J.Int(nullptr, Result);
+        for (int Index = 0; Index < WordCount; ++Index)
+            J.Int(nullptr, Words[Index]);
+        J.EndArray();
+        J.Null("v");
+        Write(J);
+    }
+
+    void __cdecl OnAiDirective(unsigned int ObjectId, int const* Words, int WordCount, int Result)
+    {
+        if (GHarnessDirective != 0)
+            return;
+        if (GFile == nullptr)
+        {
+            GHeldDirectives.push_back(FHeldDirective{ObjectId, std::vector<int>(Words, Words + WordCount), Result});
+            return;
+        }
+        WriteDirective(ObjectId, Words, WordCount, Result);
+    }
+
     void VectorJ(FOracleJson& J, const char* Name, Vector const& V)
     {
         const float Values[3] = {V.x, V.y, V.z};
@@ -1220,7 +1262,21 @@ namespace oracle
             J.Str(nullptr, Name.c_str());
         J.EndArray();
         Write(J);
+        // P3.6d: the directives heard before the file opened, at tick 0 outside any tick.
+        for (FHeldDirective const& Held : GHeldDirectives)
+            WriteDirective(Held.ObjectId, Held.Words.data(), (int)Held.Words.size(), Held.Result);
+        GHeldDirectives.clear();
         fflush(GFile);
         return true;
+    }
+
+    void OracleSimAiDirectivesBegin()
+    {
+        GOracleAiHooks.OnDirective = OnAiDirective;
+    }
+
+    void OracleSimAiHarnessDirective(bool bBegin)
+    {
+        GHarnessDirective += bBegin ? 1 : -1;
     }
 }

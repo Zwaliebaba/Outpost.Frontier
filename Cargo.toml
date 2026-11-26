@@ -91,9 +91,11 @@ opt-level = 3
 opt-level = 3
 
 # The simulation is slow unoptimised: a debug server with Content's NPC
-# population (P3.6d) falls behind its frames, each longer frame steps more
-# and the run never catches up (Gate G3's scripted client). Rust contracts
-# no float operations, so the results do not change (decision O51).
+# population (P3.6d) can fall behind its frames, each longer frame steps
+# more. With the ray query's fix Gate G3's scripted client passes without
+# this too, and it is kept for the margin on the Windows runner. Rust
+# contracts no float operations, so the results do not change (decision
+# O51).
 [profile.dev.package.neuron-core]
 opt-level = 2
 

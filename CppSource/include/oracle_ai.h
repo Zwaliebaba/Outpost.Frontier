@@ -249,6 +249,12 @@ struct FOracleAiHooks
     // A world answer (EOracleAiAnswer) about the object ObjectId.
     void(__cdecl* OnAnswer)(int Kind, unsigned int ObjectId, int const* Ints, int IntCount, float const* Floats,
                             int FloatCount);
+    // Oracle instrumentation (P3.6d): pub::AI::SubmitDirective's AI branch as it returns (a
+    // directive the object's behaviour manager heard; the player branch, which only sends it
+    // to the owner's client, and the early refusals 4 and 5 are not reported). Words are the
+    // op's dwords from +0x04 (OpType, Priority, then the op's own fields; WordCount =
+    // (sizeof(op) - 4) / 4), Result the call's result.
+    void(__cdecl* OnDirective)(unsigned int ObjectId, int const* Words, int WordCount, int Result);
 };
 
 COMMON_API extern FOracleAiHooks GOracleAiHooks;

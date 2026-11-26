@@ -23,6 +23,13 @@
 //! `content_guide`, `content_flee`). `content_flee_comms` (P3.6b) is
 //! `content_flee` with Content's comm system on, on both sides; each
 //! scenario's line says which comms the Rust side admitted (reported).
+//! `populated_he01` (P3.6d) loads its system as the server does, makes
+//! the ship player 1's and starts SpacePop (`OracleSimPopulate`); the
+//! ships the population spawns are named `npc<k>` by the order they are
+//! first found in the system's record, as the oracle's `tick.jsonl` names
+//! them, and judged apart from the scenario's objects: their count and
+//! each one's archetype against the oracle's `npc` records, their states
+//! through the first-divergence report (reported).
 //!
 //! With `OUTPOST_ORACLE_DIR` set, each run is judged against the oracle's
 //! `tick.jsonl` as `game-sim/tests/scenario_replay.rs` judges the run
@@ -42,26 +49,27 @@
 //! beside its run without a server, whose first divergence shows where
 //! the server's part first changes the run (reported).
 
+mod scenario_server;
+
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use game_logic::content::npc_ships::{self, NpcShipParams};
-use game_logic::server::{CreateParams, Cx, Logic, RecordingSink};
-use game_logic::world::Hooks;
+use game_logic::server::{Cx, Logic, RecordingSink};
 use game_sim::data::config::{DataConfig, GameData};
-use game_sim::object::damage::DamageList;
-use game_sim::object::world::{Assets, DamageState, NoServerHooks, ServerHooks, ServerRequest};
-use game_sim::object::{ObjHandle, World};
+use game_sim::object::World;
+use game_sim::object::world::{Assets, NoServerHooks};
+use game_sim::scenario::records::{Json, find_files, read_lines};
 use game_sim::scenario::{
-    self, ScenarioServer, dist, judge, needs_ai, oracle_ai_inputs, oracle_run, parse,
-    report_first_divergence_from, report_guided, scenario_files, world_config,
+    self, Run, Scenario, State, dist, judge, needs_ai, oracle_ai_inputs, oracle_run, parse,
+    report_first_divergence, report_first_divergence_from, report_guided, scenario_files,
+    world_config,
 };
-use neuron_core::ini::IniReader;
 use neuron_core::math::Vector;
 use neuron_core::vfs::Host;
-use neuron_server::controller::Priority;
+use scenario_server::{ScenarioHooks, content_start_up, population_ship};
 
 /// The scenarios run without the oracle: two contacts, an AI ship, the
 /// two trade lanes (the instant one and the dock behaviour's, whose
@@ -94,235 +102,119 @@ fn game_data() -> Option<Arc<GameData>> {
     Some(Arc::new(data))
 }
 
-/// The server's hooks with the physics of every sub-step on, as the
-/// oracle's harness forces it for the scenario's system: every other
-/// method is the server's.
-struct ScenarioHooks<'l> {
-    server: Hooks<'l>,
-    /// The AI's requests go to the server (a scenario marked `# rust:
-    /// server`); the other scenarios run without, as they were judged
-    /// before.
-    requests: bool,
-    /// The populated scenario's ship (`population <ship>`, P3.6d): it
-    /// becomes player 1's after the spawns, SpacePop hears its launch, and
-    /// each frame ends with the bus's heartbeats and timers as the
-    /// oracle's `ElapseTime` runs them.
-    population: Option<String>,
+/// The oracle's `npc` records (`session.jsonl` beside the first
+/// `tick.jsonl`, P3.6d): the ships the population spawned, by name, with
+/// their ids and archetypes, in spawn order.
+fn oracle_population(dir: &Path, scenario: &str) -> Vec<(String, u32, u32)> {
+    let Some(tick) = find_files(&dir.join(scenario), "tick.jsonl")
+        .into_iter()
+        .next()
+    else {
+        return Vec::new();
+    };
+    let session = tick.with_file_name("session.jsonl");
+    read_lines(&session)
+        .iter()
+        .filter(|r| r.get("rec").and_then(Json::as_str) == Some("npc"))
+        .filter_map(|r| {
+            Some((
+                r.get("obj")?.as_str()?.to_owned(),
+                r.get("id").and_then(Json::as_u32).unwrap_or(0),
+                r.get("arch").and_then(Json::as_u32).unwrap_or(0),
+            ))
+        })
+        .collect()
 }
 
-impl ServerHooks for ScenarioHooks<'_> {
-    fn object_update(&mut self, world: &mut World, object: ObjHandle, dt: f32) -> bool {
-        self.server.object_update(world, object, dt)
-    }
-
-    fn object_update_flags(&mut self, world: &World, object: ObjHandle) -> u32 {
-        self.server.object_update_flags(world, object)
-    }
-
-    fn object_after_update(&mut self, world: &mut World, object: ObjHandle, dt: f32) {
-        self.server.object_after_update(world, object, dt);
-    }
-
-    fn damage_state(
-        &mut self,
-        world: &World,
-        object: ObjHandle,
-        inflictor_owner: u32,
-    ) -> DamageState {
-        self.server.damage_state(world, object, inflictor_owner)
-    }
-
-    fn before_damage_list(
-        &mut self,
-        world: &mut World,
-        object: ObjHandle,
-        list: &mut DamageList,
-    ) -> bool {
-        self.server.before_damage_list(world, object, list)
-    }
-
-    fn after_damage_list(&mut self, world: &mut World, object: ObjHandle, list: &mut DamageList) {
-        self.server.after_damage_list(world, object, list);
-    }
-
-    fn damage_list_done(&mut self, world: &mut World, object: ObjHandle) {
-        self.server.damage_list_done(world, object);
-    }
-
-    fn destroy(&mut self, world: &mut World, object: ObjHandle, kind: i32, killer: u32) -> bool {
-        self.server.destroy(world, object, kind, killer)
-    }
-
-    fn after_reap(&mut self, world: &mut World, system: u32) {
-        self.server.after_reap(world, system);
-    }
-
-    fn server_requests(&mut self, world: &mut World, requests: Vec<ServerRequest>) {
-        if self.requests {
-            self.server.server_requests(world, requests);
-        }
-    }
-
-    fn steps_physics(&mut self, _world: &World, _system: u32) -> bool {
-        true
-    }
-
-    fn content_answer(
-        &mut self,
-        world: &mut World,
-        ship: ObjHandle,
-        handle: u32,
-    ) -> Option<game_sim::ai::content::FleeAnswer> {
-        self.server.content_answer(world, ship, handle)
-    }
-
-    fn directive_complete(
-        &mut self,
-        world: &mut World,
-        ship: ObjHandle,
-        handle: u32,
-        result: (i32, i32),
-    ) {
-        self.server.directive_complete(world, ship, handle, result);
-    }
+/// The population's ships (`npc<k>`) taken out of a run's states.
+fn take_population(run: &mut Run) -> BTreeMap<String, Vec<State>> {
+    let names: Vec<String> = run
+        .states
+        .keys()
+        .filter(|n| is_population_name(n))
+        .cloned()
+        .collect();
+    names
+        .into_iter()
+        .filter_map(|n| run.states.remove(&n).map(|v| (n, v)))
+        .collect()
 }
 
-impl ScenarioServer for ScenarioHooks<'_> {
-    fn hooks(&mut self) -> &mut dyn ServerHooks {
-        self
-    }
-
-    /// The populated scenario (`OracleSimPopulate`): player 1 with the
-    /// ship, then SpacePop and its launch.
-    fn spawned(
-        &mut self,
-        world: &mut World,
-        system: u32,
-        objects: &std::collections::BTreeMap<String, Option<ObjHandle>>,
-    ) {
-        let Some(name) = &self.population else {
-            return;
-        };
-        let Some(h) = objects.get(name).copied().flatten() else {
-            return;
-        };
-        let (ship, archetype) = world.get(h).map_or((0, 0), |o| (o.simple.id, o.archetype));
-        let mut cx = Cx {
-            world,
-            logic: self.server.logic,
-        };
-        game_logic::content::population::oracle_populate(&mut cx, 1, system, ship, archetype);
-    }
-
-    /// The end of the oracle's `ElapseTime` in the populated scenario: the
-    /// controllers' heartbeats, then the timers.
-    fn after_step(&mut self, world: &mut World, _system: u32, _tick: u32, dt: f32) {
-        if self.population.is_none() {
-            return;
-        }
-        let mut cx = Cx {
-            world,
-            logic: self.server.logic,
-        };
-        neuron_server::controller::tick(&mut cx, dt);
-        neuron_server::controller::fire_timers(&mut cx, dt);
-    }
-
-    /// A `content` ship (P3.6c): Content's NPC ship in the system's record
-    /// (`FSystemInfo::CreateNpcShip`), as the oracle's
-    /// `OracleSimCreateNpcShip` makes it: the archetype, loadout, place,
-    /// hit points, state graph (`LEADER`) and personality (the default, or the pilot's),
-    /// owned by SpaceSupport, with a reputation handle of no vibe (the
-    /// driver keeps no vibes; the attitudes come from the oracle) and the
-    /// `flee` position.
-    fn spawn_content_ship(
-        &mut self,
-        world: &mut World,
-        system: u32,
-        object: &game_sim::scenario::ObjDesc,
-        personality: Option<game_sim::ai::personality::Personality>,
-    ) -> Option<Option<ObjHandle>> {
-        let mut cx = Cx {
-            world,
-            logic: self.server.logic,
-        };
-        let state_graph = object.ai.as_ref().map_or(-1, |g| {
-            cx.world
-                .data()
-                .state_graphs
-                .find(g.as_bytes(), game_sim::ai::state_graph::GraphType::Leader)
-        });
-        let reputation = cx
-            .logic
-            .content
-            .state
-            .rep_handles
-            .create(-1, game_logic::content::rep_handles::RepKind::Plain);
-        let params = NpcShipParams {
-            reputation: Some(reputation),
-            archetype: neuron_core::id::create_id(object.archetype.as_bytes()),
-            loadout: if object.loadout.is_empty() {
-                0
-            } else {
-                neuron_core::id::create_id(object.loadout.as_bytes())
-            },
-            position: object.pos,
-            orientation: object.orient,
-            hit_points: object.hp as i32,
-            state_graph,
-            personality: personality.unwrap_or_default(),
-            controller: cx.logic.content.state.space_support.0,
-            ..NpcShipParams::default()
-        };
-        let (_, key) = npc_ships::create_in_system(&mut cx, system, &params, 0);
-        npc_ships::release_params(&mut cx, params);
-        let key = key?;
-        if let Some((point, distance)) = object.flee {
-            npc_ships::set_flee_position(&mut cx, key, point, distance);
-        }
-        let id = npc_ships::space_obj(&cx, key);
-        Some(cx.world.find(id))
-    }
+/// `npc<k>`: a ship the population spawned.
+fn is_population_name(name: &str) -> bool {
+    name.strip_prefix("npc")
+        .is_some_and(|k| !k.is_empty() && k.bytes().all(|b| b.is_ascii_digit()))
 }
 
-/// The `population <ship>` line of a scenario file (P3.6d; the scenario
-/// parser leaves it to the server).
-fn population_ship(path: &Path) -> Option<String> {
-    let text = fs::read_to_string(path).ok()?;
-    text.lines().find_map(|l| {
-        let l = l.split('#').next().unwrap_or("").trim();
-        let mut t = l.split_whitespace();
-        match (t.next(), t.next()) {
-            (Some(k), Some(ship)) if k.eq_ignore_ascii_case("population") => Some(ship.to_owned()),
-            _ => None,
-        }
-    })
-}
-
-/// The oracle's start-up (`Oracle.exe sim`, `WriteServerIni` and
-/// `Server_LoadWorldState`): Content's GameSupport, SpaceSupport and
-/// BaseSupport, then `LoadGame` over `InitialWorld.ini`, which builds the
-/// system records. The constructors' heartbeat draws come before the
-/// driver's seeding point, as the oracle's do.
-fn content_start_up(cx: &mut Cx<'_>) {
-    for (name, priority) in [
-        (&b"GameSupport"[..], Priority::Highest),
-        (&b"SpaceSupport"[..], Priority::Normal),
-        (&b"BaseSupport"[..], Priority::Normal),
-    ] {
-        let id = neuron_server::controller::create(
-            cx,
-            b"Content.dll",
-            name,
-            &CreateParams::None,
-            priority,
+/// The populated scenario's NPC ships against the oracle's (P3.6d): their
+/// count and each one's archetype by spawn order are judged; their states
+/// go through the first-divergence report (reported, not judged), under
+/// the scenario's name followed by `population`.
+fn judge_population(
+    summary: &mut String,
+    gross: &mut Vec<String>,
+    s: &Scenario,
+    ours: (&[(String, u32, u32)], BTreeMap<String, Vec<State>>),
+    theirs: (&[(String, u32, u32)], BTreeMap<String, Vec<State>>),
+) {
+    let (our_ships, our_states) = ours;
+    let (their_ships, their_states) = theirs;
+    let _ = writeln!(
+        summary,
+        "{}: population: rust spawned {} ships, oracle {}",
+        s.name,
+        our_ships.len(),
+        their_ships.len()
+    );
+    if our_ships.len() != their_ships.len() {
+        gross.push(format!(
+            "{}: population: rust spawned {} ships, oracle {}",
+            s.name,
+            our_ships.len(),
+            their_ships.len()
+        ));
+    }
+    let mut archetypes = Vec::new();
+    for (k, (ours, theirs)) in our_ships.iter().zip(their_ships).enumerate() {
+        let first = |states: &BTreeMap<String, Vec<State>>, name: &str| {
+            states
+                .get(name)
+                .and_then(|v| v.iter().position(|st| st.alive))
+                .map_or_else(|| "-".to_owned(), |t| t.to_string())
+        };
+        let _ = writeln!(
+            summary,
+            "{}: population: {}: rust id {} arch {:#010x} from tick {} | oracle id {} arch {:#010x} from tick {}",
+            s.name,
+            ours.0,
+            ours.1,
+            ours.2,
+            first(&our_states, &ours.0),
+            theirs.1,
+            theirs.2,
+            first(&their_states, &theirs.0)
         );
-        assert_ne!(id.0, 0, "{}", String::from_utf8_lossy(name));
+        if ours.0 != theirs.0 || ours.2 != theirs.2 {
+            archetypes.push(k + 1);
+        }
     }
-    let text = fs::read(outdir().join("data/initialworld.ini")).unwrap_or_default();
-    let mut reader = IniReader::new();
-    reader.open_memory(&text);
-    game_logic::selection::load_world_state(cx, &mut reader);
+    if !archetypes.is_empty() {
+        gross.push(format!(
+            "{}: population: the archetype differs for ship(s) {archetypes:?} by spawn order",
+            s.name
+        ));
+    }
+    let mut named = s.clone();
+    named.name = format!("{} population", s.name);
+    let ours = Run {
+        states: our_states,
+        ..Run::default()
+    };
+    let theirs = Run {
+        states: their_states,
+        ..Run::default()
+    };
+    report_first_divergence(summary, &named, &ours, &theirs, None);
 }
 
 #[test]
@@ -365,7 +257,7 @@ fn scenarios_through_the_server_hooks() {
                 world: &mut world,
                 logic: &mut logic,
             };
-            content_start_up(&mut cx);
+            content_start_up(&mut cx, &outdir());
             // `comms off`: the GCS clamp, as the oracle's
             // `OracleSimSetGcsClamp` sets it, so Content's comm system
             // admits nothing and draws no roll (P3.6b).
@@ -373,12 +265,24 @@ fn scenarios_through_the_server_hooks() {
                 cx.logic.content.state.clamps.set_gcs_clamp_enabled(1);
             }
         }
-        let mut hooks = ScenarioHooks {
-            server: Hooks { logic: &mut logic },
-            requests: s.rust_server.is_some(),
-            population: population_ship(&path),
-        };
-        let ours = scenario::run_with(world, &s, &ai, &mut hooks);
+        let mut hooks =
+            ScenarioHooks::new(&mut logic, s.rust_server.is_some(), population_ship(&path));
+        let mut ours = scenario::run_with(world, &s, &ai, &mut hooks);
+        let our_ships = std::mem::take(&mut hooks.population_ships);
+        drop(hooks);
+        // The population's ships (P3.6d) apart from the scenario's objects.
+        let our_population = take_population(&mut ours);
+        for (name, id, arch) in &our_ships {
+            let first = our_population
+                .get(name)
+                .and_then(|v| v.iter().position(|st| st.alive));
+            let _ = writeln!(
+                summary,
+                "{}: population: {name}: id {id} arch {arch:#010x} spawned at tick {}",
+                s.name,
+                first.map_or_else(|| "-".to_owned(), |t| t.to_string())
+            );
+        }
         // The comm system's activity (P3.6b; reported, not judged): the
         // comms it admitted, newest ten per category.
         let recent = &logic.content.state.gcs.recent;
@@ -445,11 +349,22 @@ fn scenarios_through_the_server_hooks() {
             );
             continue;
         };
-        let Some(theirs) = oracle_run(dir, &s.name) else {
+        let Some(mut theirs) = oracle_run(dir, &s.name) else {
             let _ = writeln!(summary, "{}: no oracle tick.jsonl", s.name);
             continue;
         };
+        let their_population = take_population(&mut theirs);
         judge(&mut summary, &mut gross, dir, &s, &ai, &ours, &theirs);
+        if population_ship(&path).is_some() {
+            let their_ships = oracle_population(dir, &s.name);
+            judge_population(
+                &mut summary,
+                &mut gross,
+                &s,
+                (&our_ships, our_population),
+                (&their_ships, their_population),
+            );
+        }
     }
     let _ = writeln!(
         summary,
