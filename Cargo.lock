@@ -1018,6 +1018,9 @@ name = "outpost-frontier"
 version = "0.1.0"
 dependencies = [
  "game-app",
+ "game-logic",
+ "game-sim",
+ "neuron-core",
 ]
 
 [[package]]

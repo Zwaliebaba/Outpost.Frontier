@@ -175,14 +175,22 @@ where
     }
 
     /// `CRemoteClientProxy::OnConnect`: the client id, then
-    /// `IServerImpl::OnConnect`.
+    /// `IServerImpl::OnConnect` (the message of the day). An in-process
+    /// single-player server hears only the client id: rpclocal's pump sends
+    /// the CONNECTRESPONSE on its first update (`rpclocal/rpc_client_proxy.cpp`,
+    /// `Update`), and nothing calls `Server.dll`'s `OnConnect`, which only
+    /// `RemoteClient` does (`RemoteClient_transport.cpp:292`; rpclocal's own
+    /// `IServerImpl::OnConnect` is empty, `rpclocal.cpp:601`). P5.1, record
+    /// 0009.
     fn connected(&mut self, client: u32) {
         self.logic.client.send(
             client,
             ToClient::Server(ConnectResponse { value: client }.into()),
         );
-        let mut cx = self.cx();
-        crate::session::on_connect(&mut cx, client);
+        if self.logic.multiplayer_server {
+            let mut cx = self.cx();
+            crate::session::on_connect(&mut cx, client);
+        }
     }
 
     /// `DispatchClientPacket` for one message of `client`.
