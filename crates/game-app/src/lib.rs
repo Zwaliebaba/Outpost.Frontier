@@ -4,6 +4,7 @@
 use std::io::{self, Write};
 
 pub mod account_keys;
+pub mod base;
 pub mod cameras;
 pub mod client_state;
 pub mod frame;
