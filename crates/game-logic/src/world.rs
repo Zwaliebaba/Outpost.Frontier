@@ -317,7 +317,7 @@ fn unload(cx: &mut Cx<'_>, system: u32) {
     if let Some(s) = system_mut(cx, system) {
         s.observers.clear();
     }
-    cx.logic.solar_trees.remove(system);
+    cx.world.free_solar_partition(system);
     cx.world.unload_system(system);
 }
 
@@ -680,7 +680,7 @@ pub const NEAR_SOLAR_RADIUS: f32 = 10000.0;
 /// of at most 0x800 entries, so a solar near two players is in it twice.
 #[must_use]
 pub fn near_solars(world: &World, logic: &Logic, system: u32) -> Option<Vec<ObjHandle>> {
-    let tree = logic.solar_trees.get(system)?;
+    let tree = world.solar_partition(system)?;
     let mut scan = game_sim::data::spatial::QueryResult::default();
     let observers = logic
         .server_world

@@ -469,6 +469,9 @@ pub fn run_with(
                 let _ = world.spawn_solar(system, &sp);
             }
         }
+        // `StarSystem::load`'s solar partition over the solars the world
+        // has, the system's bucket for the scanners and the pathfinder.
+        world.build_solar_partition(system);
     }
     world.set_unit_trace(system, true);
     world.set_fire_log(true);

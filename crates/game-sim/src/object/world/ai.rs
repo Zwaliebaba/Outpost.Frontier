@@ -486,6 +486,12 @@ impl AiWorld for World {
         self.find(id)
     }
 
+    /// `StarSystem::GetBucket` (the mask is ignored, `server_classes.cpp:
+    /// 11594`): the system's solar partition ([`World::solars_in_sphere`]).
+    fn bucket_query(&self, system: u32, center: Vector, radius: f32) -> Option<Vec<ObjHandle>> {
+        self.solars_in_sphere(system, center, radius)
+    }
+
     fn system_objects(&self, system: u32, class_mask: u32) -> Vec<ObjHandle> {
         self.objects_in(system)
             .into_iter()

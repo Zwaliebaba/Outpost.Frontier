@@ -573,6 +573,28 @@ pub trait AiWorld {
     /// order.
     fn system_objects(&self, system: u32, class_mask: u32) -> Vec<Self::Handle>;
 
+    /// `IObjDB::GetBucket(mask)` and the bucket's `QuerySphere` (+0x1c):
+    /// the objects of the system's spatial partition whose spheres meet the
+    /// sphere, in the partition's order; `None` without a bucket. The
+    /// default (a world without a partition of its own, as the fakes are)
+    /// takes the system's objects whose sphere meets it, in database order.
+    fn bucket_query(&self, system: u32, center: Vector, radius: f32) -> Option<Vec<Self::Handle>> {
+        Some(
+            self.system_objects(system, 0)
+                .into_iter()
+                .filter(|&h| {
+                    self.inspect(h).is_some_and(|v| {
+                        let d = super::fp::sub(v.position, center);
+                        ((f64::from(d.x) * f64::from(d.x) + f64::from(d.y) * f64::from(d.y))
+                            + f64::from(d.z) * f64::from(d.z))
+                        .sqrt()
+                            <= f64::from(radius) + f64::from(v.radius)
+                    })
+                })
+                .collect(),
+        )
+    }
+
     /// `get_attitude_towards` (26) of `from` toward `to`.
     fn attitude(&self, from: Self::Handle, to: Self::Handle) -> Option<f32>;
 
