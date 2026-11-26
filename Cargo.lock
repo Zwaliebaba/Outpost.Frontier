@@ -366,6 +366,7 @@ dependencies = [
 name = "game-app"
 version = "0.1.0"
 dependencies = [
+ "game-sim",
  "neuron-client",
  "neuron-core",
  "toml",

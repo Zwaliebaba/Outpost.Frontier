@@ -5,6 +5,8 @@ use std::io::{self, Write};
 
 pub mod account_keys;
 pub mod cameras;
+pub mod client_state;
+pub mod frame;
 pub mod input_router;
 pub mod login_history;
 pub mod machine_warning;
@@ -13,6 +15,7 @@ pub mod movies;
 pub mod perf_options;
 pub mod profile;
 pub mod render_mode;
+pub mod session;
 pub mod startup_config;
 pub mod table_layouts;
 pub mod timing;
