@@ -443,6 +443,9 @@ impl ServerHooks for Hooks<'_> {
             world,
             logic: self.logic,
         };
+        // The loot of fates 4 and 5, which the C++ makes while it builds
+        // the list (`destroy_equip`, `destroy_cargo`).
+        crate::objects::drop_pending_loot(&mut cx, object, list);
         crate::objects::begin_damage_list(&mut cx, object, list);
         crate::ship::stamp_damage_times(&mut cx, object, list);
         true

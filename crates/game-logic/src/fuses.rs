@@ -25,10 +25,11 @@
 //!
 //! Left to other parts: `Ship::light_fuse`'s word to the
 //! formation and follow followers' behaviour managers and the death
-//! branch's own behaviour event 7 (the behaviour manager's server link);
-//! the loot of a `destroy_hp_attachment` with the `loot` fate (the server's
-//! `destroy_equip` loot branch). A new ship's `check_fuses` runs from
-//! `Ship::set_equip_state` ([`crate::ship::create_ship`]).
+//! branch's own behaviour event 7 (the behaviour manager's server link).
+//! A `destroy_hp_attachment` with the `loot` fate drops its container as
+//! the list is applied (`destroy_equip`'s loot branch,
+//! [`crate::objects::drop_pending_loot`]). A new ship's `check_fuses` runs
+//! from `Ship::set_equip_state` ([`crate::ship::create_ship`]).
 
 use std::collections::BTreeMap;
 

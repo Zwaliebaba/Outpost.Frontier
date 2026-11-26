@@ -446,6 +446,199 @@ pub fn damage_entry(cx: &mut Cx<'_>, h: ObjHandle, list: &mut DamageList, i: usi
     }
 }
 
+/// The cause of a jettisoned pod's list (`Ship::slot_38`), whose
+/// containers `create_loot` makes in mode 1.
+const CAUSE_JETTISON: game_sim::object::damage::DamageCause = 0x16;
+
+/// The solar visit an inflicting player owes for loot from a solar
+/// (`EqObj_Solar`: the solar's id and visit value), `None` for any other
+/// object.
+fn solar_visit(cx: &Cx<'_>, h: ObjHandle) -> Option<(u32, u8)> {
+    cx.world.get(h).and_then(|o| match &o.data {
+        game_sim::object::KindData::Solar(s) => Some((o.simple.id, s.visit_value)),
+        _ => None,
+    })
+}
+
+/// The visit test before the loot: at a solar, a valid inflicting player
+/// that should not queue the visit again gets none
+/// (`PlayerData_ShouldQueueVisit`).
+fn loot_refused(cx: &Cx<'_>, h: ObjHandle, inflictor_owner: u32) -> bool {
+    solar_visit(cx, h).is_some_and(|(key, flags)| {
+        cx.logic
+            .players
+            .get(inflictor_owner)
+            .is_some_and(|slot| !crate::player::should_queue_visit(slot, key, flags))
+    })
+}
+
+/// The visit recorded after the loot (`PlayerData_QueueVisit`, the
+/// inflicting player read again).
+fn record_loot_visit(cx: &mut Cx<'_>, h: ObjHandle, inflictor_owner: u32) {
+    if let Some((key, flags)) = solar_visit(cx, h)
+        && let Some(slot) = cx.logic.players.get_mut(inflictor_owner)
+    {
+        crate::player::queue_visit(slot, key, flags);
+    }
+}
+
+/// The description the loot takes: with fate 4 `EquipDropLoot` to the bus
+/// (the system, the list's inflictor and cause, the object, the item's
+/// description, which a controller may rewrite) and what it hands back;
+/// with fate 5 the item's own. An item without a description loots
+/// nothing (count 0).
+fn loot_desc(
+    cx: &mut Cx<'_>,
+    h: ObjHandle,
+    item: game_sim::equip::SubObjId,
+    fate: Fate,
+    list: &DamageList,
+) -> game_sim::data::equip_desc::EquipDesc {
+    let desc = cx.world.equip_desc(h, item).unwrap_or_else(|| {
+        let mut d = game_sim::data::equip_desc::EquipDesc::new(cx.world.strings());
+        d.count = 0;
+        d
+    });
+    if fate != Fate::Loot {
+        return desc;
+    }
+    let (system, object) = cx
+        .world
+        .get(h)
+        .map_or((0, 0), |o| (o.physical.system, o.simple.id));
+    let mut message = ControllerMessage::EquipDropLoot(crate::events::EquipDropLoot {
+        system,
+        inflictor: list.inflictor_id,
+        object,
+        cause: list.cause,
+        desc,
+    });
+    let _ = cx.dispatch(ControllerId::BROADCAST, &mut message);
+    match message {
+        ControllerMessage::EquipDropLoot(event) => event.desc,
+        _ => desc,
+    }
+}
+
+/// The loot of the items the list destroyed with fate 4 or 5
+/// (`EqObj::destroy_equip`, `destroy_cargo`;
+/// `Server/server_gameobject.cpp:3256-3488`), in the order the C++ makes
+/// it while it builds the list, before the list is applied; each entry
+/// then takes the fate the C++ adds it with.
+///
+/// - An item (`equip_loot`): a refused visit separates it; otherwise the
+///   description (`loot_desc`); nothing left (count not above 0, health
+///   not above 0) separates it; else an attached item becomes one
+///   container (`build_equip_loot`, both hit points the description's
+///   health of the archetype's; `create_loot` in mode 1 for a jettison
+///   list, else 2) and an internal one `build_loot`'s (mode 2), and the
+///   visit is recorded.
+/// - A cargo pod (`pod_loot`): a refused visit drops nothing and keeps
+///   the fate; otherwise the stack's description; nothing left separates
+///   the pod; else the pod becomes one container carrying the stack (its
+///   health of the contents' hit points, its count) and the visit is
+///   recorded.
+pub fn drop_pending_loot(cx: &mut Cx<'_>, h: ObjHandle, list: &mut DamageList) {
+    let pending = std::mem::take(&mut list.loot);
+    for p in pending {
+        let last = match p.pod_cargo {
+            Some(cargo) => pod_loot(cx, h, list, p.equip, cargo, p.fate),
+            None => equip_loot(cx, h, list, p.equip, p.fate),
+        };
+        p.settle(list, last);
+    }
+}
+
+/// `create_loot`'s mode for a list: 1 for a jettisoned pod's, else 2.
+fn loot_mode(list: &DamageList) -> u32 {
+    if list.cause == CAUSE_JETTISON { 1 } else { 2 }
+}
+
+fn equip_loot(
+    cx: &mut Cx<'_>,
+    h: ObjHandle,
+    list: &DamageList,
+    item: game_sim::equip::SubObjId,
+    fate: Fate,
+) -> Fate {
+    if loot_refused(cx, h, list.inflictor_owner) {
+        return Fate::Separated;
+    }
+    let desc = loot_desc(cx, h, item, fate, list);
+    // `!(Health > 0)`: NaN counts as nothing left.
+    if desc.count <= 0 || desc.health.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+        return Fate::Separated;
+    }
+    let (system, source) = cx
+        .world
+        .get(h)
+        .map_or((0, 0), |o| (o.physical.system, o.simple.id));
+    let attached = cx
+        .world
+        .get(h)
+        .and_then(|o| o.equipped.as_deref())
+        .and_then(|eq| eq.equipment.by_id(item))
+        .is_some_and(|e| e.attached.is_some());
+    if attached {
+        if let Some(mut spawn) = cx.world.build_equip_loot(h, item) {
+            let contents_max = cx
+                .world
+                .data()
+                .archetypes
+                .equipment
+                .get(&spawn.contents)
+                .map_or(0.0, |a| a.root.hit_pts);
+            let hit_pts = (f64::from(desc.health) * f64::from(contents_max)) as f32;
+            spawn.contents_hit_pts = hit_pts;
+            spawn.hit_pts = hit_pts;
+            create_loot_mode(cx, system, source, loot_mode(list), &[spawn]);
+        }
+    } else {
+        let spawns = cx.world.loot_drops(h, std::slice::from_ref(&desc));
+        if !spawns.is_empty() {
+            create_loot_mode(cx, system, source, 2, &spawns);
+        }
+    }
+    record_loot_visit(cx, h, list.inflictor_owner);
+    fate
+}
+
+fn pod_loot(
+    cx: &mut Cx<'_>,
+    h: ObjHandle,
+    list: &DamageList,
+    pod: game_sim::equip::SubObjId,
+    cargo: game_sim::equip::SubObjId,
+    fate: Fate,
+) -> Fate {
+    if loot_refused(cx, h, list.inflictor_owner) {
+        return fate;
+    }
+    let desc = loot_desc(cx, h, cargo, fate, list);
+    // `!(Health > 0)`: NaN counts as nothing left.
+    if desc.count <= 0 || desc.health.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+        return Fate::Separated;
+    }
+    let (system, source) = cx
+        .world
+        .get(h)
+        .map_or((0, 0), |o| (o.physical.system, o.simple.id));
+    if let Some(mut spawn) = cx.world.build_equip_loot(h, pod) {
+        let contents_max = cx
+            .world
+            .data()
+            .archetypes
+            .equipment
+            .get(&spawn.contents)
+            .map_or(0.0, |a| a.root.hit_pts);
+        spawn.contents_hit_pts = (f64::from(desc.health) * f64::from(contents_max)) as f32;
+        spawn.units = desc.count as u32;
+        create_loot_mode(cx, system, source, loot_mode(list), &[spawn]);
+        record_loot_visit(cx, h, list.inflictor_owner);
+    }
+    fate
+}
+
 /// `GameObject::apply_damage_list`'s head: a list applied inside another's
 /// callback is reported (and applied all the same), then the callback
 /// latch is set.
