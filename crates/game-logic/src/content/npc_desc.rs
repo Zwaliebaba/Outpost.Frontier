@@ -4,7 +4,7 @@
 //! (work package P3.4c, decision record 0008 point 10).
 //!
 //! The specific NPCs ([`SpecificNpcs`]) are what StoryLauncher's constructor
-//! reads (`StoryLauncher.cpp:38-52`) and its destructor empties
+//! reads (`StoryLauncher.cpp:39-53`) and its destructor empties
 //! (`:57-60`); they live behind an `Arc` in [`ContentState`](super::ContentState)
 //! because StoryLauncher, not GameSupport, makes them, and nothing changes
 //! them in between. The bar scenes of RTC scripts read them (TU23, P3.6e).

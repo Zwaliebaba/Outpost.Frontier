@@ -405,6 +405,41 @@ pub struct Jumper {
     pub state: i32,
 }
 
+/// The mission object of controller `id`: a script mission's, or the
+/// lists of TU38 a random mission keeps
+/// ([`RandomMission::object`](crate::content::random_mission::runtime::RandomMission::object),
+/// P3.7d), so the snapshot, the jumpers and the `NpcShipCreated` case run
+/// on either.
+#[must_use]
+pub fn of<'c>(cx: &'c Cx<'_>, id: ControllerId) -> Option<&'c MissionObject> {
+    match cx.logic.content.instances.get(&id) {
+        Some(crate::content::Instance::Mission(s)) => Some(&s.object),
+        Some(crate::content::Instance::RandomMission(r)) => Some(&r.object),
+        _ => None,
+    }
+}
+
+/// [`of`], to change.
+pub fn of_mut<'c>(cx: &'c mut Cx<'_>, id: ControllerId) -> Option<&'c mut MissionObject> {
+    match cx.logic.content.instances.get_mut(&id) {
+        Some(crate::content::Instance::Mission(s)) => Some(&mut s.object),
+        Some(crate::content::Instance::RandomMission(r)) => Some(&mut r.object),
+        _ => None,
+    }
+}
+
+/// The mission object's `PlayerId` of controller `id`: a script mission's,
+/// or a random mission's own
+/// ([`RandomMission::player`](crate::content::random_mission::runtime::RandomMission::player)).
+#[must_use]
+pub fn player_of(cx: &Cx<'_>, id: ControllerId) -> Option<u32> {
+    match cx.logic.content.instances.get(&id) {
+        Some(crate::content::Instance::Mission(s)) => Some(s.object.player),
+        Some(crate::content::Instance::RandomMission(r)) => Some(r.player),
+        _ => None,
+    }
+}
+
 impl MissionObject {
     /// `FMissionObject::FMissionObject` (`MissionObject.cpp:83-102`) without
     /// its heartbeat, which the caller sets.

@@ -43,7 +43,8 @@
 //! system records of [`systems`] with their solar NPCs ([`solar_npcs`]),
 //! the gate locks of [`gate_locks`], `LoadGame` and `SaveGame`, the space
 //! paths of [`space_paths`]), the missions' constructors and parser (P3.5a,
-//! [`mission`]), the rest of the missions and the story (P3.5), SpaceSupport's
+//! [`mission`]), the rest of the missions (P3.5b, P3.5c) and the story
+//! shell with the story missions' overrides (P3.5d, [`story`]), SpaceSupport's
 //! other steps, the populators and BaseSupport (P3.6) and the random
 //! missions (P3.7) come with their packages. P3.6a brings SpaceSupport's
 //! core ([`space_support`]): its handler's order, the dock queues
@@ -160,9 +161,12 @@ pub struct ContentState {
     /// `GBasePopInstance` (`Content/Populators.cpp:794`): the BasePop that
     /// was created last; never cleared (D771, D772).
     pub base_pop: Option<ControllerId>,
-    /// `GStoryMissionController` (`Content/Story.cpp:31`): the campaign
-    /// mission Story created last (P3.5); 0 until then.
+    /// `GStoryMissionController` (`Content/Story.cpp:32`): the campaign
+    /// mission Story created last (P3.5d, [`story`]); 0 until then.
     pub story_mission: ControllerId,
+    /// The Tier B story trace (P3.5d, [`story::trace`]), off unless a
+    /// session turns it on.
+    pub story_trace: Option<story::trace::StoryTrace>,
     /// `GSpecificNpcs` (`Content/NpcShips.cpp:26`): StoryLauncher's
     /// constructor reads them, its destructor empties them; nothing changes
     /// them in between ([`npc_desc`]).
@@ -213,7 +217,7 @@ pub struct ContentState {
     /// `G_bContentGcsClampDisabled` (`Content.cpp:19`),
     /// `GSpacePopHostileClamp` and `GSpacePopPopulationEnabled`.
     pub clamps: mission::save::Clamps,
-    /// `GStoryDebugFlag` (`Story.cpp:28`): `[StoryInfo]`'s `debug`, shared by
+    /// `GStoryDebugFlag` (`Story.cpp:29`): `[StoryInfo]`'s `debug`, shared by
     /// every Story (P3.5b).
     pub story_debug: u8,
     /// The dock lists, the terminal states and the launch queues of TU53
@@ -281,6 +285,7 @@ impl ContentState {
             space_pop: ControllerId::BROADCAST,
             base_pop: None,
             story_mission: ControllerId::BROADCAST,
+            story_trace: None,
             specific_npcs: Arc::default(),
             bases: bases::ContentBases::new(),
             system_paths: system_paths::SystemPaths::default(),
@@ -554,9 +559,11 @@ pub fn destroy_instance(cx: &mut Cx<'_>, id: ControllerId, kind: ControllerKind)
 
 /// `IDLL::HandleMessage` of controller `id` of `kind`: the kind's handler.
 /// The kinds without a ported handler ignore the message for now; the
-/// script missions' handler came with P3.5c1 ([`mission::engine`]),
-/// BaseSupport's with P3.6e ([`base_support`]) and `DestroyMission`'s with
-/// P3.7b ([`random_mission::runtime`]).
+/// script missions' handler came with P3.5c1 ([`mission::engine`], with the
+/// story missions' overrides of P3.5d, [`mission::story_missions`]),
+/// BaseSupport's with P3.6e ([`base_support`]), `DestroyMission`'s with
+/// P3.7b ([`random_mission::runtime`]) and StoryLauncher's and Story's with
+/// P3.5d ([`story`]).
 pub fn deliver(
     cx: &mut Cx<'_>,
     id: ControllerId,
@@ -572,10 +579,9 @@ pub fn deliver(
         | ControllerKind::Mission(_)
         | ControllerKind::GenericMission => mission::engine::handle_message(cx, id, message),
         ControllerKind::DestroyMission => random_mission::runtime::handle_message(cx, id, message),
-        ControllerKind::SpacePop
-        | ControllerKind::BasePop
-        | ControllerKind::StoryLauncher
-        | ControllerKind::Story => {}
+        ControllerKind::StoryLauncher => story::handle_launcher_message(cx, id, message),
+        ControllerKind::Story => story::handle_message(cx, id, message),
+        ControllerKind::SpacePop | ControllerKind::BasePop => {}
     }
 }
 

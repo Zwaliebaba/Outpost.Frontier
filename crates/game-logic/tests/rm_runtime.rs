@@ -20,6 +20,11 @@
 //!   player 7's ship and ended by the line's `CommComplete`.
 //! - A player-list line (`FGcsPlayerListLine`) on its own: who decides
 //!   `CanPlay`, who hears it, which player's ship ends it.
+//! - The mission object of TU38 in single player (P3.7d,
+//!   `Content/MissionObject.cpp:1496-1925` through
+//!   `FRandomMissionObject::Slot2`): the snapshot of `SpaceExit` and of a
+//!   save, the respawn that `SpaceEnter` does not make, the solars of
+//!   `PlayerLaunch`, the jump of the player's ship and the jumpers.
 //!
 //! Each test returns early without `outdir/`. Nothing these tests write is
 //! committed.
@@ -60,9 +65,10 @@ fn outdir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../outdir")
 }
 
-/// A multiplayer server on `outdir/` started as the oracle starts it
-/// (`rm_session.rs`); `None` without the data.
-fn started() -> Option<(World, Logic)> {
+/// A server on `outdir/` started as the oracle starts it
+/// (`rm_session.rs`), multiplayer but in single player when
+/// `single_player` (P3.7d); `None` without the data.
+fn started_with(single_player: bool) -> Option<(World, Logic)> {
     let root = outdir();
     let Some(config) = DataConfig::read(&Host::new(&root), b"OutpostFrontier.ini") else {
         println!("notice: outdir/OutpostFrontier.ini is missing; nothing was run");
@@ -71,8 +77,12 @@ fn started() -> Option<(World, Logic)> {
     let data_dir = root.join("data");
     let mut data = GameData::new();
     data.load(&Host::new(&data_dir), &config, None);
-    let mut world = World::new(Arc::new(data), WorldConfig::default())
-        .with_assets(Assets::new(data_dir.clone()));
+    let world_config = WorldConfig {
+        single_player,
+        ..WorldConfig::default()
+    };
+    let mut world =
+        World::new(Arc::new(data), world_config).with_assets(Assets::new(data_dir.clone()));
     let mut logic = Logic::new(Box::new(RecordingSink::default()), 16, true);
     let mut cx = Cx {
         world: &mut world,
@@ -241,7 +251,12 @@ fn give_ship(cx: &mut Cx<'_>, system: u32, at: Vector) -> u32 {
 /// system loaded, player 7's ship at the target position, one tick run.
 /// `run` gets the context, the mission and the ship.
 fn with_battle(run: impl FnOnce(&mut Cx<'_>, ControllerId, u32)) {
-    let Some((mut world, mut logic)) = started() else {
+    with_battle_in(false, run);
+}
+
+/// [`with_battle`], in single player when `single_player` (P3.7d).
+fn with_battle_in(single_player: bool, run: impl FnOnce(&mut Cx<'_>, ControllerId, u32)) {
+    let Some((mut world, mut logic)) = started_with(single_player) else {
         return;
     };
     let mut cx = Cx {
@@ -253,14 +268,30 @@ fn with_battle(run: impl FnOnce(&mut Cx<'_>, ControllerId, u32)) {
         tick(&mut cx, mission);
     }
     let (_, state, _) = vignette(&cx, mission);
-    assert_eq!(
-        state, 8,
-        "the first vendor offer waits for its target ships"
-    );
     let o = offer(&cx, mission);
-    assert!(o.target_ships.component.active && !o.target_ships.groups.is_empty());
+    // In single player the same seeds give another offer, whose machine
+    // waits for its main battle (state 10).
+    let at = if single_player && state == 10 {
+        assert!(o.ships.component.active && !o.ships.groups.is_empty());
+        o.ships.position
+    } else {
+        assert_eq!(
+            state, 8,
+            "the first vendor offer waits for its target ships"
+        );
+        assert!(o.target_ships.component.active && !o.target_ships.groups.is_empty());
+        o.target_ships.position
+    };
+    if single_player {
+        // The client's side of a single-player game loads the system's
+        // solars into the shared world first.
+        cx.world.load_system(o.system);
+        let _ = cx
+            .world
+            .load_system_solars_reported(o.system, &mut cx.logic.reports);
+    }
     world::load(&mut cx, o.system);
-    let ship = give_ship(&mut cx, o.system, o.target_ships.position);
+    let ship = give_ship(&mut cx, o.system, at);
     let mut enter = ControllerMessage::SpaceEnter {
         system: o.system,
         player: PLAYER,
@@ -269,6 +300,14 @@ fn with_battle(run: impl FnOnce(&mut Cx<'_>, ControllerId, u32)) {
     };
     let _ = api::controller::send_message(&mut cx, mission, &mut enter);
     tick(&mut cx, mission);
+    // The main battle: the 7.5 km trigger spawns the solars and arms the
+    // 2.5 km one, whose state 11 spawns the first group.
+    for _ in 0..4 {
+        if !single_player || !ship_records(&cx, mission).is_empty() {
+            break;
+        }
+        tick(&mut cx, mission);
+    }
     run(&mut cx, mission, ship);
 }
 
@@ -524,5 +563,204 @@ fn an_aborted_mission_lets_its_ships_wander() {
                 assert_ne!(guide, Some(4), "a wingman follows its leader");
             }
         }
+    });
+}
+
+/// P3.7d: in single player the mission's player's `SpaceExit` takes the
+/// mission object's snapshot (`MissionObject.cpp:1688-1695`), which finds
+/// nothing of a random mission: its ships are its ship machine's records,
+/// never TU38's NPC objects (only `FMissionScript` registers those), so no
+/// respawn record, solar or attitude is kept. `SpaceEnter` is answered by
+/// `FRandomMissionObject::Slot2` (`RandomMissionDB.cpp:1645-1657`), which
+/// refreshes the records and makes no respawn: the ships live on, as they
+/// were. A save through the bus with a ship takes the snapshot again and
+/// writes, after the `[RandomMission]` section, only the record's
+/// objectives; `PlayerLaunch` spawns no solar.
+#[test]
+fn a_random_mission_is_snapshotted_but_not_respawned_in_single_player() {
+    with_battle_in(true, |cx, mission, _| {
+        assert!(api::misc::single_player(cx));
+        let records = ship_records(cx, mission);
+        assert!(!records.is_empty(), "the first group was spawned");
+        let ships: Vec<u32> = records.iter().map(|r| r.object).collect();
+        let npcs = cx.logic.content.state.npc_ships.len();
+        let o = offer(cx, mission);
+        // `NpcShipCreated` (`:1869-1913`): each ship's labels in the label
+        // map; no `[MsnShip]` record makes it a jumper.
+        {
+            let r = instance(cx, mission);
+            assert!(r.object.npc_objects.is_empty());
+            assert!(r.object.jumpers.is_empty());
+            for record in &records {
+                let key = record.npc_ship.expect("a ship");
+                for label in &cx.logic.content.state.npc_ships[&key].field_0x17c {
+                    assert!(
+                        r.object
+                            .formation_members
+                            .get(label)
+                            .is_some_and(|m| m.contains(&record.object)),
+                        "label {label:#x} of {}",
+                        record.object
+                    );
+                }
+            }
+        }
+        let mut exit = ControllerMessage::SpaceExit {
+            system: o.system,
+            player: PLAYER,
+        };
+        let _ = api::controller::send_message(cx, mission, &mut exit);
+        {
+            let r = instance(cx, mission);
+            assert!(r.object.respawn_ships.is_empty());
+            assert!(r.object.rand_enc_respawns.is_empty());
+            assert!(r.object.respawn_solars.is_empty());
+            assert!(r.object.vibe_infos.is_empty());
+        }
+        let mut enter = ControllerMessage::SpaceEnter {
+            system: o.system,
+            player: PLAYER,
+            launch_object: 0,
+            launch_kind: -1,
+        };
+        let _ = api::controller::send_message(cx, mission, &mut enter);
+        assert_eq!(cx.logic.content.state.npc_ships.len(), npcs, "no respawn");
+        let again: Vec<u32> = ship_records(cx, mission).iter().map(|r| r.object).collect();
+        assert_eq!(again, ships, "the same ships");
+        // A save with the ship: the snapshot, then the record's objectives.
+        let mut save = Vec::new();
+        let mut message = ControllerMessage::PlayerSave {
+            client: PLAYER,
+            file: &mut save,
+        };
+        let _ = api::controller::send_message(cx, mission, &mut message);
+        let text = String::from_utf8_lossy(&save).into_owned();
+        assert!(
+            text.starts_with("[RandomMission]\ntype = DestroyMission\n"),
+            "{text}"
+        );
+        let after = text
+            .split_once("\n\n")
+            .map_or("", |(_, rest)| rest)
+            .to_owned();
+        let mut want = Vec::new();
+        if let Some(record) = instance(cx, mission).records.values().next() {
+            game_logic::content::mission::object_save::write_objectives(
+                &mut want,
+                &record.objectives,
+            )
+            .expect("in memory");
+        }
+        assert_eq!(after, String::from_utf8_lossy(&want));
+        assert!(!after.contains("[MsnShipSave]") && !after.contains("[MsnVibeInfo]"));
+        // `PlayerLaunch` (`:1548-1561`): no solar to spawn.
+        let mut launch = ControllerMessage::PlayerLaunch {
+            player: PLAYER,
+            base: 0,
+        };
+        let _ = api::controller::send_message(cx, mission, &mut launch);
+        assert_eq!(cx.logic.content.state.npc_ships.len(), npcs);
+    });
+}
+
+/// P3.7d: the jump of the mission's player's ship (`Msg0x25`,
+/// `OnShipJump`, `MissionObject.cpp:2345-2385`) notes its gate's target
+/// as the mission object's jump, and carries no jumper (a random mission
+/// has none); the heartbeat's `UpdateJumpers` (`:2388-2422`) and
+/// `JumpInComplete` (`:1643-1647`) find no pending jump. A mission ship's
+/// own jump finds no NPC object.
+#[test]
+fn a_random_mission_follows_its_players_jump_without_jumpers() {
+    with_battle_in(true, |cx, mission, player_ship| {
+        let o = offer(cx, mission);
+        let gate = cx
+            .world
+            .objects_in(o.system)
+            .into_iter()
+            .filter_map(|h| cx.world.get(h).map(|obj| obj.simple.id))
+            .find(|&id| {
+                api::space_obj::object_type(cx, id) == Ok(0x40)
+                    && api::space_obj::jump_target(cx, id).is_ok()
+            })
+            .expect("a jump gate in the mission's system");
+        let target = api::space_obj::jump_target(cx, gate).expect("its target");
+        if let Some(ship) = cx
+            .logic
+            .content
+            .state
+            .players
+            .get_mut(&PLAYER)
+            .and_then(|s| s.ship.as_mut())
+        {
+            ship.target = gate;
+        }
+        let mut jump = ControllerMessage::Msg0x25 {
+            ship: player_ship,
+            death_sequence: gate,
+            system: o.system,
+        };
+        let _ = api::controller::send_message(cx, mission, &mut jump);
+        {
+            let r = instance(cx, mission);
+            assert_eq!((r.object.jump_system, r.object.jump_gate), target);
+            assert!(r.object.jumpers.is_empty());
+            assert!(!r.object.jump_pending);
+        }
+        // A mission ship's jump: no NPC object of TU38 holds it.
+        let records = ship_records(cx, mission);
+        let mut npc_jump = ControllerMessage::Msg0x25 {
+            ship: records[0].object,
+            death_sequence: gate,
+            system: o.system,
+        };
+        let _ = api::controller::send_message(cx, mission, &mut npc_jump);
+        let mut done = ControllerMessage::JumpInComplete {
+            arg: o.system,
+            ship: player_ship,
+        };
+        let _ = api::controller::send_message(cx, mission, &mut done);
+        tick(cx, mission);
+        let r = instance(cx, mission);
+        assert!(r.object.jumpers.is_empty());
+        assert!(!r.object.jump_pending);
+        assert_eq!(r.object.jump_timer, -1.0);
+        assert_eq!((r.object.jump_system, r.object.jump_gate), target);
+    });
+}
+
+/// P3.7d: a mission ship's comm lines done (`Msg0x1006`) with its first
+/// directive's word 0 fail the mission through the mission object's
+/// `OnMissionFail` (slot 24, `MissionObject.cpp:1813-1817`, `:1950-1961`,
+/// which TU47 and TU27 keep): the records cleared, `EndMission` (the
+/// machines shut down), the live mission ended. A word other than 0 does
+/// nothing.
+#[test]
+fn a_ships_last_comm_line_with_word_zero_ends_the_mission() {
+    with_battle(|cx, mission, _| {
+        let records = ship_records(cx, mission);
+        let mut other = ControllerMessage::Msg0x1006 {
+            ship: records[0].object,
+            directive_word: 5,
+            one: 1,
+        };
+        let _ = api::controller::send_message(cx, mission, &mut other);
+        assert!(!instance(cx, mission).pending_destroy);
+        let mut done = ControllerMessage::Msg0x1006 {
+            ship: records[0].object,
+            directive_word: 0,
+            one: 1,
+        };
+        let _ = api::controller::send_message(cx, mission, &mut done);
+        assert!(
+            cx.logic
+                .content
+                .instances
+                .get(&mission)
+                .is_none_or(|i| match i {
+                    Instance::RandomMission(r) => r.pending_destroy && r.records.is_empty(),
+                    _ => false,
+                })
+        );
+        assert_eq!(cx.logic.content.state.players[&PLAYER].live_mission, 0);
     });
 }

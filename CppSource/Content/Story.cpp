@@ -11,6 +11,7 @@
 #include "ContentPlayerState.h"
 #include "common_ini.h"
 #include "common_server.h"
+#include "oracle_story_trace.h" // P3.5d oracle instrumentation, inert outside OracleDumpStorySession
 
 #include <cstdio>
 #include <cstring>
@@ -74,6 +75,18 @@ namespace
         void SetMissionChapter(unsigned int Chapter, unsigned int bAdvanceRank);
         void SetNextRankWorth(FContentPlayerState* PlayerState, unsigned int Chapter);
         void SetShipBoughtReputation();
+
+        // Oracle instrumentation (P3.5d): Story's state to the story trace when HandleMessage or
+        // OnMissionEvent returns; inert unless OracleDumpStorySession records.
+        struct FOracleStateScope
+        {
+            FStory const* Story;
+            ~FOracleStateScope()
+            {
+                OracleStoryTraceState(Story->MissionNum, Story->DeltaWorth, Story->bShipBought,
+                                      Story->MissionName, GStoryMissionController);
+            }
+        };
 
         unsigned int ControllerId;
         unsigned int PlayerId;
@@ -166,6 +179,7 @@ namespace
         CreateParms.StoryEvents = this;
         GStoryMissionController = pub::Controller::Create(
             "Content.dll", MissionName, &CreateParms, pub::Controller::ABOVE_NORMAL);
+        OracleStoryTraceCreate(MissionName, GStoryMissionController); // Oracle instrumentation (P3.5d)
         pub::Controller::_SendMessage(GStoryMissionController, pub::Controller::EMessage::MissionStart, nullptr);
     }
 
@@ -173,6 +187,7 @@ namespace
     void FStory::FinishMission(unsigned int ControllerToDestroy, unsigned int NextChapter)
     {
         strcpy(MissionName, "No_Mission");
+        OracleStoryTraceDestroy(ControllerToDestroy); // Oracle instrumentation (P3.5d)
         pub::Controller::Destroy(ControllerToDestroy);
         SetMissionChapter(NextChapter, 1);
 
@@ -255,6 +270,9 @@ namespace
     void FStory::OnMissionEvent(unsigned int EventKind, unsigned int Chapter,
                                 unsigned int ControllerToDestroy)
     {
+        // Oracle instrumentation (P3.5d): the event, and the state when it returns.
+        OracleStoryTraceEvent(EventKind, Chapter, ControllerToDestroy);
+        FOracleStateScope const OracleScope = {this};
         if (EventKind == 1)
         {
             SetMissionChapter(Chapter, 1);
@@ -269,6 +287,7 @@ namespace
         {
         case 2:
         {
+            OracleStoryTraceDestroy(ControllerToDestroy); // Oracle instrumentation (P3.5d)
             pub::Controller::Destroy(ControllerToDestroy);
             SetMissionChapter(3, 1);
             SetMissionChapter(4, 1);
@@ -278,6 +297,7 @@ namespace
             CreateParms.StoryEvents = this;
             GStoryMissionController = pub::Controller::Create(
                 "Content.dll", MissionName, &CreateParms, pub::Controller::ABOVE_NORMAL);
+            OracleStoryTraceCreate(MissionName, GStoryMissionController); // Oracle instrumentation (P3.5d)
             pub::Controller::_SendMessage(GStoryMissionController, pub::Controller::EMessage::MissionStart, nullptr);
             break;
         }
@@ -288,6 +308,7 @@ namespace
         case 17:
         {
             strcpy(MissionName, "No_Mission");
+            OracleStoryTraceDestroy(ControllerToDestroy); // Oracle instrumentation (P3.5d)
             pub::Controller::Destroy(ControllerToDestroy);
             SetMissionChapter(Chapter + 1, 1);
             FContentPlayerState* PlayerState = FindContentPlayerState(PlayerId);
@@ -373,6 +394,8 @@ namespace
                         CreateParms.StoryEvents = this;
                         GStoryMissionController = pub::Controller::Create(
                             "Content.dll", MissionName, &CreateParms, pub::Controller::NORMAL);
+                        // Oracle instrumentation (P3.5d).
+                        OracleStoryTraceCreate(MissionName, GStoryMissionController);
                     }
                 }
                 else if (Reader->is_value("MissionNum"))
@@ -414,6 +437,9 @@ namespace
     // (vtable 06fb4274 slot 0, RET 8).
     void FStory::HandleMessage(pub::Controller::EMessage MessageId, void const* MessageParms)
     {
+        // Oracle instrumentation (P3.5d): the message, and the state when the handler returns.
+        OracleStoryTraceMessage(static_cast<unsigned int>(MessageId));
+        FOracleStateScope const OracleScope = {this};
         switch (MessageId)
         {
         case pub::Controller::EMessage::PlayerWorthChanged:
@@ -451,6 +477,9 @@ namespace
 IDLL* CreateStory(char const* /*Name*/, unsigned int ControllerId, void const* Parms)
 {
     // operator new(0x3c), then the routine(&ControllerId, Parms).
-    return new (std::nothrow) FStory(
+    IDLL* const Story = new (std::nothrow) FStory(
         &ControllerId, static_cast<pub::Controller::FStoryCreateParms const*>(Parms));
+    // Oracle instrumentation (P3.5d): the session's Story.
+    OracleStoryNoteStory(ControllerId);
+    return Story;
 }

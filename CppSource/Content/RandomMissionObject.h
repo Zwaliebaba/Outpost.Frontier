@@ -18,6 +18,7 @@
 #include "RandomMission.h"      // FRandomMissionData, TRmRef
 #include "common_net.h"
 
+#include <cstdio>
 #include <map>
 #include <string>
 #include <vector>
@@ -170,6 +171,11 @@ public:
     void RemoveMissionPlayer(unsigned int InPlayerId, int Reason) override;
     // Slot 45, the branch (RET 4): the resource id of a fail reason (0..14), else 1.
     virtual unsigned int GetReasonIds(int Reason);
+
+    // Oracle instrumentation (P3.7d, OracleDumpRmSession; not a slot, no game module calls it):
+    // what a PlayerSave {Client, File} writes of the mission, without the message's two
+    // single-player gates, which a multiplayer session cannot pass.
+    void OracleSave(unsigned int Client, FILE* File);
 
 protected:
     // StateMachine slot 2, the branch (RET 8): states 0 (brief), 1 (launch the runtime
