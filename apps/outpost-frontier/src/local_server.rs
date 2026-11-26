@@ -30,15 +30,17 @@ pub type ClientEnd = LoopbackTransport<ToServer, ToClient>;
 pub enum RealClock {
     /// The real clock, as the C++ reads it.
     Wall(Option<Instant>),
-    /// The frame's own `dt`: the oracle's fixed clock (decision O53 (3)),
-    /// under which the C++ adds the fixed frame instead.
+    /// The oracle's fixed clock (decision O53 (3)): the C++ adds the fixed
+    /// frame, `GOracleSimHooks.FrameSeconds` (`kOracleFrameSeconds`, the
+    /// double 1/30), whatever `dt` the frame passes as a float
+    /// (`OracleSimFixElapsed`).
     Fixed,
 }
 
 impl RealClock {
-    fn delta(&mut self, dt: f32) -> f64 {
+    fn delta(&mut self, _dt: f32) -> f64 {
         match self {
-            Self::Fixed => f64::from(dt),
+            Self::Fixed => game_app::oracle::script::FRAME_SECONDS,
             Self::Wall(last) => {
                 let now = Instant::now();
                 let delta = last.map_or(0.0, |l| now.duration_since(l).as_secs_f64());

@@ -1341,6 +1341,7 @@ pub fn server(id: u32, case: u32, mode: Mode, g: &mut Gen) -> ServerMessage {
             } else {
                 Vec::new()
             },
+            ..RequestSpaceScript::default()
         }
         .into(),
         SetMissionObjectiveState::ID => SetMissionObjectiveState {

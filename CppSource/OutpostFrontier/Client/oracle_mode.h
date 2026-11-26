@@ -9,7 +9,7 @@
 // it forces a windowed 1024x768 32-bit display, a fixed frame time of 1/30 s and a constant
 // rand() seed, runs the script (oracle_mode.cpp has the format), and writes line-oriented JSON
 // into the output folder: session.jsonl, tree.jsonl, keymap.jsonl, layout.jsonl,
-// iclient.jsonl and shot_NNNN_<screen>.png. Without `+oracle` every hook below returns at
+// iclient.jsonl, server.jsonl and shot_NNNN_<screen>.png. Without `+oracle` every hook below returns at
 // once and the client behaves as before: the hooks only read, except the ones named "force".
 //
 // Hook sites (each one line in an existing file):
@@ -85,6 +85,7 @@ enum EOracleStream
     kOracleKeyMap,
     kOracleLayout,
     kOracleIClient,
+    kOracleServer,
     kOracleStreamCount
 };
 

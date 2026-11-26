@@ -285,12 +285,14 @@ jobs:
       - name: Compare the port with the C++ client
         # Decision O53 (2), (4) and (5): the port's oracle files against this runner's C++
         # runs: keymap.jsonl and layout.jsonl's key and option lists against run a, and the single-player login's IClient lines
-        # against runs w (a fresh user folder) and a (the folder w made).
+        # against runs w (a fresh user folder) and a (the folder w made), and a new game's IClient
+        # lines up to the frames after entering space against run s1 of single_player.txt.
         if: ${{ always() }}
         shell: pwsh
         env:
           OUTPOST_CLIENT_ORACLE_DIR: ${{ runner.temp }}\oracle-out\a
           OUTPOST_CLIENT_ORACLE_FRESH_DIR: ${{ runner.temp }}\oracle-out\w
+          OUTPOST_CLIENT_ORACLE_SP_DIR: ${{ runner.temp }}\oracle-out\s1
         run: |
           cargo test --locked -p game-app --test keymap_data -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -299,6 +301,8 @@ jobs:
           cargo test --locked -p game-app --test page_data -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p outpost-frontier --test local_server -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p outpost-frontier --test new_game -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run the port's client
