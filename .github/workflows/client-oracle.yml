@@ -20,6 +20,8 @@ on:
       - ".github/workflows/client-oracle.yml"
       - "CppSource/OutpostFrontier/oracle/**"
       - "CppSource/OutpostFrontier/Client/oracle_*"
+      - "crates/game-app/**"
+      - "apps/outpost-frontier/**"
 
 concurrency:
   group: client-oracle-${{ github.ref }}
@@ -255,6 +257,27 @@ jobs:
           Get-ChildItem "$env:LOCALAPPDATA\CrashDumps", "$env:ProgramData\Microsoft\Windows\WER\ReportArchive" -Recurse -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -like '*OutpostFrontier*' } | ForEach-Object { Write-Host "WER: $($_.FullName)" }
           $result | Where-Object { $_ -match ',' } | Set-Content "$env:RUNNER_TEMP\oracle-out\exit.csv"
+
+      - name: Prepare Rust
+        if: ${{ always() }}
+        run: rustup toolchain install
+      - name: Cache the Rust build
+        if: ${{ always() }}
+        uses: Swatinem/rust-cache@v2
+      - name: Compare the port with the C++ client
+        # Decision O53 (2), (4) and (5): the port's oracle files against this runner's C++
+        # runs: keymap.jsonl against run a, and the single-player login's IClient lines
+        # against runs w (a fresh user folder) and a (the folder w made).
+        if: ${{ always() }}
+        shell: pwsh
+        env:
+          OUTPOST_CLIENT_ORACLE_DIR: ${{ runner.temp }}\oracle-out\a
+          OUTPOST_CLIENT_ORACLE_FRESH_DIR: ${{ runner.temp }}\oracle-out\w
+        run: |
+          cargo test --locked -p game-app --test keymap_data -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p outpost-frontier --test local_server -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Compare the runs
         if: ${{ always() }}

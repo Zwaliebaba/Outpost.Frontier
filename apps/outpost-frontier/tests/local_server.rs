@@ -137,4 +137,22 @@ fn the_single_player_login_reads_as_the_cpp_iclient_log() {
     assert_eq!(runs[0], fresh);
     assert_eq!(runs[1], again);
     let _ = std::fs::remove_dir_all(user);
+
+    // In CI, against the C++ client's own files: the first lines of
+    // `iclient.jsonl` of a run on a fresh user folder
+    // (`OUTPOST_CLIENT_ORACLE_FRESH_DIR`) and of one on the folder an earlier
+    // run made (`OUTPOST_CLIENT_ORACLE_DIR`).
+    for (var, run) in [
+        ("OUTPOST_CLIENT_ORACLE_FRESH_DIR", &runs[0]),
+        ("OUTPOST_CLIENT_ORACLE_DIR", &runs[1]),
+    ] {
+        let Some(dir) = std::env::var_os(var).map(PathBuf::from) else {
+            println!("notice: {var} is not set; nothing was compared");
+            continue;
+        };
+        let text = std::fs::read_to_string(dir.join("iclient.jsonl")).expect("iclient.jsonl");
+        let cpp: Vec<&str> = text.lines().take(run.len()).collect();
+        assert_eq!(cpp, *run, "{var}");
+        println!("{var}: the first {} IClient lines are equal", run.len());
+    }
 }

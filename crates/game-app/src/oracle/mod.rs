@@ -5,3 +5,4 @@
 
 pub mod iclient;
 pub mod json;
+pub mod keymap;

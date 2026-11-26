@@ -150,6 +150,54 @@ impl OracleJson {
         self
     }
 
+    /// `BeginArray(name)`.
+    pub fn begin_array(&mut self, name: &str) -> &mut Self {
+        self.sep(Some(name));
+        self.text.push('[');
+        self.need_comma.push(false);
+        self
+    }
+
+    /// `BeginArray(nullptr)`: an array as an element of the open array.
+    pub fn begin_array_item(&mut self) -> &mut Self {
+        self.sep(None);
+        self.text.push('[');
+        self.need_comma.push(false);
+        self
+    }
+
+    /// `EndArray`.
+    pub fn end_array(&mut self) -> &mut Self {
+        self.text.push(']');
+        self.need_comma.pop();
+        self
+    }
+
+    /// `Int(nullptr, value)`: an element of the open array.
+    pub fn item_int(&mut self, value: i32) -> &mut Self {
+        self.sep(None);
+        let _ = write!(self.text, "{value}");
+        self
+    }
+
+    /// `Uint(nullptr, value)`.
+    pub fn item_uint(&mut self, value: u32) -> &mut Self {
+        self.sep(None);
+        let _ = write!(self.text, "{value}");
+        self
+    }
+
+    /// `Str(nullptr, value)`: a narrow string element, up to its first NUL.
+    pub fn item_str_bytes(&mut self, value: &[u8]) -> &mut Self {
+        self.sep(None);
+        self.text.push('"');
+        for &b in value.iter().take_while(|&&b| b != 0) {
+            self.put_unit(u32::from(b));
+        }
+        self.text.push('"');
+        self
+    }
+
     /// `Finish`: every open object closed; the line without its newline.
     #[must_use]
     pub fn finish(mut self) -> String {
@@ -187,5 +235,18 @@ mod tests {
         let mut j = OracleJson::new();
         j.str_bytes("s", &[0x41, 0x80, 0xff, 0, 0x42]);
         assert_eq!(j.finish(), r#"{"s":"A\u0080\u00ff"}"#);
+    }
+
+    #[test]
+    fn arrays_hold_elements_and_nested_arrays() {
+        let mut j = OracleJson::new();
+        j.begin_array("keys");
+        j.begin_array_item().item_int(-1).item_uint(4).end_array();
+        j.begin_array_item().end_array();
+        j.end_array()
+            .begin_array("g")
+            .item_str_bytes(b"IDR")
+            .end_array();
+        assert_eq!(j.finish(), r#"{"keys":[[-1,4],[]],"g":["IDR"]}"#);
     }
 }

@@ -8,6 +8,7 @@ pub mod cameras;
 pub mod client_state;
 pub mod frame;
 pub mod input_router;
+pub mod keymap;
 pub mod login;
 pub mod login_history;
 pub mod machine_warning;
