@@ -36,8 +36,11 @@
 //! without a server (`game_sim::scenario::judge`): bit for bit up to the
 //! first contact or munition impact, the guided munitions' launches and
 //! ends, the gross bound, and the outcome after it reported. The fights
-//! take the pilots' personalities and the ships' attitudes from the
-//! oracle's `ai.jsonl`. Every object's line says whether it is bit-exact
+//! take the pilots' personalities from the oracle's `ai.jsonl`; each
+//! ship's `faction` gets a vibe of that reputation group through the
+//! server's `pub::Reputation` (as the oracle's harness makes it), so the
+//! world answers the attitudes from the initial world's feelings, and
+//! Content's reputation changes in the fight reach them (P3.11b). Every object's line says whether it is bit-exact
 //! over the run and, if not, gives its first divergence bit for bit
 //! (`game_sim::scenario::report_first_divergence`, reported, not judged).
 //! The summary goes to `rust-scenario-hooks.txt` in the oracle folder; the
@@ -339,8 +342,10 @@ fn scenarios_through_the_server_hooks() {
             // without a server (game-sim's `NoServerHooks`, no Content):
             // the first divergence is where the server's part first
             // changes the run (reported, not judged).
-            let world = World::new(data.clone(), world_config(&s))
+            let mut world = World::new(data.clone(), world_config(&s))
                 .with_assets(Assets::new(outdir().join("data")));
+            let text = fs::read(outdir().join("data/initialworld.ini")).unwrap_or_default();
+            scenario::load_initial_feelings(&mut world, &text);
             let alone = scenario::run(world, &s, &ai, &mut NoServerHooks);
             let _ = writeln!(
                 summary,

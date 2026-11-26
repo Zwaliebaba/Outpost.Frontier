@@ -185,6 +185,18 @@ impl ScenarioServer for ScenarioHooks<'_> {
         self
     }
 
+    /// A `faction`'s vibe as the oracle's harness makes it
+    /// (`AllocFactionVibe`): `pub::Reputation::GetReputationGroup`, then
+    /// `Alloc` with empty names (the server's vibe id) and
+    /// `SetAffiliation`.
+    fn faction_vibe(&mut self, world: &mut World, faction: &str) -> Option<i32> {
+        let mut cx = Cx {
+            world,
+            logic: self.server.logic,
+        };
+        faction_vibe(&mut cx, faction)
+    }
+
     /// `spaceobj_launch` (`ring_launch`): `pub::SpaceObj::Launch(ship, dock,
     /// type)`, the server's `StarSystem::launch`.
     fn launch(&mut self, world: &mut World, ship: ObjHandle, dock: ObjHandle, kind: i32) -> bool {
@@ -310,16 +322,17 @@ impl ScenarioServer for ScenarioHooks<'_> {
     /// A `content` ship (P3.6c): Content's NPC ship in the system's record
     /// (`FSystemInfo::CreateNpcShip`), as the oracle's
     /// `OracleSimCreateNpcShip` makes it: the archetype, loadout, place,
-    /// hit points, state graph (`LEADER`) and personality (the default, or the pilot's),
-    /// owned by SpaceSupport, with a reputation handle of no vibe (the
-    /// driver keeps no vibes; the attitudes come from the oracle) and the
-    /// `flee` position.
+    /// hit points, state graph (`LEADER`) and personality (the default, or
+    /// the pilot's), owned by SpaceSupport, with a reputation handle of its
+    /// `faction`'s vibe (`FOracleNpcReputation`, which frees nothing) and
+    /// the `flee` position.
     fn spawn_content_ship(
         &mut self,
         world: &mut World,
         system: u32,
         object: &game_sim::scenario::ObjDesc,
         personality: Option<game_sim::ai::personality::Personality>,
+        vibe: i32,
     ) -> Option<Option<ObjHandle>> {
         let mut cx = Cx {
             world,
@@ -336,7 +349,7 @@ impl ScenarioServer for ScenarioHooks<'_> {
             .content
             .state
             .rep_handles
-            .create(-1, game_logic::content::rep_handles::RepKind::Plain);
+            .create(vibe, game_logic::content::rep_handles::RepKind::Plain);
         let params = NpcShipParams {
             reputation: Some(reputation),
             archetype: neuron_core::id::create_id(object.archetype.as_bytes()),
@@ -362,6 +375,16 @@ impl ScenarioServer for ScenarioHooks<'_> {
         let id = npc_ships::space_obj(&cx, key);
         Some(cx.world.find(id))
     }
+}
+
+/// `AllocFactionVibe` (`oracle_sim.cpp:2079-2098`) through the server's
+/// `pub::Reputation`: `None` for an unknown group or a failed call.
+fn faction_vibe(cx: &mut Cx<'_>, faction: &str) -> Option<i32> {
+    let group = game_logic::api::reputation::reputation_group(cx, faction.as_bytes()).ok()?;
+    let name = game_sim::protocol::fmtstr::FmtStr::default();
+    let vibe = game_logic::api::reputation::alloc(cx, &name, &name).ok()?;
+    game_logic::api::reputation::set_affiliation(cx, vibe, group).ok()?;
+    Some(vibe)
 }
 
 /// The `population <ship>` line of a scenario file (P3.6d; the scenario

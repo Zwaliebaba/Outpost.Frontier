@@ -47,6 +47,7 @@ mod phantom;
 pub use ai::MotionState;
 pub use guided::GuidedTrace;
 mod sensors;
+mod solar_partition;
 mod solar_read;
 mod spawn;
 mod step;
@@ -78,6 +79,7 @@ pub use cargo::{ScanResult, ScannedEquip};
 pub use combat::damage_sub_obj;
 pub use launch_action::{LAUNCH_ACTION_CALLBACK, LAUNCH_COAST_TIME, LAUNCH_DECEL_TIME};
 pub use sensors::{EquipStatus, EquipmentVal, equipment_val};
+pub use solar_partition::SolarPartition;
 pub(crate) use spawn::shield_status;
 pub use spawn::{LootSpawn, ProjectileSpawn, ShipSpawn, SolarSpawn, SpawnError};
 pub use step::{AiChange, DamageState, Hit, HitRule, NoServerHooks, ServerHooks, ServerRequest};
@@ -372,10 +374,9 @@ pub struct World {
     /// `GAvoidIndexTableShuffled`: the first obstacle probe of the process
     /// has drawn its 50 `rand()` values.
     pub(crate) avoid_table_shuffled: bool,
-    /// The attitudes the AI reads (`get_attitude_towards`), by object
-    /// ids: the reputation groups are not ported, so a harness sets them
-    /// ([`World::set_attitude`]).
-    pub(crate) attitudes: BTreeMap<(u32, u32), f32>,
+    /// Each loaded system's solar partition (`StarSystem::Spatial`), by
+    /// system.
+    solar_partitions: BTreeMap<u32, SolarPartition>,
     /// The vibe store (`Reputation::Vibe`, P3.2): the static records of
     /// the universe load and the run-time ones. Single player shares it
     /// between the server and the client side, as Common's globals are.
@@ -505,7 +506,7 @@ impl World {
             content_answer: None,
             behavior_managers: BTreeMap::new(),
             avoid_table_shuffled: false,
-            attitudes: BTreeMap::new(),
+            solar_partitions: BTreeMap::new(),
             vibes,
             strings,
             reputation,

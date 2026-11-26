@@ -588,6 +588,12 @@ impl AiWorld for World {
         self.find(id)
     }
 
+    /// `StarSystem::GetBucket` (the mask is ignored, `server_classes.cpp:
+    /// 11594`): the system's solar partition ([`World::solars_in_sphere`]).
+    fn bucket_query(&self, system: u32, center: Vector, radius: f32) -> Option<Vec<ObjHandle>> {
+        self.solars_in_sphere(system, center, radius)
+    }
+
     fn system_objects(&self, system: u32, class_mask: u32) -> Vec<ObjHandle> {
         self.objects_in(system)
             .into_iter()
@@ -599,16 +605,12 @@ impl AiWorld for World {
     }
 
     /// `IObjInspectImpl::get_attitude_towards` (`common_iobjinspectimpl.cpp:765`):
-    /// the attitude a harness set for the pair ([`World::set_attitude`],
-    /// D165), else `CEqObj::attitude_towards` (`common_ceqobj.cpp:598`):
+    /// `CEqObj::attitude_towards` (`common_ceqobj.cpp:598`):
     /// `Vibe::AttitudeTowards` of the two objects' vibes, 0 when either
     /// vibe is unknown. `None` (the C++'s -3) unless both are equipped
     /// objects.
     fn attitude(&self, from: ObjHandle, to: ObjHandle) -> Option<f32> {
         let (a, b) = (self.get(from)?, self.get(to)?);
-        if let Some(&value) = self.attitudes.get(&(a.simple.id, b.simple.id)) {
-            return Some(value);
-        }
         let (va, vb) = (a.equipped.as_ref()?.vibe, b.equipped.as_ref()?.vibe);
         match self.vibes.attitude_towards(va, vb, &self.reputation) {
             (0, value) => Some(value),
@@ -616,19 +618,11 @@ impl AiWorld for World {
         }
     }
 
-    /// `get_attitude_towards_symmetrical` (`:785`): the harness's pair in
-    /// both directions when it set either ([`World::set_attitude`], D165),
-    /// else `CEqObj::attitude_towards_symmetrical` (`common_ceqobj.cpp:621`):
+    /// `get_attitude_towards_symmetrical` (`:785`):
+    /// `CEqObj::attitude_towards_symmetrical` (`common_ceqobj.cpp:621`):
     /// `Vibe::AttitudeTowardsSymmetrical`, both 0 when it fails.
     fn attitude_symmetrical(&self, from: ObjHandle, to: ObjHandle) -> Option<(f32, f32)> {
         let (a, b) = (self.get(from)?, self.get(to)?);
-        let (ia, ib) = (a.simple.id, b.simple.id);
-        if self.attitudes.contains_key(&(ia, ib)) || self.attitudes.contains_key(&(ib, ia)) {
-            return Some((
-                *self.attitudes.get(&(ia, ib))?,
-                *self.attitudes.get(&(ib, ia))?,
-            ));
-        }
         let (va, vb) = (a.equipped.as_ref()?.vibe, b.equipped.as_ref()?.vibe);
         match self
             .vibes
@@ -1677,16 +1671,6 @@ impl World {
             eq.has_behavior = false;
         }
         had
-    }
-
-    /// Sets the attitude of `from` toward `to`, which the AI reads as
-    /// `get_attitude_towards` (the reputation groups are not ported).
-    pub fn set_attitude(&mut self, from: ObjHandle, to: ObjHandle, value: f32) {
-        let (Some(a), Some(b)) = (self.get(from), self.get(to)) else {
-            return;
-        };
-        let key = (a.simple.id, b.simple.id);
-        self.attitudes.insert(key, value);
     }
 
     /// An object's behaviour manager.

@@ -641,7 +641,7 @@ pub fn report_guided(
 /// largest position error and its tick, the largest velocity and
 /// orientation errors, the ticks alive on one side only, the final hit
 /// points), written to the summary. Outside a contact scenario and a
-/// `fight` (the ships' attitudes come from the oracle), a position error
+/// `fight` (the oracle recorded the ships' attitudes), a position error
 /// beyond [`GROSS_POSITION`] (or half the distance the object travelled
 /// in the oracle, if more) or a different alive state at the last tick is
 /// gross.
@@ -685,7 +685,7 @@ pub fn report_object_errors(
         "{}: {name}: max position error {max_pos:.4} m (tick {max_tick}), velocity {max_vel:.4} m/s, orientation {max_orient:.6}, alive mismatches {alive_mismatch}, final hp {} vs {}",
         s.name, fa.hp, fb.hp
     );
-    // A fight (the ships' attitudes come from the oracle) is judged
+    // A fight (the oracle recorded the ships' attitudes) is judged
     // exactly to its first contact or impact and its outcome is
     // reported after it (`judge_fight`; owner, 2026-11-18). The
     // other scenarios without contact keep their strict outcome.
@@ -925,7 +925,7 @@ pub fn report_first_divergence_from(
 /// The tick up to which a run is judged bit for bit, for
 /// [`report_first_divergence`]: a contact scenario's first collision
 /// event in the oracle ([`judge_contact`]), a fight's first contact or
-/// munition impact ([`judge_fight`]; the ships' attitudes in `ai`), `None`
+/// munition impact ([`judge_fight`]; the oracle's attitudes in `ai`), `None`
 /// for the others.
 #[must_use]
 pub fn first_judged(dir: &Path, s: &Scenario, ai: &AiInputs, theirs: &Run) -> Option<u32> {
@@ -936,6 +936,46 @@ pub fn first_judged(dir: &Path, s: &Scenario, ai: &AiInputs, theirs: &Run) -> Op
     } else {
         None
     }
+}
+
+/// The ships' attitudes once spawned, as the world answers them from their
+/// vibes (`Run::attitudes`), beside the oracle's first answers of
+/// `ai.jsonl` (`AiInputs::attitudes`; reported, not judged: a different
+/// answer shows in the states).
+pub fn report_attitudes(summary: &mut String, s: &Scenario, ai: &AiInputs, ours: &Run) {
+    if ai.attitudes.is_empty() {
+        return;
+    }
+    let differ: Vec<String> = ai
+        .attitudes
+        .iter()
+        .filter(|(pair, theirs)| {
+            ours.attitudes
+                .get(*pair)
+                .is_none_or(|v| v.to_bits() != theirs.to_bits())
+        })
+        .map(|((a, b), theirs)| {
+            format!(
+                "{a} toward {b} rust {} oracle {theirs}",
+                ours.attitudes
+                    .get(&(a.clone(), b.clone()))
+                    .map_or_else(|| "-".to_owned(), f32::to_string)
+            )
+        })
+        .collect();
+    let _ = writeln!(
+        summary,
+        "{}: attitudes from the vibes: {}",
+        s.name,
+        if differ.is_empty() {
+            format!(
+                "the oracle's {} first answers, bit for bit",
+                ai.attitudes.len()
+            )
+        } else {
+            format!("differ: {}", differ.join("; "))
+        }
+    );
 }
 
 /// Every judgement `scenario_replay` makes of a run against the oracle's
@@ -958,6 +998,7 @@ pub fn judge(
     theirs: &Run,
 ) {
     let fight = !ai.attitudes.is_empty();
+    report_attitudes(summary, s, ai, ours);
     for (name, ours_states) in &ours.states {
         let Some(their_states) = theirs.states.get(name) else {
             continue;

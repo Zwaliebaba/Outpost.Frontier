@@ -270,10 +270,14 @@ impl World {
         Some(r((1.0 - e(o.simple.scanner_interference)) * e(s.range)))
     }
 
-    /// `ScanList::add_in_range` with `CEScanner::add_obj` as the filter.
-    /// The solars of the system's spatial bucket come first (mask
-    /// `0xfdff`, a sphere test), then the server's lists in `GetNext`'s
-    /// order with the distance test.
+    /// `ScanList::add_in_range` with `CEScanner::add_obj` as the filter
+    /// (`Common/common_cescanner.cpp:160-232`). With a type of `0xfdff` the
+    /// system's bucket comes first (`GetBucket(0xfdff)`, the solar
+    /// partition, [`World::solars_in_sphere`]): every solar its sphere
+    /// query of the range finds, in the partition's order, whatever its
+    /// type, until the list is full; none without a partition. Then the
+    /// server's lists in `GetNext`'s order (`StarSystem::GetNext`, the
+    /// mask's `0xffff0200` bits) with the distance test.
     fn add_in_range(&mut self, h: ObjHandle, id: SubObjId, mask: u32, range: f32) {
         let Some(o) = self.objects.get(h) else {
             return;
@@ -318,22 +322,12 @@ impl World {
         };
         let mut found: Vec<ObjHandle> = Vec::new();
         let full = |found: &Vec<ObjHandle>| found.len() >= SCAN_CAPACITY;
-        if mask & 0xfdff != 0 {
-            for c in self.list(list_system, TickList::Solars) {
+        if mask & 0xfdff != 0
+            && let Some(bucket) = self.solars_in_sphere(list_system, pos, range)
+        {
+            for c in bucket {
                 if full(&found) {
                     break;
-                }
-                let Some(co) = self.objects.get(c) else {
-                    continue;
-                };
-                if co.simple.type_bits & 0x200 != 0 {
-                    continue;
-                }
-                let p = co.engine.position;
-                let reach = e(range) + e(co.engine.radius);
-                let d = [e(p.x) - e(pos.x), e(p.y) - e(pos.y), e(p.z) - e(pos.z)];
-                if d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > reach * reach {
-                    continue;
                 }
                 if accept(self, c) {
                     found.push(c);

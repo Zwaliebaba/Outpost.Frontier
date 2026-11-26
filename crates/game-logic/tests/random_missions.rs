@@ -2337,6 +2337,13 @@ fn oracle_loads_of_rust_random_mission_saves() {
     if let Ok(bytes) = std::fs::read(rust.join("rmsave_pair.ini")) {
         files.push(("rmsave_pair.ini".to_owned(), bytes));
     }
+    // P3.7d: the port's save of the random-mission session's mission
+    // mid-run (`rm_session.rs`' `rust_rm_save_for_the_oracle`): its
+    // `[RandomMission]` section, then the mission object's sections, which
+    // the loader passes over.
+    if let Ok(bytes) = std::fs::read(rust.join("rmsave_run.ini")) {
+        files.push(("rmsave_run.ini".to_owned(), bytes));
+    }
     let loads = render_loads(&mut cx, &files);
     let mut summary = String::new();
     let _ = writeln!(

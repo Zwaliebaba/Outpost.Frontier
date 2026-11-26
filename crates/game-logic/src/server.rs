@@ -112,13 +112,13 @@ pub enum CreateParams {
     #[default]
     None,
     /// `FStoryCreateParms` (StoryLauncher's create of `Story`,
-    /// `Content/StoryLauncher.cpp:64-77`): the player.
+    /// `Content/StoryLauncher.cpp:68-80`): the player.
     Story {
         /// `PlayerId`.
         player: u32,
     },
     /// `FStoryMissionCreateParms` (Story's create of a chapter's mission,
-    /// `Content/Story.cpp:162-169`): the player and the Story controller
+    /// `Content/Story.cpp:177-183`): the player and the Story controller
     /// whose `IStoryMissionEvents` the mission calls.
     StoryMission {
         /// `PlayerId`.
@@ -127,7 +127,7 @@ pub enum CreateParams {
         story: ControllerId,
     },
     /// `FStoryOnLoadCreateParms` for `GenericMission` (Story's restore,
-    /// `Content/Story.cpp:360-380`): the story mission's parameters and the
+    /// `Content/Story.cpp:388-399`): the story mission's parameters and the
     /// mission file, within the C++'s buffer (D773).
     GenericMission {
         /// `PlayerId`.
@@ -349,8 +349,6 @@ pub struct Logic {
     pub space_obj: crate::api::space_obj::SpaceObjState,
     /// The server's phantoms and the pump's latch (`pub::Phantom`).
     pub phantoms: crate::api::phantom::Phantoms,
-    /// The loaded systems' solar BSPs (`StarSystem::Spatial`).
-    pub solar_trees: crate::api::system::SolarTrees,
     /// The save storage: the accounts folder, the local clock and the last
     /// file written ([`crate::saves`]).
     pub saves: crate::saves::Saves,
@@ -454,7 +452,6 @@ impl Logic {
             fuses: None,
             space_obj: crate::api::space_obj::SpaceObjState::default(),
             phantoms: crate::api::phantom::Phantoms::default(),
-            solar_trees: crate::api::system::SolarTrees::default(),
             saves: crate::saves::Saves::default(),
             content: crate::content::Content::new(),
             motd: Vec::new(),

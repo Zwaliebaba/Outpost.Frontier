@@ -1,0 +1,15 @@
+# Oracle.exe sim session (P3.5d, decision record 0008 point 10 and question 9): not a scenario. The
+# server starts as a multiplayer server (GameSupport's tables, then LoadGame's system records and
+# bases), then Content.dll runs Story for a synthetic player in he01_02_Base's system: a
+# StoryLauncher made on the bus, PlayerLogin to it (Story made), the new player's [StoryInfo]
+# loaded (Mission_01a made, loaded and started), Mission_01a accepted and succeeded (Mission_01b
+# made and started), he01_02_Base entered (Mission_01b's acceptance), Mission_01b succeeded
+# (chapter 5's worth), the worth below it, a [StoryInfo] at chapter 21 loaded, the worth reached
+# (Mission_07 made and started), a ship bought, and everything torn down; it writes Story's
+# messages, events, creates, destroys and states and each step's end as story.jsonl
+# (OracleDumpStorySession). No system loads and nothing is stepped; the parser still wants
+# `system` and `ticks`.
+
+system he01
+ticks 1
+dump story_session

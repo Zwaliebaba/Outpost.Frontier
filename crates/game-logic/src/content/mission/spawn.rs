@@ -47,9 +47,7 @@ use super::obj_list::ObjListDirective;
 use super::object::{Jumper, MissionLoot, MissionObject, MissionShip, ShipGroup};
 use super::object_save::{RandEncRespawn, VibeInfo};
 use super::rand_enc::{MISSION_RANDOM_ENCOUNTER, RandEncArm, ShipChoice};
-use super::runtime::{
-    self, ID_MASK, find_npc_by_name, label_object_id, player_state, script, script_mut,
-};
+use super::runtime::{self, ID_MASK, find_npc_by_name, label_object_id, player_state, script};
 use crate::api;
 use crate::api::ai::{BaseOp, CallbackArg, Op, SetPersonalityParams};
 use crate::api::space_obj::{CargoDesc, EqInfo, LootInfo, SolarInfo};
@@ -74,20 +72,31 @@ pub const PLAYER_LABEL: &[u8] = b"Player";
 /// record's.
 pub const NO_OBJECT_LIST: &[u8] = b"no_ol";
 
+/// The mission object of a script or a random mission (P3.7d: the
+/// random missions' snapshot, jumpers and `NpcShipCreated` case run here).
 fn object<'c>(cx: &'c Cx<'_>, id: ControllerId) -> Option<&'c MissionObject> {
-    script(cx, id).map(|s| &s.object)
+    super::object::of(cx, id)
 }
 
 fn object_mut<'c>(cx: &'c mut Cx<'_>, id: ControllerId) -> Option<&'c mut MissionObject> {
-    script_mut(cx, id).map(|s| &mut s.object)
+    super::object::of_mut(cx, id)
+}
+
+/// `FindContentPlayerState(PlayerId)` of the mission object, a script's or
+/// a random mission's.
+fn mission_player_state<'c>(
+    cx: &'c Cx<'_>,
+    id: ControllerId,
+) -> Option<&'c crate::content::players::PlayerState> {
+    let player = super::object::player_of(cx, id)?;
+    cx.logic.content.state.players.get(&player)
 }
 
 /// The mission player's system record, when the player has a state and
 /// the record exists (`PlayerState->GetSystemRecord()`).
 #[must_use]
 pub fn player_system(cx: &Cx<'_>, id: ControllerId) -> Option<u32> {
-    let s = script(cx, id)?;
-    player_state(cx, s)?
+    mission_player_state(cx, id)?
         .system
         .filter(|system| cx.logic.content.state.systems.contains_key(system))
 }
@@ -95,8 +104,7 @@ pub fn player_system(cx: &Cx<'_>, id: ControllerId) -> Option<u32> {
 /// The mission player's ship, 0 without a state or a ship.
 #[must_use]
 pub fn player_ship_id(cx: &Cx<'_>, id: ControllerId) -> u32 {
-    script(cx, id)
-        .and_then(|s| player_state(cx, s))
+    mission_player_state(cx, id)
         .and_then(|p| p.ship.as_ref())
         .map_or(0, |s| s.ship)
 }
@@ -434,7 +442,7 @@ pub fn spawn_solar_record(cx: &mut Cx<'_>, id: ControllerId, index: usize) -> bo
     let Some(record) = object(cx, id).and_then(|o| o.solars.get(index)).cloned() else {
         return false;
     };
-    let player = object(cx, id).map_or(0, |o| o.player);
+    let player = super::object::player_of(cx, id).unwrap_or(0);
     let space_obj = api::misc::nickname_id(c_str(&record.nickname));
     if let Some(solar) = object_mut(cx, id).and_then(|o| o.solars.get_mut(index)) {
         solar.space_obj_id = space_obj;
@@ -862,10 +870,11 @@ pub fn npc_ship_created(cx: &mut Cx<'_>, id: ControllerId, key: NpcShipKey) {
         return;
     };
     let (ship, nickname) = (n.base.ship, n.nickname.clone());
-    let Some(s) = script(cx, id) else { return };
-    let player = s.object.player;
-    let marked = s
-        .object
+    let Some(player) = super::object::player_of(cx, id) else {
+        return;
+    };
+    let Some(o) = object(cx, id) else { return };
+    let marked = o
         .mark_obj_names
         .iter()
         .any(|m| c_str(&nickname) == c_str(m));
@@ -1196,8 +1205,7 @@ pub fn relocate_ship(
 /// gate's target is known; a mission NPC's own jump takes its entry (state
 /// 1).
 pub fn on_ship_jump(cx: &mut Cx<'_>, id: ControllerId, ship: u32) {
-    let Some(s) = script(cx, id) else { return };
-    let Some(own) = player_state(cx, s)
+    let Some(own) = mission_player_state(cx, id)
         .and_then(|p| p.ship.as_ref())
         .map(|p| (p.ship, p.target))
     else {
@@ -1354,7 +1362,7 @@ pub fn place_jumpers_at_launch(cx: &mut Cx<'_>, id: ControllerId, system: u32, a
             let (p, o) = location(cx, arrival);
             orientation = o;
             placement = Transform::new(o, p);
-        } else if script(cx, id).and_then(|s| player_state(cx, s)).is_some() {
+        } else if mission_player_state(cx, id).is_some() {
             let (p, o) = location(cx, player_ship_id(cx, id));
             orientation = o;
             placement = Transform::new(o, p);
@@ -1884,8 +1892,8 @@ pub fn snapshot_vibe_infos(cx: &mut Cx<'_>, id: ControllerId) {
     let Some(system) = player_system(cx, id) else {
         return;
     };
+    let player = super::object::player_of(cx, id).unwrap_or(0);
     let Some(o) = object(cx, id) else { return };
-    let player = o.player;
     let reps = o.solar_reps.clone();
     let npcs: Vec<(u32, NpcShipKey)> = o.npc_objects.iter().map(|(&s, &k)| (s, k)).collect();
     let solars: Vec<(u32, Vec<u8>)> = o

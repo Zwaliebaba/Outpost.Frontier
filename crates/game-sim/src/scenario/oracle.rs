@@ -15,15 +15,18 @@ use super::records::{Json, find_files, read_lines};
 use crate::ai::personality::Personality;
 use crate::equip::SUBOBJ_ID_ROOT;
 
-/// What the Rust world cannot load for the AI ships and the harness takes
-/// from the oracle's records: each pilot's personality (Content's
-/// `[Pilot]` loader is P3.6) and the ships' attitudes toward each other
-/// (the reputation groups are not ported).
+/// What the AI ships take from the oracle's records: each pilot's
+/// personality (the world alone has no `[Pilot]` loader, which is
+/// Content's), and the ships' first attitudes toward each other, which
+/// the world answers from their vibes (P3.11b) and the judges only set
+/// beside the world's ([`super::judge::report_attitudes`]) and take as the
+/// mark of a fight.
 #[derive(Clone, Debug, Default)]
 pub struct AiInputs {
     /// Each AI ship's personality, by scenario name.
     pub personalities: BTreeMap<String, Personality>,
-    /// Each ship's attitude toward another, by their scenario names.
+    /// Each ship's first attitude toward another in the oracle, by their
+    /// scenario names.
     pub attitudes: BTreeMap<(String, String), f32>,
 }
 

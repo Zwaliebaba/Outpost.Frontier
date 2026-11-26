@@ -432,6 +432,22 @@ impl ScenarioServer for ReplicationServer<'_> {
         &mut self.hooks
     }
 
+    /// A `faction`'s vibe as the oracle's harness makes it
+    /// (`AllocFactionVibe`, `oracle_sim.cpp:2079-2098`) through the
+    /// server's `pub::Reputation`: `GetReputationGroup`, `Alloc` with empty
+    /// names, `SetAffiliation`.
+    fn faction_vibe(&mut self, world: &mut World, faction: &str) -> Option<i32> {
+        let mut cx = Cx {
+            world,
+            logic: &mut *self.hooks.logic,
+        };
+        let group = game_logic::api::reputation::reputation_group(&cx, faction.as_bytes()).ok()?;
+        let name = game_sim::protocol::fmtstr::FmtStr::default();
+        let vibe = game_logic::api::reputation::alloc(&mut cx, &name, &name).ok()?;
+        game_logic::api::reputation::set_affiliation(&mut cx, vibe, group).ok()?;
+        Some(vibe)
+    }
+
     fn load_system(&mut self, world: &mut World, system: u32) -> bool {
         let mut cx = Cx {
             world,

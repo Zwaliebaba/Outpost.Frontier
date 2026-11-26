@@ -1,8 +1,11 @@
 //! The server's explosion of a destroyed equipped object and the loot it
 //! drops (`EqObj::explode`, `collect_droppable_equip`, `drop_loot` and
-//! `build_loot`, `Server/server_gameobject.cpp:2630-2711`, `3928-4058`):
-//! the parts of the C++ wrapper that read and change the shared world. The
-//! server calls them from its `destroy` (`game-logic::objects`).
+//! `build_loot`, `Server/server_gameobject.cpp:2630-2711`, `3928-4058`),
+//! and the container of one attached item (`EqObj::build_equip_loot`,
+//! `:4058-4153`, with `ComputeExplosiveImpulses`,
+//! `Common/common_misc.cpp:1272`): the parts of the C++ wrapper that read
+//! and change the shared world. The server calls them from its `destroy`
+//! and its `destroy_equip` loot (`game-logic::objects`).
 
 use neuron_core::math::{Matrix, Vector};
 
@@ -436,5 +439,169 @@ impl World {
                 return built;
             }
         }
+    }
+
+    /// `CAttachedEquip::GetVelocity`: the velocity of the item's physics
+    /// owner (the owner itself for a non-physical attachment, the item's
+    /// object for a physical one); zero when it is not connected.
+    fn attached_velocity(&self, h: ObjHandle, id: crate::equip::SubObjId) -> Vector {
+        let Some(e) = self
+            .get(h)
+            .and_then(|o| o.equipped.as_deref())
+            .and_then(|eq| eq.equipment.by_id(id))
+        else {
+            return Vector::ZERO;
+        };
+        let attachment = e.attached.as_ref().and_then(|a| a.attachment);
+        let connected = e.mount.as_ref().is_some_and(|m| m.connected)
+            && attachment.is_some_and(|a| a.root_instance().is_some());
+        if !connected {
+            return Vector::ZERO;
+        }
+        match attachment {
+            Some(crate::equip::Attachment::Physical { object, .. }) => self.velocity(object),
+            _ => self.velocity(h),
+        }
+    }
+
+    /// `ComputeExplosiveImpulses(instance, linear, angular1, angular2)`'s
+    /// second out vector, the one `build_equip_loot` uses: for a joint of
+    /// type 1 to 4 the joint's origin (`Relative` words 1 to 3) by the
+    /// parent's orientation, otherwise its offset (words 4 to 6) by the
+    /// parent's orientation; normalised in doubles (a zero length leaves it).
+    fn explosive_impulse(&self, instance: neuron_core::scene::InstanceId) -> Vector {
+        let parent = self.scene.instance_parent(Some(instance));
+        let words = self
+            .scene
+            .instance_relative(Some(instance))
+            .map_or([0; neuron_core::scene::joint::PAYLOAD_DWORDS], |p| p.0);
+        let item = |at: usize| {
+            Vector::new(
+                f32::from_bits(words[at]),
+                f32::from_bits(words[at + 1]),
+                f32::from_bits(words[at + 2]),
+            )
+        };
+        let count = words[0] as i32;
+        let local = if (1..=4).contains(&count) {
+            item(1)
+        } else {
+            item(4)
+        };
+        let orientation = self.scene.instance_orientation(parent);
+        let mut v = neuron_core::math::transform_matrix(&orientation, local);
+        let (x, y, z) = (e(v.x), e(v.y), e(v.z));
+        let length = ((x * x + y * y) + z * z).sqrt();
+        if length != 0.0 {
+            let inverse = 1.0 / length;
+            v = Vector::new(r(inverse * x), r(inverse * y), r(inverse * z));
+        }
+        v
+    }
+
+    /// `EqObj::build_equip_loot` (`Server/server_gameobject.cpp:4058-4153`):
+    /// one container of the attached item `id`: a new object id, the item's
+    /// archetype and hit points; a cargo pod carries its stack (contents,
+    /// their hit points and count), any other item itself (one unit); the
+    /// item's root instance's position and orientation; the velocity of its
+    /// physics owner plus `ComputeExplosiveImpulses`' push times
+    /// `child_impulse / mass` and a jitter of `rand() / 32768 * 0.5 + 0.75`;
+    /// a spin of three `rand() / 32768` (the first to y, then x and z)
+    /// scaled to `rand() / 32768 * 3 + 2`; mission loot when the item is
+    /// temporary. Five `rand()` draws. `None` for an item that is not
+    /// attached (the C++ casts first).
+    pub fn build_equip_loot(
+        &mut self,
+        h: ObjHandle,
+        id: crate::equip::SubObjId,
+    ) -> Option<LootSpawn> {
+        let (arch_id, hit_pts, pod_cargo, instance, temporary) = {
+            let eq = self.get(h)?.equipped.as_deref()?;
+            let e = eq.equipment.by_id(id)?;
+            let attached = e.attached.as_ref()?;
+            let pod_cargo = match &e.kind {
+                EquipKind::CargoPod(p) => p.contents,
+                _ => None,
+            };
+            (
+                e.arch_id,
+                e.hit_points(),
+                pod_cargo,
+                attached.attachment.and_then(|a| a.root_instance()),
+                e.is_temporary(),
+            )
+        };
+        let owner = self.get(h)?.simple.id;
+        let loot_id = self.allocate_id();
+        let (contents, contents_hit_pts, units) = match pod_cargo.and_then(|c| {
+            let eq = self.get(h)?.equipped.as_deref()?;
+            let cargo = eq.equipment.by_id(c)?;
+            match &cargo.kind {
+                EquipKind::Cargo(k) => Some((cargo.arch_id, cargo.hit_points(), k.count)),
+                _ => None,
+            }
+        }) {
+            Some(stack) => stack,
+            None => (arch_id, hit_pts, 1),
+        };
+        let position = self.scene.instance_position(instance);
+        let orientation = self.scene.instance_orientation(instance);
+        let mut impulse = instance.map_or(Vector::ZERO, |i| self.explosive_impulse(i));
+        let (child_impulse, mass) = self
+            .data
+            .archetypes
+            .equipment
+            .get(&arch_id)
+            .map_or((0.0, 0.0), |a| {
+                (a.attached().map_or(0.0, |x| x.child_impulse), a.root.mass)
+            });
+        // The quotient stays on the x87 stack; each component is rounded
+        // once.
+        let scale = e(child_impulse) / e(mass);
+        impulse = Vector::new(
+            r(e(impulse.x) * scale),
+            r(e(impulse.y) * scale),
+            r(e(impulse.z) * scale),
+        );
+        let jitter = f64::from(self.rng.rand()) * RAND_UNIT * 0.5 + 0.75;
+        impulse = Vector::new(
+            r(jitter * e(impulse.x)),
+            r(jitter * e(impulse.y)),
+            r(jitter * e(impulse.z)),
+        );
+        let own = self.attached_velocity(h, id);
+        let velocity = Vector::new(
+            r(e(impulse.x) + e(own.x)),
+            r(e(impulse.y) + e(own.y)),
+            r(e(impulse.z) + e(own.z)),
+        );
+        let spin_y = r(f64::from(self.rng.rand() as f32) * RAND_UNIT);
+        let spin_x = r(f64::from(self.rng.rand() as f32) * RAND_UNIT);
+        let spin_z = r(f64::from(self.rng.rand() as f32) * RAND_UNIT);
+        let spin = f64::from(self.rng.rand()) * RAND_UNIT * 3.0 + 2.0;
+        let length =
+            ((e(spin_x) * e(spin_x) + e(spin_y) * e(spin_y)) + e(spin_z) * e(spin_z)).sqrt();
+        let factor = r(spin / length);
+        let angular_velocity = Vector::new(
+            r(e(factor) * e(spin_x)),
+            r(e(factor) * e(spin_y)),
+            r(e(factor) * e(spin_z)),
+        );
+        Some(LootSpawn {
+            archetype: arch_id,
+            contents,
+            units,
+            contents_hit_pts,
+            owner,
+            position,
+            velocity,
+            id: Some(loot_id),
+            hit_pts,
+            orientation,
+            angular_velocity,
+            name_id: 0,
+            temporary,
+            can_ai_tractor: true,
+        })
     }
 }

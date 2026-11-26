@@ -712,8 +712,8 @@ fn an_npc_in_he01_takes_its_state_and_its_directives() {
     // the lowest threshold (kind 0, 0.15).
     // No client hears of it.
     assert_eq!(ai::scan_response(&mut cx, follower_id, ship_id, 0), 1);
-    cx.world.set_attitude(ship, follower, -1.0);
-    cx.world.set_attitude(follower, ship, -1.0);
+    set_attitude(&mut cx, ship, follower, -1.0);
+    set_attitude(&mut cx, follower, ship, -1.0);
     assert_eq!(personality.job.loot_flee_threshold, 0);
     assert_eq!(ai::scan_response(&mut cx, follower_id, ship_id, 0), 1);
     assert!(!sink.take().iter().any(|(_, m)| matches!(
@@ -965,6 +965,29 @@ fn a_formation_change_tells_the_players_in_it() {
     assert_eq!(formation(sink.take()), [(1, 0, vec![])]);
 }
 
+/// `from`'s attitude toward `to` through their vibes
+/// (`pub::Reputation::SetAttitude`, which the AI reads through
+/// `get_attitude_towards`); a ship without a vibe gets one first
+/// (`pub::Reputation::Alloc`).
+fn set_attitude(cx: &mut Cx<'_>, from: ObjHandle, to: ObjHandle, value: f32) {
+    let vibe_of = |cx: &mut Cx<'_>, h: ObjHandle| {
+        let vibe = cx.world.get(h).and_then(|o| o.as_equipped()).unwrap().vibe;
+        if vibe != -1 {
+            return vibe;
+        }
+        let name = FmtStr::new(0);
+        let vibe = reputation::alloc(cx, &name, &name).expect("a vibe");
+        cx.world
+            .get_mut(h)
+            .and_then(|o| o.equipped.as_deref_mut())
+            .unwrap()
+            .vibe = vibe;
+        vibe
+    };
+    let (a, b) = (vibe_of(cx, from), vibe_of(cx, to));
+    reputation::set_attitude(cx, a, b, value).expect("both vibes exist");
+}
+
 /// An NPC fighter of `rank` in its own reputation group
 /// (`pub::Reputation::Alloc`, `ShipInfo::rank`, which `CShip::init`
 /// gives the group with `Vibe::SetRank`).
@@ -1028,16 +1051,16 @@ fn the_scan_weighs_the_toughness_of_the_ships_around() {
     assert_eq!(scan(&mut cx), 1);
     // The ship hostile to one of rank 2: 2 / (3 + 2) = 0.4, below 0.65
     // (kind 2) but not below 0.35 (kind 1).
-    cx.world.set_attitude(ship, hostile, -1.0);
-    cx.world.set_attitude(hostile, ship, 0.0);
+    set_attitude(&mut cx, ship, hostile, -1.0);
+    set_attitude(&mut cx, hostile, ship, 0.0);
     threshold(&mut cx, 2);
     assert_eq!(scan(&mut cx), 1);
     threshold(&mut cx, 1);
     assert_eq!(scan(&mut cx), 0);
     // The scanner (rank 7) hostile to the ship only one way (its reverse
     // attitude): 9 / 12 = 0.75, not below 0.65, below 0.85 (kind 3).
-    cx.world.set_attitude(scanner, ship, -0.6);
-    cx.world.set_attitude(ship, scanner, 0.0);
+    set_attitude(&mut cx, scanner, ship, -0.6);
+    set_attitude(&mut cx, ship, scanner, 0.0);
     threshold(&mut cx, 2);
     assert_eq!(scan(&mut cx), 0);
     threshold(&mut cx, 3);
@@ -1045,8 +1068,8 @@ fn the_scan_weighs_the_toughness_of_the_ships_around() {
     // The scanner friendly instead (reverse 0.6 and the ship's -0.5 not
     // hostile): it adds to the own side, 2 / (3 + 7 + 2) = 0.1667, below
     // 0.35 (kind 1) and not below 0.15 (kind 0).
-    cx.world.set_attitude(scanner, ship, 0.6);
-    cx.world.set_attitude(ship, scanner, -0.5);
+    set_attitude(&mut cx, scanner, ship, 0.6);
+    set_attitude(&mut cx, ship, scanner, -0.5);
     threshold(&mut cx, 1);
     assert_eq!(scan(&mut cx), 1);
     threshold(&mut cx, 0);

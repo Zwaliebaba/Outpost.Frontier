@@ -47,9 +47,11 @@
 //! records' sends as they go, the formation leader's renumber, the
 //! objective timer), the NN path and the nags of the tail
 //! ([`super::nn_path`], [`super::nags`]), the group members' join, and
-//! the live mission's end and reward of a success or a failure, and
-//! (P3.6d) the random encounters' messages. What waits for a later
-//! increment (D973): Story's events (P3.5d).
+//! the live mission's end and reward of a success or a failure. P3.5d
+//! brought Story's events (an acceptance, a restored acceptance and a
+//! success, [`super::story_missions::notify_story`]) and the story
+//! missions' overrides of slots 21 and 23 ([`super::story_missions`]).
+//! P3.6d brought the random encounters' messages.
 
 use game_sim::protocol::fmtstr::FmtStr;
 use neuron_server::controller::ControllerId;
@@ -393,14 +395,16 @@ pub fn set_desired_state(s: &mut MissionScript, state: i32, mad_lib: u32) {
 
 /// `FMissionObject::HandleMessage` (`MissionObject.cpp:129-142`): a mission
 /// that destroyed itself ignores every message; one that asks for its
-/// teardown, before or during the message, has it asked of the bus.
+/// teardown, before or during the message, has it asked of the bus. The
+/// message goes to slot 21 of the mission's kind
+/// ([`super::story_missions::handle_mission_message`]).
 pub fn handle_message(cx: &mut Cx<'_>, id: ControllerId, message: &mut ControllerMessage<'_>) {
     let Some(s) = script(cx, id) else { return };
     if s.object.destroyed {
         return;
     }
     if !s.object.pending_destroy {
-        handle_mission_message(cx, id, message);
+        super::story_missions::handle_mission_message(cx, id, message);
         if !script(cx, id).is_some_and(|s| s.object.pending_destroy) {
             return;
         }
@@ -489,8 +493,8 @@ pub fn handle_mission_message(
             })
             .unwrap_or_default();
             // The restore's calls out, in its order: the started cut
-            // scenes' bar scenes, the group's join (Story's event after it
-            // is P3.5d's, D973) and the emptied objectives' send. They come
+            // scenes' bar scenes, the group's join with Story's event 1
+            // after it, and the emptied objectives' send. They come
             // after the restore, where the C++ makes them during it (D1045);
             // the join's `PlayerMissionChanged` to this mission changes
             // nothing either way (its own id skips `OnMessage100b`, the read
@@ -504,6 +508,7 @@ pub fn handle_mission_message(
                         crate::content::players::join_mission_as_group(
                             cx, player, id.0, 0, 0, false, 0,
                         );
+                        super::story_missions::notify_story(cx, id, 1);
                     }
                     save::RestoreStep::SendObjectives => objectives::send_empty_all(cx, id),
                 }
@@ -792,7 +797,7 @@ fn mission_object_cases(
                     s.player = next;
                 }
             }
-            // A group member's `Slot16` is false (the group cases, D973).
+            // A group member's `Slot16` is false (`MissionObject.cpp:308`).
             let gone = script(cx, id).is_none_or(|s| player_state(cx, s).is_none());
             if gone && let Some(s) = script_mut(cx, id) {
                 s.object.pending_destroy = true;
@@ -1085,8 +1090,8 @@ fn on_pop_up_answer(cx: &mut Cx<'_>, id: ControllerId, player: u32, button: u32)
 /// dispatches; an acceptance shows the empty type-10 message, dispatches,
 /// ends another live mission of the player (its controller destroyed),
 /// resets the pop-up, sets the clamps and joins the player's group to the
-/// mission. Story's event before the other mission's end is P3.5d's
-/// (D973).
+/// mission. Story hears of the acceptance (event 1) before the other
+/// mission's end (`:1495-1497`).
 fn on_offer_response(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMessage<'_>) {
     let ControllerMessage::MissionResponse { accepted, .. } = *message else {
         return;
@@ -1097,6 +1102,7 @@ fn on_offer_response(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMess
     };
     let _ = api::player::display_mission_message(cx, player, &FmtStr::new(0), 0xa, true);
     dispatch(cx, id, message.id(), &Parms::Message(message));
+    super::story_missions::notify_story(cx, id, 1);
     let live = cx
         .logic
         .content
@@ -1172,8 +1178,11 @@ fn on_damage_reputation(cx: &mut Cx<'_>, id: ControllerId, kind: u32, ship: u32,
     }
 }
 
-/// `ApplyDesiredMissionState` (`MissionScript.cpp:846-865`). Story's
-/// `OnMissionEvent` after a success is P3.5d's (D973).
+/// `ApplyDesiredMissionState` (`MissionScript.cpp:846-865`, slot 30): a
+/// new desired state becomes the previous one; a failure runs slot 24, a
+/// success slot 23 of the mission's kind
+/// ([`super::story_missions::on_mission_succeed`]) and then Story's event
+/// 3 with the mission's chapter.
 pub fn apply_desired_state(cx: &mut Cx<'_>, id: ControllerId) {
     let Some(s) = script_mut(cx, id) else { return };
     let (desired, previous) = (s.mission_state, s.previous_state);
@@ -1189,7 +1198,8 @@ pub fn apply_desired_state(cx: &mut Cx<'_>, id: ControllerId) {
     if desired == MISSION_STATE_FAIL {
         on_mission_fail(cx, id);
     } else if desired == MISSION_STATE_SUCCEED {
-        on_mission_succeed(cx, id);
+        super::story_missions::on_mission_succeed(cx, id);
+        super::story_missions::notify_story(cx, id, 3);
     }
 }
 
@@ -1200,7 +1210,7 @@ pub fn apply_desired_state(cx: &mut Cx<'_>, id: ControllerId) {
 /// the player's group (an unsigned division) and paid, the objectives
 /// cleared, `EndMission` and the live mission ended for the group (vnpc
 /// state 2); without it `EndMission` alone.
-fn on_mission_succeed(cx: &mut Cx<'_>, id: ControllerId) {
+pub(crate) fn on_mission_succeed(cx: &mut Cx<'_>, id: ControllerId) {
     let Some(s) = script_mut(cx, id) else { return };
     let player = s.object.player;
     if s.field_0x2e8 != 0 && cx.logic.content.state.players.contains_key(&player) {

@@ -20,7 +20,8 @@
 //! `ScanObjects` reads the solar BSP `StarSystem::load` builds
 //! (`server_classes.cpp:6823-6859`, `NewSpatial("BSP")` over every solar of
 //! the list, never updated afterwards): [`build_solar_tree`] makes it when
-//! a system loads and keeps it in [`SolarTrees`]. The C++ builds the zone
+//! a system loads and the world keeps it as the system's bucket
+//! (`game_sim::object::World::solar_partition`). The C++ builds the zone
 //! tree once per system; the port builds it again for each query
 //! ([`game_sim::data::universe::Universe::zone_tree`]), which gives the
 //! same tree.
@@ -29,10 +30,8 @@
 // spells them as the negated comparison.
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
 
-use std::collections::BTreeMap;
-
 use game_sim::data::DataSource;
-use game_sim::data::spatial::{BspPartition, QueryResult, SpatialEntry, SpatialPartition};
+use game_sim::data::spatial::{QueryResult, SpatialPartition};
 use game_sim::data::zone::query::{Frustum, Sphere};
 use game_sim::object::{ObjHandle, ObjectKind};
 use neuron_core::id::create_id;
@@ -42,59 +41,6 @@ use neuron_core::math::{Transform, Vector};
 use super::PubError;
 use super::misc::get_system;
 use crate::server::Cx;
-
-/// The solar BSP of a loaded system (`StarSystem::Spatial`): the
-/// partition, whose handles are indices into `solars` plus one.
-#[derive(Clone, Debug)]
-pub struct SolarTree {
-    tree: SpatialPartition,
-    solars: Vec<ObjHandle>,
-}
-
-/// The loaded systems' solar BSPs, by system.
-#[derive(Clone, Debug, Default)]
-pub struct SolarTrees {
-    trees: BTreeMap<u32, SolarTree>,
-}
-
-impl SolarTree {
-    /// The partition's sphere query (`QuerySphere`, +0x1c): the partition
-    /// handles of the solars whose spheres the sphere overlaps, appended
-    /// to `found` while it has room, in the tree's order
-    /// ([`SolarTree::solar`] maps them back).
-    pub fn query_sphere(&self, sphere: &Sphere, found: &mut QueryResult) {
-        self.tree.query_sphere(sphere, found);
-    }
-
-    /// The solar of a partition handle.
-    #[must_use]
-    pub fn solar(&self, item: u32) -> Option<ObjHandle> {
-        let index = usize::try_from(item).ok()?.checked_sub(1)?;
-        self.solars.get(index).copied()
-    }
-
-    /// The partition handle of a solar the tree holds (0 for none).
-    fn handle_of(&self, h: ObjHandle) -> u32 {
-        self.solars
-            .iter()
-            .position(|&s| s == h)
-            .and_then(|i| u32::try_from(i + 1).ok())
-            .unwrap_or(0)
-    }
-}
-
-impl SolarTrees {
-    /// The tree of a system, if it was built.
-    #[must_use]
-    pub fn get(&self, system: u32) -> Option<&SolarTree> {
-        self.trees.get(&system)
-    }
-
-    /// `StarSystem::unload`'s `FreeSpatial`: the system's tree goes.
-    pub fn remove(&mut self, system: u32) {
-        self.trees.remove(&system);
-    }
-}
 
 /// The objects of one kind in a system, in their list's order.
 fn list_of(cx: &Cx<'_>, system: u32, kind: ObjectKind) -> Vec<ObjHandle> {
@@ -107,63 +53,26 @@ fn list_of(cx: &Cx<'_>, system: u32, kind: ObjectKind) -> Vec<ObjHandle> {
 
 /// `StarSystem::load`'s spatial partition: a BSP over every solar of the
 /// system's list, each `{solar, position, radius}` (`AddArray` in list
-/// order). It replaces the system's earlier tree.
+/// order), kept by the world as the system's bucket
+/// ([`World::build_solar_partition`](game_sim::object::World::build_solar_partition)).
+/// It replaces the system's earlier one.
 pub fn build_solar_tree(cx: &mut Cx<'_>, system: u32) {
-    let solars = list_of(cx, system, ObjectKind::Solar);
-    let entries: Vec<SpatialEntry> = solars
-        .iter()
-        .enumerate()
-        .filter_map(|(index, &h)| {
-            let o = cx.world.get(h)?;
-            Some(SpatialEntry {
-                object: u32::try_from(index + 1).unwrap_or(u32::MAX),
-                position: o.engine.position,
-                radius: o.engine.radius,
-            })
-        })
-        .collect();
-    let mut tree = SpatialPartition::Bsp(BspPartition::default());
-    tree.add_array(&entries);
-    cx.logic
-        .solar_trees
-        .trees
-        .insert(system, SolarTree { tree, solars });
+    cx.world.build_solar_partition(system);
 }
 
 /// `StarSystem::create_solar`'s single `Add` to the spatial partition: the
-/// solar `{solar, position, radius}` joins the system's tree (none for a
-/// system without one).
+/// solar `{solar, position, radius}` joins the system's partition (none
+/// for a system without one).
 pub fn add_to_solar_tree(cx: &mut Cx<'_>, system: u32, h: ObjHandle) {
-    let Some((position, radius)) = cx
-        .world
-        .get(h)
-        .map(|o| (o.engine.position, o.engine.radius))
-    else {
-        return;
-    };
-    let Some(tree) = cx.logic.solar_trees.trees.get_mut(&system) else {
-        return;
-    };
-    tree.solars.push(h);
-    tree.tree.add(SpatialEntry {
-        object: u32::try_from(tree.solars.len()).unwrap_or(u32::MAX),
-        position,
-        radius,
-    });
+    cx.world.add_to_solar_partition(system, h);
 }
 
 /// `StarSystem::remove_solar`'s `Remove` from the spatial partition
-/// (`Solar::destroy`): the solar leaves its system's tree, whose node
+/// (`Solar::destroy`): the solar leaves its system's partition, whose node
 /// moves its last used slot into the solar's place. Nothing for a solar
-/// the tree does not hold or a system without one.
+/// the partition does not hold or a system without one.
 pub fn remove_from_solar_tree(cx: &mut Cx<'_>, system: u32, h: ObjHandle) {
-    let Some(tree) = cx.logic.solar_trees.trees.get_mut(&system) else {
-        return;
-    };
-    let item = tree.handle_of(h);
-    if item != 0 {
-        tree.tree.remove(item);
-    }
+    cx.world.remove_from_solar_partition(system, h);
 }
 
 /// `LoadSystem`: the system loads (`StarSystem::add_player(0)`, which
@@ -486,7 +395,7 @@ pub fn scan_objects(
         ));
         return Ok(out);
     }
-    let Some(tree) = cx.logic.solar_trees.get(system) else {
+    let Some(tree) = cx.world.solar_partition(system) else {
         return Ok(out);
     };
     let sphere = Sphere {
@@ -494,15 +403,12 @@ pub fn scan_objects(
         radius,
     };
     let mut found = QueryResult::default();
-    tree.tree.query_sphere(&sphere, &mut found);
+    tree.query_sphere(&sphere, &mut found);
     for item in found.items {
         if out.len() >= max {
             break;
         }
-        let Some(&h) = usize::try_from(item)
-            .ok()
-            .and_then(|i| tree.solars.get(i.checked_sub(1)?))
-        else {
+        let Some(h) = tree.solar(item) else {
             continue;
         };
         let Some(o) = cx.world.get(h) else {

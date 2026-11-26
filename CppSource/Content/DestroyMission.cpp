@@ -1128,3 +1128,39 @@ int FRandomMissionLoader::CreateMission(FRmMissionRequest const* Request,
     *OutMission = Mission;
     return 1;
 }
+
+// Oracle instrumentation (P3.7d, OracleDumpRmSession; no game module calls it): what a PlayerSave
+// {Client, File} writes of the mission, without the message's two single-player gates
+// (pub::SinglePlayer in Slot2's PlayerSave case, :404-422, and at MissionObject.cpp:1518), which
+// the session's multiplayer server cannot pass. The [RandomMission] section for the mission's
+// player unless the first running machine cannot save (Slot2's case); then, as
+// FRandomMissionObject::Slot2 hands the message to the TU38 body only while it has players
+// (RandomMissionDB.cpp:1629-1630, its last case at :1741-1745), the body's case for the mission's
+// player with a state (MissionObject.cpp:1501-1529): the snapshot with a ship, then SaveMission
+// and SaveRandEncs. NotifyRandEncs walks the random
+// encounters, which nothing loads for a random mission. The null test of the cached state is the
+// instrumentation's (Slot2 reads it without one).
+void FDestroyMission::OracleSave(unsigned int Client, FILE* File)
+{
+    if (PlayerState != nullptr && Client == PlayerState->PlayerId)
+    {
+        if (RunningMachines.empty() || DmLookupMachine(RunningMachines[0])->CanSave())
+        {
+            fprintf(File, "[RandomMission]\n");
+            fprintf(File, "type = %s\n", "DestroyMission");
+            MissionData->Save(File);
+        }
+    }
+    if (PlayerStates.empty())
+        return;
+    if (FindContentPlayerState(PlayerId) == nullptr)
+        return;
+    if (Client != PlayerId)
+        return;
+    if (bTriggerSavePending != 0)
+        return;
+    if (PlayerState->ShipObject != nullptr)
+        SnapshotMissionObjects();
+    SaveMission(File);
+    SaveRandEncs(File);
+}
