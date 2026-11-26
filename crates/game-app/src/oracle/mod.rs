@@ -13,6 +13,8 @@ pub mod tree;
 use std::io::Write as _;
 use std::path::PathBuf;
 
+use neuron_client::ui::tree::Ui;
+
 use crate::startup_config::DisplayMode;
 
 /// `kOracleWidth`, `kOracleHeight`, `kOracleColorBits`.
@@ -28,16 +30,14 @@ pub const FILES: [&str; 5] = [
 ];
 
 /// One oracle run of the port's client: the script, the output folder and
-/// the files' lines (`session.jsonl` is the script's own; `iclient.jsonl` is
-/// the receiver's log).
+/// the files' lines (`session.jsonl` and `tree.jsonl` are the script's own;
+/// `iclient.jsonl` is the receiver's log).
 #[derive(Debug)]
 pub struct OracleRun {
-    /// The script and `session.jsonl`.
+    /// The script, `session.jsonl` and `tree.jsonl`.
     pub script: script::OracleScript,
     /// The output folder.
     pub out: PathBuf,
-    /// `tree.jsonl`.
-    pub tree: Vec<String>,
     /// `keymap.jsonl`.
     pub keymap: Vec<String>,
     /// `layout.jsonl`.
@@ -69,7 +69,6 @@ impl OracleRun {
         Ok(Self {
             script: script::OracleScript::start(&text, script_path, out),
             out: PathBuf::from(out.trim_end_matches(['\\', '/'])),
-            tree: Vec::new(),
             keymap: Vec::new(),
             layout: Vec::new(),
         })
@@ -98,7 +97,7 @@ impl OracleRun {
     pub fn write(&self, iclient: &[String]) -> std::io::Result<()> {
         let streams: [&[String]; 5] = [
             self.script.session(),
-            &self.tree,
+            self.script.tree(),
             &self.keymap,
             &self.layout,
             iclient,
@@ -114,28 +113,41 @@ impl OracleRun {
     }
 }
 
-/// The client's answers to the script while the screens are not ported:
-/// no screenshot, no tree, and no command, key or click; the pending state
-/// it takes.
-#[derive(Debug, Default)]
+/// The client's answers to the script: the tree of its interface and
+/// clicks on it; no screenshot, command or key yet (they come with the
+/// screens); the pending state it takes.
 pub struct StartupHost {
+    /// The client's interface (the `Win3D` registry).
+    pub ui: Ui,
     /// The state the script asked for (`state`, or 1 at its end).
     pub pending_state: Option<u32>,
+}
+
+impl StartupHost {
+    #[must_use]
+    pub fn new(ui: Ui) -> Self {
+        Self {
+            ui,
+            pending_state: None,
+        }
+    }
 }
 
 impl script::OracleHost for StartupHost {
     fn take_shot(&mut self, _: &str) -> bool {
         false
     }
-    fn write_tree(&mut self, _: u32, _: &str, _: &str) {}
-    fn command(&mut self, _: &str) -> Result<(), String> {
+    fn tree(&mut self, dump: u32) -> tree::TreeDump {
+        tree::dump_nodes(&self.ui, dump)
+    }
+    fn command(&mut self, _: &str) -> Result<String, String> {
         Err("not ported yet".into())
     }
-    fn key(&mut self, _: &str) -> Result<(), String> {
+    fn key(&mut self, _: &str) -> Result<String, String> {
         Err("not ported yet".into())
     }
-    fn click(&mut self, _: &str) -> Result<(), String> {
-        Err("not ported yet".into())
+    fn click(&mut self, spec: &str) -> Result<String, String> {
+        tree::click(&mut self.ui, spec)
     }
     fn set_pending_state(&mut self, id: u32) {
         self.pending_state = Some(id);

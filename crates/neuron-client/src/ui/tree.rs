@@ -244,6 +244,14 @@ pub trait Widget: Any {
     fn win_control_mut(&mut self) -> Option<&mut WinControl> {
         None
     }
+    /// The `TextWin` part, if any (the interface dumps' `dynamic_cast`).
+    fn text_win(&self) -> Option<&super::controls::text_win::TextWin> {
+        None
+    }
+    /// The `TextControl` part, if any (the dumps' `NnTextControl` cast).
+    fn text_control(&self) -> Option<&super::controls::text_control::TextControl> {
+        None
+    }
 
     /// Slot 4: whether the ray hits the object.
     fn hit_test(&mut self, ui: &mut Ui, id: NodeId, ray: Vector) -> bool {
