@@ -313,7 +313,7 @@ The mode forces four things and nothing else:
 | Display | Windowed, 1024x768, 32-bit colour: InitializeEngine's render mode after `ApplyDisplayCmdlineOverrides`, the same fields `+W` and `+M1024` set. `SavePerfOptions` then writes that mode to `PerfOptions.ini`, so run the oracle from its own copy of the run folder |
 | Time step | `TickFrameTimer` paces frames at 1/30 s of real time and reports exactly 1/30 s as the measured and capped frame time; every caller of `GetClientFrameTimeCapped`, the local server tick and `Timing::UpdateGlobalTime` see it |
 | Random seed | `srand(0x4f524143)` right after InitializeEngine's `srand(timeGetTime())` |
-| Server clock | Proposed for record 0009 question 3 (commit `2c37d7b1`, not decided): the scenario oracle's fixed-clock hooks (`GOracleSimHooks`) set with the seed, so the in-process server adds 1/30 s per frame to its time, seeds `rand()` with `0x4f524143` in `IServerImpl::Startup` and reads its damage times from a clock starting at 1000 s that each frame advances; the `seed` record adds `server_seed` and `server_clock` |
+| Server clock | Decision O53 (record 0009 question 3, commit `2c37d7b1`): the scenario oracle's fixed-clock hooks (`GOracleSimHooks`) set with the seed, so the in-process server adds 1/30 s per frame to its time, seeds `rand()` with `0x4f524143` in `IServerImpl::Startup` and reads its damage times from a clock starting at 1000 s that each frame advances; the `seed` record adds `server_seed` and `server_clock` |
 
 The window must stay in front and uncovered: a windowed Direct3D 8 screenshot
 copies the screen area of the window, and the client skips frames while it is
@@ -425,7 +425,7 @@ menu's background scene and are void.
 | Script | Result |
 | --- | --- |
 | `menu_walk.txt` | Exit code 0 after 398 frames. The background scene enters room `3118686538` at frame 0. Every `waitscreen` matched; 9 dumps (4 caused by screen changes, 5 by the script), each with tree and screenshot; key map phases `base` (122 commands, 5 groups) and `user` (no file, result 0); 176 layout records (the `navbar.ini` window tree with 15 nodes at frame 0, one PAGE file with 15 widgets, 93 key rows, 49 option rows); 6 IClient calls. Two runs with the pointer parked gave byte-identical files, screenshots included; only the output path in the `start` record differs |
-| `single_player.txt` | Exit code 0 after 2626 frames. 7 dumps: main menu, the start in space (client state 2 at frame 118), and the first base after the opening scene docks at frame 2175 (client state 3, room `2695128518`). No particle errors in `FLSpew.txt`. The first attempts crashed on docking, because the run folder's data predated decision O17 (section 6). Three runs agree on the session (every screen change and dump at the same frame), the trees, the layouts and the key map. They differ in the IClient log and in the screenshots taken in space (dumps 3, 4 and 6): the `Info` of `SendServerCharSelectVerified` carries a double that differs every run (4.29, 4.41, 4.47 at frame 118); `CommCostume` in `SendServerSendComm` carries bytes the costume does not set (heap contents, in one run the text `_Resource.p2293760__Cube_DIM`); and the server's events in space (targets, cruise, damage, fuses) come a few frames earlier or later and in a different order. The in-process server is not on the oracle's fixed step, so this script's IClient log and space screenshots are not yet comparable byte for byte |
+| `single_player.txt` | Exit code 0 after 2626 frames. 7 dumps: main menu, the start in space (client state 2 at frame 118), and the first base after the opening scene docks at frame 2175 (client state 3, room `2695128518`). No particle errors in `FLSpew.txt`. The first attempts crashed on docking, because the run folder's data predated decision O17 (section 6). Three runs agree on the session (every screen change and dump at the same frame), the trees, the layouts and the key map. They differ in the IClient log and in the screenshots taken in space (dumps 3, 4 and 6): the `Info` of `SendServerCharSelectVerified` carries a double that differs every run (4.29, 4.41, 4.47 at frame 118); `CommCostume` in `SendServerSendComm` carries bytes the costume does not set (heap contents, in one run the text `_Resource.p2293760__Cube_DIM`); and the server's events in space (targets, cruise, damage, fuses) come a few frames earlier or later and in a different order. The in-process server's time and seed came from the real clock, so this script's IClient log and space screenshots were not comparable byte for byte; decision O53 puts them on the oracle clock (the table above, "Server clock", and "Hosted runner" below) |
 
 The outputs are made from the game data and stay outside the repository.
 
@@ -462,8 +462,8 @@ warm-up run), as the owner's machine has one. From such a folder two runs of
 included.
 
 Run 6 also ran `single_player.txt` twice with the in-process server on the
-oracle clock (the hook of record 0009 question 3, commit `2c37d7b1`, not yet
-decided): both exit 0 after 2,626 frames with 7 dumps, as the owner's run;
+oracle clock (the hook of record 0009 question 3, commit `2c37d7b1`, decision
+O53): both exit 0 after 2,626 frames with 7 dumps, as the owner's run;
 `session.jsonl` (36 lines), `tree.jsonl` (504), `keymap.jsonl` and
 `layout.jsonl` are equal, and the 225 IClient calls come in the same frames
 and order. Seven calls differ in their payload, all in bytes the sender does

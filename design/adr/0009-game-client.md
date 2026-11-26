@@ -1,10 +1,10 @@
 # 0009 — The game client: context, frame, session and screen oracle
 
-Status: proposed, 2026-11-26 (Phase 5, before P5.1; decision O50). Builds on
+Status: accepted by the owner on 2026-11-26 (Phase 5, before P5.1); decision
+O53. Questions 1 to 5 answered as recommended. Builds on
 records 0001 (object model), 0002 (single player keeps one shared world),
 0006 (controller bus) and 0007 (server world), on Phase 4's `neuron-client`
 as accepted at Gate G4, and on Phase 3's `game-logic::host::ServerHost`.
-The questions at the end need the owner's answer before P5.1 starts.
 
 ## Context
 
@@ -218,6 +218,8 @@ Gate G5 asks that interface-tree dumps equal the oracle for every screen.
   build would be the build compared instead of the one shipped.
 
 ## Questions for the owner
+
+Answered by the owner on 2026-11-26, each as recommended.
 
 1. The `Session` trait of point 3, with single player over
    `ServerHost<LoopbackTransport>`. Recommended.
