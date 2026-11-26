@@ -57,6 +57,14 @@ pub struct LocalSession {
     host: ServerHost<ServerEnd>,
     transport: Rc<RefCell<ServerEnd>>,
     clock: RealClock,
+    /// The server's frame runs at the x87 FPU's 24-bit precision: the C++
+    /// server (built for x87) inherits the precision control the client's
+    /// frame leaves, and Direct3D 8's device sets it to 24 bits until the
+    /// client's frame puts 53 back (`TryBeginFrame`, `EndSceneHalf`,
+    /// `G_FpuPrecisionFound`). The port models it for the server clock only:
+    /// the frame's addition `g_ElapsedTimeAccum += real_dt` is rounded to
+    /// single precision (D1400).
+    pub single_precision: bool,
 }
 
 impl LocalSession {
@@ -90,6 +98,7 @@ pub fn start_local_server(
             host,
             transport,
             clock,
+            single_precision: false,
         },
         client,
     ))
@@ -105,7 +114,15 @@ impl Session for LocalSession {
     }
 
     fn elapse_time(&mut self, dt: f32) {
-        let real_dt = self.clock.delta(dt);
+        let mut real_dt = self.clock.delta(dt);
+        if self.single_precision {
+            // The sum as the x87 FADD rounds it at 24 bits; the step is the
+            // one that lands the clock there.
+            let before = self.host.logic.clock.elapsed;
+            #[allow(clippy::cast_possible_truncation)]
+            let rounded = f64::from((before + real_dt.max(0.0)) as f32);
+            real_dt = rounded - before;
+        }
         self.host.elapse_time(dt, real_dt);
         self.transport.borrow_mut().flush();
         drain_reports(&mut self.host.logic.reports);

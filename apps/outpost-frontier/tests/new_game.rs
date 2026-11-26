@@ -23,10 +23,14 @@ use game_app::receiver::{ClientLink, ClientReceiver};
 use game_app::session::tick_local_server;
 use game_app::space_state::{SpaceEntry, enter_space};
 use game_logic::startup::LocalStartupInfo;
-use outpost_frontier::local_server::{RealClock, start_local_server};
+use outpost_frontier::local_server::{LocalSession, RealClock, start_local_server};
 
 /// The frame the C++ client enters space in (`single_player.txt`).
 const SPACE_FRAME: u32 = 118;
+
+/// The frames whose server step the C++ client runs at the x87 FPU's
+/// 24-bit precision on the hosted runner (D1400).
+const SINGLE_PRECISION_FRAMES: u32 = 2;
 
 /// The frame the port delivers the mission ships' running lights in: the
 /// server's step after the entry is frame 119's, delivered in frame 120.
@@ -60,10 +64,14 @@ fn run(info: &LocalStartupInfo) -> Vec<String> {
         request_character_info(&mut link, Some(&mut session), &mut now),
         1
     );
-    let frame = |link: &mut ClientLink<_>, session: &mut _, n: u32| {
+    let frame = |link: &mut ClientLink<_>, session: &mut LocalSession, n: u32| {
         if let Some(log) = link.receiver.log.as_mut() {
             log.set_frame(n);
         }
+        // D1400: the C++ runner's frames 1 and 2 leave the FPU at 24 bits
+        // for the server (its server.jsonl: 0, f32(1/30), 2·f32(1/30), then
+        // double steps).
+        session.single_precision = n <= SINGLE_PRECISION_FRAMES;
         tick_local_server(Some(session), false, 1.0 / 30.0, |s| {
             link.deliver_all(Some(game_app::session::Session::world(s)));
         });

@@ -493,6 +493,17 @@ made: the port's server read the C++ client's single-player user data. Its
 screens are not ported, so its later session records (the waits for the
 menu screens, the dumps without a tree) are not compared yet.
 
+Run 14 ([45907343089](https://github.com/Zwaliebaba/Outpost.Frontier/actions/runs/45907343089),
+commit `1974c4cb`) added `server.jsonl`, the in-process server's clock per frame. In
+both `single_player.txt` runs it starts at 0 and gains the float nearest 1/30 in frames 1
+and 2 and the double 1/30 from frame 3 on, in all 2,626 frames: Server.dll is built for
+x87 and runs on the client's thread, so its first two steps inherit the 24-bit precision
+the Direct3D 8 device leaves before the client's frame puts 53 bits back (D1400). The new
+game's `SendServerCharSelectVerified` carries that clock. With it the port's new game
+(`apps/outpost-frontier/tests/new_game.rs`, `OUTPOST_CLIENT_ORACLE_SP_DIR` set to run s1)
+equals the C++ client's 61 IClient lines up to frame 120, D857's moved running lights
+included.
+
 A session compares locally (decision O54 (3)): download a run's
 `client-oracle-trial` artifact through the GitHub tools into a scratch folder,
 unpack it, and run the comparison tests with `OUTPOST_CLIENT_ORACLE_DIR` set to
