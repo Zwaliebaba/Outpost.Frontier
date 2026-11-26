@@ -39,7 +39,7 @@ pub fn allocate_id(state: &mut ContentState) -> u32 {
 /// `FFormation::IsPlayerSlot(Index)` (`Content/Encounters.cpp:133-136`): a
 /// slot past the end, which the C++ reads unchecked, is no player slot
 /// (D840).
-fn is_player_slot(cx: &Cx<'_>, formation: Option<u32>, slot: i32) -> bool {
+pub fn is_player_slot(cx: &Cx<'_>, formation: Option<u32>, slot: i32) -> bool {
     let Some(f) = formation.and_then(|f| cx.logic.content.tables.formation(f)) else {
         return false;
     };
@@ -51,7 +51,7 @@ fn is_player_slot(cx: &Cx<'_>, formation: Option<u32>, slot: i32) -> bool {
 
 /// The slot count of a formation (`Slots.size()`); a null formation, which
 /// the C++ dereferences, has none (D840).
-fn slot_count(cx: &Cx<'_>, formation: Option<u32>) -> i32 {
+pub fn slot_count(cx: &Cx<'_>, formation: Option<u32>) -> i32 {
     formation
         .and_then(|f| cx.logic.content.tables.formation(f))
         .map_or(0, |f| f.slots.len() as i32)
@@ -61,7 +61,7 @@ fn slot_count(cx: &Cx<'_>, formation: Option<u32>) -> i32 {
 /// the slot's position turned by the formation's orientation and moved by
 /// its position, which the loader leaves the identity and zero; zero past
 /// the end.
-fn slot_position(cx: &Cx<'_>, formation: Option<u32>, slot: u32) -> Vector {
+pub fn slot_position(cx: &Cx<'_>, formation: Option<u32>, slot: u32) -> Vector {
     let Some(f) = formation.and_then(|f| cx.logic.content.tables.formation(f)) else {
         return Vector::ZERO;
     };

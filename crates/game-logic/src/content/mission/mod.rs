@@ -35,12 +35,14 @@ pub mod execute;
 pub mod field;
 pub mod meta_behavior;
 pub mod obj_list;
+pub mod obj_list_execute;
 pub mod object;
 pub mod object_save;
 pub mod objective;
 pub mod rand_enc;
 pub mod runtime;
 pub mod save;
+pub mod spawn;
 pub mod trace;
 pub mod trigger;
 

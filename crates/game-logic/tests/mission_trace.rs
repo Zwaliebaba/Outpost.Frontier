@@ -257,7 +257,7 @@ fn counts(records: &[TraceRecord]) -> String {
             TraceRecord::Rearm { .. } => 5,
             TraceRecord::Deactivate { .. } => 6,
             TraceRecord::State { .. } => 7,
-            TraceRecord::Final { .. } => 8,
+            TraceRecord::Final { .. } | TraceRecord::Gone { .. } => 8,
         };
         n[k] += 1;
     }

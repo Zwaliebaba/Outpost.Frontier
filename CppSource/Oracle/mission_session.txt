@@ -1,0 +1,26 @@
+# Oracle.exe sim session (P3.5c2, decision record 0008 question 9): the Tier B mission session with
+# a ship. Not one of scenarios\ (the data job runs it on its own into
+# outpost-oracle\mission_session). The multiplayer start-up, RELAYSEVEN_system loaded, then:
+#
+#   p1   player 1's ship, a harness ship without behaviour 400 m from where Mission_01a's
+#        Act_MovePlayer puts it (3254, 1354, -21807), so the action relocates it
+#
+# `player 1 p1` joins it to the system (OracleSimAddPlayer), and `mission Mission_01a 1` makes
+# Mission_01a for player 1 as Story makes one (Content.dll's OracleSimMissionBegin: player 1's
+# Content state with p1 as its ship object, the controller on the bus at ABOVE_NORMAL, then
+# MissionStart). The session's scripted messages (oracle_mission_session.cpp's OracleSessionSteps:
+# SpaceEnter at tick 2, the three CommCompletes of P3.5c1's opening at ticks 200, 260 and 320) go to
+# the mission alone; everything else comes from the bus. The mission's trigger engine is written to
+# mission.jsonl and its objects to mission_objects.jsonl; dispatch.jsonl holds the bus's deliveries.
+# crates/game-logic/tests/mission_session.rs runs the same session through game-logic's server.
+
+system RELAYSEVEN_system
+ticks 900
+stepping mp
+# As the G2 fights: Content's comm system off (its combat-comm rolls draw rand()).
+comms off
+
+ship p1 he_fighter li_p_he_fighter_loadout01 3254 1354 -21407
+
+player 1 p1
+mission Mission_01a 1

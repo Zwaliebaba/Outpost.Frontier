@@ -29,13 +29,12 @@
 //! behaviour tick, and made again with its effects after it (record 0008
 //! point 4, D852).
 //!
-//! **Directives.** [`execute_directive`] is `Execute` (slot 3) of the
-//! directive kinds the guides, the flee answer and the space paths make:
-//! the delay, idle, goto, trail, guide, dock, launch and tractor beam
-//! directives. A directive that names a target (`FindObjectIdByName`)
-//! comes only from a mission's `[ObjList]`, whose run time is P3.5c's: such
-//! a directive finishes at once (D855). The directives are shared objects
-//! ([`super::directives`]).
+//! **Directives.** The guides, the flee answer and the space paths make the
+//! delay, idle, goto, trail, guide, dock, launch and tractor beam
+//! directives; their `Execute` (slot 3), with every class a mission's
+//! `[ObjList]` makes and its named targets, is
+//! [`super::mission::obj_list_execute`] (P3.5c3). The directives are shared
+//! objects ([`super::directives`]).
 
 use std::collections::BTreeMap;
 
@@ -1254,148 +1253,4 @@ pub fn build_path_directives(
         out.push(cx.logic.content.state.directives.create(kind));
     }
     out
-}
-
-// ---- `Execute` (slot 3) ------------------------------------------------------------------------
-
-/// `DefaultPriority(&Op, Ship)`: a priority of 0 takes the ship's (written
-/// into the shared directive).
-fn default_priority(priority: &mut u32, ship_priority: i32) {
-    if *priority == 0 {
-        *priority = ship_priority as u32;
-    }
-}
-
-/// `MuteNpcShip(Ship)`: an NPC ship that is no SpacePop ship and not muted
-/// is muted for 10 s.
-fn mute_npc_ship(cx: &mut Cx<'_>, ship: ShipKey) {
-    let ShipKey::Npc(key) = ship else {
-        return;
-    };
-    let space_pop = cx.logic.content.state.space_pop;
-    let Some(s) = npc_ships::get(cx, key) else {
-        return;
-    };
-    if s.is_space_pop_ship(space_pop) || s.muted {
-        return;
-    }
-    npc_ships::start_timer(cx, key, 10.0);
-}
-
-/// `FContentShipBase::SubmitDirective(Op)`: `pub::AI::SubmitDirective(...)
-/// == 1`.
-fn submit(cx: &mut Cx<'_>, ship: ShipKey, priority: u32, op: DirectiveOp) -> bool {
-    let id = ships::id(&cx.logic.content.state, ship);
-    let mut base = BaseOp::directive(op);
-    base.priority = priority;
-    api::ai::submit_directive(cx, id, &base) == api::ai::OpRType::ACCEPTED
-}
-
-/// `Execute(Ship)` of a directive (slot 3, `MissionObjList.cpp`): false
-/// when it finished at once (the ship then advances). The delay, idle,
-/// goto, trail, guide, dock, launch and tractor beam directives; a name to
-/// resolve finds nothing (P3.5c, D855), and the kinds only missions give
-/// run nothing (P3.5c).
-pub fn execute_directive(cx: &mut Cx<'_>, ship: ShipKey, directive: DirectiveRef) -> bool {
-    let ship_priority = npc_ships::priority(cx, ship);
-    let Some(d) = cx.logic.content.state.directives.get_mut(directive) else {
-        return false;
-    };
-    match &mut d.kind {
-        DirectiveKind::Delay(delay) => {
-            default_priority(&mut delay.priority, ship_priority);
-            let (priority, seconds) = (delay.priority, delay.delay_seconds);
-            submit(cx, ship, priority, DirectiveOp::Delay(seconds))
-        }
-        DirectiveKind::Idle(idle) => {
-            default_priority(&mut idle.priority, ship_priority);
-            let priority = idle.priority;
-            submit(cx, ship, priority, DirectiveOp::Idle)
-        }
-        DirectiveKind::GotoVec(goto)
-        | DirectiveKind::GotoSpline(goto)
-        | DirectiveKind::GotoShip(goto) => {
-            if !goto.target_name.is_empty() || !goto.object_name.is_empty() {
-                // `FindTargetId` of a mission's name (P3.5c): a miss
-                // finishes the directive.
-                npc_ships::advance_directive(cx, ship);
-                return true;
-            }
-            default_priority(&mut goto.priority, ship_priority);
-            let (priority, op) = (goto.priority, goto.op.clone());
-            mute_npc_ship(cx, ship);
-            submit(cx, ship, priority, DirectiveOp::Goto(op))
-        }
-        DirectiveKind::Trail(trail) => {
-            // `FObjListTrail::Execute` (`MissionObjList.cpp:540-555`): slot
-            // 1 of the ship, whose answer is not read; then the name.
-            if !trail.target_name.is_empty() {
-                npc_ships::advance_directive(cx, ship);
-                return true;
-            }
-            default_priority(&mut trail.priority, ship_priority);
-            let (priority, op) = (trail.priority, trail.op.clone());
-            submit(cx, ship, priority, DirectiveOp::Trail(op))
-        }
-        DirectiveKind::Guide(guide) => {
-            // `FObjListGuide::Execute` (`MissionObjList.cpp:640-660`): the
-            // follow part follows the goto part's object (written into the
-            // shared directive).
-            if !guide.target_name.is_empty() {
-                npc_ships::advance_directive(cx, ship);
-                return true;
-            }
-            guide.op.follow.target = guide.op.goto.field_5c;
-            default_priority(&mut guide.priority, ship_priority);
-            let (priority, op) = (guide.priority, guide.op.clone());
-            mute_npc_ship(cx, ship);
-            submit(cx, ship, priority, DirectiveOp::Guide(Box::new(op)))
-        }
-        DirectiveKind::TractorBeam(tractor) => {
-            // `FObjListTractorBeam::Execute` (`:1458-1461`): no priority
-            // default.
-            let (priority, op) = (tractor.priority, tractor.op.clone());
-            submit(cx, ship, priority, DirectiveOp::TractorBeam(op))
-        }
-        DirectiveKind::Dock(dock) => {
-            if !dock.object_name.is_empty() {
-                npc_ships::advance_directive(cx, ship);
-                return true;
-            }
-            default_priority(&mut dock.priority, ship_priority);
-            let (priority, op) = (dock.priority, dock.op.clone());
-            submit(cx, ship, priority, DirectiveOp::Dock(op))
-        }
-        DirectiveKind::Launch(launch) => {
-            if launch.op.index == -1 || launch.op.launch_object == 0 {
-                let id = ships::id(&cx.logic.content.state, ship);
-                let Some((target, index, terminal)) =
-                    super::dock_queues::ship_docking_target(cx, id)
-                else {
-                    return false;
-                };
-                let Some(d) = cx.logic.content.state.directives.get_mut(directive) else {
-                    return false;
-                };
-                if let DirectiveKind::Launch(launch) = &mut d.kind {
-                    launch.op.launch_object = target;
-                    launch.op.index = index;
-                    launch.op.terminal = terminal as i32;
-                }
-            }
-            let Some(d) = cx.logic.content.state.directives.get_mut(directive) else {
-                return false;
-            };
-            let DirectiveKind::Launch(launch) = &mut d.kind else {
-                return false;
-            };
-            default_priority(&mut launch.priority, ship_priority);
-            let (priority, op) = (launch.priority, launch.op.clone());
-            let id = ships::id(&cx.logic.content.state, ship);
-            super::dock_queues::set_dock_equipment(cx, id, false, false, None);
-            submit(cx, ship, priority, DirectiveOp::Launch(op))
-        }
-        // The other kinds come only from a mission's `[ObjList]` (P3.5c).
-        _ => false,
-    }
 }

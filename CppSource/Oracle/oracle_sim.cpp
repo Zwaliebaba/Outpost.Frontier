@@ -199,6 +199,14 @@ namespace
         // engine did as mission.jsonl through its OracleDumpMissionTrace; no scenario runs (P3.5c1,
         // decision record 0008 question 9).
         bool bDumpMissionTrace = false;
+        // `mission <name> <session>`: after the players join, Content.dll makes the mission
+        // <name> as Story makes one for the `player` of that session, whose ship it gives the
+        // player's Content state, and records the mission's trigger engine (mission.jsonl) and
+        // objects (mission_objects.jsonl) through its OracleSimMission* exports while the scenario
+        // runs (P3.5c2, decision record 0008 question 9).
+        std::string MissionName;
+        unsigned int MissionSession = 0;
+        int MissionLine = 0;
         // `dump base_session`: right after the server starts, Content.dll runs a base visit of a
         // synthetic player through BaseSupport and writes what it and the base database did as
         // base.jsonl through its OracleDumpBaseSession; no system loads and no scenario runs
@@ -513,6 +521,22 @@ namespace
                         return Error = Where + "duplicate player", false;
                 }
                 Out.Players.push_back(Player);
+            }
+            else if (Key == "mission" && T.size() == 3)
+            {
+                // The Content factory's name and a session given by a `player` line before it.
+                if (!Out.MissionName.empty())
+                    return Error = Where + "a second mission", false;
+                if (!ParseUnsigned(T[2], Value) || Value == 0 || Value > 16)
+                    return Error = Where + "bad session '" + T[2] + "' (1 to 16)", false;
+                bool bPlayer = false;
+                for (FPlayerDesc const& Player : Out.Players)
+                    bPlayer = bPlayer || Player.Session == (unsigned int)Value;
+                if (!bPlayer)
+                    return Error = Where + "a mission needs a `player` of its session before it", false;
+                Out.MissionName = T[1];
+                Out.MissionSession = (unsigned int)Value;
+                Out.MissionLine = LineNumber;
             }
             else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "content_tables")
             {
@@ -1679,6 +1703,35 @@ namespace
     // order from the start-up on.
     unsigned int GDispatchSeq = 0;
 
+    // P3.5c2 (`mission`): Content.dll's session exports and the mission's controller id.
+    typedef unsigned int(__cdecl* FMissionBegin)(char const*, char const*, unsigned int, unsigned int,
+                                                 unsigned int, unsigned int);
+    typedef void(__cdecl* FMissionFrame)(unsigned int);
+    typedef void(__cdecl* FMissionDeliver)(unsigned int, unsigned int, int);
+    typedef void(__cdecl* FMissionFrameEnd)(unsigned int, bool);
+    typedef int(__cdecl* FMissionEnd)(unsigned int, bool);
+    FMissionFrame GMissionFrame = nullptr;
+    FMissionDeliver GMissionDeliver = nullptr;
+    FMissionFrameEnd GMissionFrameEnd = nullptr;
+    FMissionEnd GMissionEnd = nullptr;
+    unsigned int GMissionController = 0;
+
+    // Whether the registry still lists the mission (OracleSimControllerHeartbeats' walk).
+    void __cdecl FindMissionController(void* Context, unsigned int Flid, unsigned int, char const*, float, float,
+                                       bool)
+    {
+        if (Flid == GMissionController)
+            *static_cast<bool*>(Context) = true;
+    }
+
+    bool MissionAlive()
+    {
+        bool bAlive = false;
+        if (GMissionController != 0)
+            OracleSimControllerHeartbeats(&FindMissionController, &bAlive);
+        return bAlive;
+    }
+
     void __cdecl OnControllerDeliver(unsigned int Flid, int MsgId, void const* MsgData, int Path, int Depth)
     {
         static char const* const kPaths[] = {"broadcast", "send", "heartbeat"};
@@ -1704,6 +1757,11 @@ namespace
             }
         }
         Write(FileDispatch, J);
+        // P3.5c2: a delivery to the session's mission is its trace's `message` record. Every delivery
+        // goes to Content, which keeps the mission's own: MissionStart comes from OracleSimMissionBegin,
+        // before GMissionController holds the mission's id.
+        if (GMissionDeliver != nullptr)
+            GMissionDeliver(GTick, Flid, MsgId);
     }
 
     // SimClientStub's controller hands every controller message here.
@@ -2783,12 +2841,17 @@ namespace
     void SimFrame(void* Arg)
     {
         FFrameArgs* const Args = static_cast<FFrameArgs*>(Arg);
+        // P3.5c2: the mission session's scripted messages of the tick come first.
+        if (GMissionFrame != nullptr)
+            GMissionFrame(GTick);
         RunCommands(*Args->NextCommand);
         // OutpostServer.exe's frame (ServerThreadProc) with the fixed frame time.
         Args->Server->Update();
         Timing::UpdateGlobalTime(GScenario.Frame);
         Args->Server->ElapseTime((float)GScenario.Frame);
         RecordTick(Args->X87, Args->Sse);
+        if (GMissionFrameEnd != nullptr)
+            GMissionFrameEnd(GTick, MissionAlive());
     }
 
     // Ends the process: the server is not shut down (its teardown is not part of a scenario
@@ -3241,6 +3304,56 @@ namespace oracle
                 bSpawned = false;
             }
         }
+        // P3.5c2 (`mission`): the players have joined; Content.dll makes the mission for the
+        // session's player and its ship, and records it from here on.
+        if (bSpawned && !GScenario.MissionName.empty())
+        {
+            OracleSimLoadRandPhase("mission");
+            HMODULE const Content = GetModuleHandleA("Content.dll");
+            FMissionBegin const Begin =
+                Content != nullptr ? (FMissionBegin)GetProcAddress(Content, "OracleSimMissionBegin") : nullptr;
+            GMissionFrame =
+                Content != nullptr ? (FMissionFrame)GetProcAddress(Content, "OracleSimMissionFrame") : nullptr;
+            GMissionDeliver =
+                Content != nullptr ? (FMissionDeliver)GetProcAddress(Content, "OracleSimMissionDeliver") : nullptr;
+            GMissionFrameEnd =
+                Content != nullptr ? (FMissionFrameEnd)GetProcAddress(Content, "OracleSimMissionFrameEnd") : nullptr;
+            GMissionEnd = Content != nullptr ? (FMissionEnd)GetProcAddress(Content, "OracleSimMissionEnd") : nullptr;
+            FObjectDesc const* ShipDesc = nullptr;
+            FSimObject const* Ship = nullptr;
+            for (FPlayerDesc const& Player : GScenario.Players)
+            {
+                if (Player.Session == GScenario.MissionSession)
+                {
+                    Ship = FindObject(Player.Object);
+                    ShipDesc = Ship != nullptr ? Ship->Desc : nullptr;
+                }
+            }
+            if (Begin != nullptr && GMissionFrame != nullptr && GMissionDeliver != nullptr &&
+                GMissionFrameEnd != nullptr && GMissionEnd != nullptr && Ship != nullptr && ShipDesc != nullptr)
+            {
+                GMissionController = Begin(OutDir.c_str(), GScenario.MissionName.c_str(), GScenario.MissionSession,
+                                           Ship->Id, CreateID(ShipDesc->Archetype.c_str()), SystemId);
+            }
+            FOracleJson J;
+            J.Str("rec", "mission");
+            J.Uint("tick", GTick);
+            J.Int("line", GScenario.MissionLine);
+            J.Str("name", GScenario.MissionName.c_str());
+            J.Uint("session", GScenario.MissionSession);
+            J.Uint("controller", GMissionController);
+            Write(FileSession, J);
+            if (GMissionController == 0)
+            {
+                SessionNote("error", "mission: Content.dll lacks the OracleSimMission exports or could not make " +
+                                         GScenario.MissionName);
+                GMissionFrame = nullptr;
+                GMissionDeliver = nullptr;
+                GMissionFrameEnd = nullptr;
+                GMissionEnd = nullptr;
+                bSpawned = false;
+            }
+        }
         OracleSimLoadRandPhase("hooks");
         if (!bSpawned)
         {
@@ -3325,6 +3438,15 @@ namespace oracle
             FlushAll();
         }
         GTick = GScenario.Ticks;
+        // P3.5c2: the mission session's `final` (or `gone`) record.
+        if (GMissionEnd != nullptr)
+        {
+            int const Records = GMissionEnd(GTick, MissionAlive());
+            FOracleJson J;
+            J.Str("rec", "mission_session");
+            J.Int("records", Records);
+            Write(FileSession, J);
+        }
         EndProcess(0);
         return 0;
     }

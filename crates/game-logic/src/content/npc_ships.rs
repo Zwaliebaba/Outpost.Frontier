@@ -23,6 +23,7 @@ use game_sim::data::costume::Costume;
 use neuron_core::math::{Matrix, Vector};
 use neuron_server::controller::ControllerId;
 
+use super::ContentState;
 use super::callbacks::{CallbackHandle, CallbackOwner};
 use super::directives::{self, DirectiveList, ShipDirectives};
 use super::mission::obj_list::{DirectiveKind, Goto};
@@ -196,6 +197,10 @@ pub struct NpcShip {
     pub loadout: u32,
     /// `+0x1c8`: the life left.
     pub life_left: f32,
+    /// `+0x1cc`, the ship's own pilot: cleared by the constructor and
+    /// written by nothing in Content; `SubmitNpcPersonality`'s mode 1 reads
+    /// it before the archetype's pilot.
+    pub field_0x1cc: u32,
     /// `Personality` (`+0x1d0`).
     pub personality: Personality,
     /// `+0x5a8`.
@@ -295,6 +300,7 @@ pub fn construct(cx: &mut Cx<'_>, params: &NpcShipParams) -> NpcShipKey {
         loadout: params.loadout,
         life_left: params.life_left,
         personality: params.personality,
+        field_0x1cc: 0,
         field_0x5a8: params.field_0x78,
         encounter_params: 0,
     };
@@ -440,32 +446,46 @@ pub fn destroy(cx: &mut Cx<'_>, key: NpcShipKey) {
 
 // ---- the TU50 directive queue -----------------------------------------------------------------
 
-/// The ship's directive queue (a player ship's is its own, always empty).
-fn queue_mut<'a>(cx: &'a mut Cx<'_>, ship: ShipKey) -> Option<&'a mut ShipDirectives> {
+/// The ship's directive queue in Content's state: an NPC ship's, or the
+/// player's ship object's.
+fn state_queue_mut(state: &mut ContentState, ship: ShipKey) -> Option<&mut ShipDirectives> {
     match ship {
-        ShipKey::Npc(key) => cx
-            .logic
-            .content
-            .state
-            .npc_ships
-            .get_mut(&key)
+        ShipKey::Npc(key) => state.npc_ships.get_mut(&key).map(|s| &mut s.directives),
+        ShipKey::Player(player) => state
+            .players
+            .get_mut(&player)
+            .and_then(|p| p.ship.as_mut())
             .map(|s| &mut s.directives),
-        ShipKey::Player(_) => None,
     }
+}
+
+/// The ship's directive queue (an NPC ship's, or the player's ship
+/// object's).
+fn queue_mut<'a>(cx: &'a mut Cx<'_>, ship: ShipKey) -> Option<&'a mut ShipDirectives> {
+    state_queue_mut(&mut cx.logic.content.state, ship)
 }
 
 /// The ship's directive queue.
 #[must_use]
 pub fn queue<'a>(cx: &'a Cx<'_>, ship: ShipKey) -> Option<&'a ShipDirectives> {
+    let state = &cx.logic.content.state;
     match ship {
-        ShipKey::Npc(key) => cx
-            .logic
-            .content
-            .state
-            .npc_ships
-            .get(&key)
+        ShipKey::Npc(key) => state.npc_ships.get(&key).map(|s| &s.directives),
+        ShipKey::Player(player) => state
+            .players
+            .get(&player)
+            .and_then(|p| p.ship.as_ref())
             .map(|s| &s.directives),
-        ShipKey::Player(_) => None,
+    }
+}
+
+/// The references a ship object's queue holds, released when the object
+/// goes (`~FContentShipBase` and its `FMissionDirectiveList` member).
+pub fn release_queue(state: &mut ContentState, queue: ShipDirectives) {
+    let mut list = queue.list;
+    directives::clear_list(&mut state.directives, &mut list);
+    if let Some(a) = queue.active {
+        state.directives.release(a);
     }
 }
 
@@ -479,13 +499,7 @@ fn cancel_ai_directive(cx: &mut Cx<'_>, ship: ShipKey) {
 /// The queue's list released and emptied, `CurrentDirective = end()`.
 fn drop_queue_list(cx: &mut Cx<'_>, ship: ShipKey) {
     let state = &mut cx.logic.content.state;
-    let list = match ship {
-        ShipKey::Npc(key) => state
-            .npc_ships
-            .get_mut(&key)
-            .map(|s| std::mem::take(&mut s.directives.list)),
-        ShipKey::Player(_) => None,
-    };
+    let list = state_queue_mut(state, ship).map(|q| std::mem::take(&mut q.list));
     if let Some(mut list) = list {
         directives::clear_list(&mut state.directives, &mut list);
     }
@@ -547,11 +561,7 @@ pub fn set_directives(
 pub fn advance_directive(cx: &mut Cx<'_>, ship: ShipKey) {
     let next = {
         let state = &mut cx.logic.content.state;
-        let q = match ship {
-            ShipKey::Npc(key) => state.npc_ships.get_mut(&key).map(|s| &mut s.directives),
-            ShipKey::Player(_) => None,
-        };
-        let Some(q) = q else {
+        let Some(q) = state_queue_mut(state, ship) else {
             return;
         };
         if let Some(at) = q.current {
@@ -559,11 +569,7 @@ pub fn advance_directive(cx: &mut Cx<'_>, ship: ShipKey) {
                 let gone = q.list.remove(at);
                 state.directives.release(gone);
             }
-            let q = match ship {
-                ShipKey::Npc(key) => state.npc_ships.get_mut(&key).map(|s| &mut s.directives),
-                ShipKey::Player(_) => None,
-            };
-            let Some(q) = q else {
+            let Some(q) = state_queue_mut(state, ship) else {
                 return;
             };
             if at >= q.list.len() {
@@ -581,17 +587,11 @@ pub fn advance_directive(cx: &mut Cx<'_>, ship: ShipKey) {
     };
     let state = &mut cx.logic.content.state;
     state.directives.add_ref(next);
-    let old = match ship {
-        ShipKey::Npc(key) => state
-            .npc_ships
-            .get_mut(&key)
-            .and_then(|s| s.directives.active.replace(next)),
-        ShipKey::Player(_) => None,
-    };
+    let old = state_queue_mut(state, ship).and_then(|q| q.active.replace(next));
     if let Some(old) = old {
         state.directives.release(old);
     }
-    let finished = !super::guides::execute_directive(cx, ship, next);
+    let finished = !super::mission::obj_list_execute::execute(cx, ship, next);
     if finished {
         advance_directive(cx, ship);
     }

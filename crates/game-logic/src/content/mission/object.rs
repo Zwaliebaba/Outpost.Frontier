@@ -329,12 +329,45 @@ pub struct MissionObject {
     /// `NpcObjects` (+0xa4): the mission's live NPC ships by space object
     /// id, registered on `NpcShipCreated` (the spawns are P3.5c2's).
     pub npc_objects: BTreeMap<u32, NpcShipKey>,
+    /// The nickname of each ship of [`Self::npc_objects`] as it was
+    /// registered: the C++ reads it through the map's pointer after
+    /// SpaceSupport deleted the ship (D979).
+    pub npc_names: BTreeMap<u32, Vec<u8>>,
     /// `FormationMembers` (+0xec): label id to the space object of each
     /// object carrying it, in insertion order within a label (the
     /// multimap's order).
     pub formation_members: BTreeMap<u32, Vec<u32>>,
     /// `DeadPlayerIds` (+0xdc).
     pub dead_players: Vec<u32>,
+    /// `Jumpers` (+0x1c): the mission's jumping NPC ships and their states
+    /// (0 in a system, 1 left it after their own jump, 2 left it after the
+    /// player's; P3.5c2).
+    pub jumpers: Vec<Jumper>,
+    /// `JumpSystemId` (+0x28): the system the player's ship jumped to (0).
+    pub jump_system: u32,
+    /// `JumpGateId` (+0x2c): its exit gate (0).
+    pub jump_gate: u32,
+    /// `bJumpPending` (+0x30).
+    pub jump_pending: bool,
+    /// `JumpTimer` (+0x34): -1 while no jump waits.
+    pub jump_timer: f32,
+    /// `JumpDelay` (3).
+    pub jump_delay: i32,
+    /// The `[ObjList]` directives as the counted objects the spawns hand
+    /// out (`ObjLists`' `FMissionDirectiveList`, one reference held on
+    /// each): made from [`Self::obj_lists`] the first time a list is
+    /// given to a ship, so every ship given it shares its objects as in the
+    /// C++ (record 0008 point 4; P3.5c2).
+    pub obj_list_refs: BTreeMap<u32, crate::content::directives::DirectiveList>,
+}
+
+/// One `Jumpers` entry (`FMissionJumper`, `MissionObject.h:266-270`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Jumper {
+    /// `Npc`.
+    pub npc: NpcShipKey,
+    /// `State`.
+    pub state: i32,
 }
 
 impl MissionObject {
@@ -371,8 +404,16 @@ impl MissionObject {
             solar_reps: Vec::new(),
             destroyed: false,
             npc_objects: BTreeMap::new(),
+            npc_names: BTreeMap::new(),
             formation_members: BTreeMap::new(),
             dead_players: Vec::new(),
+            jumpers: Vec::new(),
+            jump_system: 0,
+            jump_gate: 0,
+            jump_pending: false,
+            jump_timer: -1.0,
+            jump_delay: 3,
+            obj_list_refs: BTreeMap::new(),
         }
     }
 
@@ -390,6 +431,26 @@ impl MissionObject {
             .iter()
             .flat_map(|g| &g.ships)
             .find(|s| eq_ignore_case(&s.nickname, c_str(nickname)))
+    }
+
+    /// [`Self::find_ship`], to change.
+    pub fn find_ship_mut(&mut self, nickname: &[u8]) -> Option<&mut MissionShip> {
+        self.ships
+            .iter_mut()
+            .flat_map(|g| &mut g.ships)
+            .find(|s| eq_ignore_case(&s.nickname, c_str(nickname)))
+    }
+
+    /// `FindMissionShipGroup` (`MissionSave.cpp:192-208`): the first record
+    /// whose nickname, or one of whose ships' nicknames, is `nickname`
+    /// (`_stricmp`).
+    #[must_use]
+    pub fn find_ship_group(&self, nickname: &[u8]) -> Option<&ShipGroup> {
+        let name = c_str(nickname);
+        self.ships.iter().find(|g| {
+            eq_ignore_case(&g.nickname, name)
+                || g.ships.iter().any(|s| eq_ignore_case(&s.nickname, name))
+        })
     }
 
     /// `GetMissionCostume` (`MissionObject.cpp:2197-2214`): a ship slot's

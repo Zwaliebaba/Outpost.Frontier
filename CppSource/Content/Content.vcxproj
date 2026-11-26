@@ -183,6 +183,7 @@
     <ClCompile Include="oracle_save_dump.cpp" />
     <ClCompile Include="oracle_random_missions.cpp" />
     <ClCompile Include="oracle_mission_trace.cpp" />
+    <ClCompile Include="oracle_mission_session.cpp" />
     <ClCompile Include="oracle_base_session.cpp" />
   </ItemGroup>
   <ItemGroup>

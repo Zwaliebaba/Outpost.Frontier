@@ -353,6 +353,10 @@ pub struct Content {
     pub state: ContentState,
     /// Each controller's own state, by controller id.
     pub instances: BTreeMap<ControllerId, Instance>,
+    /// The Tier B traces of the missions the bus tore down while a session
+    /// recorded them (a test seam; empty in a game run, where no mission
+    /// has a trace): the session reads the last records here (P3.5c2).
+    pub finished_traces: Vec<(ControllerId, mission::trace::Trace)>,
     /// The bus's deliveries so far (debug builds): a take of an item out
     /// of its slot asserts that this does not change before it is put back.
     #[cfg(debug_assertions)]
@@ -376,6 +380,7 @@ impl Content {
             rm_loaded: false,
             state: ContentState::load(),
             instances: BTreeMap::new(),
+            finished_traces: Vec::new(),
             #[cfg(debug_assertions)]
             deliveries: 0,
         }
@@ -526,7 +531,12 @@ pub fn destroy_instance(cx: &mut Cx<'_>, id: ControllerId, kind: ControllerKind)
         | ControllerKind::Mission(_)
         | ControllerKind::GenericMission => {}
     }
-    cx.logic.content.instances.remove(&id);
+    let content = &mut cx.logic.content;
+    if let Some(Instance::Mission(script)) = content.instances.remove(&id)
+        && let Some(trace) = script.trace
+    {
+        content.finished_traces.push((id, trace));
+    }
     if cx.logic.content.instances.is_empty() {
         // The DLL's static destructors: `~FGcsHandlerSet` deletes the dock
         // hail handler, whose destructor destroys every system's phantoms
