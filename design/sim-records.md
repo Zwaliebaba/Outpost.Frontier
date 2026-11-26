@@ -366,8 +366,11 @@ through `IObjDB::FindById`); `in_sights`; `candidate` (the target list);
 `Sys->Timers.Missiles`, or its best candidate; the near walk's mask
 leaves munitions out); `near` (every ship, solar and loot of the system
 within `near_radius` of the ship's position, walked with
-`IObjDB::GetNext`, mask `0x107ffdff`); `query` (found by a query of this tick). An object
-has every role that applies, in that order.
+`IObjDB::GetNext`, mask `0x107ffdff`); `query` (found by a query of this tick);
+`directive` (P3.6d: an object a recorded `directive` names, such as a dock's
+object or a lane's rings; written at once when the ship's own tick submitted it,
+from a directive callback, else in the read set of the ship's next tick). An
+object has every role that applies, in that order.
 
 Object fields, each the `IObjInspect` slot of `include/common_iface.h`
 (`x|null` is null when the slot does not answer 0): `class` u
@@ -377,7 +380,9 @@ Object fields, each the `IObjInspect` slot of `include/common_iface.h`
 min, then max), `mass` f, `hp` f, `hp_max` f (`get_status`), `shield`
 [f, f, b]\|null (current, maximum, active), `throttle` f\|null, `axis`
 f3\|null, `nudge` f3\|null, `strafe` i\|null, `cruise` [b, b]\|null
-(cruise, trade lane), `target` u\|null, `subtarget` u\|null,
+(cruise, trade lane: the second is the cruise charge, whatever the SDK name),
+`lane` b\|null (P3.6d, `is_using_tradelane`, which a formation follower
+asks of its leader), `target` u\|null, `subtarget` u\|null,
 `formation_leader` u\|null, `follow_leader` u\|null, `followers` [u, …],
 (P2.5 escort) `formation_offset` f3\|null and `follow_offset` f3\|null
 (`get_formation_offset`, `get_follow_offset`, which the formation and
