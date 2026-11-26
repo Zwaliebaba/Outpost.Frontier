@@ -306,13 +306,14 @@ are overwritten. A missing argument, an unreadable script or a folder that
 cannot be created ends the process with exit code 3 and a line on the
 debugger output.
 
-The mode forces three things and nothing else:
+The mode forces four things and nothing else:
 
 | What | How |
 | --- | --- |
 | Display | Windowed, 1024x768, 32-bit colour: InitializeEngine's render mode after `ApplyDisplayCmdlineOverrides`, the same fields `+W` and `+M1024` set. `SavePerfOptions` then writes that mode to `PerfOptions.ini`, so run the oracle from its own copy of the run folder |
 | Time step | `TickFrameTimer` paces frames at 1/30 s of real time and reports exactly 1/30 s as the measured and capped frame time; every caller of `GetClientFrameTimeCapped`, the local server tick and `Timing::UpdateGlobalTime` see it |
 | Random seed | `srand(0x4f524143)` right after InitializeEngine's `srand(timeGetTime())` |
+| Server clock | Decision O53 (record 0009 question 3, commit `2c37d7b1`): the scenario oracle's fixed-clock hooks (`GOracleSimHooks`) set with the seed, so the in-process server adds 1/30 s per frame to its time, seeds `rand()` with `0x4f524143` in `IServerImpl::Startup` and reads its damage times from a clock starting at 1000 s that each frame advances; the `seed` record adds `server_seed` and `server_clock` |
 
 The window must stay in front and uncovered: a windowed Direct3D 8 screenshot
 copies the screen area of the window, and the client skips frames while it is
@@ -424,9 +425,89 @@ menu's background scene and are void.
 | Script | Result |
 | --- | --- |
 | `menu_walk.txt` | Exit code 0 after 398 frames. The background scene enters room `3118686538` at frame 0. Every `waitscreen` matched; 9 dumps (4 caused by screen changes, 5 by the script), each with tree and screenshot; key map phases `base` (122 commands, 5 groups) and `user` (no file, result 0); 176 layout records (the `navbar.ini` window tree with 15 nodes at frame 0, one PAGE file with 15 widgets, 93 key rows, 49 option rows); 6 IClient calls. Two runs with the pointer parked gave byte-identical files, screenshots included; only the output path in the `start` record differs |
-| `single_player.txt` | Exit code 0 after 2626 frames. 7 dumps: main menu, the start in space (client state 2 at frame 118), and the first base after the opening scene docks at frame 2175 (client state 3, room `2695128518`). No particle errors in `FLSpew.txt`. The first attempts crashed on docking, because the run folder's data predated decision O17 (section 6). Three runs agree on the session (every screen change and dump at the same frame), the trees, the layouts and the key map. They differ in the IClient log and in the screenshots taken in space (dumps 3, 4 and 6): the `Info` of `SendServerCharSelectVerified` carries a double that differs every run (4.29, 4.41, 4.47 at frame 118); `CommCostume` in `SendServerSendComm` carries bytes the costume does not set (heap contents, in one run the text `_Resource.p2293760__Cube_DIM`); and the server's events in space (targets, cruise, damage, fuses) come a few frames earlier or later and in a different order. The in-process server is not on the oracle's fixed step, so this script's IClient log and space screenshots are not yet comparable byte for byte |
+| `single_player.txt` | Exit code 0 after 2626 frames. 7 dumps: main menu, the start in space (client state 2 at frame 118), and the first base after the opening scene docks at frame 2175 (client state 3, room `2695128518`). No particle errors in `FLSpew.txt`. The first attempts crashed on docking, because the run folder's data predated decision O17 (section 6). Three runs agree on the session (every screen change and dump at the same frame), the trees, the layouts and the key map. They differ in the IClient log and in the screenshots taken in space (dumps 3, 4 and 6): the `Info` of `SendServerCharSelectVerified` carries a double that differs every run (4.29, 4.41, 4.47 at frame 118); `CommCostume` in `SendServerSendComm` carries bytes the costume does not set (heap contents, in one run the text `_Resource.p2293760__Cube_DIM`); and the server's events in space (targets, cruise, damage, fuses) come a few frames earlier or later and in a different order. The in-process server's time and seed came from the real clock, so this script's IClient log and space screenshots were not comparable byte for byte; decision O53 puts them on the oracle clock (the table above, "Server clock", and "Hosted runner" below) |
 
 The outputs are made from the game data and stay outside the repository.
+
+### Hosted runner (Phase 5 trial)
+
+`.github/workflows/client-oracle.yml` runs `menu_walk.txt` twice on a
+`windows-2025-vs2026` hosted runner, on request and when the workflow or the
+oracle scripts change (decision O50's check). Run 4 of 2026-11-26
+([45784829807](https://github.com/Zwaliebaba/Outpost.Frontier/actions/runs/45784829807)),
+commit `2c63c375`, with the reference solution built by the image's default
+toolset:
+
+| Figure | Owner run 2026-11-17 | CI run 1 | CI run 2 |
+| --- | --- | --- | --- |
+| Exit code, frames | 0, 398 | 0, 398 | 0, 398 |
+| Dumps, screenshots | 9, 9 | 9, 9 | 9, 9 |
+| Key map `base` (commands, groups) | 122, 5 | 122, 5 | 122, 5 |
+| Layout records | 176 | 176 | 176 |
+| IClient calls | 6 | 7 | 6 |
+
+The two CI runs have equal `session.jsonl` (44 lines without the `start`
+record), `tree.jsonl` (1,029), `keymap.jsonl` (258) and `layout.jsonl`
+(176), and byte-identical screenshots. Their IClient logs differ by one call:
+the first run on a fresh runner has a second `SendServerLoginResponse` at
+frame 0. Run 6
+([45826847849](https://github.com/Zwaliebaba/Outpost.Frontier/actions/runs/45826847849),
+commit `ca8856e3`) found the cause: the first `Login` finds no single-player
+user data and answers status 2, the client logs in again and gets 3. Removing
+only the user folder (`Documents\My Games\OutpostFrontier`) before a run
+brings the two responses back; removing only the registry key does not. A
+comparison therefore starts from a user folder an earlier run made (the job's
+warm-up run), as the owner's machine has one. From such a folder two runs of
+`menu_walk.txt` are equal in every file, `iclient.jsonl` and the screenshots
+included.
+
+Run 6 also ran `single_player.txt` twice with the in-process server on the
+oracle clock (the hook of record 0009 question 3, commit `2c37d7b1`, decision
+O53): both exit 0 after 2,626 frames with 7 dumps, as the owner's run;
+`session.jsonl` (36 lines), `tree.jsonl` (504), `keymap.jsonl` and
+`layout.jsonl` are equal, and the 225 IClient calls come in the same frames
+and order. Seven calls differ in their payload, all in bytes the sender does
+not set: `SendServerSendComm`'s `CommCostume` in the `AccessoryIds` slots at
+and beyond `AccessoryCount` (heap contents, once a UTF-16 nickname), and
+`SendServerBurnFuse`'s `Pad_0x0e` and the three bytes after its last field.
+6 of the 7 screenshots are byte-identical. Without the hook the owner's runs
+differed in the server time, the event order and the frames of the events in
+space (section 8, "Owner run").
+
+The job also compares the port with these runs (decision O53 (2), (4)
+and (5)). Run 9
+([45888027395](https://github.com/Zwaliebaba/Outpost.Frontier/actions/runs/45888027395),
+commit `ed486158`):
+
+| Port output | Against | Result |
+| --- | --- | --- |
+| `game-app`'s key map on `outdir/` (`tests/keymap_data.rs`) | run a's `keymap.jsonl` | 258 lines equal |
+| The preferences screen's key and option lists (`tests/preferences_data.rs`) | run a's `keylist`, `keyrow`, `optlist`, `opt` records | equal |
+| The page descriptors (`tests/page_data.rs`) | run a's `page` and `widget` records | equal |
+| The single-player login through the in-process server (`apps/outpost-frontier/tests/local_server.rs`) | the first IClient lines of runs w and a | equal, status 2 then 3 on a fresh folder and 3 on the folder it made |
+| The Rust `OutpostFrontier.exe +oracle menu_walk.txt`, after run a in the same run and user folders | run a | `keymap.jsonl` 258 lines, the 5 IClient lines of frame 0 and the `display` and `seed` records equal |
+
+The Rust client logged in with status 3 on the user folder the C++ runs had
+made: the port's server read the C++ client's single-player user data. Its
+screens are not ported, so its later session records (the waits for the
+menu screens, the dumps without a tree) are not compared yet.
+
+A session compares locally (decision O54 (3)): download a run's
+`client-oracle-trial` artifact through the GitHub tools into a scratch folder,
+unpack it, and run the comparison tests with `OUTPOST_CLIENT_ORACLE_DIR` set to
+its `a` folder (and `OUTPOST_CLIENT_ORACLE_FRESH_DIR` to `w`), for example
+`cargo test -p game-app --test keymap_data --test preferences_data --test page_data`
+with `--target` set to the host. The files stay in the scratch folder.
+
+What the runner needs, found over runs 1 to 3:
+
+| Runner | What the job does |
+| --- | --- |
+| Session 2, interactive; Hyper-V video adapter at 1024x768 | `Set-DisplayResolution` to 1920x1080, so the windowed client area fits the screen |
+| Audio services running, but no audio device | The client finds no DirectSound device and opens a modal dialog with caption IDS 210 ("OutpostFrontier Critical Warning": "failed to initialize sound ... continue without sound?"), which the job answers Yes. The runs are therefore without sound |
+| DirectPlay disabled | Enabled with DISM (section 5) |
+| No `PerfOptions.ini` | Starts from one holding only `[PerfVersion]` with `SkipMachineWarnings=TRUE`, so a weak adapter's low-machine warning cannot stop the run; every option has its default, unlike an owner's folder with local settings |
+| Another window in front | The client's window is brought to the foreground once visible, because windowed single player runs no frame while the application is inactive (`window.cpp`, `OnActivateApp`) |
 
 ### Hooks in existing files
 

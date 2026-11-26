@@ -172,6 +172,13 @@ the whole of Phase 3, and P5.9 and P5.10 wait for P3.6e and P3.7b on their
 server side. O50 sets which session owns which crates and how the two keep the
 divergence and decision registers apart.
 
+With Phases 3 and 4 closed, the owner amended O50 on 2026-11-26 (decision
+O54): Phase 5 runs as three parallel streams, A (front end and screens:
+P5.1, P5.2, P5.10), B (space: P5.3, P5.4, P5.6, P5.7, P5.8) and C (audio and
+bases: P5.5, P5.9), each with its own branches, pull requests and divergence
+range; Claude merges a Phase 5 pull request once its CI and the client-oracle
+job are green.
+
 ### Phase 0 — make the migration verifiable
 
 | ID | Work | Where it runs | Size |

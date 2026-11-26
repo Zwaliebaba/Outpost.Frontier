@@ -83,6 +83,7 @@
 #include "wincontrol_base.h"
 
 #include "NeuronRuntime.h"
+#include "oracle_sim_hooks.h"      // GOracleSimHooks: the in-process server's fixed clock
 #include "neuroncomponents.h"
 #include "render/IRenderPipeline.h"
 
@@ -100,6 +101,9 @@ namespace
     double const kOracleFrameSeconds = 1.0 / 30.0;
     // srand seed in oracle mode ("ORAC").
     unsigned const kOracleRandSeed = 0x4f524143u;
+    // The in-process server's clock at frame 0 under the fixed clock: Oracle.exe sim's
+    // default ClockStart (Oracle/oracle_sim.cpp).
+    double const kOracleServerClockStart = 1000.0;
     // frames between a screen change and its automatic dump (one second of game time).
     unsigned const kOracleSettleFrames = 30u;
     int const kOracleWidth = 0x400;
@@ -913,9 +917,22 @@ void OracleSeedRandom()
     if (!G.bActive)
         return;
     srand(kOracleRandSeed);
+    // The in-process server on the oracle's clock (Phase 5, design/adr/0009-game-client.md
+    // question 3): the scenario oracle's hooks in Common.dll (include/oracle_sim_hooks.h),
+    // which only Oracle.exe sim set until now. Under them IServerImpl::ElapseTime adds the
+    // fixed frame to the server time instead of the real clock's delta, IServerImpl::Startup
+    // seeds rand() from StartupSeed instead of timeGetTime() (twice, as for the harness), and
+    // the server's damage times read ClockSeconds (server_gameobject.cpp). The hooks' callbacks
+    // stay null. OracleFrameTick advances ClockSeconds.
+    GOracleSimHooks.bFixedClock = true;
+    GOracleSimHooks.StartupSeed = kOracleRandSeed;
+    GOracleSimHooks.FrameSeconds = kOracleFrameSeconds;
+    GOracleSimHooks.ClockSeconds = kOracleServerClockStart;
     FOracleJson J;
     Head(J, "seed");
     J.Uint("seed", kOracleRandSeed);
+    J.Uint("server_seed", GOracleSimHooks.StartupSeed);
+    J.Double("server_clock", GOracleSimHooks.ClockSeconds);
     Session(J);
 }
 
@@ -924,6 +941,7 @@ void OracleFrameTick()
     if (!G.bActive)
         return;
     G.Frame += 1;
+    GOracleSimHooks.ClockSeconds = kOracleServerClockStart + G.Frame * kOracleFrameSeconds;
     if (G.AutoDumpFrame != 0 && G.Frame >= G.AutoDumpFrame)
     {
         G.AutoDumpFrame = 0;

@@ -17,3 +17,4 @@ decision register then carries a one-line entry that points here.
 | [0006](0006-controller-bus.md) | Controller bus and re-entrant dispatch | accepted | P3.0 |
 | [0007](0007-server-world.md) | The server world over the shared arena | accepted | P3.3 |
 | [0008](0008-content.md) | Content in game-logic | accepted | P3.4–P3.7 |
+| [0009](0009-game-client.md) | The game client: context, frame, session and screen oracle | accepted | P5.1–P5.3 |
