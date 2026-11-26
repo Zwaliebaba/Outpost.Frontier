@@ -400,6 +400,22 @@ pub trait ServerHooks {
         true
     }
 
+    /// Entry `index` of a list being applied to `object`, before it is
+    /// written (`EqObj::apply_root_entry`, `apply_equip_entry`,
+    /// `apply_power_entry`, `apply_group_entry`): the server's
+    /// `ObjectDamaged`, the behaviour manager's damage notice and the
+    /// fuses. The server may change the entry (a burning death fuse
+    /// clears a group's fate).
+    fn damage_entry(
+        &mut self,
+        world: &mut World,
+        object: ObjHandle,
+        list: &mut crate::object::damage::DamageList,
+        index: usize,
+    ) {
+        let _ = (world, object, list, index);
+    }
+
     /// After the entries are written, before a destroyed object is
     /// destroyed: the server's dispatches. Clearing `destroyed` keeps the
     /// object (`is_damage_blocked`).

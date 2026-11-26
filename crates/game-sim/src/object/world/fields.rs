@@ -66,8 +66,9 @@ impl World {
                 .data
                 .universe
                 .system_file_path(self.strings.get(sys.file));
-            // The field loads set the loot of the zones they name; the
-            // world keeps the fields, not the zones' loot (P3.3 drops it).
+            // The field loads set the loot of the zones they name on a copy
+            // of the shared universe; the world keeps the loot that changed
+            // ([`World::zone_lootable`]).
             let mut universe = self.data.universe.clone();
             let mut reports = Reports::default();
             if let Some(mut reader) = open_ini(&assets.host, &path) {
@@ -117,10 +118,31 @@ impl World {
                     fields.push(FieldRuntime::new(field));
                 }
             }
+            for (id, zone) in &universe.zones {
+                let data = self.data.universe.zones.get(id).and_then(|z| z.lootable);
+                if zone.lootable != data || self.zone_loot.contains_key(id) {
+                    self.zone_loot.insert(*id, zone.lootable);
+                }
+            }
         }
         let count = fields.len();
         self.asteroid_fields.insert(system, fields);
         count
+    }
+
+    /// A zone's loot (`IZone`'s lootable info, `GetLootableInfo`): what the
+    /// asteroid field loads set on it (`SetLootableInfo`,
+    /// [`World::load_asteroid_fields`]), else the data's. `None` for none
+    /// or an unknown zone.
+    #[must_use]
+    pub fn zone_lootable(
+        &self,
+        zone: u32,
+    ) -> Option<crate::data::asteroid_field::LootableZoneEntry> {
+        match self.zone_loot.get(&zone) {
+            Some(loot) => *loot,
+            None => self.data.universe.zones.get(&zone).and_then(|z| z.lootable),
+        }
     }
 
     /// The asteroid fields of a system, in load order.

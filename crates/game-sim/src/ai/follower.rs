@@ -158,11 +158,19 @@ impl FollowerBase {
         self.delegates = true;
     }
 
-    /// Slot 4 (`BaseFollowerBehavior::Slot4`). A player's ship leaves the
-    /// trade lane it was sent into (`CShip::request_exit_tradelane`, which
-    /// the AI's world does not offer: a player's follower is P3's).
+    /// Slot 4 (`BaseFollowerBehavior::Slot4`,
+    /// `Common/common_basefollowerbehavior.cpp:609-639`). A player's ship
+    /// with a lane order out leaves the trade lane it was sent into
+    /// (`CShip::request_exit_tradelane`).
     fn disengage<W: AiEnv + ?Sized>(&mut self, cx: &mut Cx<'_, W>) {
         self.field_29c = 0;
+        if self.lane_order != 0
+            && cx
+                .own()
+                .is_some_and(|v| v.is_player && v.class & 0x503 == 0x503)
+        {
+            cx.world.command(cx.ship, AiCommand::RequestExitTradeLane);
+        }
         self.lane_order = 0;
         self.face.commit(cx);
         self.match_throttle.commit(cx);
@@ -215,15 +223,29 @@ impl FollowerBase {
         cx.cancel_request(2, 0, 0);
     }
 
-    /// The leader validation of slot 7 for a player's ship: the leader
-    /// lives, is a ship-like object but no capital ship, runs neither the
-    /// follow nor the launch behaviour, and its leader chain does not come
-    /// back to the ship. (The group test of two players' ships needs the
-    /// ships' group ids, which a player's follower brings with P3.)
+    /// The leader validation of slot 7 for a player's ship
+    /// (`Common/common_basefollowerbehavior.cpp:188-268`): the leader
+    /// lives; on a multiplayer server, when both are players' ships, both
+    /// have a group and it is the same one; the leader is a ship-like
+    /// object but no capital ship, runs neither the follow nor the launch
+    /// behaviour, and its leader chain does not come back to the ship.
     fn player_leader_valid<W: AiEnv + ?Sized>(&self, cx: &Cx<'_, W>, own_id: u32) -> bool {
         let Some(mut node) = self.lead_view(cx) else {
             return false;
         };
+        // `FollowerPlayerShipOrNull` of both ends, then `bIsPlayer` (+0x2bd)
+        // and `GroupId` (+0x1b4).
+        if !cx.world.single_player()
+            && let Some(own) = cx.own()
+        {
+            let player_ship = |v: &ObjectView| v.class & 0x503 == 0x503 && v.is_player;
+            if player_ship(&own)
+                && player_ship(&node)
+                && (own.group_id == 0 || node.group_id == 0 || own.group_id != node.group_id)
+            {
+                return false;
+            }
+        }
         let bits = node.type_flags;
         if bits & 0x7f_0000 == 0 || bits & 0x20_0000 != 0 {
             return false;
@@ -1029,15 +1051,28 @@ impl<W: AiEnv + ?Sized> Behavior<W> for FormationBehavior {
         self.f.base.mode
     }
 
-    /// Slot 6: blocked when the target is a ship-like object within 5000 m
-    /// that does not lead back to the ship and feels better than -0.6
-    /// toward it. (The group tests of two players' ships need the ships'
-    /// group ids, which come with P3.)
+    /// Slot 6 (`FormationBehavior::evaluate`,
+    /// `Common/common_formationbehavior.cpp:145-260`): blocked when the
+    /// target is a ship-like object within 5000 m that does not lead back to
+    /// the ship and feels better than -0.6 toward it. On a multiplayer
+    /// server two players' ships must share a group; and a player's ship as
+    /// the target needs the own ship's group, on any side.
     fn evaluate(&mut self, cx: &mut Cx<'_, W>, _context: f32) -> EvaluateResult {
         let (Some(own), Some(target)) = (cx.own(), cx.target_view()) else {
             return EvaluateResult::Skip;
         };
         if own.cruise.is_some_and(|c| c.1) {
+            return EvaluateResult::Skip;
+        }
+        // `FollowerPlayerShipOrNull` and `bIsPlayer` (+0x2bd); a ship's
+        // `GroupId` (+0x1b4).
+        let ship = |v: &ObjectView| v.class & 0x503 == 0x503;
+        let player_ship = |v: &ObjectView| ship(v) && v.is_player;
+        if !cx.world.single_player()
+            && player_ship(&own)
+            && player_ship(&target)
+            && (own.group_id == 0 || target.group_id == 0 || own.group_id != target.group_id)
+        {
             return EvaluateResult::Skip;
         }
         let bits = target.type_flags;
@@ -1065,6 +1100,12 @@ impl<W: AiEnv + ?Sized> Behavior<W> for FormationBehavior {
                 Some(next) => node = next,
                 None => break,
             }
+        }
+        if ship(&own)
+            && player_ship(&target)
+            && (own.group_id == 0 || target.group_id != own.group_id)
+        {
+            return EvaluateResult::Skip;
         }
         let dx = e(target.position.x) - e(own.center.x);
         let dy = e(target.position.y) - e(own.center.y);

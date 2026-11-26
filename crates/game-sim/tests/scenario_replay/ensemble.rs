@@ -109,7 +109,8 @@ struct ObjOutcome {
     /// The kill (owner, 2026-11-19): the first tick its hull is 0 or less
     /// (or it is gone), not the tick it is removed. The server's death fuse
     /// keeps a ship at hull 0 in space for 75 more ticks in the C++
-    /// (D179), where it can still be hit.
+    /// (the bare world without the server destroys it at once), where it
+    /// can still be hit.
     kill_tick: Option<u32>,
     /// Munition hits it took up to its kill (all of them without one).
     hits: usize,

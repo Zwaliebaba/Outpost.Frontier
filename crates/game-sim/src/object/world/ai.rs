@@ -110,6 +110,7 @@ impl World {
                 })
                 .unwrap_or_default(),
             is_player: ship_data.is_some_and(|s| s.is_player),
+            group_id: ship_data.map_or(0, |s| s.group_id),
             is_dying: i.dead,
             is_targetable: i.targetable,
             toughness: self.toughness(h),

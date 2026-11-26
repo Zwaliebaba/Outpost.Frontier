@@ -146,7 +146,9 @@ fn server_state_on_the_damage_and_destruction_paths() {
     shots(&mut cx, plain, shooter_id, 200);
     assert!(cx.world.get(plain).unwrap().dead, "200 shots destroy it");
     let heard = HEARD.with(|h| std::mem::take(&mut *h.borrow_mut()));
-    assert_eq!(heard[0], "DeathFuseLit");
+    // Every hit's entries send `ObjectDamaged` first.
+    let first = heard.iter().find(|l| *l != "ObjectDamaged");
+    assert_eq!(first.map(String::as_str), Some("DeathFuseLit"), "{heard:?}");
     let destroyed = heard
         .iter()
         .find(|l| l.starts_with("ObjectDestroyed"))
