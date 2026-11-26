@@ -838,3 +838,55 @@ fn a_launch_from_a_station_asks_for_a_free_terminal() {
     assert_eq!((initial.object, initial.kind), (0, -1));
     assert_eq!(initial.position, Vector::ZERO);
 }
+
+#[test]
+fn complete_dock_tells_the_npc_managers() {
+    // `complete_dock`'s type-3 event (P3.6d, D867 removed): another NPC
+    // ship of the system with a behaviour manager lets go of the ship that
+    // went through the gate, as its follower and as its formation block's
+    // follow leader.
+    let sink = Shared::default();
+    let Some((mut world, mut logic)) = setup("dock_event", WorldConfig::default(), &sink) else {
+        return;
+    };
+    let he01 = create_id(b"he01");
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    let controller = content(&mut cx);
+    world::load(&mut cx, he01);
+    let gate = solar(&cx, b"he01_to_he02");
+    let ship = fighter(
+        &mut cx,
+        controller,
+        he01,
+        Vector::new(-83176.0, 0.0, 43000.0),
+    );
+    let other = fighter(
+        &mut cx,
+        controller,
+        he01,
+        Vector::new(-83000.0, 0.0, 44000.0),
+    );
+    let ship_id = id(&cx, ship);
+    let graph = cx
+        .world
+        .data()
+        .state_graphs
+        .find(b"FIGHTER", game_sim::ai::state_graph::GraphType::Leader);
+    cx.world.submit_state(other, graph, None);
+    if let Some(s) = cx.world.get_mut(other).and_then(|o| o.as_ship_mut()) {
+        s.formation_followers.push(Some(ship));
+        s.follow_followers.push(Some(ship));
+    }
+    let _ = cx.world.with_behavior_manager(other, |m, _| {
+        m.state.sys.formation.follow_leader = Some(ship_id);
+    });
+    dock::complete_dock(&mut cx, he01, ship, gate);
+    let s = cx.world.get(other).and_then(|o| o.as_ship()).unwrap();
+    assert_eq!(s.formation_followers, [None]);
+    assert_eq!(s.follow_followers, [None]);
+    let m = cx.world.behavior_manager(other).unwrap();
+    assert_eq!(m.state.sys.formation.follow_leader, None);
+}

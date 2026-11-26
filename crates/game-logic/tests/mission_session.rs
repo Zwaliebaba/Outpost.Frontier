@@ -35,7 +35,8 @@
 //!   solars and loot after each frame, by kind and nickname.
 //!
 //! **The comparison rule.** The judged window ends at the first action that
-//! still runs without an effect (D970) in the port's trace, at tick `J`:
+//! runs without an effect in the port's trace, at tick `J` (none since
+//! P3.6d ported `Act_EnableEnc`, the last such class):
 //! the trace is exact up to and including that record, the dispatch order
 //! exact over the ticks before `J`, and every object within the scenario
 //! envelope's gross bound (`game_sim::scenario::GROSS_POSITION`, 500 m)
@@ -82,7 +83,7 @@ use game_logic::content::mission::obj_list::{self, DirectiveKind, Goto, Idle, Ob
 use game_logic::content::mission::runtime;
 use game_logic::content::mission::trace::{Trace, TraceRecord};
 use game_logic::content::mission::trigger::Trigger;
-use game_logic::content::mission::{MissionScript, engine, object_save, spawn};
+use game_logic::content::mission::{MissionScript, engine, object_save, rand_enc, spawn};
 use game_logic::content::npc_ships;
 use game_logic::content::players::{PlayerShip, PlayerState};
 use game_logic::content::ships::{self, ShipKey};
@@ -889,7 +890,7 @@ fn data_dump_mission_session() {
     let judged_tick = ours.unported.first().map_or(u32::MAX, |u| u.0);
     let _ = writeln!(
         summary,
-        "unported actions that ran (D970): {}",
+        "actions without an effect that ran: {}",
         if ours.unported.is_empty() {
             "none".to_owned()
         } else {
@@ -1609,6 +1610,85 @@ fn the_ai_and_reputation_actions_on_outdir() {
         ));
         // A label that is no NPC and not `Player` gives nothing.
         run(cx, id, give(b"nobody_here", named));
+    };
+    if run_session(&root, &root.join("data"), &file, &mut probe).is_none() {
+        println!("notice: outdir/ is missing or the session could not start; it was not run");
+        return;
+    }
+    assert!(checked.get(), "the probe ran at tick 3");
+}
+
+/// P3.6d's `Act_EnableEnc` on `outdir/` (`MissionAct.cpp:715-729`):
+/// `Mission_01a`'s `[MsnRandEnc]` `spa_enc1` (`SP_Attack`), disabled and
+/// with a run-time state, is enabled again with its populator reset
+/// (`FRandEncSPPopulator::Reset`, `RandomEncounters.cpp:1594-1600`: the
+/// goto target, the cumulative time and the populator's elapsed time
+/// zeroed), drawing no `rand()`; another name changes nothing.
+#[test]
+fn an_enable_enc_resets_the_encounters_populator_on_outdir() {
+    let root = outdir();
+    let Some(file) = read_session() else {
+        println!("notice: CppSource/Oracle/mission_session.txt does not parse");
+        return;
+    };
+    let checked = Cell::new(false);
+    let mut probe = |cx: &mut Cx<'_>, id: ControllerId, tick: u32| {
+        if tick != 3 {
+            return;
+        }
+        checked.set(true);
+        let encounter = |cx: &Cx<'_>| {
+            script_of(cx, id)
+                .and_then(|s| {
+                    s.object
+                        .rand_encs
+                        .iter()
+                        .find(|e| e.nickname == b"spa_enc1")
+                })
+                .cloned()
+                .expect("spa_enc1")
+        };
+        // The run-time state an earlier activation leaves.
+        if let Some(s) = runtime::script_mut(cx, id)
+            && let Some(e) = s
+                .object
+                .rand_encs
+                .iter_mut()
+                .find(|e| e.nickname == b"spa_enc1")
+        {
+            e.enabled = false;
+            let p = e.params.as_mut().expect("SP_Attack parameters");
+            p.goto_target_id = 7;
+            p.cumulative_time = 12.5;
+            p.populator.elapsed = 4.0;
+        }
+        let before = encounter(cx);
+        let rng = cx.world.rng().clone();
+        let enable = |name: &[u8]| {
+            Action::EnableEnc(action::EnableEnc {
+                encounter: name.to_vec(),
+            })
+        };
+        assert!(run(cx, id, enable(b"spa_enc2")));
+        assert_eq!(encounter(cx), before, "another name changes nothing");
+        assert!(run(cx, id, enable(b"spa_enc1")));
+        let after = encounter(cx);
+        assert!(after.enabled);
+        let p = after.params.as_ref().expect("SP_Attack parameters");
+        assert_eq!(p.kind, rand_enc::RandEncKind::Space);
+        assert_eq!(p.goto_target_id, 0);
+        assert_eq!(p.cumulative_time.to_bits(), 0);
+        assert_eq!(p.populator.elapsed.to_bits(), 0);
+        // Nothing else of the record changes, and no `rand()` is drawn.
+        let mut expected = before.clone();
+        expected.enabled = true;
+        if let Some(q) = expected.params.as_mut() {
+            q.goto_target_id = 0;
+            q.cumulative_time = 0.0;
+            q.populator.elapsed = 0.0;
+        }
+        assert_eq!(after, expected);
+        assert_eq!(*cx.world.rng(), rng);
     };
     if run_session(&root, &root.join("data"), &file, &mut probe).is_none() {
         println!("notice: outdir/ is missing or the session could not start; it was not run");

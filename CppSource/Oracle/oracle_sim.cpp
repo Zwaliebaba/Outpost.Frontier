@@ -24,6 +24,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <deque>
 #include <map>
 #include <set>
 #include <string>
@@ -118,6 +119,9 @@ namespace
         double ContentFlee[3] = {0.0, 0.0, 0.0};
         double ContentFleeDistance = 0.0;
         int Line = 0;
+        // P3.6d (reporting): a ship Content's population spawned (`npc<k>`), recorded in
+        // tick.jsonl beside the scenario's objects but in no other file.
+        bool bPopulation = false;
     };
 
     struct FCommand
@@ -230,6 +234,11 @@ namespace
         std::vector<FObjectDesc> Objects;
         std::vector<FCommand> Commands;
         std::vector<FPlayerDesc> Players;
+        // P3.6d: `population <ship>`, the ship becomes a Content player's (player 1) after the
+        // objects are spawned, and SpacePop is created and hears its launch
+        // (Content.dll's OracleSimPopulate); the server's frames then run SpacePop's heartbeat.
+        std::string PopulationShip;
+        int PopulationLine = 0;
     };
 
     std::string Lower(std::string Text)
@@ -534,6 +543,14 @@ namespace
                         return Error = Where + "duplicate player", false;
                 }
                 Out.Players.push_back(Player);
+            }
+            else if (Key == "population" && T.size() == 2)
+            {
+                FObjectDesc const* const Ship = FindDesc(Out, T[1]);
+                if (Ship == nullptr || !Ship->bShip)
+                    return Error = Where + "population needs a ship named before it: " + T[1], false;
+                Out.PopulationShip = T[1];
+                Out.PopulationLine = LineNumber;
             }
             else if (Key == "mission" && T.size() == 3)
             {
@@ -1831,6 +1848,67 @@ namespace
     // Per-tick record
     // ------------------------------------------------------------------------------------
 
+    // P3.6d (reporting): the ships of the populated scenario's population, `npc<k>` by the
+    // order the harness first finds them in the system record (Content.dll's
+    // OracleSimPopulationShips walks FSystemInfo::SpaceObjs, which CreateNpcShip appends to),
+    // checked at every tick record. Each found ship gets an `npc` record in session.jsonl.
+    std::deque<FObjectDesc> GPopDescs;
+    std::vector<FSimObject> GPopObjects;
+    unsigned int GPopSystem = 0;
+
+    void __cdecl OnPopulationShip(void* Context, unsigned int SpaceObjId, unsigned int Loadout)
+    {
+        static_cast<std::vector<std::pair<unsigned int, unsigned int>>*>(Context)->push_back(
+            std::make_pair(SpaceObjId, Loadout));
+    }
+
+    void DiscoverPopulationShips()
+    {
+        if (GScenario.PopulationShip.empty() || GPopSystem == 0)
+            return;
+        typedef int(__cdecl * FPopulationShips)(unsigned int, void(__cdecl*)(void*, unsigned int, unsigned int),
+                                                void*);
+        HMODULE const Content = GetModuleHandleA("Content.dll");
+        FPopulationShips const Walk =
+            Content != nullptr ? (FPopulationShips)GetProcAddress(Content, "OracleSimPopulationShips") : nullptr;
+        if (Walk == nullptr)
+            return;
+        std::vector<std::pair<unsigned int, unsigned int>> Found;
+        Walk(GPopSystem, &OnPopulationShip, &Found);
+        for (std::pair<unsigned int, unsigned int> const& Ship : Found)
+        {
+            bool bKnown = false;
+            for (FSimObject const& Known : GPopObjects)
+                bKnown = bKnown || Known.Id == Ship.first;
+            if (bKnown)
+                continue;
+            unsigned int Id = Ship.first;
+            CObject* const Object = CObject::Find(Id, CObject::ClassShip);
+            if (Object == nullptr)
+                continue;
+            Archetype::Root* const Root = static_cast<CShip*>(Object)->get_archetype();
+            unsigned int const ArchId = Root != nullptr ? Root->get_id() : 0u;
+            Object->Release();
+            GPopDescs.push_back(FObjectDesc());
+            FObjectDesc& Desc = GPopDescs.back();
+            Desc.Name = Format("npc%u", (unsigned)GPopObjects.size() + 1u);
+            Desc.bPopulation = true;
+            FSimObject Sim;
+            Sim.Desc = &Desc;
+            Sim.Id = Ship.first;
+            Sim.Class = CObject::ClassShip;
+            GPopObjects.push_back(Sim);
+            FOracleJson J;
+            J.Str("rec", "npc");
+            J.Uint("tick", GTick);
+            J.Str("obj", Desc.Name.c_str());
+            J.Uint("id", Ship.first);
+            J.Uint("arch", ArchId);
+            J.Uint("loadout", Ship.second);
+            Write(FileSession, J);
+        }
+    }
+
     void RecordTick(unsigned int X87, unsigned int Sse)
     {
         // P2.4: the asteroid cubes the frame made or changed (asteroids.jsonl).
@@ -1853,8 +1931,16 @@ namespace
         F.EndArray();
         Write(FileTick, F);
 
+        // P3.6d: the population's ships after the scenario's objects, in spawn order.
+        DiscoverPopulationShips();
+        std::vector<FSimObject const*> Recorded;
         for (FSimObject const& Object : GObjects)
+            Recorded.push_back(&Object);
+        for (FSimObject const& Object : GPopObjects)
+            Recorded.push_back(&Object);
+        for (FSimObject const* const RecordedObject : Recorded)
         {
+            FSimObject const& Object = *RecordedObject;
             FOracleJson J;
             J.Str("rec", "object");
             J.Uint("tick", GTick);
@@ -1979,7 +2065,7 @@ namespace
                         J.Null("target_obj");
                     }
                     unsigned int& Last = GLastTarget[Object.Id];
-                    if (Last != TargetId)
+                    if (Last != TargetId && !Object.Desc->bPopulation)
                     {
                         FOracleJson E;
                         E.Str("rec", "target");
@@ -2013,6 +2099,8 @@ namespace
                 Values[18] = HitPts;
             }
             Write(FileTick, J);
+            if (Object.Desc->bPopulation)
+                continue;
 
             std::string Line = Format("T %u %s %d", GTick, Object.Desc->Name.c_str(), Rw != nullptr ? 1 : 0);
             for (int Index = 0; Index < 19; ++Index)
@@ -2358,13 +2446,46 @@ namespace
         return bOk;
     }
 
+    // P3.6d: `population <ship>` through Content.dll's OracleSimPopulate
+    // (oracle_content_population.cpp): player 1 with the ship, then SpacePop and its launch.
+    bool Populate(unsigned int SystemId)
+    {
+        typedef unsigned int(__cdecl * FPopulate)(unsigned int, unsigned int, unsigned int, unsigned int);
+        HMODULE const Content = GetModuleHandleA("Content.dll");
+        FPopulate const PopulateFn =
+            Content != nullptr ? (FPopulate)GetProcAddress(Content, "OracleSimPopulate") : nullptr;
+        FSimObject const* const Object = FindObject(GScenario.PopulationShip);
+        unsigned int const ShipId = Object != nullptr ? Object->Id : 0u;
+        unsigned int const ShipArch =
+            Object != nullptr && Object->Desc != nullptr ? CreateID(Object->Desc->Archetype.c_str()) : 0u;
+        unsigned int const SpacePop =
+            PopulateFn != nullptr && ShipId != 0u ? PopulateFn(1u, SystemId, ShipId, ShipArch) : 0u;
+        GPopSystem = SystemId;
+        FOracleJson J;
+        J.Str("rec", "population");
+        J.Uint("tick", GTick);
+        J.Int("line", GScenario.PopulationLine);
+        J.Str("obj", GScenario.PopulationShip.c_str());
+        J.Uint("id", ShipId);
+        J.Uint("space_pop", SpacePop);
+        if (PopulateFn == nullptr)
+            J.Str("error", "Content.dll lacks OracleSimPopulate");
+        Write(FileSession, J);
+        return SpacePop != 0u;
+    }
+
     int SubmitScenarioDirective(unsigned int Id, pub::AI::BaseOp& Op)
     {
         // A current directive blocks a new one (pub::AI::SubmitDirective returns 2), so each
         // scenario directive cancels the one before.
+        // P3.6d: the harness's own directives are not recorded in ai.jsonl (the replay takes
+        // them from the scenario file).
+        oracle::OracleSimAiHarnessDirective(true);
         pub::AI::DirectiveCancelOp Cancel;
         pub::AI::SubmitDirective(Id, &Cancel);
-        return (int)pub::AI::SubmitDirective(Id, &Op);
+        int const Result = (int)pub::AI::SubmitDirective(Id, &Op);
+        oracle::OracleSimAiHarnessDirective(false);
+        return Result;
     }
 
     bool CommandVector(FCommand const& Command, size_t At, Vector& Out)
@@ -2723,7 +2844,9 @@ namespace
         if (Verb == "cancel" && A.size() == 1)
         {
             pub::AI::DirectiveCancelOp Op;
+            oracle::OracleSimAiHarnessDirective(true);
             Result = (int)pub::AI::SubmitDirective(Object->Id, &Op);
+            oracle::OracleSimAiHarnessDirective(false);
             return true;
         }
         Note = "unknown command";
@@ -3375,6 +3498,10 @@ namespace oracle
         // With --seed the seed is the ensemble's (owner, 2026-11-19).
         OracleSimLoadRandReseed(Reseed);
         srand(Reseed);
+        // P3.6d: from the seeding point every directive a behaviour manager hears is recorded
+        // (ai.jsonl `ai_answer` kind `directive`; those before the recorder starts, such as
+        // the populated scenario's arrival spawns, are written when it does).
+        OracleSimAiDirectivesBegin();
 
         bool bSpawned = true;
         for (FObjectDesc const& Desc : GScenario.Objects)
@@ -3391,6 +3518,16 @@ namespace oracle
             if (!AddPlayers(SystemId))
             {
                 SessionNote("error", "a player could not join the system");
+                bSpawned = false;
+            }
+        }
+        // P3.6d: the populated scenario's player and SpacePop, after the players' join.
+        if (bSpawned && !GScenario.PopulationShip.empty())
+        {
+            OracleSimLoadRandPhase("population");
+            if (!Populate(SystemId))
+            {
+                SessionNote("error", "the population could not be started");
                 bSpawned = false;
             }
         }

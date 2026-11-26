@@ -821,6 +821,26 @@ impl World {
         }
     }
 
+    /// The smallest zone of `system` with a physical effect at `pos`: its
+    /// nickname, drag modifier and the immersion there (`CSimple::
+    /// update_zones`' search).
+    pub(crate) fn physical_zone_at(&self, system: u32, pos: Vector) -> Option<(u32, f32, f32)> {
+        let mut best: Option<(&crate::data::zone::Zone, f32)> = None;
+        for zone in self.data.universe.system_zones(system) {
+            if !zone.has_physical_effect() {
+                continue;
+            }
+            let radius = zone.radius();
+            if best.is_some_and(|(_, r)| !(radius < r)) {
+                continue;
+            }
+            if zone.in_zone(pos, 0.0) {
+                best = Some((zone, radius));
+            }
+        }
+        best.map(|(z, _)| (z.nickname, z.drag_modifier, zone_immersion(z, pos)))
+    }
+
     /// `CSimple::update_zones`: the smallest zone with a physical effect at
     /// the object's position, its drag modifier and the immersion.
     pub(crate) fn update_zones(&mut self, h: ObjHandle) {
@@ -836,20 +856,7 @@ impl World {
             return;
         };
         let pos = obj.engine.position;
-        let mut best: Option<(&crate::data::zone::Zone, f32)> = None;
-        for zone in self.data.universe.system_zones(system) {
-            if !zone.has_physical_effect() {
-                continue;
-            }
-            let radius = zone.radius();
-            if best.is_some_and(|(_, r)| !(radius < r)) {
-                continue;
-            }
-            if zone.in_zone(pos, 0.0) {
-                best = Some((zone, radius));
-            }
-        }
-        let found = best.map(|(z, _)| (z.nickname, z.drag_modifier, zone_immersion(z, pos)));
+        let found = self.physical_zone_at(system, pos);
         if let Some(o) = self.objects.get_mut(h) {
             match found {
                 Some((zone, drag, immersion)) => {

@@ -109,6 +109,11 @@ pub struct RandEncRespawn {
     /// `Guide`: the leader's guide, kept as the `[MetaBehavior]` object it
     /// was made from (none after a restore, which makes no guide here).
     pub guide: Option<MetaBehavior>,
+    /// `Guide` (`+0x60`) as `SnapshotMissionObjects` takes it: the
+    /// leader's live guide, which the record references (the C++ keeps a
+    /// raw pointer it never releases, D1041) while the guide drives no
+    /// ship; released when the records are emptied.
+    pub guide_ref: Option<crate::content::guides::GuideRef>,
     /// `Priority` (unset in the C++ template; 0).
     pub priority: i32,
     /// `HitPoints` (-1).
@@ -126,6 +131,7 @@ impl Default for RandEncRespawn {
             names: Vec::new(),
             directives: Vec::new(),
             guide: None,
+            guide_ref: None,
             priority: 0,
             hit_points: -1,
         }
@@ -238,8 +244,21 @@ fn write_wing(cx: &Cx<'_>, out: &mut dyn Write, group: &ShipGroup) -> io::Result
     Ok(())
 }
 
-fn write_rand_enc_respawn(out: &mut dyn Write, record: &RandEncRespawn) -> io::Result<()> {
-    let line = record.guide.as_ref().map(|m| m.guide().line.as_slice());
+/// The line of a random-encounter record's guide: its live guide's (a
+/// guide of another class has none, D1041), else the `[MetaBehavior]`
+/// object's it is kept as.
+fn rand_enc_guide_line<'a>(cx: &'a Cx<'_>, record: &'a RandEncRespawn) -> Option<&'a [u8]> {
+    if let Some(guide) = record.guide_ref {
+        return Some(crate::content::guides::line(cx, guide).unwrap_or_default());
+    }
+    record.guide.as_ref().map(|m| m.guide().line.as_slice())
+}
+
+fn write_rand_enc_respawn(
+    out: &mut dyn Write,
+    record: &RandEncRespawn,
+    line: Option<&[u8]>,
+) -> io::Result<()> {
     write_guide_or_directives(out, line, &record.directives)?;
     out.write_all(b"\n[MsnRandEncSave]\n")?;
     writeln!(out, "rand_enc_owner = {}", record.encounter_id)?;
@@ -579,7 +598,7 @@ pub fn write_sections(
         write_wing(cx, out, group)?;
     }
     for record in &object.rand_enc_respawns {
-        write_rand_enc_respawn(out, record)?;
+        write_rand_enc_respawn(out, record, rand_enc_guide_line(cx, record))?;
     }
     write_names(
         out,
@@ -992,7 +1011,7 @@ mod tests {
             names: vec![b"a".to_vec(), b"b".to_vec()],
             ..RandEncRespawn::default()
         };
-        let out = text(|o| write_rand_enc_respawn(o, &record));
+        let out = text(|o| write_rand_enc_respawn(o, &record, None));
         assert_eq!(
             out,
             "\n[MsnRandEncSave]\nrand_enc_owner = 3\nposition = 0.000000, 0.000000, 0.000000\n\

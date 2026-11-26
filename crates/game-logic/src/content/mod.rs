@@ -76,6 +76,8 @@ pub mod directives;
 pub mod dock_queues;
 /// The encounter parameters (TU29; P3.4c).
 pub mod encounter_params;
+/// The encounters' run time (TU29, TU30; P3.6d).
+pub mod encounters;
 /// The formation helpers (TU53 `DockQueues.cpp`; P3.6a).
 pub mod formations;
 pub mod game_support;
@@ -99,6 +101,8 @@ pub mod patrol_paths;
 /// The player states (TU46; P3.4d).
 pub mod players;
 pub mod population;
+/// The random encounters' run time (TU31, TU59, TU60; P3.6d).
+pub mod random_encounters;
 pub mod random_mission;
 /// The reputation handles of Content's space objects (TU19; P3.6c).
 pub mod rep_handles;
@@ -112,6 +116,8 @@ pub mod solar_npcs;
 /// The space paths (TU53 `SpacePaths.cpp`; P3.4d).
 pub mod space_paths;
 pub mod space_support;
+/// The placement of an encounter spawn (TU53 `SpawnPlacement.cpp`; P3.6d).
+pub mod spawn_placement;
 pub mod story;
 /// The system paths and their `[SystemConnections]` writer (TU41; P3.4c).
 pub mod system_paths;
@@ -250,6 +256,11 @@ pub struct ContentState {
     /// whose guides hear SpaceSupport's messages, `None` for an entry
     /// unregistered during the walk.
     pub guided_ships: Vec<Option<crate::events::NpcShipKey>>,
+    /// The load-time draw trace (P3.6d, the `load_rand.jsonl` comparison):
+    /// `None` (off) unless a test sets it; each full load of a system
+    /// record then marks where its steps start
+    /// ([`systems::DrawMark`]).
+    pub draw_marks: Option<Vec<systems::DrawMark>>,
     /// `GBaseVisits` (`Content/BaseSupport.cpp:487`): the players in a base,
     /// their news and mission vendor offers (P3.6e, [`base_support`]).
     pub base_visits: base_support::BaseVisits,
@@ -311,6 +322,7 @@ impl ContentState {
             npc_ship_events: npc_ships::NpcShipEvents::default(),
             guides: guides::GuideArena::default(),
             guided_ships: Vec::new(),
+            draw_marks: None,
             base_visits: base_support::BaseVisits::new(),
             generic_scripts: generic_scripts::GenericScripts::default(),
             next_bar_scene: bar::FIRST_SCENE_ID,
@@ -579,9 +591,10 @@ pub fn deliver(
         | ControllerKind::Mission(_)
         | ControllerKind::GenericMission => mission::engine::handle_message(cx, id, message),
         ControllerKind::DestroyMission => random_mission::runtime::handle_message(cx, id, message),
+        ControllerKind::SpacePop => population::handle_space_pop(cx, id, message),
+        ControllerKind::BasePop => population::handle_base_pop(cx, id, message),
         ControllerKind::StoryLauncher => story::handle_launcher_message(cx, id, message),
         ControllerKind::Story => story::handle_message(cx, id, message),
-        ControllerKind::SpacePop | ControllerKind::BasePop => {}
     }
 }
 

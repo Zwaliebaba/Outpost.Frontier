@@ -31,6 +31,7 @@
 #include "../include/server_savefile.h"   // SaveGame_Writer / ISave / Server_FLS1Transform
 #include "../include/server_savegame.h"   // pub::Save -> PlayerData_AutoSave / PlayerData_MissionSave
 #include "../include/common_casteroid.h"
+#include "../include/oracle_ai.h"         // Oracle instrumentation (P3.6d): OnDirective
 #include <windows.h>
 #include <cstdint>
 #include <new>
@@ -7118,6 +7119,45 @@ static const FSubmitDirectiveBehavior GSubmitDirectiveBehaviors[] = {
     { OpType_DirectiveTractorBeamOp,       0x10 },
 };
 
+// Oracle instrumentation (P3.6d): the op's size by its type, for OracleReportDirective.
+static int OracleDirectiveOpSize(int OpType) {
+    switch (OpType) {
+    case OpType_DirectiveGotoOp: return (int)sizeof(DirectiveGotoOp);
+    case OpType_DirectiveFollowOp: return (int)sizeof(DirectiveFollowOp);
+    case OpType_DirectiveTrailOp: return (int)sizeof(DirectiveTrailOp);
+    case OpType_DirectiveStrafeOp: return (int)sizeof(DirectiveStrafeOp);
+    case OpType_DirectiveFaceOp: return (int)sizeof(DirectiveFaceOp);
+    case OpType_DirectiveRamOp: return (int)sizeof(DirectiveRamOp);
+    case OpType_DirectiveTractorBeamOp: return (int)sizeof(DirectiveTractorBeamOp);
+    case OpType_DirectiveEvadeOp: return (int)sizeof(DirectiveEvadeOp);
+    case OpType_DirectiveDrasticEvadeOp: return (int)sizeof(DirectiveDrasticEvadeOp);
+    case OpType_DirectiveDelayOp: return (int)sizeof(DirectiveDelayOp);
+    case OpType_DirectiveDockOp: return (int)sizeof(DirectiveDockOp);
+    case OpType_DirectiveLaunchOp: return (int)sizeof(DirectiveLaunchOp);
+    case OpType_DirectiveInstantTradelaneOp: return (int)sizeof(DirectiveInstantTradelaneOp);
+    case OpType_DirectiveFormationOp: return (int)sizeof(DirectiveFormationOp);
+    case OpType_DirectiveGuideOp: return (int)sizeof(DirectiveGuideOp);
+    case OpType_DirectiveWaitForShip: return (int)sizeof(DirectiveWaitForShip);
+    case OpType_DirectiveWaitForPlayerManeuverOp: return (int)sizeof(DirectiveWaitForPlayerManeuverOp);
+    case OpType_DirectiveIdleOp: return (int)sizeof(DirectiveIdleOp);
+    case OpType_DirectiveCancelOp: return (int)sizeof(DirectiveCancelOp);
+    default: return (int)sizeof(BaseOp);
+    }
+}
+
+// Oracle instrumentation (P3.6d): reports a directive the AI branch handed to the object's
+// behaviour manager (GOracleAiHooks.OnDirective, inert outside the harness) and passes the
+// result through. The op's dwords from +0x04 on, so that a replay can submit the same op.
+static OP_RTYPE OracleReportDirective(unsigned int Flid, BaseOp const* Op, OP_RTYPE Result) {
+    if (GOracleAiHooks.OnDirective != nullptr) {
+        int Words[0xc0 / 4] = {};
+        int const Count = (OracleDirectiveOpSize(Op->OpType) - 4) / 4;
+        std::memcpy(Words, reinterpret_cast<unsigned char const*>(Op) + 4, (size_t)Count * 4);
+        GOracleAiHooks.OnDirective(Flid, Words, Count, static_cast<int>(Result));
+    }
+    return Result;
+}
+
 // pub::AI::SubmitDirective — baseline 0x7cbb0, module storage..06d5d764, all 702 instructions
 // traced from the PE bytes, ESP tracked through every PUSH and every callee-cleaned
 // (RET 0xc). Frame: SUB ESP,0xa8 + four pushes; the SETDIRECTIVE struct is
@@ -7246,22 +7286,22 @@ SERVER_API OP_RTYPE __cdecl SubmitDirective(unsigned int Flid, BaseOp* Op) {
         // word 0 = 2, word 2 = BehaviorTypes::get_behavior_id(name); -1 -> 5.
         DirectiveWaitForPlayerManeuverOp* Wait = static_cast<DirectiveWaitForPlayerManeuverOp*>(Op);
         int const BehaviorId = BehaviorTypes::get_behavior_id(Wait->BehaviorName);
-        if (BehaviorId == -1) return static_cast<OP_RTYPE>(5);
+        if (BehaviorId == -1) return OracleReportDirective(Flid, Op, static_cast<OP_RTYPE>(5));
         Behavior->set_current_directive(
             Server_MakeDirectiveInfo(2u, Op->Priority, static_cast<unsigned int>(BehaviorId)), Op);
-        return static_cast<OP_RTYPE>(1);
+        return OracleReportDirective(Flid, Op, static_cast<OP_RTYPE>(1));
     }
 
     if (Op->OpType == OpType_DirectiveCancelOp) {
         // word 0 = EBX = 0, word 2 still -1; the callee's result is ignored.
         Behavior->set_current_directive(Server_MakeDirectiveInfo(0u, Op->Priority, 0xffffffffu), Op);
-        return static_cast<OP_RTYPE>(1);
+        return OracleReportDirective(Flid, Op, static_cast<OP_RTYPE>(1));
     }
 
     // a current directive whose word 0 is non-zero blocks every other op.
     unsigned int CurrentKind = 0;
     std::memcpy(&CurrentKind, Behavior->get_current_directive()->Data, sizeof(CurrentKind));
-    if (CurrentKind != 0) return static_cast<OP_RTYPE>(2);
+    if (CurrentKind != 0) return OracleReportDirective(Flid, Op, static_cast<OP_RTYPE>(2));
 
     unsigned int Result = 5;                                    // [S+0x1c] = 5
     size_t const PairCount = sizeof(GSubmitDirectiveBehaviors) / sizeof(GSubmitDirectiveBehaviors[0]);
@@ -7272,7 +7312,7 @@ SERVER_API OP_RTYPE __cdecl SubmitDirective(unsigned int Flid, BaseOp* Op) {
             Result = 1;
         }
     }
-    return static_cast<OP_RTYPE>(Result);
+    return OracleReportDirective(Flid, Op, static_cast<OP_RTYPE>(Result));
 }
 
 // pub::AI::set_directive_priority — baseline 0x7db70, module storage..06d5dba8, 20 insns.

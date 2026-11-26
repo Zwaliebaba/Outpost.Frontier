@@ -20,7 +20,7 @@ use crate::equip::{EquipKind, types};
 use crate::object::ship::{self, ThrustKind};
 use crate::object::{Command, ObjHandle};
 
-use super::World;
+use super::{TickList, World};
 
 impl World {
     /// `IObjInspect` of one object for the AI.
@@ -189,22 +189,114 @@ impl World {
     }
 }
 
+/// The ship state the motion model reads besides its archetype and
+/// equipment, in place of the object's own ([`World::motion_with`]): a
+/// behaviour-tick replay's motion world, whose ships stand where they were
+/// spawned, answers with the recorded state.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct MotionState {
+    /// The zone (`CSimple::ZoneAtA4`'s drag modifier, `None` without a
+    /// zone) and the immersion (`ScannerInterference`).
+    pub zone: Option<(Option<f32>, f32)>,
+    /// The first engine's `bActive` and `bCruiseActive`.
+    pub engine: Option<(bool, bool)>,
+}
+
+impl World {
+    /// The ship's motion model over `state` in place of the ship's own zone
+    /// and engine state.
+    #[must_use]
+    pub fn motion_with(
+        &self,
+        h: ObjHandle,
+        state: MotionState,
+    ) -> Option<Box<dyn MotionModel + '_>> {
+        self.get(h)?.as_ship()?;
+        Some(Box::new(ShipMotion {
+            world: self,
+            h,
+            zone: state.zone,
+            engine: state.engine,
+        }))
+    }
+
+    /// What the motion model of `h` reads, as text (a replay's report):
+    /// the mass, the archetype's linear drag, the first engine (its
+    /// archetype id, `bActive`, `bCruiseActive`, maximum force, linear
+    /// drag), the thrusters' maximum forces, the zone and the immersion,
+    /// each the object's own or `state`'s.
+    #[must_use]
+    pub fn motion_inputs(&self, h: ObjHandle, state: MotionState) -> String {
+        let Some(o) = self.get(h) else {
+            return "no object".to_owned();
+        };
+        let (Some(s), Some(eq)) = (o.as_ship(), o.as_equipped()) else {
+            return "no ship".to_owned();
+        };
+        let engine = eq
+            .equipment
+            .first(types::ENGINE)
+            .and_then(|item| match &item.kind {
+                EquipKind::Engine(en) => Some(format!(
+                    "engine {:#010x} active {} cruise {} max_force {:08x} linear_drag {:08x}",
+                    item.arch_id,
+                    state.engine.map_or(item.is_active(), |e| e.0),
+                    state.engine.map_or(en.cruise_active, |e| e.1),
+                    en.arch.max_force.to_bits(),
+                    en.linear_drag().to_bits()
+                )),
+                _ => None,
+            });
+        let thrusters: Vec<String> = eq
+            .equipment
+            .traverse(types::THRUSTER, false)
+            .into_iter()
+            .filter_map(|slot| match eq.equipment.get(slot).map(|e| &e.kind) {
+                Some(EquipKind::Thruster(t)) => Some(format!("{:08x}", t.max_force.to_bits())),
+                _ => None,
+            })
+            .collect();
+        let (zone_drag, interference) = state
+            .zone
+            .unwrap_or((o.simple.zone_drag, o.simple.scanner_interference));
+        format!(
+            "mass {:08x} arch linear_drag {:08x} {} thrusters {:?} zone {:?} drag {:?} interference {:08x}{}",
+            self.mass(h).to_bits(),
+            s.flight.arch.linear_drag.to_bits(),
+            engine.unwrap_or_else(|| "no engine".to_owned()),
+            thrusters,
+            o.simple.zone,
+            zone_drag.map(f32::to_bits),
+            interference.to_bits(),
+            if state.zone.is_some() {
+                " (recorded zone)"
+            } else {
+                ""
+            }
+        )
+    }
+}
+
 /// The motion model of one ship (`CShip::get_time_to_accelerate` and the
 /// rest of slots 50 to 63), over the world's data.
 struct ShipMotion<'a> {
     world: &'a World,
     h: ObjHandle,
+    /// The zone's drag modifier and the immersion in place of the
+    /// object's own ([`World::motion_with`]).
+    zone: Option<(Option<f32>, f32)>,
+    /// The first engine's `bActive` and `bCruiseActive` in place of its
+    /// own.
+    engine: Option<(bool, bool)>,
 }
 
 impl ShipMotion<'_> {
     fn parts(&self) -> Option<(&ship::ShipData, &crate::object::Equipped, Option<f32>, f32)> {
         let o = self.world.get(self.h)?;
-        Some((
-            o.as_ship()?,
-            o.as_equipped()?,
-            o.simple.zone_drag,
-            o.simple.scanner_interference,
-        ))
+        let (zone_drag, interference) = self
+            .zone
+            .unwrap_or((o.simple.zone_drag, o.simple.scanner_interference));
+        Some((o.as_ship()?, o.as_equipped()?, zone_drag, interference))
     }
 
     /// `collect_force_components(throttle, type)`.
@@ -232,16 +324,26 @@ impl ShipMotion<'_> {
             }
             return (0.0, drag);
         };
-        let linear = ship::linear_drag(&s.flight, &eq.equipment, zone.map(|z| z.0), consts);
-        ship::collect_force_components(
-            &s.flight,
-            &eq.equipment,
-            throttle,
-            kind,
-            zone,
-            consts,
-            linear,
-        )
+        // The recorded engine state, on a copy of the items.
+        let overridden;
+        let equipment = match self.engine {
+            Some((active, cruise)) => {
+                let mut copy = eq.equipment.clone();
+                if let Some(slot) = copy.find_first(types::ENGINE)
+                    && let Some(item) = copy.get_mut(slot)
+                {
+                    item.active = active;
+                    if let EquipKind::Engine(en) = &mut item.kind {
+                        en.cruise_active = cruise;
+                    }
+                }
+                overridden = copy;
+                &overridden
+            }
+            None => &eq.equipment,
+        };
+        let linear = ship::linear_drag(&s.flight, equipment, zone.map(|z| z.0), consts);
+        ship::collect_force_components(&s.flight, equipment, throttle, kind, zone, consts, linear)
     }
 
     fn mass(&self) -> f32 {
@@ -616,7 +718,12 @@ impl AiWorld for World {
 
     fn motion(&self, h: ObjHandle) -> Option<Box<dyn MotionModel + '_>> {
         self.get(h)?.as_ship()?;
-        Some(Box::new(ShipMotion { world: self, h }))
+        Some(Box::new(ShipMotion {
+            world: self,
+            h,
+            zone: None,
+            engine: None,
+        }))
     }
 
     fn system_of(&self, h: ObjHandle) -> Option<u32> {
@@ -1580,6 +1687,59 @@ impl World {
         if let Some(manager) = self.behavior_managers.get_mut(&h) {
             manager.maneuver_event(behavior);
         }
+    }
+
+    /// `StarSystem::complete_dock`'s type-3 event
+    /// (`Server/server_classes.cpp:10183-10223`): every ship of `system`
+    /// that no player owns and that has a manager hears that the ship
+    /// `event.ship` docked at `event.dock`, in the system's ship order. Its
+    /// own ship lets go of the docked ship (`CShip::leaving_system_update`:
+    /// the formation and follow followers' slots and the targeters; the
+    /// reference does it after the guns' targets, which it does not touch),
+    /// then the manager runs case 3 ([`BehaviorManager::dock_event`]).
+    pub fn dock_event(&mut self, system: u32, event: &crate::ai::behavior::DockEvent) {
+        for h in self.list(system, TickList::Ships) {
+            if self.get(h).is_none_or(|o| o.simple.owner_player != 0) {
+                continue;
+            }
+            // `Slot00` returns at once without a current behaviour.
+            if self
+                .behavior_managers
+                .get(&h)
+                .is_none_or(|m| m.state.behavior == -1)
+            {
+                continue;
+            }
+            self.leaving_system_update(h, event.ship);
+            let _ = self.with_behavior_manager(h, |m, w| m.dock_event(w, h, event));
+        }
+    }
+
+    /// `CShip::leaving_system_update(&Id)` (`Common/common_cship.cpp:2584-2630`):
+    /// every formation follower, follow follower and targeter of the ship
+    /// `h` that is the object `id` is let go; true when one was.
+    pub fn leaving_system_update(&mut self, h: ObjHandle, id: u32) -> bool {
+        let gone = self.find(id);
+        let Some(gone) = gone else {
+            return false;
+        };
+        let Some(ship) = self.ship_data_mut(h) else {
+            return false;
+        };
+        let mut found = false;
+        for slot in ship
+            .formation_followers
+            .iter_mut()
+            .chain(ship.follow_followers.iter_mut())
+        {
+            if *slot == Some(gone) {
+                *slot = None;
+                found = true;
+            }
+        }
+        let before = ship.targeters.len();
+        ship.targeters.retain(|&t| t != gone);
+        found || ship.targeters.len() != before
     }
 
     /// Runs `f` on an object's manager (created when missing, as

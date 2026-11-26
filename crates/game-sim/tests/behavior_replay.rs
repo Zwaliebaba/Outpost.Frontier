@@ -27,7 +27,26 @@
 //! `outdir/` at its scenario position and answers the motion queries of
 //! the ship from it. The snapshot's own state (position, throttle, engine
 //! and thruster status and so on) follows the commands of the tick as the
-//! reference's `IObjAffect` bodies change it, nested calls included.
+//! reference's `IObjAffect` bodies change it, nested calls included. The
+//! pathfinder's constructor asks the same model for the engine speed and
+//! the two distances (`Field_1F8`, `Field_1FC`, which no record holds and
+//! which pads `ClassifyObstaclePhase`'s candidate capsules): the replay
+//! asks the motion world's ship as it was spawned.
+//!
+//! The directives the oracle records (P3.6d, `ai_answer` `directive`:
+//! Content's spawns, guides and `[ObjList]` directives) are submitted to
+//! the ship's manager as the scenario's are, between its ticks; those of
+//! the ship's own tick are its directive callbacks', which the manager
+//! submits where it notifies them (`AiWorld::callback_directives`). The
+//! population's ships (`session.jsonl` `npc`) are spawned into the motion
+//! world by their archetypes and loadouts.
+//!
+//! The dock behaviour's `Orient3a8` (`beh7`'s floats 26 to 34) is not
+//! judged on the tick of a ship's first dock engagement while nothing has
+//! written it (`RefreshApproachState`, which asks `get_dock_hardpoints`
+//! first, is its only writer): the reference's constructor leaves it as
+//! the heap held it (D178, the owner's decision of 2026-11-26). The
+//! summary counts those fields.
 //!
 //! A tick whose behaviour on entry or exit is not ported yet is counted as
 //! skipped, by behaviour id, and so is a mismatching tick that polled a
@@ -60,14 +79,15 @@ use game_sim::ai::world::{
     AI_SCAN_MASK, AiCommand, AiRand, AiWorld, DockHardpoints, EquipInfo, LaneStart, MotionModel,
     ObjectView, RayContact, RecordedRand, RequestAnswer, SpatialQueries,
 };
-use game_sim::object::world::{ShipSpawn, WorldConfig};
+use game_sim::object::world::{MotionState, ShipSpawn, WorldConfig};
 use game_sim::object::{ObjHandle, World};
 use neuron_core::id::create_id;
 use neuron_core::math::{Matrix, Transform, Vector};
 use neuron_core::physics::StepMode;
 use support::ai_records::{
     Affect, AiTick, AnswerRecord, BehRecord, EquipRecord, FaceRecord, ManagerRecord,
-    PathfindRecord, QueryRecord, SysRecord, read_affects, read_ai_ticks, read_names,
+    PathfindRecord, QueryRecord, RecordedDirective, SysRecord, read_affects, read_ai_ticks,
+    read_names, recorded_directive,
 };
 use support::records::{find_files, oracle_dir};
 
@@ -82,14 +102,20 @@ const RECORDED_SLOTS: [u8; 15] = [0, 1, 2, 3, 13, 16, 17, 18, 19, 20, 21, 23, 24
 struct MotionWorld {
     world: World,
     ships: BTreeMap<String, ObjHandle>,
+    /// The ships Content's population spawned (`session.jsonl` `npc`,
+    /// P3.6d), by their ids in the run: their archetypes and loadouts
+    /// spawned apart from the scenario's, for their motion models.
+    population: BTreeMap<u32, ObjHandle>,
     /// The scenario's commands: tick, object name, arguments.
     commands: Vec<(u32, String, Vec<String>)>,
 }
 
 impl MotionWorld {
     /// The ships of `CppSource/Oracle/scenarios/<scenario>.txt`, spawned
-    /// where the scenario puts them.
-    fn new(scenario: &str) -> Option<Self> {
+    /// where the scenario puts them, and the ships the run's population
+    /// spawned (the `npc` records of the run's `session.jsonl`), each 2 km
+    /// below the last.
+    fn new(scenario: &str, run: Option<&Path>) -> Option<Self> {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../CppSource/Oracle/scenarios")
             .join(format!("{scenario}.txt"));
@@ -132,9 +158,32 @@ impl MotionWorld {
             }
         }
         let commands = support::directives::commands(&text);
+        let mut population = BTreeMap::new();
+        if let (Some(system), Some(run)) = (system, run) {
+            for r in support::records::read_lines(&run.join("session.jsonl")) {
+                if r.get("rec").and_then(support::records::Json::as_str) != Some("npc") {
+                    continue;
+                }
+                let field = |k: &str| r.get(k).and_then(support::records::Json::as_u32);
+                let (Some(id), Some(arch)) = (field("id"), field("arch")) else {
+                    continue;
+                };
+                let below = -2000.0 * (population.len() + 1) as f32;
+                let spawn = ShipSpawn::new(
+                    arch,
+                    field("loadout").unwrap_or(0),
+                    Vector::new(0.0, below, 0.0),
+                    Matrix::IDENTITY,
+                );
+                if let Ok(h) = world.spawn_ship(system, &spawn) {
+                    population.insert(id, h);
+                }
+            }
+        }
         Some(Self {
             world,
             ships,
+            population,
             commands,
         })
     }
@@ -182,6 +231,28 @@ struct ReplayWorld<'a> {
     /// get_behavior_interface`; a formation leader's directive is read by
     /// its wingmen).
     managers: BTreeMap<u32, (i32, [i32; 3])>,
+    /// The directives the reference's directive callbacks submitted to
+    /// the ship inside the tick (`ai_answer` `directive` of the tick's
+    /// `seq`, P3.6d), with their priorities: the manager submits them when
+    /// it notifies the callbacks ([`AiWorld::callback_directives`]).
+    callback: Vec<(DirectiveOp, i32)>,
+    /// `is_using_tradelane` of the snapshot's objects (`ai_obj.lane`).
+    lanes: BTreeMap<u32, bool>,
+    /// The motion state of the snapshot's ships the motion model reads:
+    /// the recorded zone (`ai_obj.zone_drag`, `interference`) and the
+    /// first engine's active and cruise flags.
+    motion_states: BTreeMap<u32, MotionState>,
+    /// What the tick asked of the motion models and the scanner (the
+    /// mismatch report's diagnostics).
+    log: std::cell::RefCell<Vec<String>>,
+    /// What `ClassifyObstaclePhase` tested in the tick ([`AiWorld::trace`]:
+    /// each candidate's slot and padded capsule, the winner and its
+    /// tests), for the mismatch report.
+    classify: std::cell::RefCell<Vec<String>>,
+    /// Whether the ship's manager asked `get_dock_hardpoints` (the dock
+    /// behaviour's `RefreshApproachState`, the only writer of its
+    /// `Orient3a8`, asks it first; D178).
+    dock_asked: bool,
 }
 
 impl<'a> ReplayWorld<'a> {
@@ -206,11 +277,21 @@ impl<'a> ReplayWorld<'a> {
                 )
                 .filter(|(id, _)| *id != t.id)
                 .filter_map(|(id, name)| m.ships.get(name).map(|h| (id, *h)))
+                .chain(
+                    m.population
+                        .iter()
+                        .filter(|(id, _)| **id != t.id)
+                        .map(|(id, h)| (*id, *h)),
+                )
                 .collect()
         });
         let motion = motion.and_then(|m| {
-            let h = *m.ships.get(t.obj.as_deref()?)?;
-            Some((&m.world, h))
+            let h = t
+                .obj
+                .as_deref()
+                .and_then(|n| m.ships.get(n))
+                .or_else(|| m.population.get(&t.id))?;
+            Some((&m.world, *h))
         });
         let own = t.objects.iter().find(|o| o.id == t.id);
         Self {
@@ -253,6 +334,29 @@ impl<'a> ReplayWorld<'a> {
             ],
             unanswered: Vec::new(),
             managers: BTreeMap::new(),
+            callback: Vec::new(),
+            lanes: t
+                .objects
+                .iter()
+                .filter_map(|o| o.using_tradelane.map(|l| (o.id, l)))
+                .collect(),
+            motion_states: t
+                .objects
+                .iter()
+                .filter_map(|o| {
+                    let v = o.view.as_ref()?;
+                    Some((
+                        o.id,
+                        MotionState {
+                            zone: o.zone,
+                            engine: v.engine.map(|e| (e.active, v.cruise.is_some_and(|c| c.0))),
+                        },
+                    ))
+                })
+                .collect(),
+            log: std::cell::RefCell::new(Vec::new()),
+            classify: std::cell::RefCell::new(Vec::new()),
+            dock_asked: false,
         }
     }
 
@@ -375,8 +479,44 @@ impl<'a> ReplayWorld<'a> {
 impl AiWorld for ReplayWorld<'_> {
     type Handle = u32;
 
+    /// The snapshot's `is_using_tradelane` (false without it).
+    fn using_tradelane(&self, h: u32) -> bool {
+        self.lanes.get(&h).copied().unwrap_or(false)
+    }
+
+    /// The recorded directives of the tick's callbacks, once. The draws
+    /// Content made in its callback (`rand_mod` `Content.dll`) at this
+    /// point of the tick are passed over.
+    fn callback_directives(&mut self, h: u32) -> Vec<(DirectiveOp, i32)> {
+        if h != self.ship || self.callback.is_empty() {
+            return Vec::new();
+        }
+        let at = self.rand.consumed();
+        let content = self
+            .rand_mod
+            .iter()
+            .skip(at)
+            .take_while(|m| m.as_str() == "Content.dll")
+            .count();
+        self.rand.skip(content);
+        std::mem::take(&mut self.callback)
+    }
+
     fn inspect(&self, h: u32) -> Option<ObjectView> {
         self.objects.get(&h).cloned()
+    }
+
+    fn tracing(&self) -> bool {
+        true
+    }
+
+    /// The AI's diagnostic lines, the first 80 of the tick.
+    fn trace(&self, line: String) {
+        if let Ok(mut lines) = self.classify.try_borrow_mut()
+            && lines.len() < 80
+        {
+            lines.push(line);
+        }
     }
 
     fn handle_of(&self, id: u32) -> Option<u32> {
@@ -416,6 +556,7 @@ impl AiWorld for ReplayWorld<'_> {
     /// The recorded answer of `get_dock_hardpoints` for the object and
     /// sphere (the caller's buffers as they were after the call).
     fn dock_hardpoints(&mut self, h: u32, index: i32) -> DockHardpoints {
+        self.dock_asked = true;
         let Some(a) = self.take_answer("dock_hardpoints", |a| {
             a.id == h && a.ints.first() == Some(&index)
         }) else {
@@ -500,12 +641,34 @@ impl AiWorld for ReplayWorld<'_> {
         out
     }
 
+    /// The motion world's ship with the snapshot's zone and engine state
+    /// (the motion model reads the zone's drag modifier and immersion and
+    /// whether the engine runs or cruises; the motion world's ships stand
+    /// where they were spawned, their engines as spawned). A record
+    /// without the zone keeps the motion world's (P2.5's runs).
     fn motion(&self, h: u32) -> Option<Box<dyn MotionModel + '_>> {
         let (world, handle) = self.motion?;
-        if h != self.ship {
-            return world.motion(*self.others.get(&h)?);
+        let handle = if h == self.ship {
+            handle
+        } else {
+            *self.others.get(&h)?
+        };
+        let mut state = self.motion_states.get(&h).copied().unwrap_or_default();
+        if state.zone.is_none() {
+            state = MotionState::default();
         }
-        world.motion(handle)
+        if let Ok(mut log) = self.log.try_borrow_mut()
+            && log.len() < 8
+        {
+            let line = format!("motion of {h}: {}", world.motion_inputs(handle, state));
+            if !log.contains(&line) {
+                log.push(line);
+            }
+        }
+        if state == MotionState::default() {
+            return world.motion(handle);
+        }
+        world.motion_with(handle, state)
     }
 
     /// The target list's mask answers the list the tick built; another
@@ -518,13 +681,41 @@ impl AiWorld for ReplayWorld<'_> {
             return None;
         }
         if mask != AI_SCAN_MASK {
-            return Some(
-                self.objects
-                    .values()
-                    .filter(|v| v.id != self.ship && v.is_targetable && !v.is_dying)
-                    .map(|v| v.id)
-                    .collect(),
-            );
+            // The scanner's list the reference handed out for this mask
+            // (`scan_list` answers, P3.6d), in its order; older records
+            // without one: every targetable object of the snapshot.
+            let word_mask = int(mask);
+            let recorded: Vec<String> = self
+                .answers
+                .iter()
+                .filter(|a| a.kind == "scan_list" && a.id == h)
+                .map(|a| format!("{:?}", a.ints))
+                .collect();
+            if let Some(a) = self.take_answer("scan_list", |a| {
+                a.id == h && a.ints.first() == Some(&word_mask)
+            }) {
+                let ids: Vec<u32> = a
+                    .ints
+                    .iter()
+                    .skip(2)
+                    .map(|&id| word(id))
+                    .filter(|id| self.objects.contains_key(id))
+                    .collect();
+                self.log.borrow_mut().push(format!(
+                    "scan_list({h}, {mask:#x}) from the record: {ids:?} (recorded for the ship: {recorded:?})"
+                ));
+                return Some(ids);
+            }
+            let ids: Vec<u32> = self
+                .objects
+                .values()
+                .filter(|v| v.id != self.ship && v.is_targetable && !v.is_dying)
+                .map(|v| v.id)
+                .collect();
+            self.log.borrow_mut().push(format!(
+                "scan_list({h}, {mask:#x}) without a record (recorded for the ship: {recorded:?}): every targetable snapshot object {ids:?}"
+            ));
+            return Some(ids);
         }
         Some(
             self.scan
@@ -1028,8 +1219,19 @@ fn beh_skipped(kind: i32, k: usize) -> bool {
     kind == 8 && k == 6
 }
 
-/// The differences between the recorded and the Rust behaviour fields.
-fn beh_diff(theirs: &BehRecord, ours: Option<&BehRecord>) -> Option<String> {
+/// The floats of `beh7` that hold the dock behaviour's `Orient3a8`
+/// (`design/sim-records.md`: the eight scalars, the six vectors, then
+/// `Orient3a8`, `OrientMatrix3d8` and `Orient40c` row by row).
+const DOCK_ORIENT_3A8: std::ops::Range<usize> = 26..35;
+
+/// The differences between the recorded and the Rust behaviour fields;
+/// the floats of `uninitialised` are not judged (the dock behaviour's
+/// `Orient3a8` before the reference first writes it, D178).
+fn beh_diff(
+    theirs: &BehRecord,
+    ours: Option<&BehRecord>,
+    uninitialised: Option<std::ops::Range<usize>>,
+) -> Option<String> {
     let Some(ours) = ours else {
         return Some(format!(
             "beh{} oracle {:?}, rust none",
@@ -1040,6 +1242,7 @@ fn beh_diff(theirs: &BehRecord, ours: Option<&BehRecord>) -> Option<String> {
         .filter(|&k| !beh_skipped(theirs.kind, k) && theirs.ints.get(k) != ours.ints.get(k))
         .collect();
     let floats: Vec<usize> = (0..theirs.floats.len().max(ours.floats.len()))
+        .filter(|&k| !uninitialised.as_ref().is_some_and(|r| r.contains(&k)))
         .filter(|&k| {
             theirs.floats.get(k).map(|v| v.to_bits()) != ours.floats.get(k).map(|v| v.to_bits())
         })
@@ -1409,6 +1612,10 @@ struct Totals {
     /// fields, and those the Rust behaviour left differently.
     beh_compared: usize,
     beh_mismatched: usize,
+    /// The dock behaviour's `Orient3a8` floats not judged at a first
+    /// engagement before the reference wrote them (D178), and the ticks.
+    beh_uninitialised: usize,
+    beh_uninitialised_ticks: usize,
     beh_reports: Vec<String>,
     /// The oracle's zone probes (`zone_props`) against the Rust world's
     /// zones (`World::sphere_zone_properties`, P2.1's zones).
@@ -1481,6 +1688,35 @@ fn report(
             r,
             "\n  commands oracle {theirs:08x?}\n  commands rust   {ours_c:08x?}"
         );
+    }
+    // Diagnostics (P3.6d): what the tick asked of the scanner and the
+    // motion models, and the ship's recorded state they read.
+    if theirs != ours_c || !pathfind_equal(ours.pathfind.as_ref(), out.pathfind.as_ref()) {
+        for line in world.log.borrow().iter() {
+            let _ = write!(r, "\n  {line}");
+        }
+        // The Rust side's `ClassifyObstaclePhase` (the oracle records none
+        // of its inner values: its reaction state is in `pathfind`, the
+        // candidates' fields in the snapshot).
+        for line in world.classify.borrow().iter() {
+            let _ = write!(r, "\n  {line}");
+        }
+        if let Some(o) = t.objects.iter().find(|o| o.id == t.id)
+            && let Some(v) = &o.view
+        {
+            let _ = write!(
+                r,
+                "\n  recorded ship: throttle {:?} engine {:?} cruise {:?} thrusters {:?} mass {:08x} zone {:?} position {:?} velocity {:?}",
+                v.throttle.map(f32::to_bits),
+                v.engine,
+                v.cruise,
+                v.thrusters,
+                v.mass.to_bits(),
+                o.zone.map(|(d, i)| (d.map(f32::to_bits), i.to_bits())),
+                v.position,
+                v.velocity
+            );
+        }
     }
     if !world.rand.exhausted_exactly() {
         let _ = write!(
@@ -1614,7 +1850,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         .and_then(Path::file_name)
         .and_then(|n| n.to_str())
         .unwrap_or("");
-    let motion = MotionWorld::new(scenario);
+    let motion = MotionWorld::new(scenario, path.parent());
     // The scenario's names of the objects (the directives name them).
     let object_ids = read_names(path);
     let resolve = |name: &str| object_ids.get(name).copied();
@@ -1635,6 +1871,11 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
     let mut last_out: BTreeMap<u32, ManagerRecord> = BTreeMap::new();
     let mut face_point: Option<Vector> = None;
     let mut personalities: BTreeMap<u32, Personality> = BTreeMap::new();
+    // The ships whose dock behaviour has been current (its first
+    // engagement is behind them), and those whose manager asked
+    // `get_dock_hardpoints` (the dock's `Orient3a8` has been written).
+    let mut dock_engaged: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    let mut dock_written: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     let names: BTreeMap<u32, String> = ticks
         .iter()
         .filter_map(|t| Some((t.id, t.obj.clone()?)))
@@ -1715,13 +1956,23 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
                 m.state.pathfind.avoidance.attach_owner(v);
             }
             m.state.pathfind.avoidance.phys_system_id = 1;
+            // The constructor's motion queries (`get_speed`, the two
+            // `get_distance_travelled`; no record holds them): the motion
+            // world's ship as it was spawned, as the reference's was when
+            // its manager was built. `Field_1FC` pads
+            // `ClassifyObstaclePhase`'s candidate capsules.
+            if let Some((w, h)) = binding.motion
+                && let Some(model) = w.motion(h)
+            {
+                m.state.pathfind.init_engine_distances(Some(&*model));
+            }
             m
         });
         // The harness submits the frame's directives before the step, so
         // between the ship's last tick and this one, outside any behaviour
         // tick: run them on the state the last tick left (no record holds
         // what they do to the behaviours), then take the entry fields.
-        let pending: Vec<DirectiveOp> = motion
+        let pending: Vec<(u32, DirectiveOp)> = motion
             .as_ref()
             .map(|m| {
                 let mut ops = Vec::new();
@@ -1744,7 +1995,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
                             id_of(n).or_else(|| resolve(n))
                         })
                     {
-                        ops.push(op);
+                        ops.push((*tick, op));
                     }
                 }
                 ops
@@ -1756,9 +2007,28 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         for a in &t.before {
             queued.entry(a.id).or_default().push(a.clone());
         }
+        // The directives the reference submitted inside this tick (P3.6d):
+        // the ship's own are its callbacks' (Content advancing its
+        // `[ObjList]` when a directive completes), which the manager
+        // submits when it notifies them; another ship's wait for that
+        // ship's next tick.
+        for a in t.answers.iter().filter(|a| a.kind == "directive") {
+            if a.id == t.id {
+                if let Some(d) = recorded_directive(a) {
+                    world.callback.push((d.op, d.priority));
+                }
+            } else {
+                queued.entry(a.id).or_default().push(a.clone());
+            }
+        }
         let batch = queued.remove(&t.id).unwrap_or_default();
         let saved_answers = world.set_answers(batch.clone());
-        if !pending.is_empty() {
+        // The directives others submitted since the ship's last tick (P3.6d:
+        // Content's spawns, its guides and its directive lists), in their
+        // order with the server's answers.
+        let recorded: Vec<Option<RecordedDirective>> =
+            batch.iter().map(recorded_directive).collect();
+        if !pending.is_empty() || recorded.iter().any(Option::is_some) {
             let before = last_out.get(&t.id).cloned().unwrap_or_else(|| {
                 let mut r = t.input.clone();
                 r.behavior = int(r.f120);
@@ -1769,31 +2039,51 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             if let Some(f) = &before.face {
                 restore_face(manager, f);
             }
-            let recorded = std::mem::take(&mut world.rand);
-            for op in pending {
-                if let DirectiveOp::Face(f) = &op {
-                    face_point = Some(f.point);
-                }
-                if !matches!(op, DirectiveOp::Cancel) {
-                    manager.submit_directive(&mut world, t.id, &DirectiveOp::Cancel, 0);
-                }
-                manager.submit_directive(&mut world, t.id, &op, 0);
-            }
-            world.rand = recorded;
-            world.commands.clear();
         }
-        // The server's later answers to a request, with what the callbacks
-        // asked meanwhile.
-        if !batch.is_empty() {
-            let recorded = std::mem::take(&mut world.rand);
-            for a in batch.iter().filter(|a| a.kind == "request") {
-                let k = world
+        // In the reference's order: the harness's scenario directives of a
+        // frame come before that frame's step, so before the answers and
+        // directives recorded in it (an earlier frame's come first); a
+        // recorded directive is submitted as it was, a request's answer
+        // returned to the ship.
+        let mut order: Vec<(u32, u8, usize)> = pending
+            .iter()
+            .enumerate()
+            .map(|(k, (tick, _))| (*tick, 0, k))
+            .chain(batch.iter().enumerate().map(|(k, a)| (a.tick, 1, k)))
+            .collect();
+        order.sort_unstable();
+        if !order.is_empty() {
+            let recorded_rand = std::mem::take(&mut world.rand);
+            for (_, source, k) in order {
+                if source == 0 {
+                    let op = &pending[k].1;
+                    if let DirectiveOp::Face(f) = op {
+                        face_point = Some(f.point);
+                    }
+                    if !matches!(op, DirectiveOp::Cancel) {
+                        manager.submit_directive(&mut world, t.id, &DirectiveOp::Cancel, 0);
+                    }
+                    manager.submit_directive(&mut world, t.id, op, 0);
+                    continue;
+                }
+                let a = &batch[k];
+                if let Some(d) = &recorded[k] {
+                    if let DirectiveOp::Face(f) = &d.op {
+                        face_point = Some(f.point);
+                    }
+                    let _ = manager.submit_directive(&mut world, t.id, &d.op, d.priority);
+                    continue;
+                }
+                if a.kind != "request" {
+                    continue;
+                }
+                let found = world
                     .answers
                     .iter()
                     .zip(world.used.iter())
                     .position(|(b, u)| !u && b == a);
-                if let Some(k) = k {
-                    world.used[k] = true;
+                if let Some(found) = found {
+                    world.used[found] = true;
                 }
                 manager.request_returned(
                     &mut world,
@@ -1803,7 +2093,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
                     a.ints.get(2).copied().unwrap_or(-1),
                 );
             }
-            world.rand = recorded;
+            world.rand = recorded_rand;
             world.commands.clear();
         }
         (world.answers, world.used) = saved_answers;
@@ -1822,7 +2112,32 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         }
         let orient_before = face_snapshot(manager).map(|f| f.orient);
         manager.update_behavior_tick(&mut world, t.id, t.dt);
+        // A directive of the tick that no callback took (the manager
+        // notified none) waits for the ship's next tick.
+        if !std::mem::take(&mut world.callback).is_empty() {
+            queued.entry(t.id).or_default().extend(
+                t.answers
+                    .iter()
+                    .filter(|a| a.kind == "directive" && a.id == t.id)
+                    .cloned(),
+            );
+        }
         avoid_shuffled = world.avoid_shuffled;
+        // D178 (owner, 2026-11-26): at a dock's first engagement, until
+        // `RefreshApproachState` writes it, the dock behaviour's
+        // `Orient3a8` holds what the heap held (the oracle's runs disagree
+        // on it); those floats of `beh7` are not judged on that tick.
+        if world.dock_asked {
+            dock_written.insert(t.id);
+        }
+        let dock_uninitialised = (out.behavior == 7
+            && t.input.behavior != 7
+            && !dock_engaged.contains(&t.id)
+            && !dock_written.contains(&t.id))
+        .then_some(DOCK_ORIENT_3A8);
+        if out.behavior == 7 || t.input.behavior == 7 {
+            dock_engaged.insert(t.id);
+        }
         last_out.insert(t.id, out.clone());
         let ours = snapshot(&manager.state);
         if let Some(b) = [t.input.behavior, out.behavior]
@@ -1897,7 +2212,12 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         if let Some(theirs) = &out.beh {
             totals.beh_compared += 1;
             let ours = beh_snapshot(manager, theirs.kind);
-            if let Some(d) = beh_diff(theirs, ours.as_ref()) {
+            let uninitialised = dock_uninitialised.filter(|_| theirs.kind == 7);
+            if let Some(r) = &uninitialised {
+                totals.beh_uninitialised += r.clone().filter(|&k| k < theirs.floats.len()).count();
+                totals.beh_uninitialised_ticks += 1;
+            }
+            if let Some(d) = beh_diff(theirs, ours.as_ref(), uninitialised) {
                 totals.beh_mismatched += 1;
                 if totals.beh_reports.len() < MAX_REPORTED {
                     totals.beh_reports.push(format!(
@@ -2041,8 +2361,11 @@ fn behavior_ticks_against_the_oracle() {
     }
     let _ = writeln!(
         summary,
-        "dock, launch and trade-lane fields on exit: {} ticks compared, {} with a difference",
-        totals.beh_compared, totals.beh_mismatched
+        "dock, launch and trade-lane fields on exit: {} ticks compared, {} with a difference; {} fields not judged (the dock behaviour's Orient3a8 before the reference writes it, at {} first engagements, D178)",
+        totals.beh_compared,
+        totals.beh_mismatched,
+        totals.beh_uninitialised,
+        totals.beh_uninitialised_ticks
     );
     for r in &totals.beh_reports {
         let _ = writeln!(summary, "{r}");

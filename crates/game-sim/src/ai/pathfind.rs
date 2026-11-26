@@ -326,21 +326,29 @@ impl PathfindManager {
         p.period_210 = 0.1;
         p.timer_20c = phase(world.rand(), p.period_210);
         let motion = world.motion(ship);
-        let speed = motion
-            .as_deref()
-            .map_or(0.0, |m| m.speed(1.0, ThrustEquipType::Engine));
-        p.max_engine_speed = speed;
-        if speed == -1.0 {
-            p.field_1f8 = 0.0;
-            p.field_1fc = 0.0;
-        } else if let Some(m) = motion.as_deref() {
-            p.field_1f8 = m.distance_travelled(0.0, speed, 1000.0, ThrustEquipType::Engine);
-            p.field_1fc = m.distance_travelled(0.0, 300.0, 1000.0, ThrustEquipType::Engine);
-        }
+        p.init_engine_distances(motion.as_deref());
         drop(motion);
         p.blend_start = Vector::new(0.0, 1.0, 0.0);
         p.avoidance.phys_system_id = world.system_of(ship).unwrap_or(0);
         p
+    }
+
+    /// The constructor's motion queries (`common_pathfind.cpp:132-152`):
+    /// `get_speed(1, engine)` and, unless it is exactly -1, the distances
+    /// `get_distance_travelled(0, speed, 1000, engine)` and
+    /// `get_distance_travelled(0, 300, 1000, engine)`, which pads
+    /// `ClassifyObstaclePhase`'s candidate capsules (`Field_1FC * 0.5`).
+    /// Without a motion model the speed is 0 and the distances stay.
+    pub fn init_engine_distances(&mut self, motion: Option<&dyn MotionModel>) {
+        let speed = motion.map_or(0.0, |m| m.speed(1.0, ThrustEquipType::Engine));
+        self.max_engine_speed = speed;
+        if speed == -1.0 {
+            self.field_1f8 = 0.0;
+            self.field_1fc = 0.0;
+        } else if let Some(m) = motion {
+            self.field_1f8 = m.distance_travelled(0.0, speed, 1000.0, ThrustEquipType::Engine);
+            self.field_1fc = m.distance_travelled(0.0, 300.0, 1000.0, ThrustEquipType::Engine);
+        }
     }
 
     /// `IsCruiseUnobstructed`: false while the probe holds a contact or a
@@ -869,6 +877,19 @@ impl PathfindManager {
             .system_of(ship)
             .and_then(|system| world.bucket_query(system, origin, 20000.0))
             .unwrap_or_default();
+        let tracing = world.tracing();
+        if tracing {
+            world.trace(format!(
+                "classify: behaviour {behavior} look_ahead {look_ahead} ship {:?} target {:?} throttle {:08x} field_1fc {:08x} ({}) scan {:?} bucket {:?}",
+                origin,
+                target,
+                throttle.to_bits(),
+                self.field_1fc.to_bits(),
+                self.field_1fc,
+                list,
+                nearby
+            ));
+        }
 
         let mut best_distance = f32::MAX;
         let mut best: Option<(ObjectView, AvoidSlot)> = None;
@@ -876,9 +897,18 @@ impl PathfindManager {
             let type_mask = if pass == 0 { 0xfd58 } else { 7 };
             for h in candidates {
                 let Some(c) = world.inspect(h) else {
+                    if tracing {
+                        world.trace(format!("  pass {pass} {h:?}: not inspected"));
+                    }
                     continue;
                 };
                 if c.type_flags & type_mask == 0 {
+                    if tracing {
+                        world.trace(format!(
+                            "  pass {pass} id {}: type {:#x} not in {type_mask:#x}",
+                            c.id, c.type_flags
+                        ));
+                    }
                     continue;
                 }
                 let close = c.type_flags & 7 != 0;
@@ -891,14 +921,57 @@ impl PathfindManager {
                     k
                 });
                 let slot = &mut self.deflection_slots[index];
+                let resolved = *slot;
                 if slot.timer < 100.0 || slot.timer > 20000.0 {
+                    if tracing {
+                        world.trace(format!(
+                            "  pass {pass} id {} type {:#x} pos {:?} radius {} center {:?} atmosphere {} extents {:?}: slot {:?} ({}) outside 100..20000",
+                            c.id,
+                            c.type_flags,
+                            c.position,
+                            c.radius,
+                            c.center,
+                            c.atmosphere_range,
+                            c.extents,
+                            resolved,
+                            if cached.is_some() { "cached" } else { "resolved" }
+                        ));
+                    }
                     continue;
                 }
                 let scaled = e(slot.timer) * e(0.15f32);
                 let floor: f32 = if close && look_ahead { 750.0 } else { 250.0 };
                 let margin = if e(floor) > scaled { floor } else { r(scaled) };
                 slot.timer = r((e(margin) + e(slot.timer)) + e(self.field_1fc) * 0.5);
-                if point_in_capsule(origin, &slot.capsule()) {
+                let holds_ship = point_in_capsule(origin, &slot.capsule());
+                if tracing {
+                    let mid = Vector::new(
+                        r(e(slot.direction.x) * 0.5 + e(slot.point.x)),
+                        r(e(slot.direction.y) * 0.5 + e(slot.point.y)),
+                        r(e(slot.direction.z) * 0.5 + e(slot.point.z)),
+                    );
+                    let (dx, dy, dz) = (
+                        e(mid.x) - e(target.x),
+                        e(mid.y) - e(target.y),
+                        e(mid.z) - e(target.z),
+                    );
+                    world.trace(format!(
+                        "  pass {pass} id {} type {:#x} pos {:?} radius {} center {:?} atmosphere {} extents {:?}: slot {:?} ({}), margin {margin}, padded radius {:08x} ({}), holds the ship {holds_ship}, distance to target {}, best so far {best_distance}",
+                        c.id,
+                        c.type_flags,
+                        c.position,
+                        c.radius,
+                        c.center,
+                        c.atmosphere_range,
+                        c.extents,
+                        resolved,
+                        if cached.is_some() { "cached" } else { "resolved" },
+                        slot.timer.to_bits(),
+                        slot.timer,
+                        inline_fast_length((dx * dx + dz * dz) + dy * dy)
+                    ));
+                }
+                if holds_ship {
                     let mid = Vector::new(
                         r(e(slot.direction.x) * 0.5 + e(slot.point.x)),
                         r(e(slot.direction.y) * 0.5 + e(slot.point.y)),
@@ -918,14 +991,29 @@ impl PathfindManager {
         }
 
         let Some((winner, best_slot)) = best else {
+            if tracing {
+                world.trace("classify: no candidate holds the ship: 4".to_owned());
+            }
             return 4;
         };
+        if tracing {
+            world.trace(format!(
+                "classify: winner id {} type {:#x} slot {:?}, target in its capsule {}",
+                winner.id,
+                winner.type_flags,
+                best_slot,
+                point_in_capsule(target, &best_slot.capsule())
+            ));
+        }
         if behavior == 2 {
             let p = winner.position;
             let dx = e(p.x) - e(target.x);
             let dy = e(p.y) - e(target.y);
             let dz = e(p.z) - e(target.z);
             if inline_fast_length((dx * dx + dz * dz) + dy * dy) <= 1.0 {
+                if tracing {
+                    world.trace("classify: the winner stands on the target: 4".to_owned());
+                }
                 return 4;
             }
         }
@@ -975,12 +1063,16 @@ impl PathfindManager {
         }
 
         if point_in_capsule(target, &best_slot.capsule()) {
-            return match nudge_obstacle_path_point(
+            let nudge = nudge_obstacle_path_point(
                 &best_slot,
                 target,
                 &ship_xform,
                 self.reaction.close_encounter,
-            ) {
+            );
+            if tracing {
+                world.trace(format!("classify: nudge of the target {nudge:?}"));
+            }
+            return match nudge {
                 Nudge::Point(out) => self.commit_reaction(&ship_xform, winner.id, out),
                 other => other.code(),
             };
@@ -998,18 +1090,36 @@ impl PathfindManager {
             let rzf = r(rz);
             let inv = r(1.0 / ((rz * e(rzf) + ry * ry) + rx * rx).sqrt());
             let dir = Vector::new(r(rx * e(inv)), r(ry * e(inv)), r(e(rzf) * e(inv)));
-            if ray_sphere_intersect(origin, dir, winner.center, sphere_radius).is_none() {
+            let hit = ray_sphere_intersect(origin, dir, winner.center, sphere_radius);
+            if tracing {
+                world.trace(format!(
+                    "classify: ray {dir:?} against the sphere {:?} radius {sphere_radius}: {hit:?}",
+                    winner.center
+                ));
+            }
+            if hit.is_none() {
                 return 4;
             }
         } else {
             // `PhySys::FindRayIntersect` against the winner's own body.
             let system = world.system_of(ship).unwrap_or(0);
             let hits = world.find_ray_intersect(system, winner.id, origin, target, 1);
+            if tracing {
+                world.trace(format!(
+                    "classify: FindRayIntersect({}, {origin:?}, {target:?}): {} hits",
+                    winner.id,
+                    hits.len()
+                ));
+            }
             if hits.is_empty() {
                 return 4;
             }
         }
-        match nudge_obstacle_path_point(&best_slot, target, &ship_xform, false) {
+        let nudge = nudge_obstacle_path_point(&best_slot, target, &ship_xform, false);
+        if tracing {
+            world.trace(format!("classify: nudge {nudge:?}"));
+        }
+        match nudge {
             Nudge::Point(out) => self.commit_reaction(&ship_xform, winner.id, out),
             other => other.code(),
         }

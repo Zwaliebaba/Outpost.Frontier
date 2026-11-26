@@ -90,6 +90,18 @@ opt-level = 3
 [profile.dev.package.symphonia-core]
 opt-level = 3
 
+# The simulation is slow unoptimised: a debug server with Content's NPC
+# population (P3.6d) can fall behind its frames, each longer frame steps
+# more. With the ray query's fix Gate G3's scripted client passes without
+# this too, and it is kept for the margin on the Windows runner. Rust
+# contracts no float operations, so the results do not change (decision
+# O51).
+[profile.dev.package.neuron-core]
+opt-level = 2
+
+[profile.dev.package.game-sim]
+opt-level = 2
+
 [workspace.lints.rust]
 # Unsafe code is denied everywhere. Only the modules listed in xtask's
 # policy may allow it (design/decisions.md T14). Pure crates forbid it.

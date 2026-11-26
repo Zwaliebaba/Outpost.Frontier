@@ -50,9 +50,8 @@
 //! the live mission's end and reward of a success or a failure. P3.5d
 //! brought Story's events (an acceptance, a restored acceptance and a
 //! success, [`super::story_missions::notify_story`]) and the story
-//! missions' overrides of slots 21 and 23 ([`super::story_missions`]). What
-//! waits for a later increment (D973): the random encounters' messages
-//! (P3.6d).
+//! missions' overrides of slots 21 and 23 ([`super::story_missions`]).
+//! P3.6d brought the random encounters' messages.
 
 use game_sim::protocol::fmtstr::FmtStr;
 use neuron_server::controller::ControllerId;
@@ -725,17 +724,25 @@ pub fn handle_mission_message(
 }
 
 /// `FMissionObject::HandleMissionMessage` (`MissionObject.cpp:1496-1926`):
-/// the mission object's cases (P3.5c1's abort and dead players, P3.5c2's
+/// every message but `PlayerLogout` and `GroupMemberLeft` first to the
+/// random encounters (`NotifyRandEncs`, P3.6d), then the mission object's cases (P3.5c1's abort and dead players, P3.5c2's
 /// objects, jumpers, respawns and snapshot, P3.5c5's records, group
 /// members and formation leader), then its tail, the objective timer while
 /// the mission is its player's live one (`FMissionScript::
 /// UpdateObjectiveTimer`, `MissionScript.cpp:829-834`: not while the NN
-/// path is active). The random encounters' `NotifyRandEncs` (P3.6d) waits
-/// (D973).
+/// path is active).
 fn mission_object_body(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMessage<'_>) {
     let Some(player) = live_player(cx, id) else {
         return;
     };
+    // Every message but `PlayerLogout` and `GroupMemberLeft` first goes to
+    // the random encounters (`NotifyRandEncs`, P3.6d).
+    if !matches!(
+        message,
+        ControllerMessage::PlayerLogout { .. } | ControllerMessage::GroupMemberLeft { .. }
+    ) {
+        crate::content::random_encounters::notify_rand_encs(cx, id, message);
+    }
     mission_object_cases(cx, id, player, message);
     let Some(s) = script(cx, id) else { return };
     let live = cx
@@ -790,7 +797,7 @@ fn mission_object_cases(
                     s.player = next;
                 }
             }
-            // A group member's `Slot16` is false (the group cases, D973).
+            // A group member's `Slot16` is false (`MissionObject.cpp:308`).
             let gone = script(cx, id).is_none_or(|s| player_state(cx, s).is_none());
             if gone && let Some(s) = script_mut(cx, id) {
                 s.object.pending_destroy = true;
@@ -1362,6 +1369,7 @@ pub fn destruct(cx: &mut Cx<'_>, id: ControllerId) {
         crate::content::npc_ships::destroy(cx, npc);
     }
     spawn::clear_respawn_ships(cx, id);
+    spawn::clear_rand_enc_respawns(cx, id);
 }
 
 /// Turns the mission's trace on, from tick 0.

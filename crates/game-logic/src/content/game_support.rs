@@ -530,7 +530,7 @@ fn on_base_change(cx: &mut Cx<'_>, player: u32, base: u32) {
 /// ship object; then a system whose low 30 bits are not 0 other than
 /// `RELAYSEVEN_system` (looked up again each time) joins the visited
 /// systems once.
-fn on_system_change(cx: &mut Cx<'_>, player: u32, system: u32) {
+pub fn on_system_change(cx: &mut Cx<'_>, player: u32, system: u32) {
     let record = cx
         .logic
         .content
@@ -732,6 +732,12 @@ fn target_changed(cx: &mut Cx<'_>, ship: u32, target: u32) {
 fn player_launch(cx: &mut Cx<'_>, player: u32) {
     let ship = api::player::ship(cx, player).unwrap_or(0);
     let archetype = api::player::ship_id(cx, player).unwrap_or(0);
+    make_ship_object(cx, player, ship, archetype);
+}
+
+/// The ship object of [`player_launch`] for a given ship and archetype
+/// (also the oracle's populated scenario, [`super::population::oracle_populate`]).
+pub fn make_ship_object(cx: &mut Cx<'_>, player: u32, ship: u32, archetype: u32) {
     let mut class_ids = Vec::new();
     if let Some(properties) = cx
         .logic

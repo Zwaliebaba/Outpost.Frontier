@@ -15,7 +15,9 @@
 
 use neuron_core::math::Vector;
 
-use super::behavior::{AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, GotoOp, LaneEvent, ids};
+use super::behavior::{
+    AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, DockEvent, GotoOp, LaneEvent, ids,
+};
 use super::content::CombatEvent;
 use super::fp::{e, r};
 use super::goto::GotoBehavior;
@@ -255,6 +257,14 @@ impl<W: AiEnv + ?Sized> Behavior<W> for FleeBehavior {
     fn lane_event(&mut self, cx: &mut Cx<'_, W>, event: &LaneEvent) {
         if let Some(delegate) = self.delegate() {
             cx.with_peer(delegate, |b, cx| b.lane_event(cx, event));
+        }
+    }
+
+    /// Slot 22 with the manager's type-3 event: the delegate's, as
+    /// [`Self::lane_event`].
+    fn dock_event(&mut self, cx: &mut Cx<'_, W>, event: &DockEvent) {
+        if let Some(delegate) = self.delegate() {
+            cx.with_peer(delegate, |b, cx| b.dock_event(cx, event));
         }
     }
 
