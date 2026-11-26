@@ -474,6 +474,24 @@ and beyond `AccessoryCount` (heap contents, once a UTF-16 nickname), and
 differed in the server time, the event order and the frames of the events in
 space (section 8, "Owner run").
 
+The job also compares the port with these runs (decision O53 (2), (4)
+and (5)). Run 9
+([45888027395](https://github.com/Zwaliebaba/Outpost.Frontier/actions/runs/45888027395),
+commit `ed486158`):
+
+| Port output | Against | Result |
+| --- | --- | --- |
+| `game-app`'s key map on `outdir/` (`tests/keymap_data.rs`) | run a's `keymap.jsonl` | 258 lines equal |
+| The preferences screen's key and option lists (`tests/preferences_data.rs`) | run a's `keylist`, `keyrow`, `optlist`, `opt` records | equal |
+| The page descriptors (`tests/page_data.rs`) | run a's `page` and `widget` records | equal |
+| The single-player login through the in-process server (`apps/outpost-frontier/tests/local_server.rs`) | the first IClient lines of runs w and a | equal, status 2 then 3 on a fresh folder and 3 on the folder it made |
+| The Rust `OutpostFrontier.exe +oracle menu_walk.txt`, after run a in the same run and user folders | run a | `keymap.jsonl` 258 lines, the 5 IClient lines of frame 0 and the `display` and `seed` records equal |
+
+The Rust client logged in with status 3 on the user folder the C++ runs had
+made: the port's server read the C++ client's single-player user data. Its
+screens are not ported, so its later session records (the waits for the
+menu screens, the dumps without a tree) are not compared yet.
+
 What the runner needs, found over runs 1 to 3:
 
 | Runner | What the job does |
