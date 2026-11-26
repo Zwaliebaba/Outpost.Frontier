@@ -571,6 +571,7 @@ pub fn client(id: u32, case: u32, g: &mut Gen) -> ClientMessage {
         }
         .into(),
         SaveGame::ID => SaveGame {
+            character_id: Vec::new(),
             description: g.words(if long { 9 } else { 0 }),
         }
         .into(),

@@ -118,6 +118,16 @@ impl ServerHooks for ScenarioHooks<'_> {
         self.server.before_damage_list(world, object, list)
     }
 
+    fn damage_entry(
+        &mut self,
+        world: &mut World,
+        object: ObjHandle,
+        list: &mut DamageList,
+        index: usize,
+    ) {
+        self.server.damage_entry(world, object, list, index);
+    }
+
     fn after_damage_list(&mut self, world: &mut World, object: ObjHandle, list: &mut DamageList) {
         self.server.after_damage_list(world, object, list);
     }
@@ -162,11 +172,34 @@ impl ServerHooks for ScenarioHooks<'_> {
     ) {
         self.server.directive_complete(world, ship, handle, result);
     }
+
+    /// The end of a `LaunchAction` (`ring_launch`): `Ship::slot_70` lifts
+    /// the launch invincibility with `LaunchComplete`.
+    fn launch_complete(&mut self, world: &mut World, object: ObjHandle, base: u32) {
+        self.server.launch_complete(world, object, base);
+    }
 }
 
 impl ScenarioServer for ScenarioHooks<'_> {
     fn hooks(&mut self) -> &mut dyn ServerHooks {
         self
+    }
+
+    /// `spaceobj_launch` (`ring_launch`): `pub::SpaceObj::Launch(ship, dock,
+    /// type)`, the server's `StarSystem::launch`.
+    fn launch(&mut self, world: &mut World, ship: ObjHandle, dock: ObjHandle, kind: i32) -> bool {
+        let (Some(ship), Some(dock)) = (
+            world.get(ship).map(|o| o.simple.id),
+            world.get(dock).map(|o| o.simple.id),
+        ) else {
+            return false;
+        };
+        let mut cx = Cx {
+            world,
+            logic: self.server.logic,
+        };
+        let _ = game_logic::api::space_obj::launch(&mut cx, ship, dock, kind);
+        true
     }
 
     /// The populated scenario loads its system as the server does

@@ -74,16 +74,18 @@ use scenario_server::{ScenarioHooks, content_start_up, population_ship};
 /// The scenarios run without the oracle: two contacts, an AI ship, the
 /// two trade lanes (the instant one and the dock behaviour's, whose
 /// request SpaceSupport answers), the dock at a station, whose request
-/// SpaceSupport's dock queues answer, Content's NPC ships following
-/// and guiding (P3.6c), and free flight in he01 with SpacePop populating
+/// SpaceSupport's dock queues answer, the launch out of a docking ring
+/// (`pub::SpaceObj::Launch`, P3.11), Content's NPC ships following and
+/// guiding (P3.6c), and free flight in he01 with SpacePop populating
 /// around the ship (P3.6d).
-const SMOKE: [&str; 9] = [
+const SMOKE: [&str; 10] = [
     "ram_ship",
     "ram_asteroid",
     "turn_to_heading",
     "trade_lane",
     "dock_trade_lane",
     "dock_at_station",
+    "ring_launch",
     "content_follow",
     "content_guide",
     "populated_he01",

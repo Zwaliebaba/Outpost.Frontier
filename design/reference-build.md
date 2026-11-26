@@ -803,7 +803,8 @@ record 0003) are in `CppSource\Oracle\scenarios\`: `free_flight`,
 `ram_asteroid`, `dogfight`, `skirmish`, `strafe`, and `ram_ship`, Gate G2's collide scenario in
 place of `ram_asteroid` (owner, 2026-11-18); the escort scenarios of P2.5,
 `formation`, `follow`, `guide` and `large_ship`; and the dock scenarios of P2.5,
-`dock_trade_lane`, `launch_from_station` and `trade_lane`. A line
+`dock_trade_lane`, `launch_from_station` and `trade_lane`; and P3.11's
+`ring_launch` for Gate G3. A line
 `# rust: skip <reason>` tells `scenario_replay` that the Rust world cannot
 run the scenario yet; a line `# rust: server <reason>` that the scenario
 needs the server's answers, so only `game-logic`'s `scenario_hooks` runs
@@ -871,6 +872,7 @@ ship with `ai`:
 | `guide <ship> <x> <y> <z> [range <r>] [distance <d>] [offset <x> <y> <z>]` | `DirectiveGuideOp` (P2.5 escort): its goto part as `goto`'s (a point, arrival range default 100, no cruise) with the guided ship in `GotoParams.Field_5C`; its follow part on the guided ship (distance default 150, offset default 0); the other fields keep their defaults |
 | `idle`, `cancel` | `DirectiveIdleOp`, `DirectiveCancelOp` |
 | `dock_request <target>` | `pub::SpaceObj::DockRequest` |
+| `spaceobj_launch <dock> <type>` | `pub::SpaceObj::Launch(ship, dock, type)` (P3.11): `StarSystem::launch` with the launch invincibility and `CShip::launch`, whose `LaunchAction` flies the ship out of a docking ring or gives its AI the launch directive from a station |
 | `formation <leader>\|none [<x> <y> <z>]` | `pub::AI::update_formation_state(ship, leader, offset)` (P2.5 escort; offset default 0): as `ResetFormationState` makes a formation, the leader first with itself as leader, then each wingman with its slot |
 
 Ships are created as Content creates NPC ships, without a costume or
@@ -917,7 +919,12 @@ result 2 and the ship idles; no docking point is reached. `dock_trade_lane` has 
 trade lane ring 16 as NPC traffic enters a lane: the lane start
 (`get_lane_start`), the approach, the lane request at tick 222 (type 2,
 granted at once), the ring's spline, the lane at tick 588 and the lane's
-end at tick 1188. `launch_from_station` launches the fighter from the
+end at tick 1188. `ring_launch` (P3.11, `# rust: server`) launches the fighter
+waiting 400 m from `Dock_Ring_he01_01` with `spaceobj_launch ring 0`: the
+ring's `LaunchAction` beams it along the launch path of point 1 for 3 s with
+its collisions off, then pushes it out at 80 m/s, and the action's end lifts
+the launch invincibility; the harness verb is oracle instrumentation in
+`oracle_sim.cpp` (P3.11), the scenario file data. `launch_from_station` launches the fighter from the
 station's first berth (behaviour 8, ticks 1 to 277). `trade_lane` puts the
 fighter into the lane from ring 16 to ring 18 with the instant trade lane
 (behaviour 9, `go_tradelane` at tick 12). The lane scenarios record no

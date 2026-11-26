@@ -156,23 +156,26 @@ pub struct LootableInfo {
     pub field6: i32,
 }
 
-/// `GetLootableInfo`: the loot record an asteroid field gave the zone, in
-/// the C++'s field order (which does not follow the names); all zero when
-/// the zone has none.
+/// `GetLootableInfo`: the loot record an asteroid field gave the zone
+/// (`SetLootableInfo` of a loaded field's file, [`World::zone_lootable`]),
+/// in the C++'s field order (which does not follow the names); all zero
+/// when the zone has none.
+///
+/// [`World::zone_lootable`]: game_sim::object::World::zone_lootable
 ///
 /// # Errors
 ///
 /// -2 for an unknown zone (the outputs are cleared).
 pub fn lootable_info(cx: &mut Cx<'_>, zone: u32) -> Result<LootableInfo, PubError> {
-    with_zone(cx, zone, |z| {
-        z.lootable
-            .map_or_else(LootableInfo::default, |l| LootableInfo {
-                archetype: l.asteroid_loot_commodity,
-                loot_table: l.dynamic_loot_commodity,
-                min_level: l.asteroid_loot_difficulty,
-                max_level: l.asteroid_loot_count_min,
-                field6: l.asteroid_loot_count_max,
-            })
+    let loot = cx.world.zone_lootable(zone);
+    with_zone(cx, zone, |_| {
+        loot.map_or_else(LootableInfo::default, |l| LootableInfo {
+            archetype: l.asteroid_loot_commodity,
+            loot_table: l.dynamic_loot_commodity,
+            min_level: l.asteroid_loot_difficulty,
+            max_level: l.asteroid_loot_count_min,
+            field6: l.asteroid_loot_count_max,
+        })
     })
     .ok_or(PubError::BAD_ID)
 }

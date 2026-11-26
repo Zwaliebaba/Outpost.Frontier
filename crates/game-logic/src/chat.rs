@@ -5,9 +5,9 @@
 //! Messages are binary rich text ([`game_sim::protocol::rdl`]). A message
 //! is prefixed with the sender's name and routed on its target chat id:
 //! a player (byte 2 of the id is 0), the universe, the sender's system,
-//! local space or the sender's group. Local chat reaches the players whose
-//! ships are near the sender through the system database (P3.4); until
-//! then only the sender gets it back.
+//! local space or the sender's group. Local chat reaches the owners of the
+//! objects the sender's client has been told of in the sender's system
+//! ([`created_owners`]), then the sender.
 //!
 //! The commands are `std::wregex` patterns in the C++, tried from the last
 //! to the first: `group`/`g`, `local`/`l`, `system`/`s`, `universe`/`u`
@@ -22,6 +22,39 @@ use neuron_server::chat_space::is_chat_space;
 
 use crate::group::{self, GROUP_CONTROL_CHAT_ID};
 use crate::server::Cx;
+
+/// `StarSystem_CollectCreatedOwners(system, player, &owners)` with
+/// `SystemPlayerView_CollectCreatedOwners`
+/// (`Server/server_classes.cpp:8238-8278`): the owners, in ascending order
+/// and each once (`std::set`), of the objects the player's observer in the
+/// system tracks and has created on its client, an owner of 0 left out.
+/// The player's first observer in the system is read; none (or an unknown
+/// system) gives none. A tracked object the world no longer has is skipped,
+/// as the C++ skips a null object.
+#[must_use]
+pub fn created_owners(cx: &Cx<'_>, system: u32, player: u32) -> std::collections::BTreeSet<u32> {
+    let mut owners = std::collections::BTreeSet::new();
+    let Some(view) = cx
+        .logic
+        .server_world
+        .systems
+        .get(&system)
+        .and_then(|s| s.observers.iter().find(|o| o.player == player))
+    else {
+        return owners;
+    };
+    for record in &view.tracked {
+        let Some(o) = cx.world.get(record.object) else {
+            continue;
+        };
+        let owner = o.simple.owner_player;
+        if owner == 0 || !record.created_on_client {
+            continue;
+        }
+        owners.insert(owner);
+    }
+    owners
+}
 
 /// The console (or nobody).
 pub const CONSOLE: u32 = 0x0000_0000;
@@ -485,6 +518,9 @@ pub fn submit_chat(cx: &mut Cx<'_>, sender: u32, data: &[u8], target: u32, syste
         };
         if let Some(hook) = hooks.system {
             hook(&shown, system_id as i32);
+        }
+        for owner in created_owners(cx, system_id, sender_word) {
+            cx.logic.chat.send(owner & 0xFFFF, target, message.clone());
         }
         cx.logic.chat.send(sender, target, message);
         return;

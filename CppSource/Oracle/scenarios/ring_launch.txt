@@ -1,0 +1,19 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): launch out of a docking ring.
+# A fighter with the FIGHTER state graph waits beside the docking ring Dock_Ring_he01_01 of he01
+# (-33267, 0, -28810; dock_with he01_01_Base) and is launched from it with type 0 through
+# pub::SpaceObj::Launch, as Content launches a ship it places at a dock (P3.11, Gate G3):
+# StarSystem::launch gives the launch invincibility and runs CShip::launch, whose LaunchAction
+# beams the ship along the ring's launch path (point 1) for 3 s with its collisions off and
+# control exclusion 7, then pushes it out at 80 m/s; the action's end lifts the invincibility
+# (Ship::slot_70, LaunchComplete). Multiplayer stepping.
+
+# rust: server the server's StarSystem::launch runs the launch
+
+system he01
+ticks 450
+stepping mp
+
+solar ring Dock_Ring_he01_01
+ship pilot he_fighter li_p_he_fighter_loadout01 -33000 100 -28500 ai FIGHTER
+
+at 1 pilot spaceobj_launch ring 0

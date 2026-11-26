@@ -472,6 +472,8 @@ fn launch_counter_measures(cx: &mut Cx<'_>, h: ObjHandle, id: SubObjId, target: 
 pub fn create_bullet(cx: &mut Cx<'_>, system: u32, spawn: &ProjectileSpawn) -> Option<ObjHandle> {
     let h = cx.world.create_bullet(system, spawn).ok()?;
     let _ = cx.logic.objects.entry(cx.world, h);
+    // `enter_system(this, nullptr)`'s remote correction.
+    crate::replication::begin_remote_control(cx, h);
     Some(h)
 }
 
@@ -512,6 +514,8 @@ pub fn create_guided(cx: &mut Cx<'_>, system: u32, launch: &GuidedLaunch) -> Opt
         g.sub_target = launch.target_sub;
     }
     let _ = cx.logic.objects.entry(cx.world, h);
+    // `enter_system(this, nullptr)`'s remote correction.
+    crate::replication::begin_remote_control(cx, h);
     crate::replication::guided_created(cx, system, h, launch.equip);
     Some(h)
 }
