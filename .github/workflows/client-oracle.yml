@@ -116,7 +116,18 @@ jobs:
           Select-String -Path $ini -Pattern 'movie_file' | ForEach-Object { Write-Host $_.Line }
           Select-String -Path $intro -Pattern 'bDrawScripts' | ForEach-Object { Write-Host $_.Line }
 
+      - name: Restore the C++ runs
+        # Decision O54 (4): the C++ client's outputs change only with CppSource and the oracle
+        # scripts (both under CppSource), so a run whose sources an earlier run already ran takes
+        # its outputs. Raise the v-number when the step "Run the oracle scripts" changes.
+        id: cpp-runs
+        uses: actions/cache/restore@v4
+        with:
+          key: client-oracle-runs-v1-${{ hashFiles('CppSource/**') }}
+          path: ${{ runner.temp }}/oracle-out
+
       - name: Run the oracle scripts
+        if: ${{ steps.cpp-runs.outputs.cache-hit != 'true' }}
         # Section 8: the pointer parked in a screen corner, no UserKeyMap.ini, the window left
         # in front; each run gets five minutes, a timed-out run is killed with its process
         # tree. The runs, in order:
@@ -258,6 +269,13 @@ jobs:
             Where-Object { $_.Name -like '*OutpostFrontier*' } | ForEach-Object { Write-Host "WER: $($_.FullName)" }
           $result | Where-Object { $_ -match ',' } | Set-Content "$env:RUNNER_TEMP\oracle-out\exit.csv"
 
+      - name: Save the C++ runs
+        if: ${{ success() && steps.cpp-runs.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          key: ${{ steps.cpp-runs.outputs.cache-primary-key }}
+          path: ${{ runner.temp }}/oracle-out
+
       - name: Prepare Rust
         if: ${{ always() }}
         run: rustup toolchain install
@@ -285,7 +303,7 @@ jobs:
 
       - name: Run the port's client
         # The Rust OutpostFrontier.exe in its +oracle mode (decision O53 (2)) on menu_walk.txt
-        # from the same run folder and user folder as run a. Its start-up is ported (the
+        # from the run folder and a fresh user folder, as run w. Its start-up is ported (the
         # forced display, the seed, the single-player login, the IDR_ALWAYS_PRESENT key map);
         # the screens are not, so the script's waits time out and its dumps have no tree.
         if: ${{ always() }}
@@ -299,6 +317,9 @@ jobs:
           $out = "$env:RUNNER_TEMP\oracle-out\port"
           $script = "$PWD\CppSource\OutpostFrontier\oracle\menu_walk.txt"
           $user = "$env:USERPROFILE\Documents\My Games\OutpostFrontier"
+          Remove-Item 'HKCU:\Software\Microsoft\Microsoft Games\OutpostFrontier' -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item $user -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $user | Out-Null
           "[PerfVersion]`nversion=5`nSkipMachineWarnings=TRUE`n" | Set-Content -NoNewline "$user\PerfOptions.ini"
           $start = Get-Date
           $p = Start-Process -FilePath "$run\OutpostFrontierPort.exe" -ArgumentList '+oracle', "`"$script`"", "`"$out`"" -WorkingDirectory $run -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\port-stdout.txt" -RedirectStandardError "$env:RUNNER_TEMP\port-stderr.txt"
@@ -307,8 +328,8 @@ jobs:
           Get-Content "$env:RUNNER_TEMP\port-stdout.txt", "$env:RUNNER_TEMP\port-stderr.txt" -ErrorAction SilentlyContinue | Write-Host
 
       - name: Compare the port's client with the C++ client
-        # Run port against run a: keymap.jsonl whole, the IClient lines of frame 0 (the
-        # single-player login), and session.jsonl's display and seed records.
+        # Run port against run w (both on a fresh user folder): keymap.jsonl whole, the IClient
+        # lines of frame 0 (the single-player login), and session.jsonl's display and seed records.
         if: ${{ always() }}
         shell: pwsh
         run: |
@@ -316,15 +337,15 @@ jobs:
           function Lines($path) { if (Test-Path $path) { @(Get-Content $path) } else { @() } }
           $fail = $false
           function Same($a, $b) { $a.Count -gt 0 -and $b.Count -eq $a.Count -and @(Compare-Object $a $b -SyncWindow 0).Count -eq 0 }
-          $a = @(Lines "$root\a\keymap.jsonl"); $b = @(Lines "$root\port\keymap.jsonl")
+          $a = @(Lines "$root\w\keymap.jsonl"); $b = @(Lines "$root\port\keymap.jsonl")
           if (Same $a $b) { Write-Host "keymap.jsonl: $($a.Count) lines equal" }
           else { Write-Host "keymap.jsonl differs ($($a.Count) and $($b.Count) lines)"; $fail = $true }
-          $a = @(Lines "$root\a\iclient.jsonl" | Where-Object { $_ -match '^\{"frame":0,' })
+          $a = @(Lines "$root\w\iclient.jsonl" | Where-Object { $_ -match '^\{"frame":0,' })
           $b = @(Lines "$root\port\iclient.jsonl" | Where-Object { $_ -match '^\{"frame":0,' })
           if (Same $a $b) { Write-Host "iclient.jsonl, frame 0: $($a.Count) lines equal" }
           else { Write-Host "iclient.jsonl, frame 0, differs:"; $a | Write-Host; Write-Host '--- port:'; $b | Write-Host; $fail = $true }
           foreach ($rec in 'display', 'seed') {
-            $a = @(Lines "$root\a\session.jsonl" | Where-Object { $_ -match "`"rec`":`"$rec`"" })
+            $a = @(Lines "$root\w\session.jsonl" | Where-Object { $_ -match "`"rec`":`"$rec`"" })
             $b = @(Lines "$root\port\session.jsonl" | Where-Object { $_ -match "`"rec`":`"$rec`"" })
             if ($a.Count -eq 1 -and $b.Count -eq 1 -and $a[0] -eq $b[0]) { Write-Host "session.jsonl $rec`: equal" }
             else { Write-Host "session.jsonl $rec differs: $a | $b"; $fail = $true }

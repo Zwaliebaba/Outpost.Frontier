@@ -492,6 +492,13 @@ made: the port's server read the C++ client's single-player user data. Its
 screens are not ported, so its later session records (the waits for the
 menu screens, the dumps without a tree) are not compared yet.
 
+A session compares locally (decision O54 (3)): download a run's
+`client-oracle-trial` artifact through the GitHub tools into a scratch folder,
+unpack it, and run the comparison tests with `OUTPOST_CLIENT_ORACLE_DIR` set to
+its `a` folder (and `OUTPOST_CLIENT_ORACLE_FRESH_DIR` to `w`), for example
+`cargo test -p game-app --test keymap_data --test preferences_data --test page_data`
+with `--target` set to the host. The files stay in the scratch folder.
+
 What the runner needs, found over runs 1 to 3:
 
 | Runner | What the job does |
