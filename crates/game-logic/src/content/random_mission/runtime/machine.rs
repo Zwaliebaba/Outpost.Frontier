@@ -21,12 +21,13 @@
 
 #![allow(clippy::too_many_lines, clippy::neg_cmp_op_on_partial_ord)]
 
+use game_sim::ai::personality::Job;
 use game_sim::protocol::fmtstr::FmtStr;
-use neuron_core::math::Vector;
+use neuron_core::math::{Matrix, Transform, Vector};
 use neuron_core::num::trunc_to_i32;
 use neuron_core::util::state_machine::StateMachine;
 
-use super::super::offer::{Conversation, Objective, Offer, ShipComponent};
+use super::super::offer::{ConversationLine, Objective, Offer, ShipComponent};
 use super::message::{Body, Controller, MessageType, RmMessage};
 use super::sub::{self, Trigger, TriggerKind};
 use super::{
@@ -34,8 +35,15 @@ use super::{
     message_of, player_position,
 };
 use crate::api;
+use crate::content::directives::DirectiveRef;
 use crate::content::game_support::time_distance;
-use crate::content::{players, population};
+use crate::content::mission::obj_list::{DirectiveKind, Goto, Zone};
+use crate::content::npc_names::{self, NpcNameParams, NpcNameRequest};
+use crate::content::npc_ships::{self, NpcShipParams};
+use crate::content::ships::{self, ShipKey};
+use crate::content::{dock_queues, formations, guides, players, population};
+use crate::events::NpcShipKey;
+use crate::server::Cx;
 
 /// `GRmVignetteOuterRadius`: 3500 + 6000.
 pub const OUTER_RADIUS: f32 = 9500.0;
@@ -678,8 +686,12 @@ fn send_placeholder_objectives(host: &mut Host<'_, '_>) {
 // ---------------------------------------------------------------------------
 
 /// `FRmOfferComponent::SendConversations` of the general component
-/// (`:361-376`): each conversation of the trigger, prepared, goes to the
-/// machine after its delay in a copy of its own.
+/// (`RandomMissionMachine.cpp:367-381`): each conversation of the trigger,
+/// prepared on the offer's own line objects ([`prepare_conversation`]),
+/// goes to the machine after its delay in a copy of its own
+/// (`FRmConversationMessage`). The comm sequences live in the general
+/// component only (`BuildCommSequences`), so the ship and solar components'
+/// `ResolveLine` overrides (`:426-497`) are never reached.
 fn send_conversations(host: &mut Host<'_, '_>, key: u32, trigger: i32, player: Option<u32>) {
     let Some((sender, list)) = offer(host, key).map(|o| {
         let list: Vec<(usize, f32)> = o
@@ -695,21 +707,12 @@ fn send_conversations(host: &mut Host<'_, '_>, key: u32, trigger: i32, player: O
         return;
     };
     for (index, delay) in list {
-        let prepared = {
-            let Some(o) = offer(host, key) else { return };
-            let Some(c) = o.general.conversations.get(index) else {
-                continue;
-            };
-            let mut c = c.clone();
-            prepare_conversation(host, key, &mut c, player);
-            c
+        prepare_conversation(host, key, index, player);
+        let Some(prepared) = offer(host, key).and_then(|o| o.general.conversations.get(index))
+        else {
+            continue;
         };
-        if let Some(o) = offer_mut(host, key)
-            && let Some(c) = o.general.conversations.get_mut(index)
-        {
-            // `MarkReady` is on the offer's own conversation.
-            c.ready = true;
-        }
+        let prepared = prepared.clone();
         host.send_delayed(
             sender,
             RmMessage::new(
@@ -722,16 +725,196 @@ fn send_conversations(host: &mut Host<'_, '_>, key: u32, trigger: i32, player: O
     }
 }
 
-/// `PrepareConversation` (`:383-411`): `MarkReady`; each line's speaker
-/// and listeners are resolved by the machine (their playback is the comm
-/// system's, P3.6b, D1022).
-fn prepare_conversation(
-    _host: &mut Host<'_, '_>,
-    _key: u32,
-    conversation: &mut Conversation,
-    _player: Option<u32>,
-) {
-    conversation.ready = true;
+/// `FRmOfferComponent::PrepareConversation` (`:389-416`) on the general
+/// component's conversation `index`: `MarkReady`; per line its texts and
+/// players cleared, its speaker then its listeners resolved by the machine
+/// ([`resolve_line`], the results not read), the speaker's voice when the
+/// line has none (`GetVoiceID`, kept by the line from then on), the voice
+/// line of its text with a dash (`MakeVoiceLineName`, one `rand()` when the
+/// voice has the line's permutations) as its one text, mood `0x4a39` and
+/// the prepared mark (`Field_0x8c`). The C++ writes into the offer's own
+/// line objects, so what a resolution leaves (a speaker no ship answered
+/// for, the voice) stays for the next preparation.
+fn prepare_conversation(host: &mut Host<'_, '_>, key: u32, index: usize, player: Option<u32>) {
+    let count = {
+        let Some(c) = offer_mut(host, key).and_then(|o| o.general.conversations.get_mut(index))
+        else {
+            return;
+        };
+        c.ready = true;
+        c.lines.len()
+    };
+    for at in 0..count {
+        let Some(mut line) = offer(host, key)
+            .and_then(|o| o.general.conversations.get(index))
+            .and_then(|c| c.lines.get(at))
+            .cloned()
+        else {
+            return;
+        };
+        line.line.texts.clear();
+        line.line.players = Some(Vec::new());
+        resolve_line(host, key, true, &mut line, player);
+        resolve_line(host, key, false, &mut line, player);
+        if line.line.voice == 0
+            && let Ok(voice) = api::space_obj::voice_id(host.cx, line.line.speaker)
+        {
+            line.line.voice = voice;
+        }
+        let name =
+            crate::content::gcs::names::voice_line(host.cx, &line.text, b"-", line.line.voice);
+        line.line.push(&name);
+        line.line.mood = 0x4a39;
+        line.line.prepared = true;
+        if let Some(slot) = offer_mut(host, key)
+            .and_then(|o| o.general.conversations.get_mut(index))
+            .and_then(|c| c.lines.get_mut(at))
+        {
+            *slot = line;
+        }
+    }
+}
+
+/// `FRmRuntimeMachine::ResolveLine(bSpeaker, Line, Player)` (`:1101-1225`).
+///
+/// - The speaker (`FRmCommLine::Speaker`): 1 `BASE` (no speaker object;
+///   the offer's costume and voice, comm type `0x32d7`), 2 `BIG_SOLAR` (the
+///   first alive solar of type 0), 3 `BIG_SHIP` (the first ship record of
+///   kind 2), 4 `DEFENSIVE_SHIP` (the first alive one of kind 1), 5
+///   `FRIENDLY_SHIP` (the first alive one with an attitude above 0).
+/// - The listeners (`FRmCommSequence::Target`): 6 `PLAYER`, 7
+///   `ALL_PLAYERS`, 8 `PLAYERS_IN_RANGE` and 9 `PLAYERS_OUT_OF_RANGE` (the
+///   mission players with a ship within 10000, or farther, of the player's
+///   ship or else the mission area), 10 `PLAYERS_IN_SYSTEM` and 11
+///   `PLAYERS_OUT_OF_SYSTEM` (the mission players with a ship in this
+///   machine's system, or in another).
+///
+/// What the C++ does without a player for kind 6, with a player without a
+/// ship for kinds 8 and 9, and for kinds 10 and 11 once a player has a ship
+/// (it never leaves the loop) is D1081's; no comm sequence of the shipped
+/// data reaches them.
+fn resolve_line(
+    host: &mut Host<'_, '_>,
+    key: u32,
+    speaker: bool,
+    line: &mut ConversationLine,
+    player: Option<u32>,
+) -> bool {
+    if speaker {
+        let (ships, solars) = vig(host, key).map_or((0, 0), |v| (v.ships, v.solars));
+        let found = match line.speaker {
+            1 => {
+                let Some((costume, voice)) = offer(host, key).map(|o| (o.mc_costume, o.voice))
+                else {
+                    return false;
+                };
+                line.line.speaker = 0;
+                line.line.costume = costume;
+                line.line.voice = voice;
+                line.line.comm_type = 0x32d7;
+                return true;
+            }
+            2 => sub_query_solars(host, solars, 0, 2, 0)
+                .first()
+                .and_then(|&i| sub::records(host, solars).get(i))
+                .map(|r| r.object),
+            3 => sub::records(host, ships)
+                .iter()
+                .find(|r| r.ship_kind == 2)
+                .map(|r| r.object),
+            4 => sub::records(host, ships)
+                .iter()
+                .find(|r| r.ship_kind == 1 && r.state == 2)
+                .map(|r| r.object),
+            // `FCOMP 0.0`, `TEST AH,0x41` + `JNZ`: less, equal or
+            // unordered skip.
+            5 => sub::records(host, ships)
+                .iter()
+                .find(|r| r.attitude > 0.0 && r.state == 2)
+                .map(|r| r.object),
+            _ => None,
+        };
+        let Some(object) = found else { return false };
+        line.line.speaker = object;
+        return true;
+    }
+    let ship_of = |host: &Host<'_, '_>, p: u32| {
+        host.cx
+            .logic
+            .content
+            .state
+            .players
+            .get(&p)
+            .and_then(|s| s.ship.as_ref())
+            .map(|s| s.ship)
+    };
+    let mut ids = Vec::new();
+    match line.target {
+        6 => {
+            // A missing player (D1081) adds nobody.
+            ids.extend(player);
+        }
+        7 => ids.extend(host.players()),
+        8 | 9 => {
+            let center = match player.and_then(|p| ship_of(host, p)) {
+                Some(ship) => {
+                    api::space_obj::location(host.cx, ship).map_or(Vector::ZERO, |(p, _)| p)
+                }
+                // No player, or (D1081) a player without a ship.
+                None => vig(host, key).map_or(Vector::ZERO, |v| v.position),
+            };
+            for p in host.players() {
+                let Some(ship) = ship_of(host, p) else {
+                    continue;
+                };
+                let at = api::space_obj::location(host.cx, ship).map_or(Vector::ZERO, |(p, _)| p);
+                let dsq = rm_distance_sq(at, center);
+                // Kind 8: `TEST AH,0x41` + `JP` skips greater only; kind 9:
+                // `JNZ` skips less, equal and unordered.
+                let keep = if line.target == 8 {
+                    !(dsq > 100_000_000.0)
+                } else {
+                    dsq > 100_000_000.0
+                };
+                if keep {
+                    ids.push(p);
+                }
+            }
+        }
+        10 | 11 => {
+            // Each player once (D1081: the C++ advances only past a player
+            // without a ship).
+            let here = system_id(host, key);
+            for p in host.players() {
+                if ship_of(host, p).is_none() {
+                    continue;
+                }
+                let system = host
+                    .cx
+                    .logic
+                    .content
+                    .state
+                    .players
+                    .get(&p)
+                    .and_then(|s| s.system)
+                    .unwrap_or(0);
+                if (system == here) == (line.target == 10) {
+                    ids.push(p);
+                }
+            }
+        }
+        _ => return false,
+    }
+    line.line.players.get_or_insert_with(Vec::new).extend(ids);
+    true
+}
+
+/// `RmDistanceSq(A, B)` (`:1013-1019`): `(dx² + dz²) + dy²` in double.
+fn rm_distance_sq(a: Vector, b: Vector) -> f64 {
+    let dx = f64::from(a.x) - f64::from(b.x);
+    let dy = f64::from(a.y) - f64::from(b.y);
+    let dz = f64::from(a.z) - f64::from(b.z);
+    (dx * dx + dz * dz) + dy * dy
 }
 
 /// `SendSystemConversations` (`:432-447`): a mapped player with a ship
@@ -929,8 +1112,18 @@ fn any_state(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
     };
     let current = host.state_of(key);
     if m.is(MessageType::Conversation, current) {
-        // Valid conversations go to the comm system's manager (P3.6b,
-        // D1022).
+        // `RandomMissionVignette.cpp:582-591`: a valid conversation goes to
+        // the comm system's manager, which clones it and tests it again.
+        if let Body::Conversation(c) = &m.body {
+            let lines: Vec<_> = c.lines.iter().map(|l| l.line.clone()).collect();
+            let valid = c.ready
+                && lines
+                    .iter()
+                    .all(|l| crate::content::gcs::lines::can_play(host.cx, l));
+            if valid {
+                crate::content::gcs::add(host.cx, c.ready, &lines);
+            }
+        }
         return true;
     }
     if m.is(MessageType::PlayerLeft, current) {
@@ -1439,8 +1632,29 @@ fn target_battle(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
         if let Some(v) = vig_mut(host, key) {
             v.area_radius = OUTER_RADIUS;
         }
-        // Every alive ship leaves its formation for the main battle (its
-        // directives come with the ships' spawn, D1023).
+        // `RandomMissionVignette.cpp:1093-1121`: every alive ship leaves
+        // its formation for the main battle: its directives cancelled, then
+        // `StayInRange` 2000 of the centre and `GotoVec` there (750,
+        // cruise), restarted; the two objects shared by every ship.
+        let center = offer(host, key).map_or(Vector::ZERO, main_center);
+        let stay = stay_in_range(host.cx, center, 2000.0);
+        let goto = goto_vec(host.cx, center, 750.0, true, None);
+        let ships = vig(host, key).map_or(0, |v| v.ships);
+        let alive: Vec<NpcShipKey> = sub_query_ships(host, ships, 0, 2, 0)
+            .into_iter()
+            .filter_map(|i| sub::records(host, ships).get(i).and_then(|r| r.npc_ship))
+            .collect();
+        for npc in alive {
+            let ship = ShipKey::Npc(npc);
+            formations::remove_from_formation(host.cx, ship);
+            npc_ships::cancel_directives(host.cx, ship);
+            npc_ships::add_directive(host.cx, ship, stay);
+            npc_ships::add_directive(host.cx, ship, goto);
+            npc_ships::restart_directives(host.cx, ship);
+        }
+        let arena = &mut host.cx.logic.content.state.directives;
+        arena.release(goto);
+        arena.release(stay);
         return true;
     }
     false
@@ -2257,7 +2471,7 @@ fn set_activator(host: &mut Host<'_, '_>, trigger: u32, activator: u32) {
 /// makes the target objective of its kind (6 defensive, 7 otherwise); a
 /// hostile group without one gets the component's objective 8. The C++
 /// reads the first member without an empty test; a group whose spawn made
-/// no record has none here (D1023).
+/// no record (D1080) has none here.
 fn mark_group_targets(host: &mut Host<'_, '_>, key: u32, members: &[usize], target: bool) {
     let component = if target {
         ComponentKind::TargetShips
@@ -2318,20 +2532,318 @@ fn mark_group_targets(host: &mut Host<'_, '_>, key: u32, members: &[usize], targ
     add_objective(host, key, 8, ObjectiveSource::Offer(component, 8));
 }
 
-/// `SpawnShipGroup` (slot 24, `:1724-1904`): the group is marked spawned.
-/// Its ships, their NPC blocks, reputations, formation and records come
-/// with the mission ships' spawn of P3.5c2 (D1023).
-fn spawn_ship_group(host: &mut Host<'_, '_>, key: u32, target: bool, index: usize) {
-    if let Some(o) = offer_mut(host, key) {
+/// `RmFindSpawnPoint(Group, StartRadius, Clearance, SecondClearance, Lift,
+/// Selection, &Out)` (`RandomMissionMachine.cpp:1653-1677`): `GetEmptyPos`
+/// around the group's position (identity rotation); only when it fails, a
+/// second search from the point raised by `lift`, with the second
+/// clearance (its result not tested). The callers' constant arguments
+/// never fail the first; a failed second search leaves the C++'s unset
+/// point, the group's position here.
+fn find_spawn_point(
+    cx: &mut Cx<'_>,
+    system: u32,
+    position: Vector,
+    radii: (f32, f32, f32, f32),
+    selection: u32,
+) -> Vector {
+    let (start, clearance, second, lift) = radii;
+    let base = Transform::new(Matrix::IDENTITY, position);
+    if let Ok(point) = api::space_obj::empty_pos(cx, system, &base, start, clearance, selection) {
+        return point;
+    }
+    let raised = Vector::new(
+        (f64::from(position.x) + 0.0) as f32,
+        (f64::from(position.y) + f64::from(lift)) as f32,
+        (f64::from(position.z) + 0.0) as f32,
+    );
+    let base = Transform::new(Matrix::IDENTITY, raised);
+    api::space_obj::empty_pos(cx, system, &base, start, second, selection).unwrap_or(position)
+}
+
+/// `RmTuneShipJob(&Job)` (`:1682-1708`): the stores into the spawned
+/// ship's copied job block: flee scene threat style and scene toughness 4,
+/// `Field_00` 0, the attack preferences `{0, 4000, guns}`, `{8, 4000,
+/// 0xf}`, `{0xa, 4000, 0xf}`, `{0xb, 4000, 0xf}` and the terminator class
+/// 12, no hull-damage, leader or no-weapons flee.
+fn tune_ship_job(job: &mut Job) {
+    let range = (f64::from(2000.0_f32) + f64::from(2000.0_f32)) as f32;
+    job.flee_scene_threat_style = 4;
+    job.scene_toughness_threshold = 4;
+    job.unknown_00 = 0;
+    let prefs = &mut job.attack_preferences;
+    prefs[0].ship_class = 0;
+    prefs[0].range = range;
+    prefs[1].range = range;
+    prefs[2].range = range;
+    prefs[3].range = range;
+    job.flee_when_hull_damaged_percent = 0.0;
+    job.flee_when_leader_flees_style = 0;
+    job.flee_no_weapons_style = 0;
+    let prefs = &mut job.attack_preferences;
+    prefs[0].weapon_flags = 1;
+    for (pref, class) in prefs[1..4].iter_mut().zip([8, 0xa, 0xb]) {
+        pref.ship_class = class;
+        pref.weapon_flags = 0xf;
+    }
+    prefs[4].ship_class = 0xc;
+}
+
+/// A counted `StayInRange` directive (`CreateObjListDirective(0xd)`) with
+/// `SetSphere(&Center, Radius)` (`MissionObjList.cpp:1036-1044`): the
+/// sphere, mode 0, normal; one reference, the creator's.
+fn stay_in_range(cx: &mut Cx<'_>, center: Vector, radius: f32) -> DirectiveRef {
+    let mut zone = Zone::default();
+    zone.op.target_point = center;
+    zone.op.radius = radius;
+    zone.op.mode = 0;
+    zone.op.invert_mode = 0;
+    cx.logic
+        .content
+        .state
+        .directives
+        .create(DirectiveKind::StayInRange(zone))
+}
+
+/// A counted `GotoVec` directive (`CreateObjListDirective(5)`) with
+/// `SetDestination(&Destination, Range, -1, 0, false, Cruise)`
+/// (`MissionObjList.cpp:514-526`) and, when given, the op's priority; one
+/// reference, the creator's.
+fn goto_vec(
+    cx: &mut Cx<'_>,
+    destination: Vector,
+    range: f32,
+    cruise: bool,
+    priority: Option<u32>,
+) -> DirectiveRef {
+    let mut goto = Goto::default();
+    npc_ships::set_goto_destination(&mut goto, destination, range, -1.0, 0, false, cruise);
+    if let Some(priority) = priority {
+        goto.priority = priority;
+    }
+    cx.logic
+        .content
+        .state
+        .directives
+        .create(DirectiveKind::GotoVec(goto))
+}
+
+/// The vibe of a record's NPC ship (`FContentSpaceObj::GetReputation`), -1
+/// without one.
+fn ship_vibe(host: &Host<'_, '_>, npc: Option<NpcShipKey>) -> i32 {
+    npc.map_or(-1, |k| {
+        ships::reputation(&host.cx.logic.content.state, ShipKey::Npc(k))
+    })
+}
+
+/// `FRmRuntimeMachine::SpawnShipGroup(Group, bNotFirst)` (slot 24,
+/// `RandomMissionMachine.cpp:1720-1933`) through the Content ships' spawn
+/// path that the mission ships use (P3.5c2): the group is marked spawned
+/// and its spawn point found (`RmFindSpawnPoint`: the first group of a
+/// component in the 3D volume from 350 with clearance 50, a later one in
+/// the YZ plane from 2625 with clearance 1000). Each ship becomes an NPC
+/// block, in the C++'s `rand()` order:
+///
+/// - its name and reputation: the offer's target name on the target ship,
+///   a random name (`PickNpcNameGender`, then `BuildNpcName` with a named
+///   leader) on the others, each through `CreateNpcNameReputation`; a ship
+///   with neither, its `[NPC]` part's (`CreateMsnNpcReputation`);
+/// - its nickname, the `npcships.ini` archetype (`ApplyNpcShipArchById`),
+///   the faction's costume and voice for the name's gender
+///   (`ApplyNpcShipFaction`), creation type 1, the group's orientation,
+///   the mission's controller, the group's `+0x7c` (-1); no labels or
+///   cargo, priority 0 and hit points -1 (the generator writes none of
+///   them, `BuildRmShips`, `RandomMissionGen.cpp:2022-2101`);
+/// - a `StayInRange` 2000 of the group's position and, for the first ship,
+///   a `GotoVec` there (500, no cruise, priority 1);
+///
+/// and a record (its nickname, alive, its loot, the group's serial, its
+/// flags, the group's attitude, its kind, and whether its faction is the
+/// offer's hostile group). The blocks are laid out in the group's
+/// formation at the spawn point (`PlaceFormationBlocks`) and made in the
+/// group's system (`CreateNpcShips`, no dock target: the generator gives
+/// the group no name and `+0x78` 0). Each made ship's record takes its id
+/// and ship, the ship gets its personality with the tuned job
+/// (`RmTuneShipJob`) on its state graph, and the ship machine keeps the
+/// record. Last, a record with an attitude sets it towards every mission
+/// player, and -0.9 both ways with every other alive ship record of
+/// another attitude. True once spawned.
+///
+/// A group without its system record or formation, and fewer ships made
+/// than blocks, which the C++ reads through null or past the list, are
+/// D1080's.
+fn spawn_ship_group(host: &mut Host<'_, '_>, key: u32, target: bool, index: usize) -> bool {
+    let Some((group, target_name, hostile)) = offer_mut(host, key).and_then(|o| {
+        let (target_name, hostile) = (o.target_name.clone(), o.hostile_group);
         let component = if target {
             &mut o.target_ships
         } else {
             &mut o.ships
         };
-        if let Some(g) = component.groups.get_mut(index) {
-            g.field_0x01 = 1;
+        let g = component.groups.get_mut(index)?;
+        g.field_0x01 = 1;
+        Some((g.clone(), target_name, hostile))
+    }) else {
+        return false;
+    };
+    let system = group.system;
+    if !host.cx.logic.content.state.systems.contains_key(&system) {
+        return false;
+    }
+    let spawn_point = if index == 0 {
+        find_spawn_point(
+            host.cx,
+            system,
+            group.position,
+            (350.0, 50.0, 50.0, 250.0),
+            3,
+        )
+    } else {
+        find_spawn_point(
+            host.cx,
+            system,
+            group.position,
+            (2625.0, 1000.0, 250.0, 150.0),
+            1,
+        )
+    };
+    let controller = host.mission.0;
+    let tables = std::sync::Arc::clone(&host.cx.logic.content.tables);
+    let mut blocks: Vec<NpcShipParams> = Vec::with_capacity(group.ships.len());
+    let mut records: Vec<sub::SpawnRecord> = Vec::with_capacity(group.ships.len());
+    for (at, ship) in group.ships.iter().enumerate() {
+        let mut block = NpcShipParams::default();
+        let mut name = NpcNameParams::default();
+        if ship.target_name {
+            name.first = target_name.first.clone();
+            name.second = target_name.second.clone();
+            name.affiliation = target_name.affiliation;
+            name.gender = target_name.gender;
+        }
+        if ship.target_name || ship.random_name != 0 {
+            if !ship.target_name {
+                npc_names::pick_npc_name_gender(host.cx, ship.affiliation, &mut name);
+                npc_names::build_npc_name(
+                    host.cx,
+                    ship.affiliation,
+                    &NpcNameRequest::default(),
+                    &mut name,
+                    true,
+                );
+            }
+            block.reputation = Some(npc_names::create_npc_name_reputation(host.cx, &name));
+        } else {
+            // The `[NPC]` part has no `individual_name` (0).
+            block.reputation = Some(npc_names::create_msn_npc_reputation(
+                host.cx,
+                0,
+                ship.affiliation,
+            ));
+        }
+        block.nickname = ship.nickname.clone();
+        if let Some(arch) = tables.npc_ship(ship.npc_ship_arch) {
+            npc_ships::apply_npc_ship_arch(host.cx, &mut block, arch, None, 0);
+        }
+        npc_ships::apply_npc_ship_faction(host.cx, ship.affiliation, name.gender, &mut block);
+        block.creation_type = 1;
+        block.orientation = group.orientation;
+        block.controller = controller;
+        block.field_0x118 = Vec::new();
+        block.field_0x110 = -1;
+        block.cargo = Vec::new();
+        block.priority = 0;
+        block.hit_points = -1;
+
+        records.push(sub::SpawnRecord {
+            name: ship.nickname.clone(),
+            state: 2,
+            loot: ship.loot.clone(),
+            group: group.serial,
+            flags: ship.field_0xd8 as u32,
+            attitude: group.field_0x40,
+            ship_kind: ship.field_0xdc,
+            counted: ship.affiliation == hostile,
+            ..sub::SpawnRecord::default()
+        });
+
+        // The creator's reference passes to the block (its `AddRef`, then
+        // the holder's `Release`).
+        let stay = stay_in_range(host.cx, group.position, 2000.0);
+        block.directives.push(stay);
+        if at == 0 {
+            let goto = goto_vec(host.cx, group.position, 500.0, false, Some(1));
+            block.directives.push(goto);
+        }
+        blocks.push(block);
+    }
+
+    if group.formation != 0 {
+        let placement = Transform::new(Matrix::IDENTITY, spawn_point);
+        let formation = tables.formation(group.formation).map(|_| group.formation);
+        dock_queues::place_formation_blocks(host.cx, &mut blocks, formation, &placement);
+    }
+    let created = npc_ships::create_npc_ships(host.cx, system, &blocks, 0);
+    for block in blocks {
+        npc_ships::release_params(host.cx, block);
+    }
+
+    let ships = vig(host, key).map_or(0, |v| v.ships);
+    records.truncate(created.len());
+    for (record, &npc) in records.iter_mut().zip(&created) {
+        let object = npc_ships::space_obj(host.cx, npc);
+        record.object = object;
+        record.npc_ship = Some(npc);
+        let mut personality = npc_ships::get(host.cx, npc)
+            .map(|s| s.personality)
+            .unwrap_or_default();
+        tune_ship_job(&mut personality.job);
+        let op = api::ai::SetPersonalityParams {
+            set_personality: true,
+            personality,
+            state_graph: api::ai::state_graph_id(host.cx, object),
+            ..api::ai::SetPersonalityParams::default()
+        };
+        let _ = api::ai::submit_state(
+            host.cx,
+            object,
+            &api::ai::BaseOp::new(api::ai::Op::SetPersonalityParams(Box::new(op))),
+        );
+        if let Some(s) = sub::sub_mut(host, ships) {
+            s.records.push(record.clone());
         }
     }
+
+    let players = host.players();
+    for record in &records {
+        if record.attitude == -2.0 {
+            continue;
+        }
+        for &p in &players {
+            let player_rep = host
+                .cx
+                .logic
+                .content
+                .state
+                .players
+                .get(&p)
+                .map_or(-1, |s| s.reputation);
+            let ship_rep = ship_vibe(host, record.npc_ship);
+            let _ = api::reputation::set_attitude(host.cx, ship_rep, player_rep, record.attitude);
+        }
+        let others: Vec<sub::SpawnRecord> = sub::records(host, ships).to_vec();
+        for other in &others {
+            if other.state != 2
+                || other.object == record.object
+                || other.attitude == record.attitude
+            {
+                continue;
+            }
+            let other_rep = ship_vibe(host, other.npc_ship);
+            let ship_rep = ship_vibe(host, record.npc_ship);
+            let _ = api::reputation::set_attitude(host.cx, ship_rep, other_rep, -0.9);
+            let _ = api::reputation::set_attitude(host.cx, other_rep, ship_rep, -0.9);
+        }
+    }
+    true
 }
 
 /// `SpawnSolar` (slot 23, `:1574-1680`): the solar's reputation named by
@@ -2637,11 +3149,13 @@ fn unmark_objects(host: &mut Host<'_, '_>, key: u32, players: &[u32]) {
     }
 }
 
-/// `FRmVignetteMachine::Shutdown` (slot 7, `:2147-2196`): the population's
-/// exclusion spheres, the alive solars flagged in the offer's system, the
-/// alive loot (a critical one destroyed, any other made vulnerable), then
-/// every object unmarked for the mission players. The ships' zone
-/// behaviour and guides come with their spawn (D1023).
+/// `FRmVignetteMachine::Shutdown` (slot 7, `RandomMissionMachine.cpp:2128-2182`):
+/// the population's exclusion spheres; every alive ship's life 24 and a
+/// zone behaviour that clears its zone (mode 2), and a ship that is no
+/// formation wingman a wander guide (type 4, started); the alive solars
+/// flagged in the offer's system, the alive loot (a critical one
+/// destroyed, any other made vulnerable), then every object unmarked for
+/// the mission players.
 pub(super) fn shutdown(host: &mut Host<'_, '_>, key: u32) {
     let Some((target_active, target, center, system)) = offer(host, key).map(|o| {
         (
@@ -2657,9 +3171,35 @@ pub(super) fn shutdown(host: &mut Host<'_, '_>, key: u32) {
         population::remove_exclusion_sphere(host.cx, [target.x, target.y, target.z, 10000.0]);
     }
     population::remove_exclusion_sphere(host.cx, [center.x, center.y, center.z, 10000.0]);
-    let Some((solars, loot)) = vig(host, key).map(|v| (v.solars, v.loot)) else {
+    let Some((ships, solars, loot)) = vig(host, key).map(|v| (v.ships, v.solars, v.loot)) else {
         return;
     };
+    let alive_ships: Vec<NpcShipKey> = sub_query_ships(host, ships, 0, 2, 0)
+        .into_iter()
+        .filter_map(|i| sub::records(host, ships).get(i).and_then(|r| r.npc_ship))
+        .collect();
+    for npc in alive_ships {
+        if let Some(s) = npc_ships::get_mut(host.cx, npc) {
+            s.life_time = 24.0;
+        }
+        let object = npc_ships::space_obj(host.cx, npc);
+        let zone = api::ai::SetZoneBehaviorParams {
+            invert_mode: 2,
+            ..api::ai::SetZoneBehaviorParams::default()
+        };
+        let _ = api::ai::submit_state(
+            host.cx,
+            object,
+            &api::ai::BaseOp::new(api::ai::Op::SetZoneBehaviorParams(zone)),
+        );
+        if !ships::is_wingman(&host.cx.logic.content.state, ShipKey::Npc(npc)) {
+            let desc = guides::GuideDesc {
+                kind: 4,
+                ..guides::GuideDesc::default()
+            };
+            guides::set_guide_from_desc(host.cx, npc, &desc, true);
+        }
+    }
     let alive_solars: Vec<u32> = sub_query_solars(host, solars, -1, 2, 0)
         .into_iter()
         .filter_map(|i| sub::records(host, solars).get(i).map(|r| r.object))

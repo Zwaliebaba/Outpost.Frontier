@@ -36,7 +36,6 @@
 use std::collections::BTreeMap;
 
 use game_sim::ai::personality::Personality;
-use game_sim::data::costume::Costume;
 use game_sim::protocol::fmtstr::FmtStr;
 use neuron_core::hash::{c_str, eq_ignore_case};
 use neuron_core::id::create_id;
@@ -59,8 +58,6 @@ use crate::content::guides::GuideDesc;
 use crate::content::npc_names::{self, NpcNameParams};
 use crate::content::npc_ships::{self, NpcShipParams};
 use crate::content::ships::ShipKey;
-use crate::content::tables::NpcShipArch;
-use crate::content::tables::factions::FactionProps;
 use crate::content::tables::voices::find_voice_properties;
 use crate::content::{dock_queues, formations, systems};
 use crate::events::{ControllerMessage, NpcShipKey};
@@ -108,74 +105,6 @@ pub fn player_ship_id(cx: &Cx<'_>, id: ControllerId) -> u32 {
 /// fails (the C++'s outputs are not written then; the port's start there).
 fn location(cx: &Cx<'_>, object: u32) -> (Vector, Matrix) {
     api::space_obj::location(cx, object).unwrap_or((Vector::ZERO, Matrix::IDENTITY))
-}
-
-// ---- the faction's picks and the named reputations ---------------------------------------------
-
-/// `rand() * count / 32768`.
-fn rand_index(cx: &mut Cx<'_>, count: i32) -> i32 {
-    cx.world.rng().rand().wrapping_mul(count) / 32768
-}
-
-/// `FFactionProps::PickSpaceCostume(Gender, &Out)` (`FactionProps.cpp:241-272`):
-/// the costumes whose skeleton is of `gender`, one drawn; `None` (no draw)
-/// when none is.
-fn pick_space_costume(cx: &mut Cx<'_>, props: &FactionProps, gender: i32) -> Option<Costume> {
-    let mut matches = Vec::new();
-    for (index, costume) in props.space_costumes.iter().enumerate() {
-        if api::gf::costume_skeleton_gender(cx, costume) == gender {
-            matches.push(index);
-        }
-    }
-    if matches.is_empty() {
-        return None;
-    }
-    let pick = rand_index(cx, matches.len() as i32);
-    let at = usize::try_from(pick)
-        .ok()
-        .and_then(|i| matches.get(i).copied())?;
-    props.space_costumes.get(at).cloned()
-}
-
-/// `ApplyNpcShipArch(Params, Arch, null, null)` (`NpcShip.cpp:155-202`):
-/// the archetype's loadout, ship and its mission properties, state graph,
-/// classes (each once), pilot with its personality and level. The block's
-/// nickname is the mission ship's, so the archetype's is never taken.
-fn apply_npc_ship_arch(cx: &Cx<'_>, params: &mut NpcShipParams, arch: &NpcShipArch) {
-    params.loadout = arch.loadout;
-    params.archetype = arch.ship_archetype;
-    params.class_ids.clear();
-    if let Some(properties) = cx
-        .logic
-        .content
-        .tables
-        .ship_mission_properties
-        .get(&arch.ship_archetype)
-    {
-        for &p in properties {
-            if !params.class_ids.contains(&p) {
-                params.class_ids.push(p);
-            }
-        }
-    }
-    params.state_graph = arch.state_graph;
-    for &class in &arch.npc_classes {
-        if !params.class_ids.contains(&class) {
-            params.class_ids.push(class);
-        }
-    }
-    if arch.pilot != 0 {
-        params.pilot = arch.pilot;
-        let mut personality = params.personality;
-        let _ =
-            cx.logic
-                .content
-                .tables
-                .pilots
-                .personality_with_job(arch.pilot, 0, &mut personality);
-        params.personality = personality;
-    }
-    params.level = arch.level;
 }
 
 // ---- the placements -------------------------------------------------------------------------
@@ -326,14 +255,15 @@ pub fn spawn_ship_group(cx: &mut Cx<'_>, id: ControllerId, group: &ShipGroup) {
             npc_ships::release_params(cx, params);
             continue;
         };
-        apply_npc_ship_arch(cx, &mut params, &arch);
+        // `ApplyNpcShipArch(Params, Arch, null, null)` (`NpcShip.cpp:155-202`).
+        npc_ships::apply_npc_ship_arch(cx, &mut params, &arch, None, 0);
         params.voice = npc.voice;
         params.costume = npc.appearance.clone();
         if npc.appearance.part_ids[0] & ID_MASK == 0 || npc.voice & ID_MASK == 0 {
             let props = tables.faction_props(npc.affiliation);
             if let Some(props) = props {
                 if npc.appearance.part_ids[0] & ID_MASK == 0
-                    && let Some(costume) = pick_space_costume(cx, props, name.gender)
+                    && let Some(costume) = npc_names::pick_space_costume(cx, props, name.gender)
                 {
                     params.costume = costume;
                 }
@@ -546,7 +476,7 @@ pub fn spawn_solar_record(cx: &mut Cx<'_>, id: ControllerId, index: usize) -> bo
         if let Some(props) = tables.faction_props(record.faction) {
             let gender = npc_names::pick_gender(cx, props).unwrap_or(gender_slot);
             if record.space_costume.part_ids[0] & ID_MASK == 0
-                && let Some(costume) = pick_space_costume(cx, props, gender)
+                && let Some(costume) = npc_names::pick_space_costume(cx, props, gender)
             {
                 info.costume = costume;
             }
