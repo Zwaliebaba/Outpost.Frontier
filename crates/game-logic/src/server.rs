@@ -112,13 +112,13 @@ pub enum CreateParams {
     #[default]
     None,
     /// `FStoryCreateParms` (StoryLauncher's create of `Story`,
-    /// `Content/StoryLauncher.cpp:64-77`): the player.
+    /// `Content/StoryLauncher.cpp:68-80`): the player.
     Story {
         /// `PlayerId`.
         player: u32,
     },
     /// `FStoryMissionCreateParms` (Story's create of a chapter's mission,
-    /// `Content/Story.cpp:162-169`): the player and the Story controller
+    /// `Content/Story.cpp:177-183`): the player and the Story controller
     /// whose `IStoryMissionEvents` the mission calls.
     StoryMission {
         /// `PlayerId`.
@@ -127,7 +127,7 @@ pub enum CreateParams {
         story: ControllerId,
     },
     /// `FStoryOnLoadCreateParms` for `GenericMission` (Story's restore,
-    /// `Content/Story.cpp:360-380`): the story mission's parameters and the
+    /// `Content/Story.cpp:388-399`): the story mission's parameters and the
     /// mission file, within the C++'s buffer (D773).
     GenericMission {
         /// `PlayerId`.

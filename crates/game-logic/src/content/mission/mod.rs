@@ -6,7 +6,7 @@
 //! A mission's constructor ([`construct`]) sets the mission object's
 //! heartbeat (1/30 s, `MissionObject.cpp:101`, one `rand()`), takes its
 //! player, sets its chapter and, for `Mission_01a`, the heartbeat again
-//! (`StoryMissions.cpp:100`), then loads its mission file
+//! (`StoryMissions.cpp:101`), then loads its mission file
 //! (`LoadMissionIni`, [`load_mission`]):
 //!
 //! 1. the mission object's sections ([`object`]: ships, solars, loot,
@@ -22,7 +22,7 @@
 //! `Cnd_Timer`'s ranges) and calls the `pub::` getters of record 0008. The
 //! saves came with P3.5b ([`save`] for the script's sections,
 //! [`object_save`] for the mission object's); the run time is P3.5c's, the
-//! story shell P3.5d's. The
+//! story missions' overrides ([`story_missions`]) P3.5d's. The
 //! mission object's `[ObjList]` directives ([`obj_list`]) and
 //! `[MetaBehavior]` objects ([`meta_behavior`]) came with P3.5a2; they draw
 //! nothing.
@@ -47,6 +47,7 @@ pub mod runtime;
 pub mod save;
 pub mod scenes;
 pub mod spawn;
+pub mod story_missions;
 pub mod trace;
 pub mod trigger;
 
@@ -65,7 +66,7 @@ use crate::content::tables;
 use crate::server::{ControllerKind, CreateParams, Cx};
 
 /// The size of `FStoryOnLoadCreateParms::GenericMissionPath`
-/// (`Content/Story.cpp:37-42`), terminator included.
+/// (`Content/Story.cpp:38-43`), terminator included.
 pub const MISSION_PATH_BUFFER: usize = 0x3c;
 
 /// A `GenericMission`'s script path as its create parameters carry it:
@@ -118,7 +119,7 @@ impl std::fmt::Debug for MissionPath {
 /// `G_MissionStateNoState`: a new script's previous and desired states.
 pub const MISSION_STATE_NO_STATE: i32 = 2;
 
-/// One story mission's constructor values (`StoryMissions.cpp:85-437`):
+/// One story mission's constructor values (`StoryMissions.cpp:86-438`):
 /// `SetChapter`'s four values and the mission file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Chapter {
@@ -225,7 +226,7 @@ pub fn chapter(kind: ControllerKind) -> Option<Chapter> {
 }
 
 /// The fields only `Mission_01a` and `Mission_01b` add
-/// (`StoryMissions.cpp:63-205`).
+/// (`StoryMissions.cpp:64-206`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct StoryMissionFields {
     /// `bBaseEnterHandled` (+0x32c, 0).

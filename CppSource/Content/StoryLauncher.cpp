@@ -9,6 +9,7 @@
 #include "common_id.h"
 #include "common_ini.h"
 #include "common_server_controller.h"
+#include "oracle_story_trace.h" // P3.5d oracle instrumentation, inert outside OracleDumpStorySession
 
 #include <new>
 #include <utility>
@@ -73,7 +74,9 @@ namespace
         StoryParms.PlayerId = *static_cast<unsigned int const*>(MessageParms);
         char ModulePath[0x104];
         GetModuleFileNameA(G_ContentModule, ModulePath, 0x104);
-        pub::Controller::Create(ModulePath, "Story", &StoryParms, pub::Controller::NORMAL);
+        unsigned int const StoryId =
+            pub::Controller::Create(ModulePath, "Story", &StoryParms, pub::Controller::NORMAL);
+        OracleStoryTraceCreate("Story", StoryId); // Oracle instrumentation (P3.5d)
     }
 }
 
