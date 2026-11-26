@@ -157,6 +157,21 @@ jobs:
               return string.Format("{0:x} class={1} title={2} visible={3}", h.ToInt64(), c, t, IsWindowVisible(h));
             }
             public static bool Visible(IntPtr h) { return IsWindowVisible(h); }
+            delegate bool ChildProc(IntPtr h, IntPtr l);
+            [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr p, ChildProc f, IntPtr l);
+            [DllImport("user32.dll")] static extern int GetDlgCtrlID(IntPtr h);
+            [DllImport("user32.dll")] static extern IntPtr GetDlgItem(IntPtr d, int id);
+            [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+            public static List<string> Children(IntPtr d) {
+              var r = new List<string>();
+              EnumChildWindows(d, (h, l) => { var t = new StringBuilder(1024); GetWindowText(h, t, 1024); r.Add(string.Format("id={0} {1}", GetDlgCtrlID(h), t)); return true; }, IntPtr.Zero);
+              return r;
+            }
+            public static bool Click(IntPtr d, int id) {
+              var b = GetDlgItem(d, id); if (b == IntPtr.Zero) return false;
+              SendMessage(b, 0x00F5, IntPtr.Zero, IntPtr.Zero); return true;
+            }
+            public static string Class(IntPtr h) { var c = new StringBuilder(256); GetClassName(h, c, 256); return c.ToString(); }
             public static bool Front(IntPtr h) {
               keybd_event(0x12, 0, 0, UIntPtr.Zero); keybd_event(0x12, 0, 2, UIntPtr.Zero);
               SetForegroundWindow(h);
@@ -188,8 +203,17 @@ jobs:
             $fronted = $false
             for ($t = 1; $t -le 300; $t++) {
               if ($p.WaitForExit(1000)) { $code = $p.ExitCode; break }
+              # The low-machine warning (title IDS 210): its text into the log, then its Yes
+              # button (id 6), as a player answers it.
+              foreach ($w in [Win]::Of([uint32]$p.Id)) {
+                if ([Win]::Visible($w) -and [Win]::Class($w) -eq '#32770') {
+                  Write-Host "t=$t s: dialog $([Win]::Describe($w))"
+                  [Win]::Children($w) | ForEach-Object { Write-Host "  $_" }
+                  Write-Host "  Yes pressed: $([Win]::Click($w, 6))"
+                }
+              }
               if (-not $fronted) {
-                $main = [Win]::Of([uint32]$p.Id) | Where-Object { [Win]::Visible($_) } | Select-Object -First 1
+                $main = [Win]::Of([uint32]$p.Id) | Where-Object { [Win]::Visible($_) -and [Win]::Class($_) -eq 'OutpostFrontier' } | Select-Object -First 1
                 if ($main) { $fronted = $true; Write-Host "t=$t s: foreground $([Win]::Front($main)) for $([Win]::Describe($main))" }
               }
               if ($shots -contains $t) {
@@ -210,6 +234,7 @@ jobs:
             Write-Host "Run $n`: exit $code after $seconds s"
             New-Item -ItemType Directory -Force $out | Out-Null
             if (Test-Path $spew) { Copy-Item $spew "$out\FLSpew.txt"; Get-Content $spew -Tail 40 | Write-Host }
+            Write-Host "PerfOptions.ini after run $n`:"; Get-Content "$user\PerfOptions.ini" -TotalCount 6 -ErrorAction SilentlyContinue | Write-Host
             $result += "$n,$code,$seconds"
           }
           Get-ChildItem "$env:LOCALAPPDATA\CrashDumps", "$env:ProgramData\Microsoft\Windows\WER\ReportArchive" -Recurse -ErrorAction SilentlyContinue |
