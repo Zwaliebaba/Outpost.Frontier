@@ -611,12 +611,25 @@ pub fn route(cx: &mut Cx<'_>, files: &ServerFiles, session: u32, message: &ToSer
         ClientMessage::RequestLaunch(p) => crate::dock::player_launch(cx, p.value, session),
         ClientMessage::LaunchComplete(p) => launch_complete(cx, p.field_00, p.field_04),
         // `case 0x0A` is an empty `break`; `NewCharacterInfoReq` and
-        // `ReqCargo` have empty bodies; `SaveGame` returns on a multiplayer
-        // server (the single-player save is `crate::saves`).
+        // `ReqCargo` have empty bodies.
         ClientMessage::GfRequestShipInfo(_)
         | ClientMessage::RequestNewCharInfo(_)
         | ClientMessage::ReqCargo(_) => {}
-        ClientMessage::SaveGame(_) if !cx.world.config().single_player => {}
+        // `IServerImpl::SaveGame(char_id, description, session)`: the
+        // single-player form carries the id; the description is the
+        // C++'s `wchar_t*` (null for an empty block), read to its NUL. A
+        // multiplayer server returns.
+        ClientMessage::SaveGame(p) => {
+            let description = (!p.description.is_empty()).then(|| {
+                let end = p
+                    .description
+                    .iter()
+                    .position(|&c| c == 0)
+                    .unwrap_or(p.description.len());
+                &p.description[..end]
+            });
+            crate::saves::server_save_game(cx, &p.character_id, description, session);
+        }
         ClientMessage::DbgCreateShip(_) => release_mode(cx, 0x26a, "DBGCREATESHIP", "release"),
         ClientMessage::DbgLoadSystem(_) => release_mode(cx, 0x217, "DBGLOADSYSTEM", "release"),
         ClientMessage::DbgDestroyObject(_) => {

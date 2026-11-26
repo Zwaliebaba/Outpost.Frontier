@@ -4,8 +4,8 @@
 //! `seek`), the fuse's phantom (`arm`, `added`), the hit
 //! (`on_collision`) and the detonation (`destroy` through
 //! `StarSystem::explode`). Moved into Phase 2 from P3.3 (owner,
-//! 2026-11-18). Mines and counter-measures are plain bodies without a
-//! server (D125); the server's wrappers (`game-logic::munitions`) arm a
+//! 2026-11-18). Mines and counter-measures are plain bodies without the
+//! server's hooks; the server's wrappers (`game-logic::munitions`) arm a
 //! mine through `world::mine`. `set_target` is the server's.
 
 use neuron_core::math::{Matrix, Vector, transform_matrix};

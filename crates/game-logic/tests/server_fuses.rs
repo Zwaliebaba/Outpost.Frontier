@@ -190,7 +190,8 @@ fn a_transport_burns_its_death_fuse_before_it_goes() {
     // its 1-hit-point threshold: `DeathFuseLit` once, Content's longer
     // lifetime, and the object is kept.
     hit(&mut cx, transport, 0, 0.0);
-    assert_eq!(heard(), ["DeathFuseLit"]);
+    // `apply_root_entry`'s `ObjectDamaged` comes before its fuses.
+    assert_eq!(heard(), ["ObjectDamaged", "DeathFuseLit"]);
     assert!(!gone(&cx, transport), "it stays while the fuse burns");
     assert!(burning(&cx, transport, b"transport_death_fuse"));
     assert!(burning(&cx, transport, b"intermed_damage_transport01"));
@@ -202,7 +203,8 @@ fn a_transport_burns_its_death_fuse_before_it_goes() {
     // A second empty hit (cause below 0x10) does not destroy it either.
     hit(&mut cx, transport, 0, 0.0);
     assert!(!gone(&cx, transport));
-    assert!(heard().is_empty());
+    // Only the entry's `ObjectDamaged` (no damage).
+    assert_eq!(heard(), ["ObjectDamaged"]);
 
     // The burn: the fuse's actions run as the frames reach them, and
     // `destroy_root` at its end destroys the transport (no second
@@ -269,7 +271,7 @@ fn an_npc_destroyed_by_damage_lights_death_comm() {
     let _ = heard();
     hit(&mut cx, fighter, 0, 0.0);
     let first = heard();
-    assert_eq!(first[0], "DeathFuseLit", "{first:?}");
+    assert_eq!(first[..2], ["ObjectDamaged", "DeathFuseLit"], "{first:?}");
     assert!(!first.iter().any(|l| l.starts_with("ObjectDestroyed")));
     assert!(!gone(&cx, fighter));
     assert!(burning(&cx, fighter, b"death_comm"));

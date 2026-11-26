@@ -2549,6 +2549,22 @@ namespace
             Result = SubmitScenarioDirective(Object->Id, Op);
             return true;
         }
+        if (Verb == "spaceobj_launch" && A.size() == 3)
+        {
+            // P3.11 ring launch: pub::SpaceObj::Launch(ship, dock object, type), as Content
+            // launches a ship it places at a dock (StarSystem::launch -> CShip::launch with its
+            // LaunchAction out of a docking ring).
+            FSimObject const* const Aim = Target(1);
+            if (Aim == nullptr)
+                return Note = "unknown dock", false;
+            double Type = 0.0;
+            if (!ParseDouble(A[2], Type))
+                return Note = "bad launch type", false;
+            unsigned int const ShipId = Object->Id;
+            unsigned int const DockId = Aim->Id;
+            Result = pub::SpaceObj::Launch(ShipId, DockId, (int)Type);
+            return true;
+        }
         if (Verb == "tradelane" && (A.size() == 3 || A.size() == 4))
         {
             // P2.5 trade lanes: DirectiveInstantTradelaneOp {entrance ring, exit ring (none: 0),

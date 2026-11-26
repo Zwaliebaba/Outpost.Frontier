@@ -445,8 +445,21 @@ impl ServerHooks for Hooks<'_> {
         };
         crate::objects::begin_damage_list(&mut cx, object, list);
         crate::ship::stamp_damage_times(&mut cx, object, list);
-        crate::fuses::sweep_damage_list(&mut cx, object, list);
         true
+    }
+
+    fn damage_entry(
+        &mut self,
+        world: &mut World,
+        object: ObjHandle,
+        list: &mut DamageList,
+        index: usize,
+    ) {
+        let mut cx = Cx {
+            world,
+            logic: self.logic,
+        };
+        crate::objects::damage_entry(&mut cx, object, list, index);
     }
 
     fn object_update(&mut self, world: &mut World, object: ObjHandle, dt: f32) -> bool {

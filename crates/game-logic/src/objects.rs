@@ -280,17 +280,18 @@ pub fn hit_rule(world: &World, h: ObjHandle, hit: Hit) -> HitRule {
 }
 
 /// `Solar::munition_hit`'s and `explosion_hit_hull`'s notice of a root hit
-/// on an indestructible solar: `ObjectDamaged` at relative health 1 with
-/// no damage. The solar's behaviour event comes with the behaviour
-/// manager's server link.
+/// on an indestructible solar (`Server/server_gameobject.cpp:6271-6320`):
+/// `ObjectDamaged` at relative health 1 with no damage, and the same
+/// record to the solar's behaviour manager (which adds no damage).
 pub fn root_hit_ignored(cx: &mut Cx<'_>, h: ObjHandle, list: &DamageList) {
     let Some(o) = cx.world.get(h) else {
         return;
     };
     let (id, system) = (o.simple.id, o.physical.system);
-    let _ = cx.dispatch(
-        ControllerId::BROADCAST,
-        &mut ControllerMessage::ObjectDamaged(crate::events::ObjectDamaged {
+    notify_damaged(
+        cx,
+        h,
+        crate::events::ObjectDamaged {
             id,
             system,
             inflictor: list.inflictor_id,
@@ -300,8 +301,149 @@ pub fn root_hit_ignored(cx: &mut Cx<'_>, h: ObjHandle, list: &DamageList) {
             damage: 0.0,
             relative_damage: 0.0,
             relative_health: 1.0,
-        }),
+        },
     );
+}
+
+/// `ObjectDamaged` to the bus and the damage record to the object's
+/// behaviour manager (`EqObj_NotifyBehaviorOfDamage`, which carries the
+/// event's fields and the cause, `Server/server_gameobject.cpp:1497-1520`).
+fn notify_damaged(cx: &mut Cx<'_>, h: ObjHandle, event: crate::events::ObjectDamaged) {
+    let _ = cx.dispatch(
+        ControllerId::BROADCAST,
+        &mut ControllerMessage::ObjectDamaged(event),
+    );
+    cx.world
+        .behavior_damage_event(h, event.id, event.cause, event.damage);
+}
+
+/// The server's part of entry `i` of a damage list applied to a ship or a
+/// solar, before the entry is written (`EqObj::apply_root_entry`,
+/// `apply_equip_entry`, `apply_power_entry`, `apply_group_entry`,
+/// `Server/server_gameobject.cpp:1528-1720`):
+///
+/// - **Root**: `ObjectDamaged` with the hull's hit points before less the
+///   entry's and both over the archetype's hit points, the behaviour's
+///   damage record, then the archetype's fuses
+///   ([`crate::fuses::sweep_entry`]).
+/// - **Equipment**: nothing for an item the object lacks or that is
+///   destroyed; otherwise `ObjectDamaged` with the item's type, its hit
+///   points before less the entry's and both over its maximum (0 for a
+///   maximum of 0), and the behaviour's record. (A live launcher's time of
+///   damage is stamped with the list, [`crate::ship::stamp_damage_times`].)
+/// - **Power**: `ObjectDamaged` with type `0x40000` over the maximum power,
+///   and the behaviour's record.
+/// - **Group**: a fate clears the object's dock queue (a fate of 4 is
+///   reported: persistent groups are not supported); `ObjectDamaged` with
+///   the group's collision type over its maximum hit points (unrounded, 0
+///   for a maximum of 0), the behaviour's record, then the group's fuses
+///   and the death fuse's hold on the entry's fate
+///   ([`crate::fuses::sweep_entry`]). A group the object lacks is skipped
+///   (the C++ reads through null, D618).
+pub fn damage_entry(cx: &mut Cx<'_>, h: ObjHandle, list: &mut DamageList, i: usize) {
+    let Some(o) = cx.world.get(h) else {
+        return;
+    };
+    if !matches!(o.kind, ObjectKind::Ship | ObjectKind::Solar) {
+        return;
+    }
+    let Some(eq) = o.equipped.as_deref() else {
+        return;
+    };
+    let Some(&entry) = list.entries.get(i) else {
+        return;
+    };
+    let base = crate::events::ObjectDamaged {
+        id: o.simple.id,
+        system: o.physical.system,
+        inflictor: list.inflictor_id,
+        equip_type: 0,
+        collision_group_type: 0,
+        cause: list.cause,
+        damage: 0.0,
+        relative_damage: 0.0,
+        relative_health: 0.0,
+    };
+    let after = f64::from(entry.hit_pts);
+    let id = entry.sub_obj_id;
+    if id == SUBOBJ_ID_ROOT {
+        let max = f64::from(o.simple.max_hit_pts);
+        let damage = (f64::from(o.simple.hit_pts) - after) as f32;
+        let event = crate::events::ObjectDamaged {
+            damage,
+            relative_damage: (f64::from(damage) / max) as f32,
+            relative_health: (after / max) as f32,
+            ..base
+        };
+        notify_damaged(cx, h, event);
+        crate::fuses::sweep_entry(cx, h, list, i);
+    } else if id == game_sim::equip::SUBOBJ_ID_POWER {
+        let max = f64::from(eq.max_power);
+        let damage = (f64::from(eq.power) - after) as f32;
+        let event = crate::events::ObjectDamaged {
+            equip_type: 0x40000,
+            damage,
+            relative_damage: (f64::from(damage) / max) as f32,
+            relative_health: (after / max) as f32,
+            ..base
+        };
+        notify_damaged(cx, h, event);
+    } else if neuron_core::id::sub_object::is_arch_group_id(id) {
+        let Some(group) = eq.arch_groups.iter().find(|g| g.id == id) else {
+            return;
+        };
+        let (group_type, before, max) = (
+            group.group_type,
+            group.hit_pts,
+            f64::from(group.max_hit_pts),
+        );
+        if entry.fate != Fate::None {
+            if let Some(server) = cx.logic.objects.entry(cx.world, h) {
+                server.dock_queue.clear();
+            }
+            if entry.fate.value() == 4 {
+                cx.logic.reports.push(
+                    "Server\\Space\\EqObj.cpp",
+                    0xaf5,
+                    "*** WARNING: Persistent CArchGroups not supported.".to_owned(),
+                );
+            }
+        }
+        let damage = (f64::from(before) - after) as f32;
+        let (relative_damage, relative_health) = if max != 0.0 {
+            ((f64::from(damage) / max) as f32, (after / max) as f32)
+        } else {
+            (0.0, 0.0)
+        };
+        let event = crate::events::ObjectDamaged {
+            collision_group_type: group_type,
+            damage,
+            relative_damage,
+            relative_health,
+            ..base
+        };
+        notify_damaged(cx, h, event);
+        crate::fuses::sweep_entry(cx, h, list, i);
+    } else if neuron_core::id::sub_object::is_equip_id(id) {
+        let Some(item) = eq.equipment.by_id(id).filter(|e| !e.is_destroyed()) else {
+            return;
+        };
+        let max = f64::from(item.max_hit_points());
+        let damage = (f64::from(item.hit_points()) - after) as f32;
+        let (relative_damage, relative_health) = if max != 0.0 {
+            ((f64::from(damage) / max) as f32, (after / max) as f32)
+        } else {
+            (0.0, 0.0)
+        };
+        let event = crate::events::ObjectDamaged {
+            equip_type: item.type_bits,
+            damage,
+            relative_damage,
+            relative_health,
+            ..base
+        };
+        notify_damaged(cx, h, event);
+    }
 }
 
 /// `GameObject::apply_damage_list`'s head: a list applied inside another's
@@ -644,6 +786,8 @@ pub fn create_loot_marked(
         {
             entry.mark_for_player(mark, 1);
         }
+        // `enter_system(this, nullptr)`'s remote correction.
+        crate::replication::begin_remote_control(cx, h);
         let loot = cx.world.get(h).map_or(0, |o| o.simple.id);
         let good = cx.world.data().goods.arch_to_good(spawn.contents);
         let _ = cx.dispatch(

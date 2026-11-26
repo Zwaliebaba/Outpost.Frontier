@@ -13,9 +13,12 @@
 //! multiplayer server ([`crate::replication::object_landed`]), the end of a
 //! player's gate jump ([`crate::transfer::system_switch_out_complete`]), the
 //! character list's multiplayer prologue
-//! ([`crate::login::build_character_set`]) and `pub::Save` of type 1.
-//! The two others, `IServerImpl::BaseExit` and `PlayerDB::logout`, are not
-//! ported yet; they call [`auto_save`] when they are.
+//! ([`crate::login::build_character_set`]), `IServerImpl::BaseExit`
+//! ([`crate::session::base_exit`]), a multiplayer `PlayerDB::logout`
+//! ([`crate::login::logout`]) and `pub::Save` of type 1. The client's
+//! `SAVEGAME` reaches [`server_save_game`] through the session
+//! ([`crate::session::route`]), with the character id of its
+//! single-player form.
 //!
 //! The server's save storage is [`Saves`] in [`crate::server::Logic`]: the
 //! accounts folder (the C++'s `Server_GetAccountsRoot`), the local clock the

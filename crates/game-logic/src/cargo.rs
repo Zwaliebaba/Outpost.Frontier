@@ -378,8 +378,9 @@ pub fn queued_jettison(cx: &Cx<'_>, h: ObjHandle) -> Vec<EquipDesc> {
 }
 
 /// `EqObj::decay_cargo(Elapsed)`: nothing for a solar or an object without
-/// decaying cargo (`DecayingCargoCount`); a player's open trade freezes it
-/// (trades are not ported yet: none is open). Each stack with units whose
+/// decaying cargo (`DecayingCargoCount`); a valid owning player's open
+/// trade freezes it (`Server/server_gameobject.cpp:4171-4175`). Each stack
+/// with units whose
 /// decay rate times `elapsed` (stored as a float) is positive takes an
 /// entry in a cause-0x14 list: its hit points less the amount when that
 /// stays positive (and does not round to 0); otherwise 0, with fate
@@ -397,6 +398,19 @@ pub fn decay_cargo(cx: &mut Cx<'_>, h: ObjHandle, elapsed: f32) {
     if eq.equipment.decaying_cargo <= 0 {
         return;
     }
+    let owner = o.simple.owner_player;
+    if cx.logic.players.is_valid(owner)
+        && cx
+            .logic
+            .players
+            .get(owner)
+            .is_some_and(|p| p.trade_offer.is_some())
+    {
+        return;
+    }
+    let Some(eq) = cx.world.get(h).and_then(|o| o.equipped.as_deref()) else {
+        return;
+    };
     let mut list = DamageList::new(CAUSE_CARGO_DECAY, 0, 0);
     for slot in eq.equipment.traverse(types::CARGO, false) {
         let Some(item) = eq.equipment.get(slot) else {

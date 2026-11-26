@@ -66,15 +66,17 @@ use neuron_server::controller::Priority;
 /// The scenarios run without the oracle: two contacts, an AI ship, the
 /// two trade lanes (the instant one and the dock behaviour's, whose
 /// request SpaceSupport answers), the dock at a station, whose request
-/// SpaceSupport's dock queues answer, and Content's NPC ships following
+/// SpaceSupport's dock queues answer, the launch out of a docking ring
+/// (`pub::SpaceObj::Launch`, P3.11), and Content's NPC ships following
 /// and guiding (P3.6c).
-const SMOKE: [&str; 8] = [
+const SMOKE: [&str; 9] = [
     "ram_ship",
     "ram_asteroid",
     "turn_to_heading",
     "trade_lane",
     "dock_trade_lane",
     "dock_at_station",
+    "ring_launch",
     "content_follow",
     "content_guide",
 ];
@@ -134,6 +136,16 @@ impl ServerHooks for ScenarioHooks<'_> {
         self.server.before_damage_list(world, object, list)
     }
 
+    fn damage_entry(
+        &mut self,
+        world: &mut World,
+        object: ObjHandle,
+        list: &mut DamageList,
+        index: usize,
+    ) {
+        self.server.damage_entry(world, object, list, index);
+    }
+
     fn after_damage_list(&mut self, world: &mut World, object: ObjHandle, list: &mut DamageList) {
         self.server.after_damage_list(world, object, list);
     }
@@ -178,11 +190,34 @@ impl ServerHooks for ScenarioHooks<'_> {
     ) {
         self.server.directive_complete(world, ship, handle, result);
     }
+
+    /// The end of a `LaunchAction` (`ring_launch`): `Ship::slot_70` lifts
+    /// the launch invincibility with `LaunchComplete`.
+    fn launch_complete(&mut self, world: &mut World, object: ObjHandle, base: u32) {
+        self.server.launch_complete(world, object, base);
+    }
 }
 
 impl ScenarioServer for ScenarioHooks<'_> {
     fn hooks(&mut self) -> &mut dyn ServerHooks {
         self
+    }
+
+    /// `spaceobj_launch` (`ring_launch`): `pub::SpaceObj::Launch(ship, dock,
+    /// type)`, the server's `StarSystem::launch`.
+    fn launch(&mut self, world: &mut World, ship: ObjHandle, dock: ObjHandle, kind: i32) -> bool {
+        let (Some(ship), Some(dock)) = (
+            world.get(ship).map(|o| o.simple.id),
+            world.get(dock).map(|o| o.simple.id),
+        ) else {
+            return false;
+        };
+        let mut cx = Cx {
+            world,
+            logic: self.server.logic,
+        };
+        let _ = game_logic::api::space_obj::launch(&mut cx, ship, dock, kind);
+        true
     }
 
     /// A `content` ship (P3.6c): Content's NPC ship in the system's record

@@ -259,6 +259,9 @@ pub struct ObjectView {
     pub formation_followers: Vec<u32>,
     /// `is_player` (47).
     pub is_player: bool,
+    /// A ship's `CShip::GroupId` (+0x1b4), its player group; 0 for any
+    /// other object.
+    pub group_id: u32,
     /// `is_dying` (14).
     pub is_dying: bool,
     /// `is_targetable` (13).

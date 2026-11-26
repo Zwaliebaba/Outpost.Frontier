@@ -342,6 +342,15 @@ pub trait ScenarioServer {
         None
     }
 
+    /// `spaceobj_launch <dock> <type>` (P3.11): `pub::SpaceObj::Launch(ship,
+    /// dock, type)`, the server's `StarSystem::launch`. False (the
+    /// default, without a server) lets the driver launch the ship itself
+    /// (`CShip::launch`, [`World::launch`]).
+    fn launch(&mut self, world: &mut World, ship: ObjHandle, dock: ObjHandle, kind: i32) -> bool {
+        let _ = (world, ship, dock, kind);
+        false
+    }
+
     /// After tick `tick`'s step of `dt` seconds, before the global time
     /// advances: the server's per-frame work after the system's step (the
     /// observers' updates of `StarSystem_Update`).
@@ -572,6 +581,17 @@ pub fn run_with(
                 };
                 let offset = vec3(a, 2).unwrap_or(Vector::ZERO);
                 world.update_formation_state(h, leader, offset);
+                continue;
+            }
+            // `spaceobj_launch <dock> <type>`: `pub::SpaceObj::Launch`.
+            if a[0] == "spaceobj_launch" {
+                let dock = a.get(1).and_then(|n| handles.get(n).copied().flatten());
+                let kind = a.get(2).and_then(|v| num(v));
+                if let (Some(dock), Some(kind)) = (dock, kind)
+                    && !server.launch(&mut world, h, dock, kind as i32)
+                {
+                    world.launch(h, dock, kind as i32);
+                }
                 continue;
             }
             let id_of = |n: &str| {
