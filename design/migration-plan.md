@@ -335,6 +335,8 @@ separate runner (owner, 2026-11-18).
 | P3.9 | `OutpostServer`: TOML config, command console (accounts, kick, ban, chat, news, status), logging | `apps/outpost-server`, `game-logic::admin` | M | — |
 | P3.10a | `Server`: the client's flight and combat handlers (fire, equipment, cruise, thrusters, target, tractor, trade lanes, jettison, collision reports, mining, use item, invincibility, manoeuvre, dock); before Gate G3 (decision O49) | `game-logic::{session, receive}` and the world's owners | M | B |
 | P3.10b | `Server`: the player-state requests (equipment and items, collision groups, visited state, mission log, interface state, rank, best path, group positions, pop-up dialogs, difficulty scale) and the player trades; after Gate G3 (decision O49) | `game-logic::{session, player}` | M | A |
+| P3.11 | `Server`, server closure (decision O52): the scope of P3.2 and P3.3 that Gate G3 did not need and that is still unported. Local chat through the system database; a multiplayer re-selection leaving the old system and base, and `PlayerData_DeselectCharacter`; the save writer's position of a multiplayer ship from its remote physics controller; the remote correction of the other objects a player owns (loot, mines, counter-measures, guided munitions); the rest of the character list's multiplayer prologue; the `SAVEGAME` packet's routing; the removal of D125 and D126 (given to P3.3 above); a review of D158, D165, D179, D180, D188 and D197, each removed, narrowed or given an explicit later remover; the oracle scenario of a ring launch, built as a test | `game-logic`, `game-sim` | M | A for the save writer, B for the rest |
+| P3.11b | `Server`, server closure, fight fidelity (decision O52, amended 2026-11-26): the equipment's loot and debris for fates 4 and 5 (D126's rest), the AI's attitudes from the reputation groups (D165's rest), the scan list's solars from the system's partition (D180), the pathfinder's bucket order (D197) | `game-sim`, `game-logic` | M | B, the fights against the oracle |
 
 **Gate G3 (milestone "headless server").** `OutpostServer.exe` starts on
 the original data. A scripted test client connects over QUIC, logs in,
@@ -364,6 +366,15 @@ after the milestone.
 The owner signed off Gate G3 on 2026-11-25, on the data run of #165
 (run 45614252212): every criterion above is met, the three scenarios bit for
 bit equal to the oracle through the Rust server.
+
+Gate G3 was signed off without the oracle scenario of a ring launch that
+P3.3 left for it; the owner gave that scenario, with the rest of P3.2's and
+P3.3's unported scope, to P3.11 on 2026-11-26 (decision O52). **Phase 3 is
+closed** when every Phase 3 package meets the definition of done
+([verification.md](verification.md)), the [README](README.md)'s progress
+table and the [ledger](library-ledger.md) say done, and no temporary row of
+the [divergence register](divergences.md) names a Phase 3 package as its
+remover (decision O52).
 
 ### Phase 4 — client engine (`neuron-client`)
 

@@ -833,7 +833,7 @@ Paths are relative to `CppSource/`.
   packages that port their sites.
 
 Questions for the owner, each with a recommendation. The owner answered 1 to 3
-and 5 to 10 as recommended on 2026-11-22; 4 stays open until P3.6:
+and 5 to 10 as recommended on 2026-11-22, and 4 as recommended on 2026-11-24:
 
 1. **Module layout.** Should Content live in `game-logic::content::{tables,
    game_support, space_support, base_support, population, npc, gcs,
