@@ -106,6 +106,43 @@ struct ScenarioHooks<'l> {
     /// server`); the other scenarios run without, as they were judged
     /// before.
     requests: bool,
+    /// The damage lists and destructions in the order the world makes
+    /// them, with the frame length to number the ticks
+    /// ([`guided_impact_order`]); `None` keeps none.
+    trace: Option<(f64, Vec<Note>)>,
+}
+
+/// A damage list or a destruction the world made (tick numbered from 1).
+#[derive(Debug)]
+struct Note {
+    tick: u64,
+    /// The object's id and kind.
+    object: (u32, Option<game_sim::object::ObjectKind>),
+    /// A damage list's cause and entries (sub-object, hit points after);
+    /// `None` for a destruction.
+    damage: Option<(i32, Vec<(u16, f32)>)>,
+}
+
+impl ScenarioHooks<'_> {
+    fn note(&mut self, world: &World, object: ObjHandle, list: Option<&DamageList>) {
+        if let Some((frame, notes)) = &mut self.trace {
+            let tick = (world.time() / *frame).round() as u64 + 1;
+            let o = world.get(object);
+            notes.push(Note {
+                tick,
+                object: (o.map_or(0, |o| o.simple.id), o.map(|o| o.kind)),
+                damage: list.map(|l| {
+                    (
+                        l.cause,
+                        l.entries
+                            .iter()
+                            .map(|e| (e.sub_obj_id, e.hit_pts))
+                            .collect(),
+                    )
+                }),
+            });
+        }
+    }
 }
 
 impl ServerHooks for ScenarioHooks<'_> {
@@ -136,6 +173,7 @@ impl ServerHooks for ScenarioHooks<'_> {
         object: ObjHandle,
         list: &mut DamageList,
     ) -> bool {
+        self.note(world, object, Some(list));
         self.server.before_damage_list(world, object, list)
     }
 
@@ -158,6 +196,7 @@ impl ServerHooks for ScenarioHooks<'_> {
     }
 
     fn destroy(&mut self, world: &mut World, object: ObjHandle, kind: i32, killer: u32) -> bool {
+        self.note(world, object, None);
         self.server.destroy(world, object, kind, killer)
     }
 
@@ -380,6 +419,7 @@ fn scenarios_through_the_server_hooks() {
         let mut hooks = ScenarioHooks {
             server: Hooks { logic: &mut logic },
             requests: s.rust_server.is_some(),
+            trace: None,
         };
         let ours = scenario::run_with(world, &s, &ai, &mut hooks);
         // The comm system's activity (P3.6b; reported, not judged): the
@@ -470,4 +510,103 @@ fn scenarios_through_the_server_hooks() {
         let _ = fs::write(dir.join("rust-scenario-hooks.txt"), &summary);
     }
     assert!(gross.is_empty(), "gross divergence: {gross:?}");
+}
+
+/// A guided munition's impact on a ship (P3.11c), without the oracle:
+/// `dogfight` runs through the server's hooks up to the police's first
+/// missile's contact with the rogue (tick 236), with each pilot's
+/// personality from Content's pilot table (`OracleSimPilotPersonality`, as
+/// the oracle's harness gets it). As in the reference, the missile's direct
+/// hit (`Guided::on_collision`, `StarSystem::munition_collision`, cause 3)
+/// comes first (D1085), then the rogue's collision damage destroys the
+/// missile and `Guided::destroy` explodes it (cause 5), and the blast takes
+/// its full band from the rogue's shield, whose sphere is the ship's
+/// (`CEShield::Connect`): `(747 * 0.5 + 0) * (3 * 1/3)`, times the shield's
+/// explosion resistance of 1. The damage lists and destructions of the
+/// impact's tick are printed in order.
+#[test]
+fn guided_impact_order() {
+    let Some(data) = game_data() else {
+        println!("outdir/ is missing: no fight was run");
+        return;
+    };
+    let Some(mut s) = scenario_files()
+        .into_iter()
+        .filter_map(|p| parse(&p))
+        .find(|s| s.name == "dogfight")
+    else {
+        panic!("no scenario dogfight");
+    };
+    s.ticks = s.ticks.min(240);
+    let mut world =
+        World::new(data.clone(), world_config(&s)).with_assets(Assets::new(outdir().join("data")));
+    let mut logic = Logic::new(Box::new(RecordingSink::default()), 16, true);
+    {
+        let mut cx = Cx {
+            world: &mut world,
+            logic: &mut logic,
+        };
+        content_start_up(&mut cx);
+        if s.comms_off {
+            cx.logic.content.state.clamps.set_gcs_clamp_enabled(1);
+        }
+    }
+    let mut ai = game_sim::scenario::AiInputs::default();
+    for o in &s.objects {
+        if let Some(pilot) = &o.pilot {
+            let mut p = game_sim::ai::personality::Personality::default();
+            assert!(
+                logic
+                    .content
+                    .tables
+                    .pilots
+                    .personality(neuron_core::id::create_id(pilot.as_bytes()), &mut p)
+            );
+            ai.personalities.insert(o.name.clone(), p);
+        }
+    }
+    let mut hooks = ScenarioHooks {
+        server: Hooks { logic: &mut logic },
+        requests: s.rust_server.is_some(),
+        trace: Some((s.frame, Vec::new())),
+    };
+    let _ = scenario::run_with(world, &s, &ai, &mut hooks);
+    let (_, notes) = hooks.trace.take().unwrap_or_default();
+    let guided = Some(game_sim::object::ObjectKind::Guided);
+    let is_kill = |n: &Note| n.object.1 == guided && n.damage.is_none();
+    let Some(at) = notes.iter().position(is_kill) else {
+        panic!("the missile was not destroyed");
+    };
+    let tick = notes[at].tick;
+    let impact: Vec<&Note> = notes.iter().filter(|n| n.tick == tick).collect();
+    for n in &impact {
+        println!("dogfight: {n:?}");
+    }
+    assert_eq!(tick, 236, "the missile's impact");
+    let cause = |n: &Note| n.damage.as_ref().map(|d| d.0);
+    let hit = impact.iter().position(|n| cause(n) == Some(3));
+    let destroyed = impact.iter().position(|n| is_kill(n));
+    let blast = impact.iter().position(|n| cause(n) == Some(5));
+    assert!(
+        hit.is_some() && hit < destroyed && destroyed < blast,
+        "the direct hit, the missile's destruction, then its explosion: {impact:?}"
+    );
+    let blast = impact[blast.unwrap_or_default()];
+    // The rogue's shield before the blast (its last entry written before
+    // the impact's tick, which the tick's regeneration raises by a few
+    // hundredths) and after it: the full band, not two thirds (249).
+    let after = blast.damage.as_ref().and_then(|d| d.1.first().copied());
+    let before = notes[..at]
+        .iter()
+        .rev()
+        .filter(|n| n.object.0 == blast.object.0 && n.tick < tick)
+        .find_map(|n| n.damage.as_ref().and_then(|d| d.1.first().copied()));
+    let (Some((sub, after)), Some((sub_before, before))) = (after, before) else {
+        panic!("no shield entries: {impact:?}");
+    };
+    assert_eq!(sub, sub_before, "the shield");
+    assert!(
+        (f64::from(before) - f64::from(after) - 373.5).abs() < 0.1,
+        "the blast's full band on the shield: {before} -> {after}"
+    );
 }
