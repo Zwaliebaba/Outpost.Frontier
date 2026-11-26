@@ -295,7 +295,7 @@ jobs:
           cargo build --locked --release -p outpost-frontier
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $run = "$env:RUNNER_TEMP\run"
-          Copy-Item target\release\OutpostFrontier.exe "$run\OutpostFrontierPort.exe"
+          Copy-Item target\x86_64-pc-windows-msvc\release\OutpostFrontier.exe "$run\OutpostFrontierPort.exe"
           $out = "$env:RUNNER_TEMP\oracle-out\port"
           $script = "$PWD\CppSource\OutpostFrontier\oracle\menu_walk.txt"
           $user = "$env:USERPROFILE\Documents\My Games\OutpostFrontier"
@@ -315,12 +315,13 @@ jobs:
           $root = "$env:RUNNER_TEMP\oracle-out"
           function Lines($path) { if (Test-Path $path) { @(Get-Content $path) } else { @() } }
           $fail = $false
-          $a = Lines "$root\a\keymap.jsonl"; $b = Lines "$root\port\keymap.jsonl"
-          if ($a.Count -gt 0 -and (Compare-Object $a $b -SyncWindow 0).Count -eq 0) { Write-Host "keymap.jsonl: $($a.Count) lines equal" }
+          function Same($a, $b) { $a.Count -gt 0 -and $b.Count -eq $a.Count -and @(Compare-Object $a $b -SyncWindow 0).Count -eq 0 }
+          $a = @(Lines "$root\a\keymap.jsonl"); $b = @(Lines "$root\port\keymap.jsonl")
+          if (Same $a $b) { Write-Host "keymap.jsonl: $($a.Count) lines equal" }
           else { Write-Host "keymap.jsonl differs ($($a.Count) and $($b.Count) lines)"; $fail = $true }
           $a = @(Lines "$root\a\iclient.jsonl" | Where-Object { $_ -match '^\{"frame":0,' })
           $b = @(Lines "$root\port\iclient.jsonl" | Where-Object { $_ -match '^\{"frame":0,' })
-          if ($a.Count -gt 0 -and (Compare-Object $a $b -SyncWindow 0).Count -eq 0) { Write-Host "iclient.jsonl, frame 0: $($a.Count) lines equal" }
+          if (Same $a $b) { Write-Host "iclient.jsonl, frame 0: $($a.Count) lines equal" }
           else { Write-Host "iclient.jsonl, frame 0, differs:"; $a | Write-Host; Write-Host '--- port:'; $b | Write-Host; $fail = $true }
           foreach ($rec in 'display', 'seed') {
             $a = @(Lines "$root\a\session.jsonl" | Where-Object { $_ -match "`"rec`":`"$rec`"" })
