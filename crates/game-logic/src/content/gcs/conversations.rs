@@ -37,6 +37,10 @@ pub enum Kind {
     Scan,
     /// Type 0x19, `FGcsFidgetConversation`.
     Fidget,
+    /// A random mission's comm sequence (`FRmConversation`, TU61), queued
+    /// by [`super::add`]; `IsValid` needs it marked ready
+    /// ([`Conversation::ready`]) and every line playable.
+    RandomMission,
 }
 
 /// `FGcsConversation` with the fields its classes keep.
@@ -54,6 +58,9 @@ pub struct Conversation {
     pub lines: Vec<Line>,
     /// `bFinished` (`+0x14`).
     pub finished: bool,
+    /// `FRmConversation::bReady` (`+0x18`): `MarkReady` was called; true
+    /// for the other classes, which have none.
+    pub ready: bool,
 }
 
 impl Conversation {
@@ -65,6 +72,19 @@ impl Conversation {
             listener,
             lines: Vec::new(),
             finished: false,
+            ready: true,
+        }
+    }
+
+    /// The clone of a random mission's conversation the manager keeps
+    /// (`FRmConversation::Clone`, `RandomMissionRuntime.cpp:318-326`: the
+    /// fields and a copy of each line).
+    #[must_use]
+    pub fn random_mission(ready: bool, lines: Vec<Line>) -> Self {
+        Self {
+            ready,
+            lines,
+            ..Self::new(Kind::RandomMission, None, 0, 0)
         }
     }
 
@@ -92,7 +112,9 @@ impl Conversation {
 
 /// `IsValid` (slot 2): the dock and dock-hail conversations need their
 /// system, the listener's ship (`FindShip`) and the speaker
-/// (`FindShipOrSolar`); the others their system.
+/// (`FindShipOrSolar`); a random mission's its ready mark and every line
+/// playable (`FRmConversation::IsValid`, `RandomMissionRuntime.cpp:306-316`);
+/// the others their system.
 #[must_use]
 pub fn is_valid(cx: &Cx<'_>, c: &Conversation) -> bool {
     match c.kind {
@@ -101,6 +123,7 @@ pub fn is_valid(cx: &Cx<'_>, c: &Conversation) -> bool {
                 && find_ship(cx, c.system, c.listener).is_some()
                 && find_ship_or_solar(cx, c.system, c.speaker).is_some()
         }
+        Kind::RandomMission => c.ready && c.lines.iter().all(|l| can_play(cx, l)),
         _ => c.system.is_some(),
     }
 }
