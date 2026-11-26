@@ -598,7 +598,15 @@ the physics owner's sphere (`get_physical_radius_r`), which
 `explosion_hit_shield` measures the blast against (the port's shield had
 none, so its band was 2 instead of 3). D1085 (a contact's sides with a
 guided munition first, IVP's pair order from its OV tree approximated) was
-accepted by the owner on 2026-11-26.
+accepted by the owner on 2026-11-26. The rogue's motion still differs from
+tick 236 on, and that difference is D87's (P3.11c follow-up): the blast
+has no impulse (`impulse = 0`), and IVP's impact solver
+(`IVP_Impact_Solver::DoImpactSystem`, run before `event_pre_collision`
+takes the missile out) gives the contact an impulse of 154.4 N s on the
+rogue where the port's single impulse gives 106.3, at the same normal and
+lever arm: IVP separates at the square root of the restitution, clamps the
+missile's spin (`MaxAngularVelocityExceeded`) and re-solves the contact
+while it still closes.
 
 With P3.11d (the server's links that the Phase 3 closing audit found:
 `game-logic::{loot, replication, world, fuses, objects, api::{ai,
