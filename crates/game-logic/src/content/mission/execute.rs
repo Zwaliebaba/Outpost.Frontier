@@ -49,9 +49,9 @@
 //! `Act_NagOff`, `Act_NagDistLeaving` and `Act_NagDistTowards`, and the
 //! objectives' renumber `Act_SetOffer` and `Act_SetTitle` end with.
 //!
-//! `Act_EnableEnc` alone runs without an effect until its increment
-//! (D970): its populator reset is the random encounters' (P3.6d). The
-//! trace records it as it runs, as the C++'s does.
+//! P3.6d brought `Act_EnableEnc`'s effect: each `[MsnRandEnc]` of the
+//! name has its populator reset over its parameters
+//! ([`crate::content::random_encounters::reset`]) and is enabled again.
 //!
 //! An action is cloned out of its trigger before it runs and written back
 //! after it (the engine, [`super::engine`]): `Act_StartDialog` keeps its
@@ -76,8 +76,8 @@ mod objects;
 
 pub use ai_rep::set_object_vibe;
 
-/// The actions P3.5c1 to P3.5c5 run with their effect; `Act_EnableEnc`
-/// runs without one until P3.6d (D970).
+/// The actions that run with their effect: every class (P3.5c1 to
+/// P3.5c5, and P3.6d's `Act_EnableEnc`).
 #[must_use]
 pub fn is_ported(action: &Action) -> bool {
     matches!(
@@ -95,6 +95,8 @@ pub fn is_ported(action: &Action) -> bool {
             | Action::HostileClamp(_)
             | Action::NagClamp(_)
             | Action::DisableEnc(_)
+            // P3.6d.
+            | Action::EnableEnc(_)
             | Action::DisableFriendlyFire(_)
             | Action::PlayerCanDock(_)
             | Action::PlayerCanTradelane(_)
@@ -295,6 +297,25 @@ pub fn execute(
                 for enc in &mut s.object.rand_encs {
                     if c_str(&enc.nickname) == c_str(&a.encounter) {
                         enc.enabled = false;
+                    }
+                }
+            }
+            true
+        }
+        Action::EnableEnc(a) => {
+            // `ActEnableEnc::Execute` (`MissionAct.cpp:715-729`): every
+            // record of the name, the whole list walked, has its populator
+            // reset over its parameters (`It->Populator->Reset(It->Params)`,
+            // no `rand()`) and is enabled. A record without a populator is
+            // a null dereference in the reference (D1069) and is only
+            // enabled.
+            if let Some(s) = script_mut(cx, id) {
+                for enc in &mut s.object.rand_encs {
+                    if c_str(&enc.nickname) == c_str(&a.encounter) {
+                        if let Some(params) = enc.params.as_mut() {
+                            crate::content::random_encounters::reset(params);
+                        }
+                        enc.enabled = true;
                     }
                 }
             }

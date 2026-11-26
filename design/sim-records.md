@@ -1128,7 +1128,7 @@ depth, controller, message)` with a heartbeat's elapsed time, a controller
 named by its place in the bus's list (`session.jsonl`'s `heartbeats`
 without the harness's controller of the `server` record); objects by kind
 and nickname, ids not compared. Judged up to the first action that runs
-without effect (D970) in the port's trace, at tick `J`: the trace through
+without effect in the port's trace (none since P3.6d), at tick `J`: the trace through
 that record, the deliveries before `J`, the objects within the gross bound
 (500 m) through `J`; reported after (rule accepted by the owner on 2026-11-25). The
 `CombatState`s the mission was handed are listed beside the oracle's

@@ -957,7 +957,8 @@ pub fn spawn_forced(cx: &mut Cx<'_>, params: &mut RandEncParams) {
 /// the message has its NPC count zeroed, spawns (`Spawn(true)`) and is
 /// disabled. Each record's parameters are taken out of the mission for the
 /// calls, which make ships (record 0008 point 1: the mission's own item,
-/// put back by index).
+/// put back by index). A record without parameters, whose populator the
+/// reference calls through null, is passed over (D1069).
 pub fn notify_rand_encs(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMessage<'_>) {
     let count = match cx.logic.content.instance(id) {
         Some(super::Instance::Mission(s)) => {
