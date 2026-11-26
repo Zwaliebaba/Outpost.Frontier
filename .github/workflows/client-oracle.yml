@@ -266,7 +266,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Compare the port with the C++ client
         # Decision O53 (2), (4) and (5): the port's oracle files against this runner's C++
-        # runs: keymap.jsonl against run a, and the single-player login's IClient lines
+        # runs: keymap.jsonl and layout.jsonl's key and option lists against run a, and the single-player login's IClient lines
         # against runs w (a fresh user folder) and a (the folder w made).
         if: ${{ always() }}
         shell: pwsh
@@ -275,6 +275,8 @@ jobs:
           OUTPOST_CLIENT_ORACLE_FRESH_DIR: ${{ runner.temp }}\oracle-out\w
         run: |
           cargo test --locked -p game-app --test keymap_data -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p game-app --test preferences_data -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p outpost-frontier --test local_server -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

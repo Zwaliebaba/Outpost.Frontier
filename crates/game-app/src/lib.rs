@@ -16,6 +16,7 @@ pub mod machine_warning;
 pub mod movies;
 pub mod oracle;
 pub mod perf_options;
+pub mod preferences;
 pub mod profile;
 pub mod receiver;
 pub mod render_mode;

@@ -6,3 +6,4 @@
 pub mod iclient;
 pub mod json;
 pub mod keymap;
+pub mod layout;
