@@ -841,6 +841,20 @@ pub trait AiWorld {
         let _ = h;
         None
     }
+
+    /// Whether the world keeps the AI's diagnostic lines ([`Self::trace`]):
+    /// a behaviour-tick replay's mismatch report does; the default does
+    /// not, and the AI then builds none.
+    fn tracing(&self) -> bool {
+        false
+    }
+
+    /// One diagnostic line of the AI (what `ClassifyObstaclePhase` tested,
+    /// for a replay's mismatch report); it changes nothing. The default
+    /// drops it.
+    fn trace(&self, line: String) {
+        let _ = line;
+    }
 }
 
 /// What `get_dock_hardpoints` answers: the result and the outputs it

@@ -511,8 +511,12 @@ request answers, `go_tradelane`'s result, the zone probes and the
 next tick: the directives submitted before it and the request's later
 answer), restores the dock fields before each tick (its constructor leaves
 most of them as the heap held them, D178), compares `beh7`, `beh8` and
-`beh9` on exit (the launch's system id apart) and checks every recorded
-zone probe against the Rust world's zones.
+`beh9` on exit (the launch's system id apart, and `beh7`'s `Orient3a8`
+on the tick of a ship's first dock engagement before anything wrote it,
+D178) and checks every recorded zone probe against the Rust world's
+zones. The pathfinder's `Field_1FC`, which no record holds, comes from
+the motion world's ship as it was spawned (the constructor's
+`get_distance_travelled(0, 300, 1000, engine)`).
 
 Not recorded: objects a behaviour looks up by an id it keeps in its own
 state and that have none of the roles above (they are outside the near

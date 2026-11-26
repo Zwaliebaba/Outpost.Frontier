@@ -27,7 +27,11 @@
 //! `outdir/` at its scenario position and answers the motion queries of
 //! the ship from it. The snapshot's own state (position, throttle, engine
 //! and thruster status and so on) follows the commands of the tick as the
-//! reference's `IObjAffect` bodies change it, nested calls included.
+//! reference's `IObjAffect` bodies change it, nested calls included. The
+//! pathfinder's constructor asks the same model for the engine speed and
+//! the two distances (`Field_1F8`, `Field_1FC`, which no record holds and
+//! which pads `ClassifyObstaclePhase`'s candidate capsules): the replay
+//! asks the motion world's ship as it was spawned.
 //!
 //! The directives the oracle records (P3.6d, `ai_answer` `directive`:
 //! Content's spawns, guides and `[ObjList]` directives) are submitted to
@@ -36,6 +40,13 @@
 //! submits where it notifies them (`AiWorld::callback_directives`). The
 //! population's ships (`session.jsonl` `npc`) are spawned into the motion
 //! world by their archetypes and loadouts.
+//!
+//! The dock behaviour's `Orient3a8` (`beh7`'s floats 26 to 34) is not
+//! judged on the tick of a ship's first dock engagement while nothing has
+//! written it (`RefreshApproachState`, which asks `get_dock_hardpoints`
+//! first, is its only writer): the reference's constructor leaves it as
+//! the heap held it (D178, the owner's decision of 2026-11-26). The
+//! summary counts those fields.
 //!
 //! A tick whose behaviour on entry or exit is not ported yet is counted as
 //! skipped, by behaviour id, and so is a mismatching tick that polled a
@@ -234,6 +245,14 @@ struct ReplayWorld<'a> {
     /// What the tick asked of the motion models and the scanner (the
     /// mismatch report's diagnostics).
     log: std::cell::RefCell<Vec<String>>,
+    /// What `ClassifyObstaclePhase` tested in the tick ([`AiWorld::trace`]:
+    /// each candidate's slot and padded capsule, the winner and its
+    /// tests), for the mismatch report.
+    classify: std::cell::RefCell<Vec<String>>,
+    /// Whether the ship's manager asked `get_dock_hardpoints` (the dock
+    /// behaviour's `RefreshApproachState`, the only writer of its
+    /// `Orient3a8`, asks it first; D178).
+    dock_asked: bool,
 }
 
 impl<'a> ReplayWorld<'a> {
@@ -336,6 +355,8 @@ impl<'a> ReplayWorld<'a> {
                 })
                 .collect(),
             log: std::cell::RefCell::new(Vec::new()),
+            classify: std::cell::RefCell::new(Vec::new()),
+            dock_asked: false,
         }
     }
 
@@ -485,6 +506,19 @@ impl AiWorld for ReplayWorld<'_> {
         self.objects.get(&h).cloned()
     }
 
+    fn tracing(&self) -> bool {
+        true
+    }
+
+    /// The AI's diagnostic lines, the first 80 of the tick.
+    fn trace(&self, line: String) {
+        if let Ok(mut lines) = self.classify.try_borrow_mut()
+            && lines.len() < 80
+        {
+            lines.push(line);
+        }
+    }
+
     fn handle_of(&self, id: u32) -> Option<u32> {
         self.objects.contains_key(&id).then_some(id)
     }
@@ -522,6 +556,7 @@ impl AiWorld for ReplayWorld<'_> {
     /// The recorded answer of `get_dock_hardpoints` for the object and
     /// sphere (the caller's buffers as they were after the call).
     fn dock_hardpoints(&mut self, h: u32, index: i32) -> DockHardpoints {
+        self.dock_asked = true;
         let Some(a) = self.take_answer("dock_hardpoints", |a| {
             a.id == h && a.ints.first() == Some(&index)
         }) else {
@@ -1184,8 +1219,19 @@ fn beh_skipped(kind: i32, k: usize) -> bool {
     kind == 8 && k == 6
 }
 
-/// The differences between the recorded and the Rust behaviour fields.
-fn beh_diff(theirs: &BehRecord, ours: Option<&BehRecord>) -> Option<String> {
+/// The floats of `beh7` that hold the dock behaviour's `Orient3a8`
+/// (`design/sim-records.md`: the eight scalars, the six vectors, then
+/// `Orient3a8`, `OrientMatrix3d8` and `Orient40c` row by row).
+const DOCK_ORIENT_3A8: std::ops::Range<usize> = 26..35;
+
+/// The differences between the recorded and the Rust behaviour fields;
+/// the floats of `uninitialised` are not judged (the dock behaviour's
+/// `Orient3a8` before the reference first writes it, D178).
+fn beh_diff(
+    theirs: &BehRecord,
+    ours: Option<&BehRecord>,
+    uninitialised: Option<std::ops::Range<usize>>,
+) -> Option<String> {
     let Some(ours) = ours else {
         return Some(format!(
             "beh{} oracle {:?}, rust none",
@@ -1196,6 +1242,7 @@ fn beh_diff(theirs: &BehRecord, ours: Option<&BehRecord>) -> Option<String> {
         .filter(|&k| !beh_skipped(theirs.kind, k) && theirs.ints.get(k) != ours.ints.get(k))
         .collect();
     let floats: Vec<usize> = (0..theirs.floats.len().max(ours.floats.len()))
+        .filter(|&k| !uninitialised.as_ref().is_some_and(|r| r.contains(&k)))
         .filter(|&k| {
             theirs.floats.get(k).map(|v| v.to_bits()) != ours.floats.get(k).map(|v| v.to_bits())
         })
@@ -1565,6 +1612,10 @@ struct Totals {
     /// fields, and those the Rust behaviour left differently.
     beh_compared: usize,
     beh_mismatched: usize,
+    /// The dock behaviour's `Orient3a8` floats not judged at a first
+    /// engagement before the reference wrote them (D178), and the ticks.
+    beh_uninitialised: usize,
+    beh_uninitialised_ticks: usize,
     beh_reports: Vec<String>,
     /// The oracle's zone probes (`zone_props`) against the Rust world's
     /// zones (`World::sphere_zone_properties`, P2.1's zones).
@@ -1642,6 +1693,12 @@ fn report(
     // motion models, and the ship's recorded state they read.
     if theirs != ours_c || !pathfind_equal(ours.pathfind.as_ref(), out.pathfind.as_ref()) {
         for line in world.log.borrow().iter() {
+            let _ = write!(r, "\n  {line}");
+        }
+        // The Rust side's `ClassifyObstaclePhase` (the oracle records none
+        // of its inner values: its reaction state is in `pathfind`, the
+        // candidates' fields in the snapshot).
+        for line in world.classify.borrow().iter() {
             let _ = write!(r, "\n  {line}");
         }
         if let Some(o) = t.objects.iter().find(|o| o.id == t.id)
@@ -1814,6 +1871,11 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
     let mut last_out: BTreeMap<u32, ManagerRecord> = BTreeMap::new();
     let mut face_point: Option<Vector> = None;
     let mut personalities: BTreeMap<u32, Personality> = BTreeMap::new();
+    // The ships whose dock behaviour has been current (its first
+    // engagement is behind them), and those whose manager asked
+    // `get_dock_hardpoints` (the dock's `Orient3a8` has been written).
+    let mut dock_engaged: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    let mut dock_written: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     let names: BTreeMap<u32, String> = ticks
         .iter()
         .filter_map(|t| Some((t.id, t.obj.clone()?)))
@@ -1894,6 +1956,16 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
                 m.state.pathfind.avoidance.attach_owner(v);
             }
             m.state.pathfind.avoidance.phys_system_id = 1;
+            // The constructor's motion queries (`get_speed`, the two
+            // `get_distance_travelled`; no record holds them): the motion
+            // world's ship as it was spawned, as the reference's was when
+            // its manager was built. `Field_1FC` pads
+            // `ClassifyObstaclePhase`'s candidate capsules.
+            if let Some((w, h)) = binding.motion
+                && let Some(model) = w.motion(h)
+            {
+                m.state.pathfind.init_engine_distances(Some(&*model));
+            }
             m
         });
         // The harness submits the frame's directives before the step, so
@@ -2051,6 +2123,21 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             );
         }
         avoid_shuffled = world.avoid_shuffled;
+        // D178 (owner, 2026-11-26): at a dock's first engagement, until
+        // `RefreshApproachState` writes it, the dock behaviour's
+        // `Orient3a8` holds what the heap held (the oracle's runs disagree
+        // on it); those floats of `beh7` are not judged on that tick.
+        if world.dock_asked {
+            dock_written.insert(t.id);
+        }
+        let dock_uninitialised = (out.behavior == 7
+            && t.input.behavior != 7
+            && !dock_engaged.contains(&t.id)
+            && !dock_written.contains(&t.id))
+        .then_some(DOCK_ORIENT_3A8);
+        if out.behavior == 7 || t.input.behavior == 7 {
+            dock_engaged.insert(t.id);
+        }
         last_out.insert(t.id, out.clone());
         let ours = snapshot(&manager.state);
         if let Some(b) = [t.input.behavior, out.behavior]
@@ -2125,7 +2212,12 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         if let Some(theirs) = &out.beh {
             totals.beh_compared += 1;
             let ours = beh_snapshot(manager, theirs.kind);
-            if let Some(d) = beh_diff(theirs, ours.as_ref()) {
+            let uninitialised = dock_uninitialised.filter(|_| theirs.kind == 7);
+            if let Some(r) = &uninitialised {
+                totals.beh_uninitialised += r.clone().filter(|&k| k < theirs.floats.len()).count();
+                totals.beh_uninitialised_ticks += 1;
+            }
+            if let Some(d) = beh_diff(theirs, ours.as_ref(), uninitialised) {
                 totals.beh_mismatched += 1;
                 if totals.beh_reports.len() < MAX_REPORTED {
                     totals.beh_reports.push(format!(
@@ -2269,8 +2361,11 @@ fn behavior_ticks_against_the_oracle() {
     }
     let _ = writeln!(
         summary,
-        "dock, launch and trade-lane fields on exit: {} ticks compared, {} with a difference",
-        totals.beh_compared, totals.beh_mismatched
+        "dock, launch and trade-lane fields on exit: {} ticks compared, {} with a difference; {} fields not judged (the dock behaviour's Orient3a8 before the reference writes it, at {} first engagements, D178)",
+        totals.beh_compared,
+        totals.beh_mismatched,
+        totals.beh_uninitialised,
+        totals.beh_uninitialised_ticks
     );
     for r in &totals.beh_reports {
         let _ = writeln!(summary, "{r}");
