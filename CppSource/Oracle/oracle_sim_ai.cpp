@@ -138,6 +138,12 @@ namespace
     };
     std::vector<FHeldDirective> GHeldDirectives;
     int GHarnessDirective = 0;
+    // The open tick's ship id (0 outside a tick).
+    unsigned int GOpenShipId = 0;
+    // The objects the directives outside a ship's tick name, snapshotted at its next tick
+    // with role "directive".
+    std::map<unsigned int, std::vector<unsigned int>> GDirectiveObjects;
+    void SnapshotDirectiveObjects(unsigned int ObjectId, int const* Words, int WordCount);
 
     void WriteDirective(unsigned int ObjectId, int const* Words, int WordCount, int Result)
     {
@@ -163,9 +169,11 @@ namespace
         if (GFile == nullptr)
         {
             GHeldDirectives.push_back(FHeldDirective{ObjectId, std::vector<int>(Words, Words + WordCount), Result});
+            SnapshotDirectiveObjects(ObjectId, Words, WordCount);
             return;
         }
         WriteDirective(ObjectId, Words, WordCount, Result);
+        SnapshotDirectiveObjects(ObjectId, Words, WordCount);
     }
 
     void VectorJ(FOracleJson& J, const char* Name, Vector const& V)
@@ -242,6 +250,9 @@ namespace
         int CruiseResult;
         bool bCruise;
         bool bTradeLane;
+        // P3.6d: is_using_tradelane (slot 77), which a formation follower asks of its leader.
+        int LaneResult;
+        bool bUsingLane;
         int TargetResult;
         unsigned int TargetId;
         int SubtargetResult;
@@ -392,6 +403,8 @@ namespace
         Out.StrafeResult = O->get_strafe_dir(Strafe);
         Out.Strafe = static_cast<int>(Strafe);
         Out.CruiseResult = O->is_cruise_active(Out.bCruise, Out.bTradeLane);
+        Out.bUsingLane = false;
+        Out.LaneResult = O->is_using_tradelane(&Out.bUsingLane);
         IObjRW* Link = nullptr;
         Out.TargetResult = O->get_target(Link);
         Out.TargetId = IdOf(Link);
@@ -609,6 +622,10 @@ namespace
         {
             J.Null("cruise");
         }
+        if (Obj.LaneResult == 0)
+            J.Bool("lane", Obj.bUsingLane);
+        else
+            J.Null("lane");
         OptUint(J, "target", Obj.TargetResult == 0 && Obj.TargetId != 0 ? 0 : -1, Obj.TargetId);
         OptUint(J, "subtarget", Obj.SubtargetResult, Obj.Subtarget);
         OptUint(J, "formation_leader", Obj.LeaderResult == 0 && Obj.LeaderId != 0 ? 0 : -1, Obj.LeaderId);
@@ -931,6 +948,7 @@ namespace
         OracleAiReadManager(Manager, M);
         GOpenDb = M.ObjectDb;
         GOpenSelf = M.Object;
+        GOpenShipId = M.ObjectId;
 
         // The ids of the list the previous tick built, as read at its end; an entry that is
         // not the one recorded then is read here under SEH. `Live` keeps the entries still in
@@ -1033,6 +1051,17 @@ namespace
         if (Self->get_dock_target(DockId) == 0)
             Add(FindById(DockId), "dock_target");
         Add(FindById(M.InSightsTargetId), "in_sights");
+        // P3.6d: the objects the directives since the ship's last tick name (a dock's object,
+        // a lane's rings), which the replay submits before this tick.
+        {
+            std::map<unsigned int, std::vector<unsigned int>>::iterator Named = GDirectiveObjects.find(M.ObjectId);
+            if (Named != GDirectiveObjects.end())
+            {
+                for (unsigned int Id : Named->second)
+                    Add(FindById(Id), "directive");
+                GDirectiveObjects.erase(Named);
+            }
+        }
         // P2.5 dock, launch and trade lanes: the objects the current behaviour holds (the
         // dock's object, lane ring and watched object; the launch's base; the trade lane's
         // two rings), which can lie beyond the near radius.
@@ -1096,6 +1125,55 @@ namespace
             WriteObject(O, Roles[O]);
     }
 
+    // P3.6d: the object ids a recorded directive names (Words from the op's +0x04): the dock's
+    // object, lane ring and watched object, a lane's two rings, the launch's base, the
+    // target of a follow, trail, face, strafe, ram, tractor beam or evade, a goto's first word
+    // and guided ship, a guide's goto and follow targets.
+    std::vector<unsigned int> DirectiveObjectIds(int const* Words, int WordCount)
+    {
+        std::vector<unsigned int> Out;
+        if (WordCount < 2)
+            return Out;
+        auto At = [&](int Offset) {
+            int const Index = (Offset - 4) / 4;
+            if (Index >= 0 && Index < WordCount && Words[Index] != 0)
+                Out.push_back(static_cast<unsigned int>(Words[Index]));
+        };
+        switch (Words[0])
+        {
+        case 3: At(0x20); At(0x5c); break;
+        case 4: case 5: case 6: case 8: case 9: case 10: case 11: case 14: case 18: At(0x0c); break;
+        case 7: At(0x10); break;
+        case 13: At(0x0c); At(0x10); At(0x1c); break;
+        case 15: At(0x0c); At(0x10); break;
+        case 17: At(0x2c); At(0x68); At(0x88); break;
+        default: break;
+        }
+        return Out;
+    }
+
+    void SnapshotDirectiveObjects(unsigned int ObjectId, int const* Words, int WordCount)
+    {
+        std::vector<unsigned int> const Ids = DirectiveObjectIds(Words, WordCount);
+        if (Ids.empty())
+            return;
+        // Inside the ship's own tick (its directive callbacks): now, into this tick.
+        if (GOpen != 0 && ObjectId == GOpenShipId)
+        {
+            for (unsigned int Id : Ids)
+            {
+                if (GWritten.count(Id) != 0)
+                    continue;
+                IObjRW* const Found = FindById(Id);
+                if (Found != nullptr)
+                    WriteObject(Found, std::vector<std::string>(1, "directive"));
+            }
+            return;
+        }
+        std::vector<unsigned int>& Pending = GDirectiveObjects[ObjectId];
+        Pending.insert(Pending.end(), Ids.begin(), Ids.end());
+    }
+
     void EndTick(IBehaviorManager const* Manager)
     {
         static FOracleAiManager M;
@@ -1131,6 +1209,7 @@ namespace
         GOpen = 0;
         GOpenDb = nullptr;
         GOpenSelf = nullptr;
+        GOpenShipId = 0;
     }
 
     void __cdecl OnAiBehaviorTick(IBehaviorManager const* Manager, float Dt, int Phase)

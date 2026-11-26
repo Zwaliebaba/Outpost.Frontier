@@ -225,6 +225,8 @@ struct ReplayWorld<'a> {
     /// `seq`, P3.6d), with their priorities: the manager submits them when
     /// it notifies the callbacks ([`AiWorld::callback_directives`]).
     callback: Vec<(DirectiveOp, i32)>,
+    /// `is_using_tradelane` of the snapshot's objects (`ai_obj.lane`).
+    lanes: BTreeMap<u32, bool>,
 }
 
 impl<'a> ReplayWorld<'a> {
@@ -307,6 +309,11 @@ impl<'a> ReplayWorld<'a> {
             unanswered: Vec::new(),
             managers: BTreeMap::new(),
             callback: Vec::new(),
+            lanes: t
+                .objects
+                .iter()
+                .filter_map(|o| o.using_tradelane.map(|l| (o.id, l)))
+                .collect(),
         }
     }
 
@@ -428,6 +435,11 @@ impl<'a> ReplayWorld<'a> {
 
 impl AiWorld for ReplayWorld<'_> {
     type Handle = u32;
+
+    /// The snapshot's `is_using_tradelane` (false without it).
+    fn using_tradelane(&self, h: u32) -> bool {
+        self.lanes.get(&h).copied().unwrap_or(false)
+    }
 
     /// The recorded directives of the tick's callbacks, once. The draws
     /// Content made in its callback (`rand_mod` `Content.dll`) at this
@@ -1793,7 +1805,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         // between the ship's last tick and this one, outside any behaviour
         // tick: run them on the state the last tick left (no record holds
         // what they do to the behaviours), then take the entry fields.
-        let pending: Vec<DirectiveOp> = motion
+        let pending: Vec<(u32, DirectiveOp)> = motion
             .as_ref()
             .map(|m| {
                 let mut ops = Vec::new();
@@ -1816,7 +1828,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
                             id_of(n).or_else(|| resolve(n))
                         })
                     {
-                        ops.push(op);
+                        ops.push((*tick, op));
                     }
                 }
                 ops
@@ -1860,25 +1872,35 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             if let Some(f) = &before.face {
                 restore_face(manager, f);
             }
-            let recorded_rand = std::mem::take(&mut world.rand);
-            for op in pending {
-                if let DirectiveOp::Face(f) = &op {
-                    face_point = Some(f.point);
-                }
-                if !matches!(op, DirectiveOp::Cancel) {
-                    manager.submit_directive(&mut world, t.id, &DirectiveOp::Cancel, 0);
-                }
-                manager.submit_directive(&mut world, t.id, &op, 0);
-            }
-            world.rand = recorded_rand;
-            world.commands.clear();
         }
-        // The answers outside the tick in their order: a recorded directive
-        // is submitted, a request's answer returned to the ship.
-        if !batch.is_empty() {
+        // In the reference's order: the harness's scenario directives of a
+        // frame come before that frame's step, so before the answers and
+        // directives recorded in it (an earlier frame's come first); a
+        // recorded directive is submitted as it was, a request's answer
+        // returned to the ship.
+        let mut order: Vec<(u32, u8, usize)> = pending
+            .iter()
+            .enumerate()
+            .map(|(k, (tick, _))| (*tick, 0, k))
+            .chain(batch.iter().enumerate().map(|(k, a)| (a.tick, 1, k)))
+            .collect();
+        order.sort_unstable();
+        if !order.is_empty() {
             let recorded_rand = std::mem::take(&mut world.rand);
-            for (a, directive) in batch.iter().zip(&recorded) {
-                if let Some(d) = directive {
+            for (_, source, k) in order {
+                if source == 0 {
+                    let op = &pending[k].1;
+                    if let DirectiveOp::Face(f) = op {
+                        face_point = Some(f.point);
+                    }
+                    if !matches!(op, DirectiveOp::Cancel) {
+                        manager.submit_directive(&mut world, t.id, &DirectiveOp::Cancel, 0);
+                    }
+                    manager.submit_directive(&mut world, t.id, op, 0);
+                    continue;
+                }
+                let a = &batch[k];
+                if let Some(d) = &recorded[k] {
                     if let DirectiveOp::Face(f) = &d.op {
                         face_point = Some(f.point);
                     }
@@ -1888,13 +1910,13 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
                 if a.kind != "request" {
                     continue;
                 }
-                let k = world
+                let found = world
                     .answers
                     .iter()
                     .zip(world.used.iter())
                     .position(|(b, u)| !u && b == a);
-                if let Some(k) = k {
-                    world.used[k] = true;
+                if let Some(found) = found {
+                    world.used[found] = true;
                 }
                 manager.request_returned(
                     &mut world,

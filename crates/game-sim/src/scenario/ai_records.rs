@@ -648,6 +648,9 @@ pub struct ObjRecord {
     /// `hpmount`: the own ship's `get_hardpoint("hpmount")` (position and
     /// orientation; `None` when it failed or for other objects).
     pub hpmount: Option<(Vector, Matrix)>,
+    /// `lane` (P3.6d): `is_using_tradelane` (`None` when it failed and for
+    /// older records).
+    pub using_tradelane: Option<bool>,
 }
 
 /// One recorded query.
@@ -1053,6 +1056,7 @@ pub fn read_ai_ticks(path: &Path) -> Vec<AiTick> {
                             .and_then(|m| {
                                 Some((Vector::new(m[0], m[1], m[2]), matrix(m.get(3..12)?)?))
                             }),
+                        using_tradelane: j.get("lane").and_then(Json::as_bool),
                     }),
                     "ai_answer" => t.answers.push(answer(&j)),
                     "ai_query" => {
