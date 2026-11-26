@@ -113,32 +113,65 @@ jobs:
 
       - name: Run menu_walk.txt twice
         # Section 8: the pointer parked in a screen corner, no UserKeyMap.ini, the window left
-        # in front. Each run gets ten minutes; the owner's run took 398 frames at 30 fps.
+        # in front. Each run gets five minutes (the owner's took 398 frames at 30 fps). The
+        # desktop is captured at 15, 60 and 180 seconds and at a timeout, with the windows
+        # and processes open then; a timed-out run is killed with its process tree.
+        timeout-minutes: 20
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.Windows.Forms, System.Drawing
           $run = "$env:RUNNER_TEMP\run"
           $script = "$PWD\CppSource\OutpostFrontier\oracle\menu_walk.txt"
           $spew = "$env:LOCALAPPDATA\OutpostFrontier\FLSpew.txt"
+          function Capture($path) {
+            try {
+              $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+              $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+              $g = [System.Drawing.Graphics]::FromImage($bmp)
+              $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+              $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+              $g.Dispose(); $bmp.Dispose()
+            } catch { Write-Host "Desktop capture failed: $($_.Exception.Message)" }
+          }
+          function Windows() {
+            Get-Process | Where-Object { $_.MainWindowTitle } | ForEach-Object { "$($_.Id) $($_.ProcessName): $($_.MainWindowTitle)" }
+          }
           $result = @()
           foreach ($n in 1, 2) {
             $out = "$env:RUNNER_TEMP\oracle-out\run$n"
-            New-Item -ItemType Directory -Force (Split-Path $out) | Out-Null
+            $diag = "$env:RUNNER_TEMP\oracle-out\diag$n"
+            New-Item -ItemType Directory -Force (Split-Path $out), $diag | Out-Null
             Remove-Item "$env:USERPROFILE\Documents\My Games\OutpostFrontier\UserKeyMap.ini" -ErrorAction SilentlyContinue
             Remove-Item $spew -ErrorAction SilentlyContinue
             [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(0, 0)
             $start = Get-Date
             $p = Start-Process -FilePath "$run\OutpostFrontier.exe" -ArgumentList '+oracle', "`"$script`"", "`"$out`"" -WorkingDirectory $run -PassThru
-            if (-not $p.WaitForExit(600000)) { $p.Kill(); $code = 'timeout' } else { $code = $p.ExitCode }
+            $code = 'timeout'
+            $shots = 15, 60, 180
+            for ($t = 1; $t -le 300; $t++) {
+              if ($p.WaitForExit(1000)) { $code = $p.ExitCode; break }
+              if ($shots -contains $t) { Capture "$diag\desktop_$t.png"; Write-Host "t=$t s: $((Windows) -join ' | ')" }
+            }
+            if ($code -eq 'timeout') {
+              Capture "$diag\desktop_timeout.png"
+              Windows | Set-Content "$diag\windows.txt"
+              Get-Process | Sort-Object ProcessName | Format-Table Id, ProcessName, SessionId, MainWindowTitle -AutoSize | Out-String -Width 200 | Set-Content "$diag\processes.txt"
+              Get-Content "$diag\windows.txt" | Write-Host
+              taskkill /T /F /PID $p.Id | Out-Null
+              Get-Process WerFault, dw15, OutpostServer -ErrorAction SilentlyContinue | Stop-Process -Force
+            }
             $seconds = [int]((Get-Date) - $start).TotalSeconds
             Write-Host "Run $n`: exit $code after $seconds s"
             New-Item -ItemType Directory -Force $out | Out-Null
-            if (Test-Path $spew) { Copy-Item $spew "$out\FLSpew.txt" }
+            if (Test-Path $spew) { Copy-Item $spew "$out\FLSpew.txt"; Get-Content $spew -Tail 40 | Write-Host }
             $result += "$n,$code,$seconds"
           }
+          Get-ChildItem "$env:LOCALAPPDATA\CrashDumps", "$env:ProgramData\Microsoft\Windows\WER\ReportArchive" -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like '*OutpostFrontier*' } | ForEach-Object { Write-Host "WER: $($_.FullName)" }
           $result | Set-Content "$env:RUNNER_TEMP\oracle-out\exit.csv"
 
       - name: Compare the runs
+        if: ${{ always() }}
         # Run 1 against the owner run's figures (section 8, "Owner run"), run 2 against run 1.
         # The start record names the output folder, so it is left out of the comparison.
         shell: pwsh
