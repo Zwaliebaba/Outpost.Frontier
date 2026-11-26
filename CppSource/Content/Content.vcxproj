@@ -69,6 +69,7 @@
   <ItemGroup>
     <ClInclude Include="..\include\content.h" />
     <ClInclude Include="ContentInternal.h" />
+    <ClInclude Include="oracle_rm_trace.h" />
     <ClInclude Include="ContentMessageRouter.h" />
     <ClInclude Include="ContentPlayerState.h" />
     <ClInclude Include="ContentRefObject.h" />
@@ -185,6 +186,7 @@
     <ClCompile Include="oracle_mission_trace.cpp" />
     <ClCompile Include="oracle_mission_session.cpp" />
     <ClCompile Include="oracle_base_session.cpp" />
+    <ClCompile Include="oracle_rm_session.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Content.def" />

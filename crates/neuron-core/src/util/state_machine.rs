@@ -9,6 +9,15 @@
 //!
 //! The message router the C++ reaches through `IMessageRouter` is the
 //! [`MessageRouter`] trait; the server owns its implementation.
+//!
+//! **Machines that need a context** (decision record 0008 point 3 and
+//! question 8). Content's random-mission machines dispatch while they
+//! handle an event, so their handler needs the server's context and cannot
+//! be borrowed beside it. [`MachineHost`] is the host-generic form, as the
+//! controller bus's `BusHost` is: the host addresses each machine by a key
+//! and handles an event for it, and [`process_in`], [`handle_state_change_in`]
+//! and [`group_process_in`] look the machine up again after every handler
+//! call. Nothing here knows a game rule.
 
 /// `STATE_MACHINE_EVENT_TYPE`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -123,6 +132,13 @@ impl StateMachine {
     #[must_use]
     pub const fn state(&self) -> i32 {
         self.current
+    }
+
+    /// `PendingState`: the state a pending change goes to (the last one
+    /// set, read whether a change is pending or not).
+    #[must_use]
+    pub const fn pending_state(&self) -> i32 {
+        self.pending
     }
 
     /// Whether [`process`](Self::process) is running (`bProcessing`).
@@ -530,6 +546,153 @@ impl<T: GroupMember> StateMachineGroup<T> {
     }
 }
 
+/// A host of machines addressed by key (record 0008 point 3): the
+/// context-passing form of [`StateMachine::process`] and
+/// [`StateMachineGroup::process`]. The host owns the machines and their
+/// behaviour; the loops below look a machine up again after each call,
+/// because a handler may add, mark or drop machines, its own included.
+pub trait MachineHost {
+    /// The key of a machine (the C++ machine's handler id, for example).
+    type Key: Copy + PartialEq;
+    /// The routed message type ([`SmEvent::Message`]).
+    type Message;
+    /// The controller event data ([`SmEvent::Controller`]).
+    type Controller;
+
+    /// The bookkeeping of machine `key`; `None` once it is gone.
+    fn machine(&mut self, key: Self::Key) -> Option<&mut StateMachine>;
+
+    /// Slot 2: handles `event` for machine `key` in `state` (its current
+    /// state or [`ANY_STATE`]). Returns whether the event was taken.
+    fn handle(
+        &mut self,
+        key: Self::Key,
+        event: &SmEvent<'_, Self::Message, Self::Controller>,
+        state: i32,
+    ) -> bool;
+
+    /// Called between the exit event and the commit of a state change: the
+    /// place of an override of `handle_state_change` that runs between the
+    /// two (the C++'s `FRmMachineGroup`). Nothing by default.
+    fn state_changing(&mut self, _key: Self::Key) {}
+
+    /// Whether machine `key` is a group (`StateMachineGroup`): its own
+    /// machine, then its members.
+    fn is_group(&self, _key: Self::Key) -> bool {
+        false
+    }
+
+    /// The member of group `group` at `index` in list order.
+    fn member(&self, _group: Self::Key, _index: usize) -> Option<Self::Key> {
+        None
+    }
+
+    /// Where `member` is in group `group`'s list now; `None` when it left.
+    fn member_index(&self, _group: Self::Key, _member: Self::Key) -> Option<usize> {
+        None
+    }
+
+    /// `remove_dying_machines` of group `group`: each marked member leaves
+    /// the list and is destroyed, in marking order.
+    fn remove_dying(&mut self, _group: Self::Key) {}
+}
+
+/// `StateMachine::process` in a host: the current state, then
+/// [`ANY_STATE`] when it did not take the event, then the state changes.
+/// Nothing when the machine is gone.
+pub fn process_in<H: MachineHost + ?Sized>(
+    host: &mut H,
+    key: H::Key,
+    event: &SmEvent<'_, H::Message, H::Controller>,
+) {
+    let Some(machine) = host.machine(key) else {
+        return;
+    };
+    machine.processing = true;
+    let state = machine.current;
+    if !host.handle(key, event, state) {
+        host.handle(key, event, ANY_STATE);
+    }
+    handle_state_change_in(host, key);
+    if let Some(machine) = host.machine(key) {
+        machine.processing = false;
+    }
+}
+
+/// `handle_state_change` in a host: while a change is pending, the exit
+/// event ([`EventType::Message`]) to the old state, the host's
+/// [`MachineHost::state_changing`], the commit, then the enter event
+/// ([`EventType::Tick`]) to the new state. A handler that sets the state
+/// again runs the loop once more; a machine that goes stops it.
+pub fn handle_state_change_in<H: MachineHost + ?Sized>(host: &mut H, key: H::Key) {
+    loop {
+        let Some(machine) = host.machine(key) else {
+            return;
+        };
+        if !machine.pending_change {
+            return;
+        }
+        let state = machine.current;
+        host.handle(key, &SmEvent::Plain(EventType::Message), state);
+        host.state_changing(key);
+        let Some(machine) = host.machine(key) else {
+            return;
+        };
+        machine.current = machine.pending;
+        machine.pending_change = false;
+        let state = machine.current;
+        host.handle(key, &SmEvent::Plain(EventType::Tick), state);
+    }
+}
+
+/// `StateMachineGroup::process` in a host: the group's own machine
+/// ([`process_in`]), its marked members removed, then, unless the event is
+/// a routed message, every member front to back ([`dispatch_in`]) and the
+/// marked members removed again.
+///
+/// The walk is over the live list, as the C++'s `std::list` walk is: a
+/// member a handler appends is reached in the same pass, one it removes is
+/// not, and after each member the walk goes on from that member's place
+/// now (from the same place when it is gone).
+pub fn group_process_in<H: MachineHost + ?Sized>(
+    host: &mut H,
+    group: H::Key,
+    event: &SmEvent<'_, H::Message, H::Controller>,
+) {
+    process_in(host, group, event);
+    host.remove_dying(group);
+    if event.event_type() == EventType::UserEvent {
+        return;
+    }
+    let mut index = 0;
+    while let Some(member) = host.member(group, index) {
+        dispatch_in(host, member, event);
+        index = host.member_index(group, member).map_or(index, |at| at + 1);
+    }
+    host.remove_dying(group);
+}
+
+/// The machine's slot 1 (`process`): [`group_process_in`] for a group,
+/// [`process_in`] for any other machine.
+pub fn dispatch_in<H: MachineHost + ?Sized>(
+    host: &mut H,
+    key: H::Key,
+    event: &SmEvent<'_, H::Message, H::Controller>,
+) {
+    if host.is_group(key) {
+        group_process_in(host, key, event);
+    } else {
+        process_in(host, key, event);
+    }
+}
+
+/// `StateMachine::start` and the second half of `add_state_machine` in a
+/// host (the member is already in its group's list): a
+/// [`EventType::Tick`] event through the machine's slot 1.
+pub fn start_in<H: MachineHost + ?Sized>(host: &mut H, key: H::Key) {
+    dispatch_in(host, key, &SmEvent::Plain(EventType::Tick));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -718,5 +881,123 @@ mod tests {
             ]
         );
         handler.unregister(&mut router);
+    }
+
+    /// A host of a group (key 0) and members (keys 1..): member 1 appends
+    /// member 3 when it enters state 1, and member 2 marks member 1 for
+    /// removal on a controller event.
+    struct Host {
+        machines: Vec<Option<StateMachine>>,
+        members: Vec<u32>,
+        marked: Vec<u32>,
+        calls: Vec<(u32, EventType, i32)>,
+        changing: Vec<u32>,
+    }
+
+    impl MachineHost for Host {
+        type Key = u32;
+        type Message = u32;
+        type Controller = ();
+
+        fn machine(&mut self, key: u32) -> Option<&mut StateMachine> {
+            self.machines.get_mut(key as usize)?.as_mut()
+        }
+
+        fn handle(&mut self, key: u32, event: &SmEvent<'_, u32>, state: i32) -> bool {
+            self.calls.push((key, event.event_type(), state));
+            match (key, event.event_type(), state) {
+                (0 | 1, EventType::Tick, 0) => {
+                    self.machine(key).expect("live").set_state(1);
+                    true
+                }
+                (1, EventType::Tick, 1) => {
+                    self.machines.push(Some(StateMachine::new()));
+                    self.members.push(3);
+                    start_in(self, 3);
+                    true
+                }
+                (2, EventType::Controller, 0) => {
+                    self.marked.push(1);
+                    true
+                }
+                _ => false,
+            }
+        }
+
+        fn state_changing(&mut self, key: u32) {
+            self.changing.push(key);
+        }
+
+        fn is_group(&self, key: u32) -> bool {
+            key == 0
+        }
+
+        fn member(&self, _group: u32, index: usize) -> Option<u32> {
+            self.members.get(index).copied()
+        }
+
+        fn member_index(&self, _group: u32, member: u32) -> Option<usize> {
+            self.members.iter().position(|&m| m == member)
+        }
+
+        fn remove_dying(&mut self, _group: u32) {
+            for id in core::mem::take(&mut self.marked) {
+                if let Some(at) = self.members.iter().position(|&m| m == id) {
+                    self.members.remove(at);
+                    self.machines[id as usize] = None;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_host_walks_its_live_member_list() {
+        let mut host = Host {
+            machines: vec![Some(StateMachine::new()); 3],
+            members: vec![1, 2],
+            marked: Vec::new(),
+            calls: Vec::new(),
+            changing: Vec::new(),
+        };
+        // The group's tick: its own change, then member 1 changes and adds
+        // member 3, which the same pass reaches after member 2.
+        start_in(&mut host, 0);
+        assert_eq!(host.members, [1, 2, 3]);
+        assert_eq!(host.changing, [0, 1]);
+        assert_eq!(
+            &host.calls[..5],
+            &[
+                (0, EventType::Tick, 0),
+                (0, EventType::Message, 0),
+                (0, EventType::Tick, 1),
+                (1, EventType::Tick, 0),
+                (1, EventType::Message, 0),
+            ]
+        );
+        let reached: Vec<u32> = host
+            .calls
+            .iter()
+            .filter(|c| c.1 == EventType::Tick && c.2 == 0)
+            .map(|c| c.0)
+            .collect();
+        assert_eq!(reached, [0, 1, 3, 2, 3]);
+        // A controller event: member 2 marks member 1, which goes after the
+        // pass; a routed message reaches the group alone.
+        host.calls.clear();
+        let data = ();
+        dispatch_in(
+            &mut host,
+            0,
+            &SmEvent::Controller {
+                id: 0x20,
+                data: &data,
+            },
+        );
+        assert_eq!(host.members, [2, 3]);
+        assert!(host.machines[1].is_none());
+        host.calls.clear();
+        dispatch_in(&mut host, 0, &SmEvent::Message(&7));
+        assert!(host.calls.iter().all(|c| c.0 == 0), "{:?}", host.calls);
+        assert!(!host.machines[0].expect("group").is_processing());
     }
 }

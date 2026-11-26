@@ -2532,9 +2532,10 @@ fn a_saved_mission_restores_as_a_controller() {
         panic!("a DestroyMission controller");
     };
     let key = r.data.expect("its mission");
-    // The loader's reference went with the loader; the controller holds one.
+    // The loader's reference went with the loader; the controller holds two
+    // (`FRandomMissionObject::Data` and `FDestroyMission::MissionData`).
     let entry = &cx.logic.content.state.rm.missions.entries[&key];
-    assert_eq!(entry.refs, 1);
+    assert_eq!(entry.refs, 2);
     assert_eq!(entry.data.offers.len(), 1);
     assert_eq!(entry.data.player, PLAYER);
     assert_eq!(

@@ -782,6 +782,12 @@ double __cdecl GetContentGameTime()
     return GGameSupportElapsed;
 }
 
+// Oracle instrumentation (P3.7b): GameSupport.cpp:598's sum without the heartbeat.
+void __cdecl OracleAddContentGameTime(double Dt)
+{
+    GGameSupportElapsed = GGameSupportElapsed + Dt;
+}
+
 // (06efec20-06efec4e): either time equal to the -1.0 sentinel (raw
 // compare of both dwords with 0 / 0xbff00000) -> -1.0 (the field); else FABS(*A - *B).
 double __cdecl GetContentTimeDistance(double const* A, double const* B)

@@ -19,6 +19,9 @@ extern unsigned int GContentNextUniqueId;
 // (TU33, GameSupport.cpp): FLD double the field -- the game time
 // accumulated from GameSupport heartbeats.
 double __cdecl GetContentGameTime();
+// Oracle instrumentation (P3.7b, OracleDumpRmSession): the game time GameSupport's heartbeat adds
+// to (GameSupport.cpp:598), advanced by Dt without a heartbeat. No game module calls it.
+void __cdecl OracleAddContentGameTime(double Dt);
 
 // (TU33, GameSupport.cpp): |*A - *B|, or the .rdata default
 // when either time is the -1.0 sentinel. Callers: GCS, TU54, TU57.

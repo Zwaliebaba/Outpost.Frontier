@@ -28,13 +28,10 @@
 //! offers) and every room state of the base (locks, characters, visit
 //! references).
 //!
-//! The comparison is exact, record by record, to the first difference,
-//! with one exception: the `DestroyMission` controller the acceptance
-//! makes runs its constructor and handles the response in the C++ and not
-//! in the port (D955), so the records of step 5 after the vendor's answer
-//! (the room's scripts restarted on a moved generator) and the step's
-//! draws are compared and their differences listed under "D955", not
-//! judged.
+//! The comparison is exact, record by record, to the first difference.
+//! The `DestroyMission` controller the acceptance makes runs its
+//! constructor on both sides (P3.7b), so step 5 is judged as every other
+//! step; the owner's D955 exception ended with P3.7b.
 //!
 //! - `data_dump_base_session` (`OUTPOST_DATA_DIR`, `OUTPOST_ORACLE_DIR`):
 //!   against `base_session/base.jsonl`; summary `rust-base-session.txt`,
@@ -70,7 +67,7 @@ const SEED: u32 = 0x4f52_4143;
 const PLAYER: u32 = 7;
 /// `OracleBaseName`.
 const BASE: &[u8] = b"he01_01_Base";
-/// The step whose tail D955 explains.
+/// The step that accepts the vendor mission.
 const ACCEPT_STEP_NAME: &str = "accept_vendor";
 
 fn outdir() -> PathBuf {
@@ -454,38 +451,18 @@ fn by_step(lines: &[String]) -> Vec<Vec<&str>> {
 /// The comparison: the summary lines, and whether a judged difference was
 /// found.
 fn compare(rust: &[String], oracle: &[String], names: &[&str]) -> (Vec<String>, bool) {
-    let accept = names.iter().position(|n| *n == ACCEPT_STEP_NAME);
     let (r, o) = (by_step(rust), by_step(oracle));
     let mut lines = Vec::new();
-    let mut failed = false;
     for step in 0..r.len().max(o.len()) {
         let empty = Vec::new();
         let rs = r.get(step).unwrap_or(&empty);
         let os = o.get(step).unwrap_or(&empty);
-        // In the D955 step, the records after the vendor's answer (and the
-        // state's draws) are not judged.
-        let judged = if Some(step) == accept {
-            let cut = |s: &Vec<&str>| {
-                s.iter()
-                    .position(|l| l.contains("\"rec\":\"acceptance\""))
-                    .map_or(s.len(), |i| i + 1)
-            };
-            cut(rs).max(cut(os))
-        } else {
-            usize::MAX
-        };
         let Some(at) = (0..rs.len().max(os.len())).find(|&i| rs.get(i) != os.get(i)) else {
             continue;
         };
         let name = names.get(step).copied().unwrap_or("?");
-        let label = if at < judged {
-            failed = true;
-            "first divergence"
-        } else {
-            "D955 (not judged): first difference"
-        };
         lines.push(format!(
-            "base_session: step {step} ({name}): {label} at record {at} of rust {} / oracle {}",
+            "base_session: step {step} ({name}): first divergence at record {at} of rust {} / oracle {}",
             rs.len(),
             os.len()
         ));
@@ -500,11 +477,9 @@ fn compare(rust: &[String], oracle: &[String], names: &[&str]) -> (Vec<String>, 
                 os.get(i).copied().unwrap_or("-")
             ));
         }
-        if failed {
-            break;
-        }
+        return (lines, true);
     }
-    (lines, failed)
+    (lines, false)
 }
 
 /// The counts of each record kind, for the summary.
@@ -575,12 +550,6 @@ fn data_dump_base_session() {
     let (lines, failed) = compare(&trace.lines, &oracle, &trace.names);
     if lines.is_empty() {
         let _ = writeln!(summary, "equal to the oracle's {} records", oracle.len());
-    } else if !failed {
-        let _ = writeln!(
-            summary,
-            "equal to the oracle's {} records but where D955 explains it",
-            oracle.len()
-        );
     }
     for line in &lines {
         let _ = writeln!(summary, "{line}");

@@ -717,6 +717,7 @@ fn build_objectives(
                 marker_system: q.dest_sys,
                 marker_value: 0x44d,
                 marker_position: q.objective_pos,
+                targets: Vec::new(),
             }
         } else {
             Objective {
@@ -725,6 +726,7 @@ fn build_objectives(
                 marker_system: 0,
                 marker_value: 0,
                 marker_position: Vector::ZERO,
+                targets: Vec::new(),
             }
         };
         let map = match key {
@@ -1322,6 +1324,7 @@ fn destroy_solars_offer(
     q: &OfferQuery,
 ) -> (bool, Option<Offer>) {
     let mut offer = Offer::new(1);
+    offer.register_handlers(cx);
     offer.general.active = true;
     offer.kind = 1;
     let mut success = fill_solar_spawns(cx, rm, f, q, &mut offer.solars);
@@ -1421,6 +1424,7 @@ fn assassinate_offer(
     out: Option<Offer>,
 ) -> (bool, Option<Offer>) {
     let mut offer = Offer::new(if f[0] { 2 } else { 3 });
+    offer.register_handlers(cx);
     offer.general.active = true;
     offer.kind = if f[0] {
         if f[3] {

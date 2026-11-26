@@ -511,9 +511,9 @@ fn main_switch(cx: &mut Cx<'_>, message: &mut ControllerMessage<'_>) {
                 let _ = api::audio::cancel_music(cx, param2);
             } else {
                 // The faction-name queues, then the message router
-                // (`GMessageRouter->OnTimerExpired`, P3.7b), which sets no
-                // timer yet.
+                // (`GMessageRouter->OnTimerExpired`, `SpaceSupport.cpp:935-936`).
                 super::npc_names::handle_faction_name_timer(cx, param1, param2);
+                super::router::on_timer_expired(cx, param1);
             }
         }
         ControllerMessage::DamageReputation {

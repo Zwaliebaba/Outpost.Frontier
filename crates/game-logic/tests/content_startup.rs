@@ -109,8 +109,8 @@ fn the_counter_hands_out_the_load_time_ids_then_the_routers() {
     );
     assert_ne!(id, ControllerId::BROADCAST);
     let state = &cx.logic.content.state;
-    assert_eq!(state.router.map(|r| r.timer_id()), Some(6));
-    assert_eq!(state.router.map(|r| r.last_handler_id()), Some(0));
+    assert_eq!(state.router.as_ref().map(|r| r.timer_id()), Some(6));
+    assert_eq!(state.router.as_ref().map(|r| r.last_handler_id()), Some(0));
     assert_eq!(state.ids.peek(), 7);
     // A second GameSupport makes a second router from the counter.
     let _ = create(
@@ -119,7 +119,10 @@ fn the_counter_hands_out_the_load_time_ids_then_the_routers() {
         &CreateParams::None,
         Priority::Highest,
     );
-    assert_eq!(cx.logic.content.state.router.map(|r| r.timer_id()), Some(7));
+    assert_eq!(
+        cx.logic.content.state.router.as_ref().map(|r| r.timer_id()),
+        Some(7)
+    );
     assert_eq!(cx.logic.content.state.ids.peek(), 8);
 }
 
@@ -233,7 +236,7 @@ fn the_constructors_draw_their_phases_in_creation_order() {
     assert_eq!(state.space_support, ControllerId(2));
     assert_eq!(state.space_pop, ControllerId(5));
     assert_eq!(state.base_pop, Some(ControllerId(8)));
-    assert_eq!(state.router.map(|r| r.timer_id()), Some(6));
+    assert_eq!(state.router.as_ref().map(|r| r.timer_id()), Some(6));
     assert_eq!(state.ids.peek(), 7);
     let kinds: Vec<&str> = cx
         .logic
@@ -375,7 +378,10 @@ fn the_last_content_controller_unloads_the_dll() {
         Priority::Highest,
     );
     assert_ne!(again, game);
-    assert_eq!(cx.logic.content.state.router.map(|r| r.timer_id()), Some(6));
+    assert_eq!(
+        cx.logic.content.state.router.as_ref().map(|r| r.timer_id()),
+        Some(6)
+    );
 }
 
 #[test]
@@ -669,7 +675,7 @@ fn timer_name(logic: &Logic, value: u32) -> String {
         "the formation-name release".to_owned()
     } else if value == ids.dock_hail_timer {
         "the dock-hail timer".to_owned()
-    } else if state.router.is_some_and(|r| r.timer_id() == value) {
+    } else if state.router.as_ref().is_some_and(|r| r.timer_id() == value) {
         "the router's timer".to_owned()
     } else if value >= state.ids.peek() {
         "a run-time id (NPC ships, nags, NN paths; P3.5 and P3.6)".to_owned()
