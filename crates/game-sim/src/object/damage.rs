@@ -892,6 +892,50 @@ fn sphere_distance(
     sum - e(radius) * e(radius)
 }
 
+/// `GameObject::explosion_hit` (`Server/server_gameobject.cpp:562-602`),
+/// the damage of an object without equipment (a loot container, a mine, a
+/// counter-measure, a guided munition): the band of the blast its physical
+/// sphere (`get_physical_radius_r`, `physical`) falls in, as
+/// `(dz² + dx²) + dy²` less the radius squared in doubles against the
+/// float bands, gives `((band * 1/3) * hull_damage) * explosion_resistance`
+/// (the root archetype's), stored to a float, on the hull
+/// (`GameObject::damage_hull`, without `EqObj`'s scaling). Outside the
+/// blast nothing is added.
+pub fn object_explosion_hit(
+    t: &DamageTarget<'_>,
+    blast: &Blast,
+    physical: (f32, neuron_core::math::Vector),
+    list: &mut DamageList,
+) {
+    let (radius_sq, middle, inner) = bands(blast);
+    let (radius, center) = physical;
+    let band = explosion_band(
+        sphere_distance(blast.position, radius, center, true),
+        radius_sq,
+        middle,
+        inner,
+    );
+    if band == 0 {
+        return;
+    }
+    let amount = r(
+        ((f64::from(band) * e(1.0f32 / 3.0)) * e(blast.hull_damage)) * e(t.explosion_resistance)
+    );
+    let _ = object_damage_hull(t, amount, list);
+}
+
+/// `GameObject::damage_hull` (`Server/server_gameobject.cpp:780-830`): as
+/// [`damage_hull`] without `EqObj::damage_hull`'s difficulty and armor
+/// scaling. True when the hull is destroyed.
+pub fn object_damage_hull(t: &DamageTarget<'_>, amount: f32, list: &mut DamageList) -> bool {
+    let unscaled = DamageTarget {
+        difficulty_scale: None,
+        equipment: &crate::equip::EquipManager::default(),
+        ..*t
+    };
+    damage_hull(&unscaled, amount, list)
+}
+
 /// `EqObj::explosion_hit`: a functioning shield absorbs the whole blast
 /// (`explosion_hit_shield`); otherwise the hull, the attached items and
 /// collision groups, and the power take their bands' share. True when

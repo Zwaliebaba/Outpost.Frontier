@@ -48,8 +48,11 @@
 //!
 //! `complete_dock` first sends the behaviour event 3 to every NPC ship's
 //! manager in the system (`IBehaviorManager::Slot00` case 3,
-//! `World::dock_event`, P3.6d). Left to other parts: the behaviour event 5
-//! to the requesting ship's followers in `pub::SpaceObj::Dock`.
+//! `World::dock_event`, P3.6d). `pub::SpaceObj::Dock` gives the requesting
+//! ship's follow followers the behaviour event 5
+//! ([`crate::api::space_obj::dock`]), and a ship leaving its system gives
+//! the system's other ships and solars the event 3
+//! ([`crate::world::remove_ship`]).
 
 use game_sim::equip::types;
 use game_sim::object::world::ServerRequest;

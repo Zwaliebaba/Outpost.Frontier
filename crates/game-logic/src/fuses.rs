@@ -23,9 +23,10 @@
 //! A burn lit or removed tells the players who can see the object
 //! (`StarSystem::broadcast_fuse`, [`crate::replication::fuse_burnt`]).
 //!
-//! Left to other parts: `Ship::light_fuse`'s word to the
-//! formation and follow followers' behaviour managers and the death
-//! branch's own behaviour event 7 (the behaviour manager's server link).
+//! `Ship::light_fuse` tells the formation and follow followers'
+//! behaviour managers that a ship's `death_comm` is lit (the behaviour
+//! event 7); the death branch's own event 7 is `EqObj::destroy`'s
+//! ([`crate::objects::destroy`]).
 //! A `destroy_hp_attachment` with the `loot` fate drops its container as
 //! the list is applied (`destroy_equip`'s loot branch,
 //! [`crate::objects::drop_pending_loot`]). A new ship's `check_fuses` runs
@@ -688,9 +689,58 @@ pub fn check_fuses(cx: &mut Cx<'_>, h: ObjHandle) {
 /// unless it is -1. An unknown fuse is reported. True when the fuse was
 /// found. A burn added tells the players of the object's system (the
 /// lifetime -1 for a copy already in the list, else the one applied or
-/// asked); a ship's word to its followers about `death_comm` is the
-/// behaviour manager's.
+/// asked). `Ship::light_fuse` then tells the followers of a ship whose
+/// `death_comm` was found ([`death_comm_to_followers`]).
 pub fn light_fuse(
+    cx: &mut Cx<'_>,
+    h: ObjHandle,
+    source: u32,
+    fuse: u32,
+    sub_obj: SubObjId,
+    at_t: f32,
+    lifetime: f32,
+) -> bool {
+    let lit = eq_obj_light_fuse(cx, h, source, fuse, sub_obj, at_t, lifetime);
+    if lit && fuse == death_comm_fuse() {
+        death_comm_to_followers(cx, h);
+    }
+    lit
+}
+
+/// `Ship::light_fuse`'s word to the followers (`Server/server_gameobject.cpp:
+/// 5441-5487`): on a ship, each formation follower, then each follow
+/// follower, that is live and no player's, and whose manager exists
+/// (`get_behavior_interface`), hears that its leader's death fuse is lit
+/// (the behaviour event 7 with the ship's id, `World::fuse_event`).
+fn death_comm_to_followers(cx: &mut Cx<'_>, h: ObjHandle) {
+    let Some(o) = cx.world.get(h).filter(|o| o.kind == ObjectKind::Ship) else {
+        return;
+    };
+    let id = o.simple.id;
+    let followers: Vec<ObjHandle> = o
+        .as_ship()
+        .map(|s| {
+            s.formation_followers
+                .iter()
+                .chain(&s.follow_followers)
+                .flatten()
+                .copied()
+                .collect()
+        })
+        .unwrap_or_default();
+    for follower in followers {
+        let npc = cx
+            .world
+            .get(follower)
+            .is_some_and(|f| !f.as_ship().is_some_and(|s| s.is_player));
+        if npc {
+            cx.world.fuse_event(follower, id);
+        }
+    }
+}
+
+/// `EqObj::light_fuse`, [`light_fuse`] without the ship's part.
+fn eq_obj_light_fuse(
     cx: &mut Cx<'_>,
     h: ObjHandle,
     source: u32,

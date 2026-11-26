@@ -26,7 +26,8 @@ use std::sync::Arc;
 use neuron_core::math::Vector;
 
 use super::behavior::{
-    AiEnv, Behavior, CancelRequest, Cx, DirectiveOp, DockEvent, EvaluateResult, LaneEvent, ids,
+    AiEnv, Behavior, CancelRequest, Cx, DirectiveOp, DockEvent, DockTargetEvent, EvaluateResult,
+    LaneEvent, ids,
 };
 use super::behaviors::{UnportedBehavior, create_behavior};
 use super::fp::{e, r};
@@ -804,6 +805,46 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
         }
         let fallback = self.state.f120;
         self.set_current_behavior(world, ship, fallback, true, None);
+    }
+
+    /// `IBehaviorManager::Slot00` case 5 (`common_behaviormanager.cpp:2332-2347`,
+    /// a ship's dock answer, `pub::SpaceObj::Dock`): nothing without a
+    /// current behaviour; when the formation block's current leader
+    /// (`GetCurrentLeader`) is the event's ship and the dock's type has a
+    /// bit of `0x120`, the block parks the dock and whether it has a port
+    /// (`SetValueB4`).
+    pub fn dock_target_event(&mut self, world: &W, event: &DockTargetEvent) {
+        if self.state.behavior == -1 {
+            return;
+        }
+        let formation = &mut self.state.sys.formation;
+        if formation.current_leader(world) != Some(event.ship) {
+            return;
+        }
+        if event.target_type & 0x120 == 0 {
+            return;
+        }
+        formation.value_b4 = (event.target, event.has_port);
+    }
+
+    /// `IBehaviorManager::Slot00` case 7 (`common_behaviormanager.cpp:2354-2366`,
+    /// a death fuse was lit: `EqObj::destroy` on the ship's own manager,
+    /// `Ship::light_fuse` on its followers'): nothing without a current
+    /// behaviour; the own ship's id takes behaviour `Field120` again
+    /// (`SetCurrentBehavior(Field120, false, 0)`) and stops the ticks
+    /// (`TickSuppressedFlag`); another id hides the formation block's
+    /// leaders (`SuppressCurrentLeader`).
+    pub fn fuse_event(&mut self, world: &mut W, ship: W::Handle, id: u32) {
+        if self.state.behavior == -1 {
+            return;
+        }
+        if world.inspect(ship).map(|v| v.id) == Some(id) {
+            let fallback = self.state.f120;
+            self.set_current_behavior(world, ship, fallback, false, None);
+            self.state.suppressed = true;
+            return;
+        }
+        self.state.sys.formation.leader_suppressed = true;
     }
 
     /// `IBehaviorManager::Slot00` case 2 (a player's manoeuvre,

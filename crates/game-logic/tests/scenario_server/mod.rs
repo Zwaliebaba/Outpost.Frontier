@@ -55,6 +55,17 @@ pub struct ScenarioHooks<'l> {
     /// world makes them, with the frame length to number the ticks
     /// (`scenario_hooks`' `guided_impact_order`, P3.11c).
     pub trace: Option<(f64, Vec<Note>)>,
+    /// Run the scenario as the oracle's server runs every scenario
+    /// (`content_startup`'s timers, P3.11d): its system loaded as the
+    /// server loads it, the server phantoms' events, and each frame ended
+    /// as `IServerImpl::ElapseTime` ends it (the phantoms' events pumped,
+    /// `BaseDB::update`, the bus's heartbeats and timers), without the
+    /// population.
+    pub bus: bool,
+    /// With `Some`, each frame's `TimerExpired` deliveries: tick,
+    /// controller and the timer's two words. [`heartbeat_hook`] must be
+    /// the logic's delivery hook.
+    pub timers: Option<Vec<(u32, u32, u32, u32)>>,
 }
 
 /// A damage list or a destruction the world made (tick numbered from 1).
@@ -81,6 +92,8 @@ impl<'l> ScenarioHooks<'l> {
             start_listing: Vec::new(),
             beats: None,
             trace: None,
+            bus: false,
+            timers: None,
         }
     }
 
@@ -107,11 +120,13 @@ impl<'l> ScenarioHooks<'l> {
 
 thread_local! {
     static HEARTBEATS: RefCell<Vec<(u32, u32)>> = const { RefCell::new(Vec::new()) };
+    static TIMERS: RefCell<Vec<(u32, u32, u32)>> = const { RefCell::new(Vec::new()) };
 }
 
 /// A delivery hook that notes each `Heartbeat` (controller, elapsed time
-/// bits) for [`ScenarioHooks::beats`] (`content_startup` uses it,
-/// `scenario_hooks` does not).
+/// bits) for [`ScenarioHooks::beats`] and each `TimerExpired`
+/// (controller, the two words) for [`ScenarioHooks::timers`]
+/// (`content_startup` uses it, `scenario_hooks` does not).
 #[allow(dead_code)]
 pub fn heartbeat_hook(
     _: &mut Cx<'_>,
@@ -119,8 +134,14 @@ pub fn heartbeat_hook(
     _: game_logic::server::ControllerKind,
     message: &mut ControllerMessage<'_>,
 ) {
-    if let ControllerMessage::Heartbeat { elapsed } = *message {
-        HEARTBEATS.with(|h| h.borrow_mut().push((id.0, elapsed.to_bits())));
+    match *message {
+        ControllerMessage::Heartbeat { elapsed } => {
+            HEARTBEATS.with(|h| h.borrow_mut().push((id.0, elapsed.to_bits())));
+        }
+        ControllerMessage::TimerExpired { param1, param2 } => {
+            TIMERS.with(|t| t.borrow_mut().push((id.0, param1, param2)));
+        }
+        _ => {}
     }
 }
 
@@ -193,6 +214,19 @@ impl ServerHooks for ScenarioHooks<'_> {
         true
     }
 
+    /// With [`ScenarioHooks::bus`], the server phantoms hear the world's
+    /// phantom events, which the frame's end pumps to the controllers.
+    fn phantom_event(
+        &mut self,
+        world: &mut World,
+        system: u32,
+        event: &neuron_core::physics::PhantomEvent,
+    ) {
+        if self.bus {
+            self.server.phantom_event(world, system, event);
+        }
+    }
+
     fn content_answer(
         &mut self,
         world: &mut World,
@@ -260,7 +294,7 @@ impl ScenarioServer for ScenarioHooks<'_> {
     /// reads), as the oracle's `OracleSimLoadSystem` does. The other
     /// scenarios keep the driver's load of the solars they need.
     fn load_system(&mut self, world: &mut World, system: u32) -> bool {
-        if self.population.is_none() {
+        if self.population.is_none() && !self.bus {
             return false;
         }
         let mut cx = Cx {
@@ -308,23 +342,34 @@ impl ScenarioServer for ScenarioHooks<'_> {
             })
             .collect();
         HEARTBEATS.with(|h| h.borrow_mut().clear());
+        TIMERS.with(|t| t.borrow_mut().clear());
     }
 
     /// The end of the oracle's `ElapseTime` in the populated scenario: the
     /// controllers' heartbeats, then the timers.
     fn after_step(&mut self, world: &mut World, _system: u32, tick: u32, dt: f32) {
-        if self.population.is_none() {
+        if self.population.is_none() && !self.bus {
             return;
         }
         let mut cx = Cx {
             world,
             logic: self.server.logic,
         };
+        if self.bus {
+            // The rest of `Server_PhysicsUpdate` (the server phantoms'
+            // events) and `Server_SubsystemUpdate` (`BaseDB::update`).
+            game_logic::api::phantom::pump_events(&mut cx);
+            game_logic::bases::update(&mut cx);
+        }
         neuron_server::controller::tick(&mut cx, dt);
         neuron_server::controller::fire_timers(&mut cx, dt);
         let beats = HEARTBEATS.with(|h| std::mem::take(&mut *h.borrow_mut()));
         if let Some(out) = &mut self.beats {
             out.extend(beats.into_iter().map(|(id, elapsed)| (tick, id, elapsed)));
+        }
+        let timers = TIMERS.with(|t| std::mem::take(&mut *t.borrow_mut()));
+        if let Some(out) = &mut self.timers {
+            out.extend(timers.into_iter().map(|(id, p1, p2)| (tick, id, p1, p2)));
         }
     }
 

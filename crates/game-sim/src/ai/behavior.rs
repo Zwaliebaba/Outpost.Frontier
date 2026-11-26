@@ -857,6 +857,21 @@ pub struct DockEvent {
     pub ship: u32,
 }
 
+/// The payload of the manager's type-5 event (`pub::SpaceObj::Dock`,
+/// `Server/server_pub.cpp:2774-2799`): a ship's dock answer, to each of its
+/// follow followers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DockTargetEvent {
+    /// +0x00 the dock's id.
+    pub target: u32,
+    /// +0x04 the dock's object type (`get_type`).
+    pub target_type: u32,
+    /// +0x08 the ship whose dock it is.
+    pub ship: u32,
+    /// +0x0c the answer named a port (`dock_port != -1`).
+    pub has_port: bool,
+}
+
 /// One behaviour (`class Behavior`). Slot numbers of the reference's
 /// vtable in brackets; the defaults are `Behavior`'s own bodies.
 pub trait Behavior<W: AiEnv + ?Sized> {

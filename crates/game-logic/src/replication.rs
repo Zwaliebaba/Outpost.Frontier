@@ -2588,6 +2588,33 @@ pub fn tractor_objects(
     }
 }
 
+/// `StarSystem::tractor_loot`'s notice (`Server/server_classes.cpp:
+/// 6403-6425`): `ITEMTRACTORED` (the loot, the ship, the tractor, the
+/// units as a word) to every player of the system that can see the ship.
+pub fn item_tractored(
+    cx: &mut Cx<'_>,
+    system: u32,
+    loot: u32,
+    ship: u32,
+    tractor: SubObjId,
+    units: u32,
+) {
+    for player in players_seeing(cx, system, ship, None) {
+        crate::client::item_tractored(cx, player, loot, ship, tractor, units as u16);
+    }
+}
+
+/// `StarSystem::send_mine_explosion` (`Server/server_classes.cpp:
+/// 9003-9010`, `SystemPlayerView_SendMineExplosion`, `:8550-8562`): to
+/// every player of the system, outside single player only those that can
+/// see the mine (a mine the lookup misses is visible),
+/// `EXPLODEASTEROIDMINE` with the mine's id and the explosion's offset.
+pub fn mine_explosion(cx: &mut Cx<'_>, system: u32, mine: u32, offset: Vector) {
+    for player in players_seeing(cx, system, mine, None) {
+        crate::client::explode_asteroid_mine(cx, player, mine, offset);
+    }
+}
+
 /// `StarSystem::use_item` (`EqObj::slot_58`, `server_classes.cpp:6504`):
 /// when the object is its owner's current ship, the owner's record loses
 /// the items (no notice); then `USE_ITEM` (the object, the item, the count

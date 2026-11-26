@@ -213,6 +213,9 @@ struct Body {
     /// A radius around the object's origin that holds every ledge: the
     /// contact pass skips a pair whose spheres cannot meet in the PSI.
     bound_radius: f32,
+    /// Made since the phantoms last looked: the next step's start tests it
+    /// against every phantom (`update_phantoms`).
+    phantom_fresh: bool,
 }
 
 /// The radius around the object's origin that holds every ledge of a
@@ -268,6 +271,9 @@ struct Phantom {
     /// the next one (IVP evaluates the mindists in the PSI after the pose;
     /// see `update_phantoms`).
     pending: Vec<BodyHandle>,
+    /// Made since the last update: the next step's start tests it against
+    /// every body.
+    fresh: bool,
 }
 
 fn short_name(name: &[u8]) -> [u8; 8] {
@@ -676,6 +682,7 @@ impl PhysicsWorld {
             golem_order: 0,
             client_class: 0,
             bound_radius: bound,
+            phantom_fresh: true,
         }));
         if let Some(slot) = self.cores.get_mut(core_index) {
             slot.objects.push(handle);

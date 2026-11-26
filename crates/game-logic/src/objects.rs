@@ -803,11 +803,12 @@ pub fn base_destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32) {
 ///   with a `destroy_root` was lit before) runs the death fuse branch once:
 ///   an NPC destroyed by damage sends `DeathFuseLit`, and a positive
 ///   answer (the death conversation's length) lights `death_comm` with
-///   that lifetime; once it is lit the object loses its behaviour manager
-///   (`CEqObj::disconnect`), its queued docks their always-updated entries
+///   that lifetime; once it is lit its behaviour manager hears it (the
+///   event 7 with the object's id, `game_sim::object::World::fuse_event`),
+///   then the object loses the manager (`CEqObj::disconnect`), its queued
+///   docks their always-updated entries
 ///   ([`crate::dock::release_always_update`]), and it stays until the fuse
-///   destroys it. The behaviour event 7 comes with the behaviour manager's
-///   server link. A player's
+///   destroys it. A player's
 ///   ship destroyed by damage on a multiplayer server is announced to
 ///   every session (group notice 0x14). Then the hit points
 ///   go to 0, `ObjectDestroyed` carries what a destroyed-by-damage object
@@ -865,8 +866,9 @@ pub fn destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32, killer: u32) -> bool {
                         lifetime,
                     )
                 {
-                    // The behaviour event 7 comes with the behaviour
-                    // manager's server link.
+                    // The own manager hears that the death fuse is lit
+                    // (the behaviour event 7 with the object's id).
+                    cx.world.fuse_event(h, id);
                     crate::dock::release_always_update(cx, h);
                     cx.world.drop_behavior_manager(h);
                     return false;
