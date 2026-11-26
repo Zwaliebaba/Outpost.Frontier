@@ -430,6 +430,104 @@ mouse_size = 0.1, 0.2, 0\nno_z_enable = 1\nz_order = 3\ntooltip = 12\nsubcontrol
 }
 
 #[test]
+fn base_frame_children_find_their_parent_and_the_hook_sees_the_load() {
+    // `WinControl::LoadIni` builds the children with the control in its
+    // node: a button's empty hardpoint asks the parent, whose answer is the
+    // parent's offset (`GetHardpointTransform` without a mesh), and its
+    // position includes it, also after its siblings' `Create` placed the
+    // parent again.
+    let ini = b"[BaseFrame]\noffset = 0, 0.349999994, -1\n\n\
+[A]\nclass_name = ButtonControl\nhardpoint = \n\n\
+[B]\nclass_name = ButtonControl\nhardpoint = \n";
+    let mut ui = ui();
+    let loads = Rc::new(RefCell::new(Vec::new()));
+    let seen = Rc::clone(&loads);
+    ui.ini_loaded = Some(Box::new(move |ui: &Ui, id, name: &[u8]| {
+        seen.borrow_mut()
+            .push((id, name.to_vec(), ui.children(id).len()));
+    }));
+    let id = make(&mut ui, Box::new(PlainControl::default()), None);
+    let mut reader = neuron_core::ini::IniReader::new();
+    assert!(reader.open(b"bar.ini", ini.to_vec()));
+    load_ini(&mut ui, id, &mut reader);
+    let offset = Vector::new(0.0, f32::from_bits(0x3EB3_3333), -1.0);
+    for child in ui.children(id) {
+        assert_eq!(ui.node(child).unwrap().position, offset);
+    }
+    assert_eq!(*loads.borrow(), vec![(id, b"bar.ini".to_vec(), 2)]);
+    // A file without `[BaseFrame]` loads nothing and is not reported.
+    let mut reader = neuron_core::ini::IniReader::new();
+    assert!(reader.open(b"other.ini", b"[Other]\nx = 1\n".to_vec()));
+    load_ini(&mut ui, id, &mut reader);
+    assert_eq!(loads.borrow().len(), 1);
+}
+
+/// A control that runs `LoadIni` from its own `Create`, through
+/// `Ui::lend`.
+#[derive(Debug, Default)]
+struct LendingControl {
+    control: crate::ui::control::WinControl,
+    created: bool,
+}
+
+impl Widget for LendingControl {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+    fn win_control(&self) -> Option<&crate::ui::control::WinControl> {
+        Some(&self.control)
+    }
+    fn win_control_mut(&mut self) -> Option<&mut crate::ui::control::WinControl> {
+        Some(&mut self.control)
+    }
+    fn set_position(&mut self, ui: &mut Ui, id: NodeId, position: Vector) {
+        base::set_position(ui, id, &mut self.control, position);
+    }
+    fn create(
+        &mut self,
+        ui: &mut Ui,
+        id: NodeId,
+        parent: Option<NodeId>,
+        _payload: &mut Payload<'_>,
+    ) -> bool {
+        ui.base_create(id, parent);
+        let mut reader = neuron_core::ini::IniReader::new();
+        assert!(reader.open_memory(
+            b"[BaseFrame]\noffset = 1, 2, 3\n\n[A]\nclass_name = ButtonControl\nhardpoint = \n"
+        ));
+        assert!(
+            ui.win_control(id).is_none(),
+            "out of its node while it runs"
+        );
+        assert!(ui.is_win_control(id), "its type known all the same");
+        ui.lend(id, self, |ui| load_ini(ui, id, &mut reader));
+        self.created = true;
+        true
+    }
+}
+
+#[test]
+fn a_lent_widget_keeps_what_the_call_through_its_node_changed() {
+    let mut ui = ui();
+    let id = make(&mut ui, Box::new(LendingControl::default()), None);
+    let w = ui.widget::<LendingControl>(id).unwrap();
+    assert!(w.created);
+    assert_eq!(w.control.offset, Vector::new(1.0, 2.0, 3.0));
+    let child = ui.children(id)[0];
+    assert_eq!(ui.node(child).unwrap().position, Vector::new(1.0, 2.0, 3.0));
+    // Lending a widget that is not out of its node runs the call only.
+    let mut spare = LendingControl::default();
+    let mut ran = false;
+    ui.lend(id, &mut spare, |_| ran = true);
+    assert!(ran);
+    assert!(!spare.created);
+    assert!(ui.widget::<LendingControl>(id).unwrap().created);
+}
+
+#[test]
 fn a_master_window_places_its_page_in_the_height_frame() {
     let desc = PageDesc::load(
         b"UIStaticText Title -0.5 0.375 1.0 0.05 \"Hello\"\nUIStaticText Other 0 0 0.5 0.1\n",

@@ -348,6 +348,9 @@ pub trait Widget: Any {
     }
 }
 
+/// See [`Ui::ini_loaded`].
+pub type IniLoadHook = Box<dyn FnMut(&Ui, NodeId, &[u8])>;
+
 /// The messages of `WinControl::SetProperty` (slot 42) and those a child's
 /// hit test sends its parent.
 #[derive(Debug)]
@@ -476,11 +479,16 @@ pub struct Node {
     /// Widescreen placement.
     pub anchor: Anchor,
     widget: Option<Box<dyn Widget>>,
+    /// The widget is a `WinControl` (slot 2), known also while the widget
+    /// is out of the node for one of its methods.
+    is_control: bool,
 }
 
 impl Node {
     fn new(widget: Option<Box<dyn Widget>>) -> Node {
+        let is_control = widget.as_ref().is_some_and(|w| w.win_control().is_some());
         Node {
+            is_control,
             class_name: None,
             name: Vec::new(),
             parent: None,
@@ -575,6 +583,10 @@ pub struct Ui {
     pub mesh_loader: Option<Box<dyn super::control::MeshLoader>>,
     /// The control factories.
     pub factory: Factory,
+    /// The client's hook on every `WinControl::LoadIni` that found
+    /// `[BaseFrame]`, called after the children were built with the
+    /// control and the reader's file name (`OracleOnWinControlIni`).
+    pub ini_loaded: Option<IniLoadHook>,
     /// The client's fonts, which text controls lay out and release their
     /// strings with.
     pub fonts: Option<FontSystem>,
@@ -637,6 +649,7 @@ impl Ui {
             tooltip_requests: Vec::new(),
             mesh_loader: None,
             factory: Factory::with_toolkit(),
+            ini_loaded: None,
             fonts: None,
             pulse: Pulse::default(),
             frame_time: 0.0,
@@ -762,6 +775,13 @@ impl Ui {
         self.node(id)?.widget.as_ref()?.win_control()
     }
 
+    /// Whether a node's widget is a `WinControl` (slot 2 answers), also
+    /// while one of its methods runs.
+    #[must_use]
+    pub fn is_win_control(&self, id: NodeId) -> bool {
+        self.node(id).is_some_and(|n| n.is_control)
+    }
+
     pub fn win_control_mut(&mut self, id: NodeId) -> Option<&mut WinControl> {
         self.node_mut(id)?.widget.as_mut()?.win_control_mut()
     }
@@ -787,6 +807,39 @@ impl Ui {
             self.deliver_pending_child_messages(id);
         }
         result
+    }
+
+    /// Runs `f` with `this`, the widget of node `id` whose method runs, back
+    /// in its node, and takes it out again after: calls through the tree
+    /// that reach the node while `f` runs find the widget and its state, as
+    /// the reference's calls reach the object (this narrows D347). A node
+    /// whose widget is not out, or that `f` deletes, leaves `this` as it is.
+    pub fn lend<W: Widget + Default>(&mut self, id: NodeId, this: &mut W, f: impl FnOnce(&mut Ui)) {
+        match self.node_mut(id) {
+            Some(node) if node.widget.is_none() => {
+                node.widget = Some(Box::new(std::mem::take(this)));
+            }
+            _ => {
+                f(self);
+                return;
+            }
+        }
+        f(self);
+        if let Some(mut widget) = self.node_mut(id).and_then(|n| n.widget.take())
+            && let Some(back) = widget.as_any_mut().downcast_mut::<W>()
+        {
+            *this = std::mem::take(back);
+        }
+    }
+
+    /// Calls [`Ui::ini_loaded`] for the control `id` and the file `name`.
+    pub fn notify_ini_loaded(&mut self, id: NodeId, name: &[u8]) {
+        if let Some(mut hook) = self.ini_loaded.take() {
+            hook(self, id, name);
+            if self.ini_loaded.is_none() {
+                self.ini_loaded = Some(hook);
+            }
+        }
     }
 
     /// The slot 23 messages that waited for `id`, in the order they came;

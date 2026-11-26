@@ -624,12 +624,16 @@ pub mod base {
         }
     }
 
-    /// `WinControl::LoadIni`: the `[BaseFrame]` keys, then every further
-    /// section with a `class_name` built through the factory as a child
-    /// named after the section, the reader handed to its `Create`.
-    pub fn load_ini(ui: &mut Ui, id: NodeId, this: &mut WinControl, ini: &mut IniReader) {
+    /// The `[BaseFrame]` part of `WinControl::LoadIni`: false when the file
+    /// has no such section (the load then ends).
+    pub fn load_base_frame(
+        ui: &mut Ui,
+        id: NodeId,
+        this: &mut WinControl,
+        ini: &mut IniReader,
+    ) -> bool {
         if !ini.find_header(b"BaseFrame") || !ini.is_header(b"BaseFrame") {
-            return;
+            return false;
         }
         while ini.read_value() {
             if ini.is_value(b"behavior") || ini.is_value(b"subcontrol") {
@@ -673,6 +677,13 @@ pub mod base {
                 this.tooltip_ids = trunc_to_i32(ini.value_float(0));
             }
         }
+        true
+    }
+
+    /// The children part of `WinControl::LoadIni`: every section after
+    /// `[BaseFrame]` with a `class_name`, built through the factory under
+    /// `id` and named after the section.
+    pub fn load_children(ui: &mut Ui, id: NodeId, ini: &mut IniReader) {
         while ini.read_header() {
             let section = ini.header();
             while ini.read_value() {
@@ -713,11 +724,12 @@ impl WinControl {
     }
 
     /// `WinControl::GetAttachOrientation`: the attach orientation while
-    /// attached to a `WinControl` parent, else identity.
+    /// attached to a `WinControl` parent (also one whose method runs), else
+    /// identity.
     #[must_use]
     pub fn attach_orientation(&self, ui: &Ui, id: NodeId) -> Matrix {
         match ui.parent(id) {
-            Some(p) if self.attached && ui.win_control(p).is_some() => self.attach_orientation,
+            Some(p) if self.attached && ui.is_win_control(p) => self.attach_orientation,
             _ => Matrix::IDENTITY,
         }
     }
@@ -726,7 +738,7 @@ impl WinControl {
     #[must_use]
     pub fn attach_position(&self, ui: &Ui, id: NodeId) -> Vector {
         match ui.parent(id) {
-            Some(p) if self.attached && ui.win_control(p).is_some() => self.attach_position,
+            Some(p) if self.attached && ui.is_win_control(p) => self.attach_position,
             _ => Vector::ZERO,
         }
     }
@@ -791,13 +803,24 @@ impl Widget for PlainControl {
     }
 }
 
-/// Loads a `[BaseFrame]` file into the control `id` (slot 28).
+/// `WinControl::LoadIni` into the control `id` (slot 28): the
+/// `[BaseFrame]` keys, then every further section with a `class_name` built
+/// through the factory as a child named after the section, the reader
+/// handed to its `Create`, then [`Ui::ini_loaded`]. The keys are read with
+/// the control's widget out of its node and the children are built with it
+/// back, so that a child's `Create` finds its parent's control (its offset
+/// and hardpoints), as in the reference. A control whose method runs calls
+/// this through [`Ui::lend`].
 pub fn load_ini(ui: &mut Ui, id: NodeId, ini: &mut IniReader) {
-    ui.with_widget(id, (), |w, ui| {
-        if let Some(c) = w.win_control_mut() {
-            base::load_ini(ui, id, c, ini);
-        }
+    let found = ui.with_widget(id, false, |w, ui| {
+        w.win_control_mut()
+            .is_some_and(|c| base::load_base_frame(ui, id, c, ini))
     });
+    if found {
+        base::load_children(ui, id, ini);
+        let name = ini.file_name().to_vec();
+        ui.notify_ini_loaded(id, &name);
+    }
 }
 
 /// The position a `WinControl` parent's slot 5 hands this control when the
