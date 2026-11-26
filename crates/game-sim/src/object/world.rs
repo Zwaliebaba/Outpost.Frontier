@@ -44,6 +44,7 @@ mod launch_action;
 mod loot_drop;
 mod mine;
 mod phantom;
+pub use ai::MotionState;
 pub use guided::GuidedTrace;
 mod sensors;
 mod solar_partition;

@@ -46,10 +46,13 @@
 //! its `LaunchAction`; its end lifts the launch invincibility
 //! ([`crate::ship::launch_complete`]).
 //!
-//! Left to other parts: the behaviour events of a dock (event 5 to the
-//! requesting ship's followers in `pub::SpaceObj::Dock`, event 3 to every
-//! NPC ship's manager in `complete_dock`: the behaviour manager's server
-//! link, `IBehaviorManager::Slot00`).
+//! `complete_dock` first sends the behaviour event 3 to every NPC ship's
+//! manager in the system (`IBehaviorManager::Slot00` case 3,
+//! `World::dock_event`, P3.6d). `pub::SpaceObj::Dock` gives the requesting
+//! ship's follow followers the behaviour event 5
+//! ([`crate::api::space_obj::dock`]), and a ship leaving its system gives
+//! the system's other ships and solars the event 3
+//! ([`crate::world::remove_ship`]).
 
 use game_sim::equip::types;
 use game_sim::object::world::ServerRequest;
@@ -460,10 +463,16 @@ pub fn complete_dock(cx: &mut Cx<'_>, system: u32, ship: ObjHandle, dock: ObjHan
         Some(s) if s.death_sequence_obj_id == 0 => {}
         _ => return,
     }
-    // The behaviour event 3 to every NPC ship's manager comes with the
-    // behaviour manager's server link.
+    // The behaviour event 3 to every NPC ship's manager: the docked ship,
+    // the dock and the dock's type (P3.6d; D867 removed).
     let ship_id = cx.world.get(ship).map_or(0, |o| o.simple.id);
     let dock_id = cx.world.get(dock).map_or(0, |o| o.simple.id);
+    let event = game_sim::ai::behavior::DockEvent {
+        dock: dock_id,
+        dock_type: type_bits(cx, dock),
+        ship: ship_id,
+    };
+    cx.world.dock_event(system, &event);
     let _ = cx.dispatch(
         ControllerId::BROADCAST,
         &mut ControllerMessage::DockComplete {

@@ -15,18 +15,34 @@
 //! - the controllers the oracle's server made (`session.jsonl`'s
 //!   `heartbeats`: list order, id, priority, interval and phase), against
 //!   the port's start-up from the oracle's `[Initial MP DLLs]` rows
-//!   (GameSupport, SpaceSupport, BaseSupport) on `startup_seed`;
+//!   (GameSupport, SpaceSupport, BaseSupport) on `startup_seed`; for the
+//!   populated scenario (`population <ship>`, P3.6d) the port's side is
+//!   the scenario's run through game-sim's driver on the oracle's start-up
+//!   (`scenario_server`), whose population makes SpacePop after the spawns
+//!   as `OracleSimPopulate` does, its phase drawn from the reseeded
+//!   generator in load_rand's `population` phase;
 //! - with the dispatch trace (`dispatch.jsonl`, record 0006 point 10), every
 //!   `Heartbeat` delivered to a Content controller, by tick, id and elapsed
-//!   time, against the port's bus stepped with the scenario's frame;
+//!   time, against the port's bus stepped with the scenario's frame (the
+//!   populated scenario: the heartbeats of its run);
 //! - the `TimerExpired` deliveries to Content's controllers, whose first
-//!   word is a value of Content's counter: reported with the timer the
-//!   port's counter gives that value.
+//!   word is a value of Content's counter (record 0008 point 10: the
+//!   counter's values against the timers of the dispatch trace), by tick,
+//!   id and both words, against the port's run of the scenario as the
+//!   oracle's server runs it (`scenario_server`'s `bus`: the system loaded
+//!   as the server loads it, each frame ended with the bus's heartbeats and
+//!   timers; the populated scenario: its run). The dock hail's second word
+//!   is a heap address in the C++ and 0 in the port (D934), so for the
+//!   dock-hail timer the port's must be 0 and the oracle's is not compared.
+//!   Each oracle delivery is reported with the timer the port's counter
+//!   gives its first word.
 //!
 //! `load_rand.jsonl`'s `controller` phase is reported beside them: it holds
 //! the harness's create of its own controller, after Content's
 //! controllers drew their phases inside `IServerImpl::Startup`.
 //! The summary goes to `rust-content-startup.txt` in the oracle folder.
+
+mod scenario_server;
 
 use std::fmt::Write as _;
 use std::fs;
@@ -40,12 +56,16 @@ use game_logic::events::ControllerMessage;
 use game_logic::server::{ControllerKind, CreateParams, Cx, Logic, RecordingSink};
 use game_sim::data::config::{DataConfig, GameData};
 use game_sim::object::World;
-use game_sim::object::world::WorldConfig;
+use game_sim::object::world::{Assets, WorldConfig};
 use game_sim::scenario::records::{Json, find_files, read_lines};
+use game_sim::scenario::{
+    Scenario, needs_ai, oracle_ai_inputs, parse, scenarios_dir, world_config,
+};
 use neuron_core::ini::IniReader;
 use neuron_core::rng::CrtRand;
 use neuron_core::vfs::Host;
 use neuron_server::controller::{self, ControllerId, Priority};
+use scenario_server::{ScenarioHooks, population_ship};
 
 fn outdir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../outdir")
@@ -753,37 +773,18 @@ fn oracle_start_up_and_heartbeats() {
             .map(|(_, l)| l)
             .collect();
 
-        // The port's start-up on the same seed.
-        let mut world = World::new(data.clone(), WorldConfig::default());
-        world.rng().seed(seed);
-        let mut logic = Logic::new(Box::new(RecordingSink::default()), 16, true);
-        let mut cx = Cx {
-            world: &mut world,
-            logic: &mut logic,
+        // The port's start-up on the same seed: for the populated scenario
+        // (`population <ship>`, P3.6d) its run through the driver, whose
+        // population makes SpacePop after the spawns as the oracle's
+        // `OracleSimPopulate` does.
+        let scenario_file = scenarios_dir().join(format!("{name}.txt"));
+        let reseed = server.get("reseed").and_then(Json::as_u32);
+        let port = match (population_ship(&scenario_file), parse(&scenario_file)) {
+            (Some(ship), Some(s)) => populated_start_up(&data, seed, reseed, &dir, &s, ship),
+            _ => start_up(&data, &rows, seed, frame as f32, ticks),
         };
-        for row in &rows {
-            let _ = controller::create(
-                &mut cx,
-                &row.dll,
-                &row.instance,
-                &CreateParams::None,
-                row.priority,
-            );
-        }
-        let content_ids: Vec<u32> = cx.logic.bus.active().iter().map(|n| n.id.0).collect();
-        let ours: Vec<Listed> = cx
-            .logic
-            .bus
-            .active()
-            .iter()
-            .map(|n| Listed {
-                flid: n.id.0,
-                priority: n.priority.value(),
-                interval: n.heartbeat_period.to_bits(),
-                phase: n.heartbeat_accum.to_bits(),
-                deferred: false,
-            })
-            .collect();
+        let content_ids: Vec<u32> = port.listing.iter().map(|l| l.flid).collect();
+        let ours = port.listing.clone();
         let same = ours == theirs;
         let _ = writeln!(
             summary,
@@ -836,21 +837,12 @@ fn oracle_start_up_and_heartbeats() {
             .filter(|d| d.msg == 0x20 && content_ids.contains(&d.flid))
             .map(|d| (d.tick, d.flid, d.elapsed.map_or(0, f32::to_bits)))
             .collect();
-        let mut our_beats = Vec::new();
-        TRACE.with(|t| *t.borrow_mut() = Vec::new());
-        cx.logic.deliver_hook = Some(|_, id, _, message| {
-            if let ControllerMessage::Heartbeat { elapsed } = *message {
-                TRACE.with(|t| t.borrow_mut().push((id.0, elapsed.to_bits())));
-            }
-        });
-        let dt = frame as f32;
-        for tick in 1..=ticks {
-            controller::tick(&mut cx, dt);
-            controller::fire_timers(&mut cx, dt);
-            for (flid, elapsed) in TRACE.with(|t| std::mem::take(&mut *t.borrow_mut())) {
-                our_beats.push((tick, flid, elapsed));
-            }
-        }
+        let our_beats: Vec<(u32, u32, u32)> = port
+            .beats
+            .iter()
+            .copied()
+            .filter(|b| content_ids.contains(&b.1))
+            .collect();
         let first_difference = their_beats
             .iter()
             .zip(&our_beats)
@@ -876,25 +868,67 @@ fn oracle_start_up_and_heartbeats() {
         if first_difference.is_some() {
             failures.push(format!("{name}: the heartbeats"));
         }
-        let mut timers = 0;
-        for d in deliveries
+        // The timers: the port's run of the scenario as the oracle's
+        // server runs it (the populated scenario's is its start-up run).
+        let their_timers: Vec<Timer> = deliveries
             .iter()
             .filter(|d| d.msg == 0x3e && content_ids.contains(&d.flid))
-        {
-            timers += 1;
-            if timers <= 20 {
-                let p1 = d.p1.unwrap_or(0);
-                let _ = writeln!(
-                    summary,
-                    "  TimerExpired at tick {} to {}: {{{p1}, {}}}, {}",
-                    d.tick,
-                    d.flid,
-                    d.p2.unwrap_or(0),
-                    timer_name(cx.logic, p1)
-                );
+            .map(|d| (d.tick, d.flid, d.p1.unwrap_or(0), d.p2.unwrap_or(0)))
+            .collect();
+        let run = match (port.timers.clone(), parse(&scenario_file)) {
+            (Some(timers), _) => Some((timers, None)),
+            (None, Some(s)) if needs_ai(&s).is_none() => {
+                let (timers, logic) = bus_run(&data, seed, reseed, &dir, &s);
+                Some((timers, Some(logic)))
             }
+            _ => None,
+        };
+        let Some((our_timers, run_logic)) = run else {
+            let _ = writeln!(
+                summary,
+                "  TimerExpired to Content: oracle {}, the port's run is skipped",
+                their_timers.len()
+            );
+            continue;
+        };
+        let logic = run_logic.as_ref().unwrap_or(&port.logic);
+        for (i, &(tick, flid, p1, p2)) in their_timers.iter().enumerate().take(20) {
+            let _ = writeln!(
+                summary,
+                "  TimerExpired {i} at tick {tick} to {flid}: {{{p1}, {p2}}}, {}",
+                timer_name(logic, p1)
+            );
         }
-        let _ = writeln!(summary, "  TimerExpired to Content: {timers}");
+        let our_timers: Vec<Timer> = our_timers
+            .into_iter()
+            .filter(|t| content_ids.contains(&t.1))
+            .collect();
+        let hail = logic.content.state.load_ids.dock_hail_timer;
+        let first_difference = their_timers
+            .iter()
+            .zip(&our_timers)
+            .position(|(a, b)| !same_timer(a, b, hail))
+            .or_else(|| {
+                (their_timers.len() != our_timers.len())
+                    .then(|| their_timers.len().min(our_timers.len()))
+            });
+        let _ = writeln!(
+            summary,
+            "  TimerExpired to Content: oracle {}, port {}{}",
+            their_timers.len(),
+            our_timers.len(),
+            match first_difference {
+                None => ", equal".to_owned(),
+                Some(i) => format!(
+                    ", first difference at {i}: oracle {}, port {}",
+                    timer(their_timers.get(i)),
+                    timer(our_timers.get(i))
+                ),
+            }
+        );
+        if first_difference.is_some() {
+            failures.push(format!("{name}: the timers"));
+        }
     }
     let _ = writeln!(
         summary,
@@ -908,6 +942,210 @@ fn oracle_start_up_and_heartbeats() {
     print!("{summary}");
     let _ = fs::write(dir.join("rust-content-startup.txt"), &summary);
     assert!(failures.is_empty(), "{failures:?}");
+}
+
+/// A `TimerExpired` delivery: tick, controller and the timer's two words.
+type Timer = (u32, u32, u32, u32);
+
+/// A timer delivery as `tick flid {p1, p2}`.
+fn timer(t: Option<&Timer>) -> String {
+    t.map_or_else(
+        || "none".to_owned(),
+        |&(tick, flid, p1, p2)| format!("tick {tick} to {flid}: {{{p1}, {p2}}}"),
+    )
+}
+
+/// The oracle's delivery `a` and the port's `b` are the same timer: the
+/// tick, the controller and the first word (Content's counter) equal, and
+/// the second word too, but for the dock hail's, whose C++ word is the
+/// address of the remembered hail and the port's 0 (D934).
+fn same_timer(a: &Timer, b: &Timer, dock_hail: u32) -> bool {
+    a.0 == b.0
+        && a.1 == b.1
+        && a.2 == b.2
+        && if a.2 == dock_hail {
+            b.3 == 0
+        } else {
+            a.3 == b.3
+        }
+}
+
+/// The port's side of one scenario's start-up: the bus's list when frame
+/// 1 starts, the heartbeats of the run (tick, controller, elapsed bits),
+/// the run's timers when the start-up is the scenario's run (the populated
+/// scenario) and the logic after it.
+struct PortStartUp {
+    listing: Vec<Listed>,
+    beats: Vec<(u32, u32, u32)>,
+    timers: Option<Vec<Timer>>,
+    logic: Logic,
+}
+
+/// A scenario without a population as the oracle's server runs it, for
+/// its timers: the oracle's start-up on `seed`
+/// (`scenario_server::content_start_up`), then the scenario through
+/// game-sim's driver from the oracle's `reseed`, its system loaded as the
+/// server loads it (`OracleSimLoadSystem`) and each frame ended with the
+/// bus's heartbeats and timers, as the oracle's `ElapseTime` does
+/// (`ScenarioHooks::bus`). Returns the timers and the logic after the run.
+fn bus_run(
+    data: &Arc<GameData>,
+    seed: u32,
+    reseed: Option<u32>,
+    oracle: &Path,
+    s: &Scenario,
+) -> (Vec<Timer>, Logic) {
+    let mut s = s.clone();
+    if reseed.is_some() {
+        s.reseed = reseed;
+    }
+    let ai = oracle_ai_inputs(oracle, &s.name);
+    let mut world =
+        World::new(data.clone(), world_config(&s)).with_assets(Assets::new(outdir().join("data")));
+    world.rng().seed(seed);
+    let mut logic = Logic::new(Box::new(RecordingSink::default()), 16, true);
+    {
+        let mut cx = Cx {
+            world: &mut world,
+            logic: &mut logic,
+        };
+        scenario_server::content_start_up(&mut cx, &outdir());
+        if s.comms_off {
+            cx.logic.content.state.clamps.set_gcs_clamp_enabled(1);
+        }
+    }
+    logic.deliver_hook = Some(scenario_server::heartbeat_hook);
+    let mut hooks = ScenarioHooks::new(&mut logic, s.rust_server.is_some(), None);
+    hooks.bus = true;
+    hooks.timers = Some(Vec::new());
+    let _ = game_sim::scenario::run_with(world, &s, &ai, &mut hooks);
+    let timers = hooks.timers.take().unwrap_or_default();
+    drop(hooks);
+    (timers, logic)
+}
+
+/// The listing entry of a bus node.
+fn bus_listed(&(flid, priority, interval, phase): &scenario_server::Listed) -> Listed {
+    Listed {
+        flid,
+        priority,
+        interval: interval.to_bits(),
+        phase: phase.to_bits(),
+        deferred: false,
+    }
+}
+
+/// The oracle's start-up of a scenario without a population: the rows on
+/// `seed`, then the bus stepped with the scenario's frame.
+fn start_up(
+    data: &Arc<GameData>,
+    rows: &[neuron_server::controller::InitialController],
+    seed: u32,
+    dt: f32,
+    ticks: u32,
+) -> PortStartUp {
+    let mut world = World::new(data.clone(), WorldConfig::default());
+    world.rng().seed(seed);
+    let mut logic = Logic::new(Box::new(RecordingSink::default()), 16, true);
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    for row in rows {
+        let _ = controller::create(
+            &mut cx,
+            &row.dll,
+            &row.instance,
+            &CreateParams::None,
+            row.priority,
+        );
+    }
+    let listing = cx
+        .logic
+        .bus
+        .active()
+        .iter()
+        .map(|n| {
+            bus_listed(&(
+                n.id.0,
+                n.priority.value(),
+                n.heartbeat_period,
+                n.heartbeat_accum,
+            ))
+        })
+        .collect();
+    TRACE.with(|t| *t.borrow_mut() = Vec::new());
+    cx.logic.deliver_hook = Some(|_, id, _, message| {
+        if let ControllerMessage::Heartbeat { elapsed } = *message {
+            TRACE.with(|t| t.borrow_mut().push((id.0, elapsed.to_bits())));
+        }
+    });
+    let mut beats = Vec::new();
+    for tick in 1..=ticks {
+        controller::tick(&mut cx, dt);
+        controller::fire_timers(&mut cx, dt);
+        for (flid, elapsed) in TRACE.with(|t| std::mem::take(&mut *t.borrow_mut())) {
+            beats.push((tick, flid, elapsed));
+        }
+    }
+    PortStartUp {
+        listing,
+        beats,
+        timers: None,
+        logic,
+    }
+}
+
+/// The populated scenario's start-up (P3.6d): the oracle's start-up
+/// (`scenario_server::content_start_up`, the harness's controller id
+/// included) on `seed`, then the scenario through game-sim's driver from
+/// the oracle's `reseed`, whose population (`OracleSimPopulate`: player 1,
+/// then SpacePop, whose constructor draws its 3 s heartbeat's phase from
+/// the reseeded generator after the spawns' draws, in load_rand's
+/// `population` phase) gives the list frame 1 finds, and whose frames end
+/// with the bus's heartbeats and timers as the oracle's `ElapseTime` does.
+fn populated_start_up(
+    data: &Arc<GameData>,
+    seed: u32,
+    reseed: Option<u32>,
+    oracle: &Path,
+    s: &Scenario,
+    ship: String,
+) -> PortStartUp {
+    let mut s = s.clone();
+    if reseed.is_some() {
+        s.reseed = reseed;
+    }
+    let ai = oracle_ai_inputs(oracle, &s.name);
+    let mut world =
+        World::new(data.clone(), world_config(&s)).with_assets(Assets::new(outdir().join("data")));
+    world.rng().seed(seed);
+    let mut logic = Logic::new(Box::new(RecordingSink::default()), 16, true);
+    {
+        let mut cx = Cx {
+            world: &mut world,
+            logic: &mut logic,
+        };
+        scenario_server::content_start_up(&mut cx, &outdir());
+        if s.comms_off {
+            cx.logic.content.state.clamps.set_gcs_clamp_enabled(1);
+        }
+    }
+    logic.deliver_hook = Some(scenario_server::heartbeat_hook);
+    let mut hooks = ScenarioHooks::new(&mut logic, s.rust_server.is_some(), Some(ship));
+    hooks.beats = Some(Vec::new());
+    hooks.timers = Some(Vec::new());
+    let _ = game_sim::scenario::run_with(world, &s, &ai, &mut hooks);
+    let listing = hooks.start_listing.iter().map(bus_listed).collect();
+    let beats = hooks.beats.take().unwrap_or_default();
+    let timers = hooks.timers.take();
+    drop(hooks);
+    PortStartUp {
+        listing,
+        beats,
+        timers,
+        logic,
+    }
 }
 
 thread_local! {

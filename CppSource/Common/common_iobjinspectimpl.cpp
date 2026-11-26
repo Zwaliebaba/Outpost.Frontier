@@ -1199,6 +1199,18 @@ int IObjInspectImpl::get_scanlist(ScanList const*& OutList, uint Type, bool bFla
     }
     Scanner->scan_for_types(Type);
     OutList = &Scanner->Scans;
+    if (GOracleAiHooks.OnAnswer != nullptr)   // Oracle instrumentation (P3.6d)
+    {
+        int Ints[2 + 256] = {static_cast<int>(Type), bFlag ? 1 : 0};
+        int Count = 2;
+        for (int Index = 0; Index < Scanner->Scans.Count && Index < 256; ++Index)
+        {
+            IObjRW* const Entry =
+                ObjRwFromWatchable(const_cast<Watchable*>(Scanner->Scans.Entries[Index].target()));
+            Ints[Count++] = Entry != nullptr ? static_cast<int>(Entry->get_id()) : 0;
+        }
+        GOracleAiHooks.OnAnswer(OracleAiAnswerScanList, get_id(), Ints, Count, nullptr, 0);
+    }
     return 0;
 }
 

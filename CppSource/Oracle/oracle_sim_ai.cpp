@@ -30,6 +30,7 @@
 #include "common_misc.h"     // SUBOBJ_ID_NONE
 #include "common_ini.h"      // Vector
 #include "common_csys.h"     // Matrix
+#include "common_universe.h" // Universe::IZone::GetDragModifier (P3.6d)
 #include "oracle_ai.h"
 #include "oracle_sim_hooks.h"
 
@@ -126,6 +127,56 @@ namespace
             J.Null("obj");
     }
 
+    // P3.6d: the directives the behaviour managers heard (GOracleAiHooks.OnDirective), from
+    // OracleSimAiDirectivesBegin on. Those before the file opens (the populated scenario's
+    // arrival spawns) are held and written after `ai_start`; the harness's own scenario
+    // directives (OracleSimAiHarnessDirective) are left out.
+    struct FHeldDirective
+    {
+        unsigned int ObjectId;
+        std::vector<int> Words;
+        int Result;
+    };
+    std::vector<FHeldDirective> GHeldDirectives;
+    int GHarnessDirective = 0;
+    // The open tick's ship id (0 outside a tick).
+    unsigned int GOpenShipId = 0;
+    // The objects the directives outside a ship's tick name, snapshotted at its next tick
+    // with role "directive".
+    std::map<unsigned int, std::vector<unsigned int>> GDirectiveObjects;
+    void SnapshotDirectiveObjects(unsigned int ObjectId, int const* Words, int WordCount);
+
+    void WriteDirective(unsigned int ObjectId, int const* Words, int WordCount, int Result)
+    {
+        FOracleJson J;
+        J.Str("rec", "ai_answer");
+        J.Uint("tick", Tick());
+        J.Uint("seq", GOpen);
+        J.Str("kind", "directive");
+        IdAndName(J, ObjectId);
+        J.BeginArray("i");
+        J.Int(nullptr, Result);
+        for (int Index = 0; Index < WordCount; ++Index)
+            J.Int(nullptr, Words[Index]);
+        J.EndArray();
+        J.Null("v");
+        Write(J);
+    }
+
+    void __cdecl OnAiDirective(unsigned int ObjectId, int const* Words, int WordCount, int Result)
+    {
+        if (GHarnessDirective != 0)
+            return;
+        if (GFile == nullptr)
+        {
+            GHeldDirectives.push_back(FHeldDirective{ObjectId, std::vector<int>(Words, Words + WordCount), Result});
+            SnapshotDirectiveObjects(ObjectId, Words, WordCount);
+            return;
+        }
+        WriteDirective(ObjectId, Words, WordCount, Result);
+        SnapshotDirectiveObjects(ObjectId, Words, WordCount);
+    }
+
     void VectorJ(FOracleJson& J, const char* Name, Vector const& V)
     {
         const float Values[3] = {V.x, V.y, V.z};
@@ -200,6 +251,16 @@ namespace
         int CruiseResult;
         bool bCruise;
         bool bTradeLane;
+        // P3.6d: is_using_tradelane (slot 77), which a formation follower asks of its leader.
+        int LaneResult;
+        bool bUsingLane;
+        // P3.6d: CSimple's zone state, which the motion model (get_linear_drag,
+        // collect_force_components) reads: ZoneAtA4 set, its drag modifier, and the
+        // ScannerInterference update_zones left.
+        bool bSimple;
+        bool bZone;
+        float ZoneDrag;
+        float Interference;
         int TargetResult;
         unsigned int TargetId;
         int SubtargetResult;
@@ -333,6 +394,20 @@ namespace
         Out.Id = O->get_id();
         CObject const* const C = O->cobject();
         Out.Class = C != nullptr ? static_cast<unsigned int>(C->ObjectClass) : 0;
+        Out.bSimple = C != nullptr && (Out.Class & 3u) == 3u;
+        Out.bZone = false;
+        Out.ZoneDrag = 0.0f;
+        Out.Interference = 0.0f;
+        if (Out.bSimple)
+        {
+            CSimple const* const Simple = static_cast<CSimple const*>(C);
+            Out.Interference = Simple->ScannerInterference;
+            if (Simple->ZoneAtA4 != nullptr)
+            {
+                Out.bZone = true;
+                Out.ZoneDrag = Simple->ZoneAtA4->GetDragModifier();
+            }
+        }
         Out.TypeResult = O->get_type(Out.Type);
         Out.Pos = O->get_position();
         Out.Orient = O->get_orientation();
@@ -350,6 +425,8 @@ namespace
         Out.StrafeResult = O->get_strafe_dir(Strafe);
         Out.Strafe = static_cast<int>(Strafe);
         Out.CruiseResult = O->is_cruise_active(Out.bCruise, Out.bTradeLane);
+        Out.bUsingLane = false;
+        Out.LaneResult = O->is_using_tradelane(&Out.bUsingLane);
         IObjRW* Link = nullptr;
         Out.TargetResult = O->get_target(Link);
         Out.TargetId = IdOf(Link);
@@ -566,6 +643,18 @@ namespace
         else
         {
             J.Null("cruise");
+        }
+        if (Obj.LaneResult == 0)
+            J.Bool("lane", Obj.bUsingLane);
+        else
+            J.Null("lane");
+        if (Obj.bSimple)
+        {
+            if (Obj.bZone)
+                J.Float("zone_drag", Obj.ZoneDrag);
+            else
+                J.Null("zone_drag");
+            J.Float("interference", Obj.Interference);
         }
         OptUint(J, "target", Obj.TargetResult == 0 && Obj.TargetId != 0 ? 0 : -1, Obj.TargetId);
         OptUint(J, "subtarget", Obj.SubtargetResult, Obj.Subtarget);
@@ -889,6 +978,7 @@ namespace
         OracleAiReadManager(Manager, M);
         GOpenDb = M.ObjectDb;
         GOpenSelf = M.Object;
+        GOpenShipId = M.ObjectId;
 
         // The ids of the list the previous tick built, as read at its end; an entry that is
         // not the one recorded then is read here under SEH. `Live` keeps the entries still in
@@ -991,6 +1081,17 @@ namespace
         if (Self->get_dock_target(DockId) == 0)
             Add(FindById(DockId), "dock_target");
         Add(FindById(M.InSightsTargetId), "in_sights");
+        // P3.6d: the objects the directives since the ship's last tick name (a dock's object,
+        // a lane's rings), which the replay submits before this tick.
+        {
+            std::map<unsigned int, std::vector<unsigned int>>::iterator Named = GDirectiveObjects.find(M.ObjectId);
+            if (Named != GDirectiveObjects.end())
+            {
+                for (unsigned int Id : Named->second)
+                    Add(FindById(Id), "directive");
+                GDirectiveObjects.erase(Named);
+            }
+        }
         // P2.5 dock, launch and trade lanes: the objects the current behaviour holds (the
         // dock's object, lane ring and watched object; the launch's base; the trade lane's
         // two rings), which can lie beyond the near radius.
@@ -1036,7 +1137,21 @@ namespace
                 const double Dy = (double)P.y - SelfPos.y;
                 const double Dz = (double)P.z - SelfPos.z;
                 if (Dx * Dx + Dy * Dy + Dz * Dz <= (double)kNearRadius * kNearRadius)
+                {
                     Add(O, "near");
+                    continue;
+                }
+                // P3.6d: the planets, moons and suns whose sphere meets 20 km around the ship
+                // (ClassifyObstaclePhase's ObjectDb->GetBucket(7)->QuerySphere), role "far".
+                unsigned int Type = 0;
+                if (O->get_type(Type) != 0 || (Type & 7u) == 0)
+                    continue;
+                float Radius = 0.0f;
+                Vector Center = {0.0f, 0.0f, 0.0f};
+                O->get_physical_radius(Radius, Center);
+                const double Reach = 20000.0 + (double)Radius;
+                if (Dx * Dx + Dy * Dy + Dz * Dz <= Reach * Reach)
+                    Add(O, "far");
             }
         }
         // The auto-turret scan asks can_point_at for the list it builds during the tick
@@ -1052,6 +1167,55 @@ namespace
         GMissileConeAngle = M.Guns.Params[11];  // +0x1068 MissileLaunchConeAngle
         for (IObjInspect const* O : Order)
             WriteObject(O, Roles[O]);
+    }
+
+    // P3.6d: the object ids a recorded directive names (Words from the op's +0x04): the dock's
+    // object, lane ring and watched object, a lane's two rings, the launch's base, the
+    // target of a follow, trail, face, strafe, ram, tractor beam or evade, a goto's first word
+    // and guided ship, a guide's goto and follow targets.
+    std::vector<unsigned int> DirectiveObjectIds(int const* Words, int WordCount)
+    {
+        std::vector<unsigned int> Out;
+        if (WordCount < 2)
+            return Out;
+        auto At = [&](int Offset) {
+            int const Index = (Offset - 4) / 4;
+            if (Index >= 0 && Index < WordCount && Words[Index] != 0)
+                Out.push_back(static_cast<unsigned int>(Words[Index]));
+        };
+        switch (Words[0])
+        {
+        case 3: At(0x20); At(0x5c); break;
+        case 4: case 5: case 6: case 8: case 9: case 10: case 11: case 14: case 18: At(0x0c); break;
+        case 7: At(0x10); break;
+        case 13: At(0x0c); At(0x10); At(0x1c); break;
+        case 15: At(0x0c); At(0x10); break;
+        case 17: At(0x2c); At(0x68); At(0x88); break;
+        default: break;
+        }
+        return Out;
+    }
+
+    void SnapshotDirectiveObjects(unsigned int ObjectId, int const* Words, int WordCount)
+    {
+        std::vector<unsigned int> const Ids = DirectiveObjectIds(Words, WordCount);
+        if (Ids.empty())
+            return;
+        // Inside the ship's own tick (its directive callbacks): now, into this tick.
+        if (GOpen != 0 && ObjectId == GOpenShipId)
+        {
+            for (unsigned int Id : Ids)
+            {
+                if (GWritten.count(Id) != 0)
+                    continue;
+                IObjRW* const Found = FindById(Id);
+                if (Found != nullptr)
+                    WriteObject(Found, std::vector<std::string>(1, "directive"));
+            }
+            return;
+        }
+        std::vector<unsigned int>& Pending = GDirectiveObjects[ObjectId];
+        Pending.insert(Pending.end(), Ids.begin(), Ids.end());
     }
 
     void EndTick(IBehaviorManager const* Manager)
@@ -1089,6 +1253,7 @@ namespace
         GOpen = 0;
         GOpenDb = nullptr;
         GOpenSelf = nullptr;
+        GOpenShipId = 0;
     }
 
     void __cdecl OnAiBehaviorTick(IBehaviorManager const* Manager, float Dt, int Phase)
@@ -1112,13 +1277,13 @@ namespace
     void __cdecl OnAiAnswer(int Kind, unsigned int ObjectId, int const* Ints, int IntCount, float const* Floats,
                             int FloatCount)
     {
-        static const char* const kNames[6] = {"request",      "dock_hardpoints", "lane_start",
-                                              "go_tradelane", "gun_target",      "zone_props"};
+        static const char* const kNames[7] = {"request",    "dock_hardpoints", "lane_start", "go_tradelane",
+                                              "gun_target", "zone_props",      "scan_list"};
         FOracleJson J;
         J.Str("rec", "ai_answer");
         J.Uint("tick", Tick());
         J.Uint("seq", GOpen);
-        J.Str("kind", Kind >= 0 && Kind < 6 ? kNames[Kind] : "unknown");
+        J.Str("kind", Kind >= 0 && Kind < 7 ? kNames[Kind] : "unknown");
         IdAndName(J, ObjectId);
         J.BeginArray("i");
         for (int Index = 0; Index < IntCount; ++Index)
@@ -1129,6 +1294,35 @@ namespace
         else
             J.Null("v");
         Write(J);
+        // P3.6d: inside a tick, the objects the answer names that the snapshot lacks (a lane's
+        // next ring, the entrance and exit of a lane, a scan list's entries), role "answer".
+        if (GOpen != 0)
+        {
+            std::vector<unsigned int> Ids;
+            if (Kind == OracleAiAnswerLaneStart && IntCount >= 3)
+            {
+                Ids.push_back(static_cast<unsigned int>(Ints[0]));
+                Ids.push_back(static_cast<unsigned int>(Ints[2]));
+            }
+            else if (Kind == OracleAiAnswerGoTradeLane && IntCount >= 2)
+            {
+                Ids.push_back(static_cast<unsigned int>(Ints[0]));
+                Ids.push_back(static_cast<unsigned int>(Ints[1]));
+            }
+            else if (Kind == OracleAiAnswerScanList)
+            {
+                for (int Index = 2; Index < IntCount; ++Index)
+                    Ids.push_back(static_cast<unsigned int>(Ints[Index]));
+            }
+            for (unsigned int Id : Ids)
+            {
+                if (Id == 0 || GWritten.count(Id) != 0)
+                    continue;
+                IObjRW* const Found = FindById(Id);
+                if (Found != nullptr)
+                    WriteObject(Found, std::vector<std::string>(1, "answer"));
+            }
+        }
     }
 
     const char* QueryName(int Kind)
@@ -1220,7 +1414,21 @@ namespace oracle
             J.Str(nullptr, Name.c_str());
         J.EndArray();
         Write(J);
+        // P3.6d: the directives heard before the file opened, at tick 0 outside any tick.
+        for (FHeldDirective const& Held : GHeldDirectives)
+            WriteDirective(Held.ObjectId, Held.Words.data(), (int)Held.Words.size(), Held.Result);
+        GHeldDirectives.clear();
         fflush(GFile);
         return true;
+    }
+
+    void OracleSimAiDirectivesBegin()
+    {
+        GOracleAiHooks.OnDirective = OnAiDirective;
+    }
+
+    void OracleSimAiHarnessDirective(bool bBegin)
+    {
+        GHarnessDirective += bBegin ? 1 : -1;
     }
 }

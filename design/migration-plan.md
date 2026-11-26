@@ -310,7 +310,9 @@ seeding point: the harness calls `srand(seed)` again once the system and
 Content's population of it have loaded, and the Rust world seeds there;
 the `rand()` draws of the population (4,837 in he01, from Content's
 `SystemLoaded` handler; [sim-records.md](sim-records.md), `load_rand.jsonl`)
-are P3.6's and are checked at Gate G3 (owner, 2026-11-18). Replay tests of
+are P3.6's (owner, 2026-11-18); P3.6d brings them after Gate G3 (owner,
+2026-11-25, decision O48), and the data job compares them with the
+oracle's (`content_population.rs`). Replay tests of
 the integrator, AI and damage code equal the oracle within Tier B bounds,
 and scenario trajectories, times and damage fall inside the envelopes
 approved in P2.0 (decision O20). All protocol codecs round-trip and match
@@ -338,6 +340,8 @@ separate runner (owner, 2026-11-18).
 | P3.10b | `Server`: the player-state requests (equipment and items, collision groups, visited state, mission log, interface state, rank, best path, group positions, pop-up dialogs, difficulty scale) and the player trades; after Gate G3 (decision O49) | `game-logic::{session, player}` | M | A |
 | P3.11 | `Server`, server closure (decision O52): the scope of P3.2 and P3.3 that Gate G3 did not need and that is still unported. Local chat through the system database; a multiplayer re-selection leaving the old system and base, and `PlayerData_DeselectCharacter`; the save writer's position of a multiplayer ship from its remote physics controller; the remote correction of the other objects a player owns (loot, mines, counter-measures, guided munitions); the rest of the character list's multiplayer prologue; the `SAVEGAME` packet's routing; the removal of D125 and D126 (given to P3.3 above); a review of D158, D165, D179, D180, D188 and D197, each removed, narrowed or given an explicit later remover; the oracle scenario of a ring launch, built as a test | `game-logic`, `game-sim` | M | A for the save writer, B for the rest |
 | P3.11b | `Server`, server closure, fight fidelity (decision O52, amended 2026-11-26): the equipment's loot and debris for fates 4 and 5 (D126's rest), the AI's attitudes from the reputation groups (D165's rest), the scan list's solars from the system's partition (D180), the pathfinder's bucket order (D197) | `game-sim`, `game-logic` | M | B, the fights against the oracle |
+| P3.11c | `Server`, guided munitions' impact and explosion order (decision O52, amended again 2026-11-26): the order of a guided munition's direct hit and its explosion at a contact, and the blast's band on the target, as P3.11b's fights found them at the rogue's tick 236. P3.11c follow-up: the rogue's motion from tick 236 traced to the contact's response (IVP's impact solver against the port's, D87), not to the blast's position; no code change | `game-sim`, `game-logic` | S | B, the fights against the oracle |
+| P3.11d | `Server`, `Content`, the Phase 3 closing audit's gaps (decision O52, amended again 2026-11-26): `StarSystem::tractor_loot` (`ITEMTRACTORED`, `LootAcquired`), the field mine's `EXPLODEASTEROIDMINE`, the behaviour manager's events 3, 5 and 7 from the server, `GameObject::explosion_hit` for objects without equipment, `FORMATION_UPDATE`, P3.4a's exact `TimerExpired` check against the dispatch trace, and the beam diagnostics on a running server | `game-logic`, `game-sim`, `neuron-core` | S | A for the timers against the oracle, B for the rest |
 
 **Gate G3 (milestone "headless server").** `OutpostServer.exe` starts on
 the original data. A scripted test client connects over QUIC, logs in,

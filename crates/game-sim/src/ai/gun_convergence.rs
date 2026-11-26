@@ -277,13 +277,14 @@ impl FormationState {
     ) -> Vec<LeaderNotification> {
         let f = &p.formation;
         let mut out = Vec::new();
+        // The leader's `is_using_tradelane` (`IObjInspect +0x134`,
+        // `common_gunconvergence.cpp:96-116`), not its cruise charge.
         if self.order.pending && !self.leader_suppressed {
             let leader =
                 live(world, self.follow_leader).or_else(|| live(world, self.formation_leader));
-            if let Some(v) = leader
-                .and_then(|id| world.handle_of(id))
-                .and_then(|h| world.inspect(h))
-                && !v.cruise.is_some_and(|c| c.1)
+            if let Some(h) = leader.and_then(|id| world.handle_of(id))
+                && world.inspect(h).is_some()
+                && !world.using_tradelane(h)
             {
                 self.order.pending = false;
             }

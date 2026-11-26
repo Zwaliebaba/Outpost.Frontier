@@ -74,6 +74,7 @@ impl PhysicsWorld {
         host: &mut dyn ControllerHost,
         random: &mut IvpRandom,
     ) {
+        self.seed_fresh_phantom_overlaps();
         let mut clock = self.clock;
         clock.simulate_dtime(delta_time, |c| self.simulate_psi(c, host, random));
         self.clock = clock;
@@ -584,6 +585,7 @@ impl PhysicsWorld {
             listener: desc.listener,
             intruders: Vec::new(),
             pending: Vec::new(),
+            fresh: true,
         }))
     }
 
@@ -741,54 +743,105 @@ impl PhysicsWorld {
         best.map(|(_, key, point)| (key, Vector::from_words(point)))
     }
 
+    /// Whether the phantom `p` overlaps the body `h` at the bodies' poses
+    /// now: the body collides, is not the phantom's own and is not of its
+    /// collision group, and a ledge of each meets.
+    fn phantom_overlaps(&self, p: &Phantom, h: BodyHandle) -> bool {
+        if p.attached == Some(h) {
+            return false;
+        }
+        let Some(body) = self.collidable(h) else {
+            return false;
+        };
+        if !names_collide(&p.name, &body.name) {
+            return false;
+        }
+        let Some((bq, bp)) = self.object_pose_at(h, self.clock.current_time) else {
+            return false;
+        };
+        let (q, pos) = self.phantom_pose(p);
+        let iso = shape::isometry(q, pos);
+        // The radius around the phantom's origin that holds its ledges, for
+        // the bounding-sphere early out below.
+        let reach = f64::from(super::bound_radius(&p.geometry));
+        let origin = iso.translation.vector;
+        let body_iso = shape::isometry(bq, bp);
+        // The two bounding spheres apart: no ledge can meet (a conservative
+        // early out, as the contact pass's; the outcome is the exact
+        // test's).
+        let t = body_iso.translation.vector;
+        let d = [
+            f64::from(origin.x) - f64::from(t.x),
+            f64::from(origin.y) - f64::from(t.y),
+            f64::from(origin.z) - f64::from(t.z),
+        ];
+        let gap = ((d[0] * d[0] + d[1] * d[1]) + d[2] * d[2]).sqrt();
+        if gap > (reach + f64::from(body.bound_radius)) * 1.001 + 0.01 {
+            return false;
+        }
+        p.geometry.ledges.iter().any(|pl| {
+            body.geometry.ledges.iter().any(|bl| {
+                !body.detached_parts.contains(&bl.part_id)
+                    && intersection_test(&iso, &*pl.shape, &body_iso, &*bl.shape).unwrap_or(false)
+            })
+        })
+    }
+
+    /// The start of a step: a phantom or a body made since the phantoms
+    /// last looked (`update_phantoms`, at the end of the step before)
+    /// overlaps at the pose it was made at. IVP makes their mindists when
+    /// the object or phantom enters the OV tree and evaluates them in the
+    /// next PSI at the pose before it, so such an overlap is an intruder of
+    /// this step, as an overlap at the end of the step before is (D177).
+    fn seed_fresh_phantom_overlaps(&mut self) {
+        let fresh_bodies: Vec<BodyHandle> = self
+            .bodies
+            .indices()
+            .into_iter()
+            .map(BodyHandle)
+            .filter(|&h| self.bodies.get(h.0).is_some_and(|b| b.phantom_fresh))
+            .collect();
+        for index in self.phantoms.indices() {
+            let Some(p) = self.phantoms.get(index) else {
+                continue;
+            };
+            if !p.enabled || (!p.fresh && fresh_bodies.is_empty()) {
+                continue;
+            }
+            let candidates: Vec<BodyHandle> = if p.fresh {
+                self.bodies.indices().into_iter().map(BodyHandle).collect()
+            } else {
+                fresh_bodies.clone()
+            };
+            let found: Vec<BodyHandle> = candidates
+                .into_iter()
+                .filter(|&h| !p.pending.contains(&h) && self.phantom_overlaps(p, h))
+                .collect();
+            if let Some(p) = self.phantoms.get_mut(index) {
+                p.pending.extend(found);
+            }
+        }
+        for index in self.phantoms.indices() {
+            if let Some(p) = self.phantoms.get_mut(index) {
+                p.fresh = false;
+            }
+        }
+        for h in fresh_bodies {
+            if let Some(b) = self.bodies.get_mut(h.0) {
+                b.phantom_fresh = false;
+            }
+        }
+    }
+
     fn update_phantoms(&mut self) {
         for index in self.phantoms.indices() {
             let Some(p) = self.phantoms.get(index) else {
                 continue;
             };
-            let (q, pos) = self.phantom_pose(p);
-            let iso = shape::isometry(q, pos);
             let mut inside = Vec::new();
-            // The radius around the phantom's origin that holds its ledges,
-            // for the bounding-sphere early out below.
-            let reach = f64::from(super::bound_radius(&p.geometry));
-            let origin = iso.translation.vector;
             if p.enabled {
                 for h in self.bodies.indices().into_iter().map(BodyHandle) {
-                    if p.attached == Some(h) {
-                        continue;
-                    }
-                    let Some(body) = self.collidable(h) else {
-                        continue;
-                    };
-                    if !names_collide(&p.name, &body.name) {
-                        continue;
-                    }
-                    let Some((bq, bp)) = self.object_pose_at(h, self.clock.current_time) else {
-                        continue;
-                    };
-                    let body_iso = shape::isometry(bq, bp);
-                    // The two bounding spheres apart: no ledge can meet (a
-                    // conservative early out, as the contact pass's; the
-                    // outcome is the exact test's).
-                    let t = body_iso.translation.vector;
-                    let d = [
-                        f64::from(origin.x) - f64::from(t.x),
-                        f64::from(origin.y) - f64::from(t.y),
-                        f64::from(origin.z) - f64::from(t.z),
-                    ];
-                    let gap = ((d[0] * d[0] + d[1] * d[1]) + d[2] * d[2]).sqrt();
-                    if gap > (reach + f64::from(body.bound_radius)) * 1.001 + 0.01 {
-                        continue;
-                    }
-                    let hit = p.geometry.ledges.iter().any(|pl| {
-                        body.geometry.ledges.iter().any(|bl| {
-                            !body.detached_parts.contains(&bl.part_id)
-                                && intersection_test(&iso, &*pl.shape, &body_iso, &*bl.shape)
-                                    .unwrap_or(false)
-                        })
-                    });
-                    if hit {
+                    if self.phantom_overlaps(p, h) {
                         inside.push(h);
                     }
                 }
@@ -900,8 +953,9 @@ impl PhysicsWorld {
     /// uses) within half the ray's length plus the core's upper limit
     /// radius of the ray's centre, and within that radius of the ray's line.
     /// A fast object whose pose now crosses the ray can fail it, and the
-    /// ray then passes through. `culled` receives each such body the narrow
-    /// test would have hit.
+    /// ray then passes through. `culled`, when given, receives each such
+    /// body the narrow test would have hit; without it a body the sphere
+    /// test culls skips the narrow test, which could only fill `culled`.
     ///
     /// A ray does not hit a ledge it starts in: the ledge test needs a face
     /// that faces the ray with the start strictly in front of it
@@ -914,7 +968,7 @@ impl PhysicsWorld {
         ray_in: &IvpRay,
         only: Option<BodyHandle>,
         inside: &mut Vec<BodyHandle>,
-        culled: &mut Vec<BodyHandle>,
+        mut culled: Option<&mut Vec<BodyHandle>>,
     ) -> Vec<RayHit> {
         let IvpRay { start, dir, length } = *ray_in;
         if !(length > 0.0) {
@@ -929,9 +983,6 @@ impl PhysicsWorld {
                 continue;
             }
             let Some(body) = self.bodies.get(h.0) else {
-                continue;
-            };
-            let Some((q, pos)) = self.object_pose_at(h, self.clock.current_time) else {
                 continue;
             };
             let passes_ov = only.is_some()
@@ -955,6 +1006,15 @@ impl PhysicsWorld {
                         + e(cross[2]) * e(cross[2]);
                     e(radius) * e(radius) > line
                 });
+            // A body the sphere test culls yields no hit and is never
+            // `inside`; only a caller that keeps `culled` needs its narrow
+            // test.
+            if !passes_ov && culled.is_none() {
+                continue;
+            }
+            let Some((q, pos)) = self.object_pose_at(h, self.clock.current_time) else {
+                continue;
+            };
             let iso = shape::isometry(q, pos);
             let mut best: Option<RayHit> = None;
             for ledge in body.geometry.ledges.iter() {
@@ -987,7 +1047,9 @@ impl PhysicsWorld {
                 });
             }
             if !passes_ov {
-                if best.is_some() {
+                if best.is_some()
+                    && let Some(culled) = culled.as_deref_mut()
+                {
                     culled.push(h);
                 }
                 continue;
@@ -1018,7 +1080,7 @@ impl PhysicsWorld {
         let Some(ray) = Self::query_ray(from, to, false) else {
             return Vec::new();
         };
-        let mut hits = self.ivp_ray_hits(&ray, None, &mut Vec::new(), &mut Vec::new());
+        let mut hits = self.ivp_ray_hits(&ray, None, &mut Vec::new(), None);
         hits.truncate(max_hits);
         hits
     }
@@ -1035,7 +1097,7 @@ impl PhysicsWorld {
         let Some(ray) = Self::query_ray(from, to, true) else {
             return Vec::new();
         };
-        let mut hits = self.ivp_ray_hits(&ray, Some(body), &mut Vec::new(), &mut Vec::new());
+        let mut hits = self.ivp_ray_hits(&ray, Some(body), &mut Vec::new(), None);
         hits.truncate(max_hits);
         hits
     }
@@ -1099,7 +1161,7 @@ impl PhysicsWorld {
             dir,
             length,
         };
-        let hits = self.ivp_ray_hits(&ray, None, &mut inside, &mut culled);
+        let hits = self.ivp_ray_hits(&ray, None, &mut inside, Some(&mut culled));
         for b in inside {
             if let Some(body) = self.bodies.get(b.0) {
                 self.beam_starts_inside.push(body.user_key);

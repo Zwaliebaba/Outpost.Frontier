@@ -101,6 +101,12 @@ impl RecordedRand {
         self.overrun
     }
 
+    /// Passes over `n` recorded values without drawing them (draws that
+    /// another module made at that point of the tick).
+    pub fn skip(&mut self, n: usize) {
+        self.next = (self.next + n).min(self.values.len());
+    }
+
     /// Whether every recorded value was drawn and no more.
     #[must_use]
     pub fn exhausted_exactly(&self) -> bool {
@@ -816,12 +822,38 @@ pub trait AiWorld {
         let _ = (h, handle, event);
     }
 
+    /// The directives `h`'s directive callbacks submit while the manager
+    /// notifies them inside its behaviour tick (`NotifyDirectiveCallbacks`:
+    /// Content's `OnDirectiveComplete` advances the ship's `[ObjList]`
+    /// through `pub::AI::SubmitDirective`), each with its priority, in
+    /// order. The server runs Content's callbacks after the tick (D194),
+    /// so the default answers none; a behaviour-tick replay answers the
+    /// directives the reference recorded inside the tick.
+    fn callback_directives(&mut self, h: Self::Handle) -> Vec<(super::behavior::DirectiveOp, i32)> {
+        let _ = h;
+        Vec::new()
+    }
+
     /// The answer of `h`'s content callback to `request_flee_destination`
     /// (`None` for false), which the server gave before the ship's
     /// behaviour tick (record 0008 point 4). The default has none.
     fn content_answer(&self, h: Self::Handle) -> Option<super::content::FleeAnswer> {
         let _ = h;
         None
+    }
+
+    /// Whether the world keeps the AI's diagnostic lines ([`Self::trace`]):
+    /// a behaviour-tick replay's mismatch report does; the default does
+    /// not, and the AI then builds none.
+    fn tracing(&self) -> bool {
+        false
+    }
+
+    /// One diagnostic line of the AI (what `ClassifyObstaclePhase` tested,
+    /// for a replay's mismatch report); it changes nothing. The default
+    /// drops it.
+    fn trace(&self, line: String) {
+        let _ = line;
     }
 }
 

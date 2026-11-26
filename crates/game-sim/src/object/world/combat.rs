@@ -489,6 +489,17 @@ impl World {
             .unwrap_or_default()
     }
 
+    /// Drops the beam diagnostics of `system` since the last call (both
+    /// lists of [`World::take_beam_starts_inside`] and
+    /// [`World::take_beam_ov_culled`]), which a running server does not
+    /// read: they would otherwise grow with every bullet.
+    pub fn discard_beam_diagnostics(&mut self, system: u32) {
+        if let Some(w) = self.physics.world_mut(system) {
+            let _ = w.take_beam_starts_inside();
+            let _ = w.take_beam_ov_culled();
+        }
+    }
+
     /// The multiplayer step's beam pass: `CBeam::move` on every bullet.
     pub(crate) fn move_beams(&mut self, system: u32, step: f32) {
         for h in self.list(system, TickList::Beams) {
@@ -558,6 +569,25 @@ impl World {
             if a == b {
                 continue;
             }
+            // IVP reports a contact's sides in its mindist's synapse order:
+            // first the object whose OV element found the other when it was
+            // re-filed (`IVP_Mindist_Manager::RecheckOvElement`,
+            // `delegate_collisions_for_object(Object, NewObj)`). A guided
+            // munition, small and fast, re-files far more often than what
+            // it closes on and is the first side; the port's contact pass
+            // has no OV tree (decision O19) and puts it first (D1085), so
+            // its hit (`Guided::on_collision`) comes before the other
+            // side's collision damage destroys and detonates it.
+            let guided = |w: &Self, h: ObjHandle| {
+                w.objects
+                    .get(h)
+                    .is_some_and(|o| o.kind == ObjectKind::Guided)
+            };
+            let ((a, sub_a), (b, sub_b)) = if guided(self, b) && !guided(self, a) {
+                ((b, sub_b), (a, sub_a))
+            } else {
+                ((a, sub_a), (b, sub_b))
+            };
             self.on_collision(a, sub_a, b, sub_b, ev.point, hooks);
             self.on_collision(b, sub_b, a, sub_a, ev.point, hooks);
         }
@@ -908,6 +938,15 @@ impl World {
                         .solars
                         .get(&o.archetype)
                         .map(|a| a.eq_obj.root.explosion_resistance)
+                })
+                .or_else(|| {
+                    // A loot container's, a mine's, a counter-measure's or
+                    // a guided munition's archetype (`Root`).
+                    self.data
+                        .archetypes
+                        .equipment
+                        .get(&o.archetype)
+                        .map(|a| a.root.explosion_resistance)
                 })
                 .unwrap_or(1.0),
             shield_modifier: &modifier,
@@ -1492,7 +1531,7 @@ impl World {
             .filter(|h| {
                 self.objects
                     .get(*h)
-                    .is_some_and(|o| !o.dead && o.equipped.is_some())
+                    .is_some_and(|o| !o.dead && (o.equipped.is_some() || takes_blast(o.kind)))
             })
             .collect();
         let inflictor_owner = self
@@ -1501,6 +1540,10 @@ impl World {
             .map_or(0, |o| o.simple.owner_player);
         for h in candidates {
             if hooks.pvp_blocked(self, self.find(inflictor), h) {
+                continue;
+            }
+            if self.objects.get(h).is_some_and(|o| o.equipped.is_none()) {
+                self.explode_object(h, blast, cause, inflictor, inflictor_owner, hooks);
                 continue;
             }
             let hull = self.body_sphere(h);
@@ -1574,6 +1617,48 @@ impl World {
         }
     }
 
+    /// `StarSystem::explode`'s damage pass on an object without equipment
+    /// that its sphere query finds (the body sphere against the blast, as
+    /// for an equipped object, D128): `GameObject::explosion_hit`
+    /// ([`damage::object_explosion_hit`]) fills a list of the blast's
+    /// cause from the inflictor, which is then applied
+    /// (`GameObject::apply_damage_list`, destroyed when the hull reaches
+    /// 0).
+    fn explode_object(
+        &mut self,
+        h: ObjHandle,
+        blast: &damage::Blast,
+        cause: damage::DamageCause,
+        inflictor: u32,
+        inflictor_owner: u32,
+        hooks: &mut dyn ServerHooks,
+    ) {
+        let hull = self.body_sphere(h);
+        let reach = f64::from(blast.radius) + f64::from(hull.0);
+        let d = [
+            f64::from(blast.position.x) - f64::from(hull.1.x),
+            f64::from(blast.position.y) - f64::from(hull.1.y),
+            f64::from(blast.position.z) - f64::from(hull.1.z),
+        ];
+        if d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > reach * reach {
+            return;
+        }
+        let rule = hooks.hit_rule(self, h, Hit::Explosion);
+        if rule == HitRule::Ignore {
+            return;
+        }
+        let mut list = DamageList::new(cause, inflictor, inflictor_owner);
+        let state = hooks.damage_state(self, h, inflictor_owner);
+        let physical = self.physical_radius_r(h);
+        self.with_damage_target_state(h, state, |t, _, _| {
+            damage::object_explosion_hit(t, blast, physical, &mut list);
+        });
+        if rule == HitRule::Destroy {
+            list.destroyed = true;
+        }
+        self.apply_damage_list_hooked(h, &list, hooks);
+    }
+
     /// The equipped object's kind tests for an equipment slot list by type,
     /// for the scenario harness's fire command: every unguided, intact gun.
     #[must_use]
@@ -1603,6 +1688,21 @@ impl World {
             )
         })
     }
+}
+
+/// The kinds without equipment whose server object takes a blast with
+/// `GameObject::explosion_hit`: `Loot`, `Guided`, `Mine` and
+/// `CounterMeasure` do not override it (`Server/server_loot.cpp`,
+/// `server_guided.cpp`, `server_mine.cpp`, `server_countermeasure.cpp`).
+/// A bullet's (`Bullet::explosion_hit`) and an asteroid field's rocks' and
+/// mines' (`MedAsteroid`, `MedMine`) do nothing, and a dynamic asteroid or
+/// an equipment body is no `CSimple` the damage pass reads
+/// (`(ObjectClass & 3) != 3`).
+fn takes_blast(kind: ObjectKind) -> bool {
+    matches!(
+        kind,
+        ObjectKind::Loot | ObjectKind::Guided | ObjectKind::Mine | ObjectKind::CounterMeasure
+    )
 }
 
 /// `EqObj::damage_sub_obj` (`GameObject::damage_sub_obj` for the root):

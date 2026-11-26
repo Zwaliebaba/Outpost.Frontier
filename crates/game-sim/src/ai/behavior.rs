@@ -844,6 +844,34 @@ pub struct LaneEvent {
     pub exit: u32,
 }
 
+/// The payload of the manager's type-3 event (`StarSystem::complete_dock`,
+/// `Server/server_classes.cpp:10183-10223`): a ship of the system
+/// completed its dock.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DockEvent {
+    /// +0x00 the dock.
+    pub dock: u32,
+    /// +0x04 the dock's object type.
+    pub dock_type: u32,
+    /// +0x08 the ship that docked.
+    pub ship: u32,
+}
+
+/// The payload of the manager's type-5 event (`pub::SpaceObj::Dock`,
+/// `Server/server_pub.cpp:2774-2799`): a ship's dock answer, to each of its
+/// follow followers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DockTargetEvent {
+    /// +0x00 the dock's id.
+    pub target: u32,
+    /// +0x04 the dock's object type (`get_type`).
+    pub target_type: u32,
+    /// +0x08 the ship whose dock it is.
+    pub ship: u32,
+    /// +0x0c the answer named a port (`dock_port != -1`).
+    pub has_port: bool,
+}
+
 /// One behaviour (`class Behavior`). Slot numbers of the reference's
 /// vtable in brackets; the defaults are `Behavior`'s own bodies.
 pub trait Behavior<W: AiEnv + ?Sized> {
@@ -1002,6 +1030,13 @@ pub trait Behavior<W: AiEnv + ?Sized> {
     /// left a trade lane, or a leader asked its followers out. `Behavior`'s
     /// own slot does nothing.
     fn lane_event(&mut self, cx: &mut Cx<'_, W>, event: &LaneEvent) {
+        let _ = (cx, event);
+    }
+
+    /// (22) the manager's type-3 event (`IBehaviorManager::Slot00` case 3
+    /// hands it to the current behaviour's `Slot22` for a dock with type
+    /// bits `0xc40`): a ship docked. `Behavior`'s own slot does nothing.
+    fn dock_event(&mut self, cx: &mut Cx<'_, W>, event: &DockEvent) {
         let _ = (cx, event);
     }
 

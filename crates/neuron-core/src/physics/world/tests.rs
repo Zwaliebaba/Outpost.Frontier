@@ -307,9 +307,10 @@ fn phantoms_report_enter_and_leave() {
         &Matrix::IDENTITY,
         false,
     );
-    // Found in one step, an intruder from the next.
+    // A body made since the phantoms last looked is tested at the next
+    // step's start, at the pose it has then: an intruder of that step.
     step(&mut world, &mut NoControllers, &mut random, 0.01);
-    assert!(world.phantom_intruders(carried).is_empty());
+    assert_eq!(world.phantom_intruders(carried), vec![3]);
     step(&mut world, &mut NoControllers, &mut random, 0.01);
     assert_eq!(world.phantom_intruders(carried), vec![3]);
     let closest = world.closest_phantom_intruder(carried, |_| true).unwrap();
@@ -321,6 +322,47 @@ fn phantoms_report_enter_and_leave() {
     assert!(world.detach_phantom(carried));
     world.destroy_phantom(carried);
     assert!(!world.phantom_collision_state(carried));
+}
+
+#[test]
+fn a_phantom_or_body_made_overlapping_enters_in_the_first_step() {
+    // IVP makes the mindists of a new phantom or object when it enters the
+    // OV tree and evaluates them in the next PSI, at the pose before it:
+    // an overlap at creation is an intruder of the next step, as the
+    // oracle's dock hails show (a ship that starts inside a station's hail
+    // phantom enters it at tick 1, P3.11d).
+    let mut world = PhysicsWorld::new(1, &constants());
+    let mut random = IvpRandom::default();
+    let ship = ball(&mut world, 1, 1.0, Vector::new(1.0, 0.0, 0.0));
+    let _ = ship;
+    let p = world.create_phantom(PhantomDesc {
+        geometry: Geometry::ball(3.0),
+        position: Vector::ZERO,
+        orientation: Matrix::IDENTITY,
+        name: Vec::new(),
+        listener: true,
+    });
+    step(&mut world, &mut NoControllers, &mut random, 0.05);
+    let events: Vec<(u64, bool)> = world
+        .take_phantom_events()
+        .iter()
+        .map(|e| (e.user_key, e.entered))
+        .collect();
+    assert_eq!(events, vec![(1, true)]);
+    assert_eq!(world.phantom_intruders(p), vec![1]);
+    // A body made inside the phantom later enters in the step after.
+    let _ = ball(&mut world, 2, 0.5, Vector::new(0.0, 1.0, 0.0));
+    step(&mut world, &mut NoControllers, &mut random, 0.05);
+    let events: Vec<(u64, bool)> = world
+        .take_phantom_events()
+        .iter()
+        .map(|e| (e.user_key, e.entered))
+        .collect();
+    assert_eq!(events, vec![(2, true)]);
+    assert_eq!(world.phantom_intruders(p), vec![1, 2]);
+    // Nothing new: nothing more.
+    step(&mut world, &mut NoControllers, &mut random, 0.05);
+    assert!(world.take_phantom_events().is_empty());
 }
 
 #[test]

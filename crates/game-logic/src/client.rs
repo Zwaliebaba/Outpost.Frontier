@@ -14,10 +14,11 @@ use game_sim::protocol::common::{
 use game_sim::protocol::fmtstr::FmtStr;
 use game_sim::protocol::records::{CollisionGroup, EquipRecord};
 use game_sim::protocol::to_client::{
-    Directive, Launch, MiscObjUpdate, PlayerList, RequestCreateShipResp, RequestReturned,
-    ScanNotify, SetAddItem, SetCash, SetCollisionGroups, SetDirective, SetEquipment, SetHullStatus,
-    SetRemoveItem, SetShipArch,
+    Directive, ExplodeAsteroidMine, FormationUpdate, ItemTractored, Launch, MiscObjUpdate,
+    PlayerList, RequestCreateShipResp, RequestReturned, ScanNotify, SetAddItem, SetCash,
+    SetCollisionGroups, SetDirective, SetEquipment, SetHullStatus, SetRemoveItem, SetShipArch,
 };
+use neuron_core::math::Vector;
 
 use crate::character_file::CollisionGroupDesc;
 use crate::server::Cx;
@@ -440,6 +441,46 @@ pub fn misc_obj_update_formation(cx: &mut Cx<'_>, client: u32, ids: &[u32]) {
         flags: if ids.is_empty() { 0 } else { 0x100 },
         ids: ids.to_vec(),
         ..MiscObjUpdate::default()
+    };
+    send(cx, client, message);
+}
+
+/// `SendServerFormationUpdate` (slot +0x1e4, ch2 0x53;
+/// `RemoteClient/rpc_server_channel_senders.cpp:1209-1219`): the ship's
+/// formation leader (0 none) and its offset.
+pub fn formation_update(cx: &mut Cx<'_>, client: u32, leader: u32, offset: Vector) {
+    let message = FormationUpdate {
+        leader_id: leader,
+        offset: [offset.x, offset.y, offset.z],
+    };
+    send(cx, client, message);
+}
+
+/// `SendServerItemTractored` (slot +0x100, ch2 0x38; `:703-713`): the
+/// loot, the tractoring ship, the tractor and the units taken.
+pub fn item_tractored(
+    cx: &mut Cx<'_>,
+    client: u32,
+    loot: u32,
+    ship: u32,
+    tractor: u16,
+    units: u16,
+) {
+    let message = ItemTractored {
+        loot_id: loot,
+        ship_id: ship,
+        tractor_id: tractor,
+        units,
+    };
+    send(cx, client, message);
+}
+
+/// `SendServerExplodeAsteroidMine` (slot +0x0d0, ch2 0x31; `:672-683`): the
+/// field mine and the explosion's offset from it (`FMineExplosion`).
+pub fn explode_asteroid_mine(cx: &mut Cx<'_>, client: u32, mine: u32, offset: Vector) {
+    let message = ExplodeAsteroidMine {
+        field_00: mine,
+        position: [offset.x, offset.y, offset.z],
     };
     send(cx, client, message);
 }

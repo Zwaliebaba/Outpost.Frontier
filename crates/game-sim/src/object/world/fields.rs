@@ -544,5 +544,6 @@ impl World {
         }
         self.events
             .push(WorldEvent::MineExplosion { mine: id, offset });
+        hooks.mine_explosion(self, system, id, offset);
     }
 }

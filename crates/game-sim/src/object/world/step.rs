@@ -524,6 +524,15 @@ pub trait ServerHooks {
         let _ = (world, object, equip, event);
     }
 
+    /// A field mine of `system` blew (`MedMine::update`'s
+    /// `StarSystem::send_mine_explosion`, `Server/server_classes.cpp:
+    /// 5462-5478`), right after its blast: the mine's id and the explosion's
+    /// offset from it. The server tells the system's players
+    /// (`EXPLODEASTEROIDMINE`). Nothing without a server.
+    fn mine_explosion(&mut self, world: &mut World, system: u32, mine: u32, offset: Vector) {
+        let _ = (world, system, mine, offset);
+    }
+
     /// Whether `EqObj::apply_equip_entry`'s cargo rule applies to
     /// `object`'s stacks: an entry of exactly 0 hit points on a stack of
     /// more than one unit takes one unit off (`RemoveFromStack(1)`, the
@@ -821,6 +830,26 @@ impl World {
         }
     }
 
+    /// The smallest zone of `system` with a physical effect at `pos`: its
+    /// nickname, drag modifier and the immersion there (`CSimple::
+    /// update_zones`' search).
+    pub(crate) fn physical_zone_at(&self, system: u32, pos: Vector) -> Option<(u32, f32, f32)> {
+        let mut best: Option<(&crate::data::zone::Zone, f32)> = None;
+        for zone in self.data.universe.system_zones(system) {
+            if !zone.has_physical_effect() {
+                continue;
+            }
+            let radius = zone.radius();
+            if best.is_some_and(|(_, r)| !(radius < r)) {
+                continue;
+            }
+            if zone.in_zone(pos, 0.0) {
+                best = Some((zone, radius));
+            }
+        }
+        best.map(|(z, _)| (z.nickname, z.drag_modifier, zone_immersion(z, pos)))
+    }
+
     /// `CSimple::update_zones`: the smallest zone with a physical effect at
     /// the object's position, its drag modifier and the immersion.
     pub(crate) fn update_zones(&mut self, h: ObjHandle) {
@@ -836,20 +865,7 @@ impl World {
             return;
         };
         let pos = obj.engine.position;
-        let mut best: Option<(&crate::data::zone::Zone, f32)> = None;
-        for zone in self.data.universe.system_zones(system) {
-            if !zone.has_physical_effect() {
-                continue;
-            }
-            let radius = zone.radius();
-            if best.is_some_and(|(_, r)| !(radius < r)) {
-                continue;
-            }
-            if zone.in_zone(pos, 0.0) {
-                best = Some((zone, radius));
-            }
-        }
-        let found = best.map(|(z, _)| (z.nickname, z.drag_modifier, zone_immersion(z, pos)));
+        let found = self.physical_zone_at(system, pos);
         if let Some(o) = self.objects.get_mut(h) {
             match found {
                 Some((zone, drag, immersion)) => {

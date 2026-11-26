@@ -53,6 +53,10 @@ pub struct EncounterShip {
     pub make_classes: Vec<u32>,
     /// `ship_by_class` value 3 (0 by default).
     pub difficulty_offset: i32,
+    /// `+0x14`: the line's archetype the spawn resolved (its npc
+    /// archetype, else one picked for the formation's faction), by id; the
+    /// run time's (P3.6d).
+    pub arch: Option<u32>,
 }
 
 impl Default for EncounterShip {
@@ -65,6 +69,7 @@ impl Default for EncounterShip {
             max_count: 1,
             make_classes: Vec::new(),
             difficulty_offset: 0,
+            arch: None,
         }
     }
 }

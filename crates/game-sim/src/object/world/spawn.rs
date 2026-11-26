@@ -1068,6 +1068,23 @@ impl World {
                         let part = o.inst_to_part(instance);
                         o.flag_part_as_shield(part);
                     }
+                    // Then (`Common/common_ceshield.cpp:417-425`) the root
+                    // instance's own extent becomes the physics owner's
+                    // sphere (`get_physical_radius_r`), its centre in the
+                    // instance's space (`InverseTransform` of its
+                    // transform): the shield's sphere for the explosions'
+                    // shield pass (`EqObj::explosion_hit_shield`).
+                    if let Some(attachment) = shield.attached.as_ref().and_then(|a| a.attachment) {
+                        let physics_owner = match attachment {
+                            Attachment::NonPhysical { .. } => owner,
+                            Attachment::Physical { object, .. } => object,
+                        };
+                        let root = attachment.root_instance();
+                        let (radius, world_center) = self.physical_sphere(physics_owner);
+                        let xform = self.scene.instance_transform(root);
+                        let local = neuron_core::math::inverse_transform(&xform, world_center);
+                        self.scene.set_instance_extent(root, 1, radius, local);
+                    }
                     shield.activate_base(true);
                     let status = shield_status(&shield);
                     let mut events = Vec::new();
@@ -1810,6 +1827,15 @@ impl World {
         };
         let _ = constants;
         self.build_body(h, parms, None, false);
+        // Class 0xa7 has the three low bits set: like the other projectiles
+        // it leaves the simulation and the collisions after its first
+        // contact (`PhysicalSystem::event_pre_collision`,
+        // `Common/common_physicalsystem.cpp:201-216`).
+        if let Some((system, body)) = self.body(h)
+            && let Some(world) = self.physics.world_mut(system)
+        {
+            world.set_single_contact(body, true);
+        }
         self.add_initial_velocity(h, s.velocity, Vector::ZERO);
         // `Guided::arm`: the motor's controller, and with a detonation
         // distance the proximity fuse, a ball phantom of that radius in the

@@ -880,23 +880,43 @@ fn a_formation_change_tells_the_players_in_it() {
             })
             .collect()
     };
+    // `FORMATION_UPDATE` (`Ship::set_formation_leader`, then
+    // `set_formation_offset`): the client, the leader, the offset.
+    let updates = |sent: &[(u32, ServerMessage)]| -> Vec<(u32, u32, [f32; 3])> {
+        sent.iter()
+            .filter_map(|(c, m)| match m {
+                ServerMessage::FormationUpdate(u) => Some((*c, u.leader_id, u.offset)),
+                _ => None,
+            })
+            .collect()
+    };
 
     // The leader leads itself: no follower, an NPC: nobody hears.
     assert_eq!(
         ai::update_formation_state(&mut cx, leader_id, leader_id, Vector::ZERO),
         Ok(())
     );
-    assert!(formation(sink.take()).is_empty());
-    // The player's ship joins: it hears the members, the leader first.
+    assert!(sink.take().is_empty());
+    // The player's ship joins: its owner hears the new leader with the old
+    // offset, then with the new one, then the members, the leader first.
     let offset = Vector::new(-45.0, 0.0, 14.0);
     assert_eq!(
         ai::update_formation_state(&mut cx, wing_id, leader_id, offset),
         Ok(())
     );
+    let sent = sink.take();
     assert_eq!(
-        formation(sink.take()),
-        [(1, 0x100, vec![leader_id, wing_id])]
+        updates(&sent),
+        [
+            (1, leader_id, [0.0, 0.0, 0.0]),
+            (1, leader_id, [-45.0, 0.0, 14.0])
+        ]
     );
+    assert!(
+        matches!(sent.last(), Some((1, ServerMessage::MiscObjUpdate(_)))),
+        "the members after the updates"
+    );
+    assert_eq!(formation(sent), [(1, 0x100, vec![leader_id, wing_id])]);
     let followers = &cx
         .world
         .get(leader)
@@ -926,12 +946,22 @@ fn a_formation_change_tells_the_players_in_it() {
         offset
     );
     // It leaves: the old formation's members without it (the leader, as it
-    // had a follower), told before it went.
+    // had a follower), told before it went, then no leader with the offset
+    // it had and with the new one.
     assert_eq!(
         ai::update_formation_state(&mut cx, wing_id, 0, Vector::ZERO),
         Ok(())
     );
-    assert_eq!(formation(sink.take()), [(1, 0x100, vec![leader_id])]);
+    let sent = sink.take();
+    assert!(matches!(
+        sent.first(),
+        Some((1, ServerMessage::MiscObjUpdate(_)))
+    ));
+    assert_eq!(
+        updates(&sent),
+        [(1, 0, [-45.0, 0.0, 14.0]), (1, 0, [0.0, 0.0, 0.0])]
+    );
+    assert_eq!(formation(sent), [(1, 0x100, vec![leader_id])]);
     assert!(
         cx.world
             .get(leader)
@@ -951,13 +981,19 @@ fn a_formation_change_tells_the_players_in_it() {
             .formation_leader,
         None
     );
-    // The player's ship leads itself: it hears a formation of one; it
-    // then hears an empty list when it leaves it (no flag, no ids).
+    // The player's ship leads itself: it hears itself as its leader and a
+    // formation of one; it then hears an empty list when it leaves it (no
+    // flag, no ids).
     assert_eq!(
         ai::update_formation_state(&mut cx, wing_id, wing_id, Vector::ZERO),
         Ok(())
     );
-    assert_eq!(formation(sink.take()), [(1, 0x100, vec![wing_id])]);
+    let sent = sink.take();
+    assert_eq!(
+        updates(&sent),
+        [(1, wing_id, [0.0; 3]), (1, wing_id, [0.0; 3])]
+    );
+    assert_eq!(formation(sent), [(1, 0x100, vec![wing_id])]);
     assert_eq!(
         ai::update_formation_state(&mut cx, wing_id, 0, Vector::ZERO),
         Ok(())

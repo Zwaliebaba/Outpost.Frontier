@@ -4,7 +4,7 @@
 //! destruction (`ObjectDestroyed`, the explosion and the split of a cargo
 //! pod's stack).
 
-use game_sim::equip::{Fate, SUBOBJ_ID_POWER, SUBOBJ_ID_ROOT};
+use game_sim::equip::{Fate, SUBOBJ_ID_POWER, SUBOBJ_ID_ROOT, SubObjId};
 use game_sim::object::damage::DamageList;
 use game_sim::object::{KindData, ObjHandle, ObjectKind};
 use neuron_server::controller::ControllerId;
@@ -231,6 +231,142 @@ pub fn destroy(cx: &mut Cx<'_>, h: ObjHandle, kind: i32, killer: u32) -> bool {
         }
     }
     true
+}
+
+/// `SrvTractor::notify` (`Server/server_classes.cpp:6461-6500`) with event
+/// 0x18, an arm's consume timer ran out (`TractorArm::Update`): with a
+/// target, the ship's room for the contents
+/// (`CShip::get_space_for_cargo_type`); with room, the loot in the
+/// ship's system (`find_object` with the loot type bits) that is not being
+/// destroyed goes into the hold ([`tractor_loot`]). The C++ reads an owner
+/// that is not a ship through null; the port's tractors are on ships, and
+/// an object without a hold takes nothing. The event reaches the server
+/// after the ship's equipment pass (D653).
+pub fn tractor_consume(cx: &mut Cx<'_>, ship: ObjHandle, tractor: SubObjId, target: ObjHandle) {
+    let Some(contents) = cx.world.get(target).and_then(|o| match &o.data {
+        KindData::Loot(l) => Some(l.contents_arch),
+        _ => None,
+    }) else {
+        return;
+    };
+    let Some(space) = cx.world.space_for_cargo_type(ship, contents) else {
+        return;
+    };
+    if space == 0 {
+        return;
+    }
+    let Some(system) = cx.world.get(ship).map(|o| o.physical.system) else {
+        return;
+    };
+    let id = cx.world.get(target).map_or(0, |o| o.simple.id);
+    let Some(loot) = crate::replication::find_in_system(cx.world, system, id)
+        .filter(|&h| cx.world.get(h).is_some_and(|o| o.kind == ObjectKind::Loot))
+    else {
+        return;
+    };
+    if destroyed(cx, loot) {
+        return;
+    }
+    tractor_loot(cx, loot, ship, space as u32, tractor);
+}
+
+/// `StarSystem::tractor_loot(Loot, Ship, Space, TractorId)`
+/// (`Server/server_classes.cpp:6337-6447`): the ship takes the smaller of
+/// its room and the units.
+///
+/// - The health the units carry: a good that does not combine keeps its
+///   contents' hit points over the archetype's; a commodity that decays
+///   and is taken whole keeps what its decay left (the contents' hit
+///   points less the decay so far, 0 unless positive, over the
+///   archetype's); any other is whole (1).
+/// - The units join the hold ([`crate::cargo::add_cargo`], mission cargo
+///   when the loot is), then the controllers hear of it (`LootAcquired`:
+///   the loot, the ship, the stack's id, the good, the units), then every
+///   player of the system that can see the ship (`ITEMTRACTORED`,
+///   [`crate::replication::item_tractored`]).
+/// - Part of a stack leaves the rest in space. Otherwise the ship's
+///   tractor lets go of the loot (`CETractor::RemoveTarget`), except a
+///   player's ship's in single player, and the loot is destroyed (kind 2,
+///   by the ship) with no units left.
+pub fn tractor_loot(
+    cx: &mut Cx<'_>,
+    loot: ObjHandle,
+    ship: ObjHandle,
+    space: u32,
+    tractor: SubObjId,
+) {
+    use game_sim::data::archetype::equipment::EquipmentKind;
+    let Some(o) = cx.world.get(loot) else {
+        return;
+    };
+    let KindData::Loot(l) = &o.data else {
+        return;
+    };
+    let (loot_id, contents, units, contents_hit_pts, temporary) = (
+        o.simple.id,
+        l.contents_arch,
+        l.units,
+        l.contents_hit_pts,
+        l.temporary,
+    );
+    let take = space.min(units);
+    let data = cx.world.data_arc();
+    let (arch_hit_pts, decays) =
+        data.archetypes
+            .equipment
+            .get(&contents)
+            .map_or((0.0, false), |a| {
+                let decays = matches!(
+                    a.kind,
+                    EquipmentKind::Commodity { decay_per_second, .. } if decay_per_second > 0.0
+                );
+                (a.root.hit_pts, decays)
+            });
+    let mut health = 1.0f32;
+    if !data.goods.arch_is_combinable(contents) {
+        health = (f64::from(contents_hit_pts) / f64::from(arch_hit_pts)) as f32;
+    } else if decays && take == units {
+        let accum = cx
+            .logic
+            .objects
+            .get(loot)
+            .and_then(|o| o.loot)
+            .map_or(0.0, |s| s.decay_accum);
+        let mut remaining = f64::from(contents_hit_pts) - f64::from(accum);
+        // `FCOM / TEST AH,0x41 / JZ`: 0 unless strictly positive (NaN too).
+        if remaining <= 0.0 || remaining.is_nan() {
+            remaining = 0.0;
+        }
+        health = (remaining / f64::from(arch_hit_pts)) as f32;
+    }
+    let stack = crate::cargo::add_cargo(cx, ship, contents, take, health, temporary);
+    let (ship_id, system, owner) = cx.world.get(ship).map_or((0, 0, 0), |o| {
+        (o.simple.id, o.physical.system, o.simple.owner_player)
+    });
+    let _ = cx.dispatch(
+        ControllerId::BROADCAST,
+        &mut ControllerMessage::LootAcquired {
+            loot: loot_id,
+            ship: ship_id,
+            sub_object: stack,
+            good: data.goods.arch_to_good(contents),
+            count: take as i32,
+        },
+    );
+    crate::replication::item_tractored(cx, system, loot_id, ship_id, tractor, take);
+    if take != units {
+        if let Some(KindData::Loot(l)) = cx.world.get_mut(loot).map(|o| &mut o.data) {
+            l.units = units - take;
+        }
+        return;
+    }
+    if !(owner != 0 && cx.world.config().single_player) {
+        cx.world.tractor_remove_target(ship, tractor, loot_id);
+    }
+    crate::world::destroy_object(cx, loot, 2, ship_id);
+    if let Some(KindData::Loot(l)) = cx.world.get_mut(loot).map(|o| &mut o.data) {
+        l.units = 0;
+    }
 }
 
 /// `Archetype::Equipment::get_loot_appearance` (`Common/

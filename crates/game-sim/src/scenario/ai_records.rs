@@ -7,6 +7,10 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use crate::ai::behavior::{
+    DirectiveOp, DockOp, DrasticEvadeOp, FaceOp, FollowOp, GotoOp, GuideOp, InstantTradeLaneOp,
+    LaunchOp, TractorBeamOp, TrailOp,
+};
 use crate::ai::gun_groups::{CmDroppers, GunGroups, GunSlot, LineOfFireSlot};
 use crate::ai::state_graph::{BEHAVIOR_COUNT, BehaviorScore};
 use crate::ai::target_manager::TargetManager;
@@ -91,6 +95,159 @@ pub struct AnswerRecord {
     pub ints: Vec<i32>,
     /// The floats.
     pub floats: Vec<f32>,
+}
+
+/// A directive a behaviour manager heard (`ai_answer` of kind `directive`,
+/// P3.6d): `pub::AI::SubmitDirective`'s AI branch, the op rebuilt from
+/// its recorded words.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RecordedDirective {
+    /// The op.
+    pub op: DirectiveOp,
+    /// Its priority (`BaseOp +0x08`).
+    pub priority: i32,
+    /// What `SubmitDirective` returned.
+    pub result: i32,
+}
+
+/// The op of a `directive` answer: `i` is the result, then the op's
+/// dwords from `+0x04` (the op type, the priority, the op's fields from
+/// `+0x0c`). `None` for another kind or too few words.
+#[must_use]
+pub fn recorded_directive(a: &AnswerRecord) -> Option<RecordedDirective> {
+    if a.kind != "directive" || a.ints.len() < 3 {
+        return None;
+    }
+    let result = a.ints[0];
+    let op_type = a.ints[1];
+    let priority = a.ints[2];
+    // The dword at op offset `o` (from +0x04 on).
+    let word = |o: usize| -> u32 {
+        a.ints
+            .get(1 + (o - 4) / 4)
+            .map_or(0, |&v| u32::from_ne_bytes(v.to_ne_bytes()))
+    };
+    let int = |o: usize| i32::from_ne_bytes(word(o).to_ne_bytes());
+    let float = |o: usize| f32::from_bits(word(o));
+    let byte = |o: usize| word(o & !3).to_le_bytes()[o & 3];
+    let vector = |o: usize| Vector::new(float(o), float(o + 4), float(o + 8));
+    let goto = |b: usize| GotoOp {
+        kind: int(b + 0x0c),
+        destination: vector(b + 0x10),
+        field_1c: int(b + 0x1c),
+        words_20: core::array::from_fn(|k| word(b + 0x20 + 4 * k)),
+        range: float(b + 0x50),
+        field_54: float(b + 0x54),
+        field_58: byte(b + 0x58),
+        field_59: byte(b + 0x59),
+        cruise: byte(b + 0x5a),
+        no_cruise: byte(b + 0x5b),
+        field_5c: word(b + 0x5c),
+        field_60: float(b + 0x60),
+        field_64: float(b + 0x64),
+        field_68: word(b + 0x68),
+        field_6c: byte(b + 0x6c),
+    };
+    let follow = |b: usize| FollowOp {
+        target: word(b + 0x0c),
+        distance: float(b + 0x10),
+        offset: vector(b + 0x14),
+        range: float(b + 0x20),
+    };
+    let row = |o: usize| [float(o), float(o + 4), float(o + 8)];
+    let (op, size) = match op_type {
+        3 => (DirectiveOp::Goto(goto(0)), 0x70),
+        4 => (DirectiveOp::Follow(follow(0)), 0x24),
+        5 => (
+            DirectiveOp::Trail(TrailOp {
+                target: word(0x0c),
+                distance: float(0x10),
+                field_14: float(0x14),
+                field_18: float(0x18),
+            }),
+            0x1c,
+        ),
+        7 => (
+            DirectiveOp::Face(FaceOp {
+                mode: int(0x0c),
+                target: word(0x10),
+                point: vector(0x14),
+                orientation: Matrix::from_rows([row(0x20), row(0x2c), row(0x38)]),
+                field_44: byte(0x44),
+            }),
+            0x48,
+        ),
+        9 => (
+            DirectiveOp::TractorBeam(TractorBeamOp {
+                target: word(0x0c),
+                field_10: byte(0x10),
+            }),
+            0x14,
+        ),
+        10 => (DirectiveOp::Evade(word(0x0c)), 0x10),
+        11 => (
+            DirectiveOp::DrasticEvade(DrasticEvadeOp {
+                threat: word(0x0c),
+                words_10: [word(0x10), word(0x14), word(0x18)],
+                duration: float(0x1c),
+                words_20: [word(0x20), word(0x24), word(0x28), word(0x2c)],
+            }),
+            0x30,
+        ),
+        12 => (DirectiveOp::Delay(float(0x0c)), 0x10),
+        13 => (
+            DirectiveOp::Dock(DockOp {
+                dock_object: word(0x0c),
+                field_10: word(0x10),
+                field_14: byte(0x14),
+                port: int(0x18),
+                field_1c: word(0x1c),
+                field_20: float(0x20),
+                field_24: float(0x24),
+                field_28: word(0x28),
+            }),
+            0x2c,
+        ),
+        14 => (
+            DirectiveOp::Launch(LaunchOp {
+                launch_object: word(0x0c),
+                index: int(0x10),
+                terminal: int(0x14),
+            }),
+            0x18,
+        ),
+        15 => (
+            DirectiveOp::InstantTradeLane(InstantTradeLaneOp {
+                entrance: word(0x0c),
+                exit: word(0x10),
+                speed: float(0x14),
+            }),
+            0x18,
+        ),
+        17 => (
+            DirectiveOp::Guide(Box::new(GuideOp {
+                goto: goto(0x0c),
+                follow: follow(0x7c),
+                field_a0: byte(0xa0),
+                field_a4: float(0xa4),
+                field_a8: float(0xa8),
+                field_ac: int(0xac),
+                field_b0: float(0xb0),
+                field_b4: float(0xb4),
+                field_b8: float(0xb8),
+            })),
+            0xbc,
+        ),
+        20 => (DirectiveOp::Idle, 0x0c),
+        21 => (DirectiveOp::Cancel, 0x0c),
+        other => (DirectiveOp::Other(other), 0x0c),
+    };
+    // The words from +0x04: the result's slot first.
+    (a.ints.len() > (size - 4) / 4).then_some(RecordedDirective {
+        op,
+        priority,
+        result,
+    })
 }
 
 /// The system manager's combat state (`sys`), in the port's types. The
@@ -491,6 +648,13 @@ pub struct ObjRecord {
     /// `hpmount`: the own ship's `get_hardpoint("hpmount")` (position and
     /// orientation; `None` when it failed or for other objects).
     pub hpmount: Option<(Vector, Matrix)>,
+    /// `lane` (P3.6d): `is_using_tradelane` (`None` when it failed and for
+    /// older records).
+    pub using_tradelane: Option<bool>,
+    /// `zone_drag` and `interference` (P3.6d): the object's zone's drag
+    /// modifier (`None` outside a zone) and its scanner interference, as
+    /// `CSimple::update_zones` left them; `None` for older records.
+    pub zone: Option<(Option<f32>, f32)>,
 }
 
 /// One recorded query.
@@ -896,6 +1060,11 @@ pub fn read_ai_ticks(path: &Path) -> Vec<AiTick> {
                             .and_then(|m| {
                                 Some((Vector::new(m[0], m[1], m[2]), matrix(m.get(3..12)?)?))
                             }),
+                        using_tradelane: j.get("lane").and_then(Json::as_bool),
+                        zone: j
+                            .get("interference")
+                            .and_then(Json::as_f32)
+                            .map(|i| (j.get("zone_drag").and_then(Json::as_f32), i)),
                     }),
                     "ai_answer" => t.answers.push(answer(&j)),
                     "ai_query" => {
@@ -983,5 +1152,78 @@ mod tests {
         assert_eq!(ticks[0].input.timers[0], 1.0);
         assert_eq!(ticks[0].rand, vec![7]);
         assert!(ticks[0].output.is_some());
+    }
+
+    /// The words of a recorded op: the result, then the dwords from +0x04.
+    fn words(result: i32, dwords: &[u32]) -> AnswerRecord {
+        AnswerRecord {
+            kind: "directive".to_owned(),
+            ints: std::iter::once(result)
+                .chain(dwords.iter().map(|&w| i32::from_ne_bytes(w.to_ne_bytes())))
+                .collect(),
+            ..AnswerRecord::default()
+        }
+    }
+
+    #[test]
+    fn rebuilds_a_recorded_directive() {
+        // `DirectiveDockOp` (0x2c): type 13, priority 1, the dock object,
+        // +0x10, the byte +0x14, the port, +0x1c, 200, 500, +0x28.
+        let dock = words(
+            1,
+            &[
+                13,
+                1,
+                0x1234,
+                0,
+                0x0000_0001,
+                u32::MAX,
+                0,
+                0x4348_0000,
+                0x43fa_0000,
+                0,
+            ],
+        );
+        let d = recorded_directive(&dock).expect("dock");
+        assert_eq!((d.priority, d.result), (1, 1));
+        assert_eq!(
+            d.op,
+            DirectiveOp::Dock(DockOp {
+                dock_object: 0x1234,
+                field_14: 1,
+                ..DockOp::default()
+            })
+        );
+        // A default `DirectiveGotoOp` (0x70) to a point.
+        let mut goto = vec![3, 2, 1, 0x4100_0000, 0, 0x4120_0000, 0];
+        goto.extend([0; 12]);
+        goto.extend([
+            0x43fa_0000,
+            0xbf80_0000,
+            0x0000_0100,
+            0,
+            0x4348_0000,
+            0x43fa_0000,
+            0,
+            0,
+        ]);
+        let d = recorded_directive(&words(1, &goto)).expect("goto");
+        assert_eq!(
+            d.op,
+            DirectiveOp::Goto(GotoOp {
+                kind: 1,
+                destination: Vector::new(8.0, 0.0, 10.0),
+                ..GotoOp::default()
+            })
+        );
+        // Too few words, or another kind.
+        assert!(recorded_directive(&words(1, &[13, 1, 0x1234])).is_none());
+        let mut request = dock;
+        request.kind = "request".to_owned();
+        assert!(recorded_directive(&request).is_none());
+        assert_eq!(
+            recorded_directive(&words(1, &[21, 0])).map(|d| d.op),
+            Some(DirectiveOp::Cancel)
+        );
     }
 }

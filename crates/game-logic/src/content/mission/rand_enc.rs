@@ -6,7 +6,7 @@
 //!
 //! The parse draws `rand()`: a `time` activation picks its start, and
 //! `num_forms` the number of formations. The populators' run time (`Accept`,
-//! `Spawn`) comes with the population (P3.6d).
+//! `Spawn`) is P3.6d's ([`crate::content::random_encounters`]).
 
 use neuron_core::hash::{c_str, eq_ignore_case};
 use neuron_core::id::create_id;
@@ -147,6 +147,12 @@ pub struct RandEncParams {
     pub exit_ring: u32,
     /// TL: `TargetTradelane`.
     pub target_tradelane: u32,
+    /// `TargetZone` (TL `+0xb8`, SP `+0xc0`): the smallest zone at the
+    /// target, by its index in the system record's zones (P3.6d's run
+    /// time).
+    pub target_zone: Option<usize>,
+    /// The populator's own state (P3.6d's run time).
+    pub populator: crate::content::random_encounters::PopulatorState,
 }
 
 impl RandEncParams {
@@ -186,6 +192,8 @@ impl RandEncParams {
             entry_ring: 0,
             exit_ring: 0,
             target_tradelane: 0,
+            target_zone: None,
+            populator: crate::content::random_encounters::PopulatorState::default(),
         }
     }
 }
