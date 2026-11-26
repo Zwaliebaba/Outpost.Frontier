@@ -56,6 +56,7 @@ fn with_mission(run: impl FnOnce(&mut Cx<'_>, RmDataKey)) {
     offer.solars.component.active = true;
     offer.solars.position = Vector::new(100.0, 0.0, 0.0);
     let objective = |kind| Objective {
+        built: game_sim::protocol::fmtstr::FmtStr::new(0),
         kind,
         text: Default::default(),
         marker_system: SYSTEM,

@@ -4,6 +4,7 @@
 //! [`Objective`] whose [`kind`](Objective::kind) says which fields its C++
 //! class has.
 
+use game_sim::protocol::fmtstr::FmtStr;
 use neuron_core::hash::{c_str, eq_ignore_case};
 use neuron_core::id::create_id;
 use neuron_core::ini::IniReader;
@@ -40,6 +41,16 @@ pub struct Objective {
     pub rep_instance: i32,
     /// Types 5 and 6: value 2.
     pub system_id: u32,
+    /// `Objective.Description`: what `BuildDescription` made (run time,
+    /// P3.5c5, [`super::objectives`]).
+    pub description: FmtStr,
+    /// Type 7: `Text`, the description it copies.
+    pub text: FmtStr,
+    /// Type 8: `Value`, the number it shows.
+    pub value: u32,
+    /// `PlayerState`: the player whose state the mission held when the
+    /// objective was made (`Mission->PlayerState`), `None` for a null one.
+    pub owner: Option<u32>,
 }
 
 impl Objective {
@@ -59,7 +70,28 @@ impl Objective {
             label: Vec::new(),
             rep_instance: -1,
             system_id: 0,
+            description: FmtStr::new(0),
+            text: FmtStr::new(0),
+            value: 0,
+            owner: None,
         }
+    }
+
+    /// `CreateMissionObjective(kind, Mission)` with the mission's player
+    /// state ([`Objective::owner`]).
+    #[must_use]
+    pub fn of(kind: i32, owner: Option<u32>) -> Self {
+        Self {
+            owner,
+            ..Self::new(kind)
+        }
+    }
+
+    /// `IsSame` (slot 6, `MissionObject.cpp:350-356`): the same type and an
+    /// equal description (`FmtStr::operator==`).
+    #[must_use]
+    pub fn is_same(&self, other: &Self) -> bool {
+        self.kind == other.kind && self.description.equals_as_cpp(&other.description)
     }
 }
 

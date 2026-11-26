@@ -76,8 +76,9 @@ pub struct AmbientScene {
     pub base_id: u32,
 }
 
-/// The NN path's saved state (`FMissionNnPath`, `MissionObject.h:560-590`).
-/// Its objectives, legs and timer are the run time's (P3.5c).
+/// The NN path (`FMissionNnPath`, `MissionObject.h:560-590`): its saved
+/// state, and its objectives, legs and timer, the run time's
+/// ([`super::nn_path`], P3.5c5).
 #[derive(Clone, Debug, PartialEq)]
 pub struct NnPath {
     /// `Position`.
@@ -98,6 +99,14 @@ pub struct NnPath {
     pub active: bool,
     /// `State` (0; 1 once started).
     pub state: i32,
+    /// `Objectives` (run time): the path's type 5 objectives.
+    pub objectives: Vec<super::objective::Objective>,
+    /// `Legs` (run time).
+    pub legs: Vec<crate::content::space_paths::NnPathLeg>,
+    /// `bArrived` (run time): the target was reached once.
+    pub arrived: bool,
+    /// `TimerId` (run time): the path's last timer.
+    pub timer_id: u32,
 }
 
 impl Default for NnPath {
@@ -113,6 +122,10 @@ impl Default for NnPath {
             system_id: 0,
             active: false,
             state: 0,
+            objectives: Vec::new(),
+            legs: Vec::new(),
+            arrived: false,
+            timer_id: 0,
         }
     }
 }

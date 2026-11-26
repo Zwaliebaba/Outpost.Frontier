@@ -318,6 +318,8 @@ pub enum Controller {
         /// The player.
         player: u32,
     },
+    /// 0x02 `{base, player}`: the player.
+    BaseExit(u32),
     /// 0x0a.
     GroupMemberJoined(u32),
     /// 0x09.

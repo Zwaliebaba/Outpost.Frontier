@@ -718,6 +718,7 @@ fn build_objectives(
                 marker_value: 0x44d,
                 marker_position: q.objective_pos,
                 targets: Vec::new(),
+                built: game_sim::protocol::fmtstr::FmtStr::new(0),
             }
         } else {
             Objective {
@@ -727,6 +728,7 @@ fn build_objectives(
                 marker_value: 0,
                 marker_position: Vector::ZERO,
                 targets: Vec::new(),
+                built: game_sim::protocol::fmtstr::FmtStr::new(0),
             }
         };
         let map = match key {

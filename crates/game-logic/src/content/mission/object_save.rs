@@ -912,8 +912,16 @@ pub fn load(cx: &mut Cx<'_>, reader: &mut IniReader, object: &mut MissionObject)
 /// `LoadNNObjective` into the first player's objectives, as
 /// `LoadMissionState` calls it (none without a player record, D813).
 pub fn load_objective(cx: &mut Cx<'_>, reader: &mut IniReader, object: &mut MissionObject) {
+    let owner = cx
+        .logic
+        .content
+        .state
+        .players
+        .contains_key(&object.player)
+        .then_some(object.player);
     let parsed = objective::load(cx, reader);
-    if let (Some(o), Some(player)) = (parsed, object.players.values_mut().next()) {
+    if let (Some(mut o), Some(player)) = (parsed, object.players.values_mut().next()) {
+        o.owner = owner;
         player.objectives.push(o);
     }
 }
