@@ -499,9 +499,10 @@ fn goes_before(new: &CharacterInfo, existing: &CharacterInfo) -> bool {
 /// save failure count moves to the list.
 ///
 /// On a multiplayer server a slot with a selected character is first
-/// autosaved ([`crate::saves::auto_save`]) and a trade it is in ends with
-/// reason 4 ([`end_trade`]). The rest of that prologue (leaving the system
-/// and the base, `SystemExit`) is not ported yet.
+/// autosaved ([`crate::saves::auto_save`]) and leaves the world
+/// ([`leave_world`]: its system and base, the vestigial `SystemExit`, a
+/// trade it is in ended with reason 4), for the session its client id
+/// names (`Server/server_classes.cpp:2724-2756`).
 pub fn build_character_set(cx: &mut Cx<'_>, session: u32) -> Option<CharacterSet> {
     if cx.logic.multiplayer_server
         && cx
@@ -512,7 +513,7 @@ pub fn build_character_set(cx: &mut Cx<'_>, session: u32) -> Option<CharacterSet
     {
         let _ = crate::saves::auto_save(cx, session);
         let client = cx.logic.players.get(session).map_or(0, |s| s.client_id);
-        end_trade(cx, client);
+        leave_world(cx, client);
     }
     let slot = cx.logic.players.get_mut(session)?;
     let mut set = CharacterSet::default();
@@ -566,15 +567,23 @@ pub fn build_character_set(cx: &mut Cx<'_>, session: u32) -> Option<CharacterSet
 
 /// `PlayerData_DestroyCharacter`: the restart file is kept (`false`); any
 /// other character's file is deleted, its id leaves the account registry
-/// (`PlayerDB::DeleteCharacterFromID`) and its record is removed. Leaving
-/// the game first when the character is the selected one
-/// (`PlayerData_DeselectCharacter`) arrives with character selection.
+/// (`PlayerDB::DeleteCharacterFromID`) and its record is removed. The
+/// selected character is deselected first ([`deselect_character`],
+/// `Server/server_classes.cpp:3001-3004`).
 pub fn destroy_character(
     cx: &mut Cx<'_>,
     files: &ServerFiles,
     session: u32,
     id: &CharacterId,
 ) -> bool {
+    if cx
+        .logic
+        .players
+        .get(session)
+        .is_some_and(|s| s.selected_character == *id)
+    {
+        deselect_character(cx, session);
+    }
     let Some(slot) = cx.logic.players.get_mut(session) else {
         return false;
     };
@@ -863,51 +872,7 @@ pub fn logout(cx: &mut Cx<'_>, session: u32) {
     if !single_player {
         let _ = crate::saves::auto_save(cx, session);
     }
-    // PlayerDB_LeaveSystem.
-    let system = cx.logic.players.get(session).map_or(0, |s| s.system_id);
-    if system & 0x3FFF_FFFF != 0 {
-        crate::world::remove_player(cx, system, session);
-        if let Some(slot) = cx.logic.players.get_mut(session) {
-            crate::player::flush_pending_visits(slot);
-        }
-        if cx
-            .logic
-            .players
-            .get(session)
-            .is_some_and(|s| s.system_id != 0)
-        {
-            if let Some(slot) = cx.logic.players.get_mut(session) {
-                slot.system_id = 0;
-            }
-            let _ = cx.dispatch(
-                neuron_server::controller::ControllerId::BROADCAST,
-                &mut crate::events::ControllerMessage::SystemExit {
-                    system,
-                    destination: 0,
-                    player: session,
-                },
-            );
-        }
-    }
-    // PlayerDB_LeaveBase.
-    let (base, location) = cx
-        .logic
-        .players
-        .get(session)
-        .map_or((0, 0), |s| (s.current_base, s.current_location));
-    if base & 0x3FFF_FFFF != 0 {
-        if location & 0x3FFF_FFFF != 0 {
-            crate::bases::exit_location(cx, session, location);
-        }
-        crate::bases::unload_base(cx, base);
-    }
-    if let Some(slot) = cx.logic.players.get_mut(session) {
-        slot.current_base = 0;
-        slot.current_location = 0;
-    }
-    // The vestigial SystemExit of a system id still set: LeaveSystem
-    // cleared it, so it never fires.
-    end_trade(cx, session);
+    leave_world(cx, session);
     let _ = cx.dispatch(
         neuron_server::controller::ControllerId::BROADCAST,
         &mut crate::events::ControllerMessage::PlayerLogout { player: session },
@@ -951,6 +916,137 @@ pub fn logout(cx: &mut Cx<'_>, session: u32) {
             .push("", 0, format!("LOG: Logout on account {shown} (\"{dir}\")"));
     }
     teardown(cx, session);
+}
+
+/// `PlayerDB_LeaveSystem(slot, session)` (`Server/server_classes.cpp:2138`):
+/// for a system id whose low 30 bits are not 0, the system's
+/// `remove_player` (its observer and the player's ships go), the pending
+/// visits committed (`PlayerData_FlushPendingVisits`), and while the slot's
+/// system id is not 0 it is cleared and `SystemExit {system, 0, session}`
+/// goes to the bus; in single player the last player out shuts a loaded
+/// system down (`SystemUnloaded`, `unload`, [`crate::world::shutdown`]).
+/// An unknown system skips `remove_player`, where the C++ runs it on the
+/// map's head node (D612).
+pub fn leave_system(cx: &mut Cx<'_>, session: u32) {
+    let system = cx.logic.players.get(session).map_or(0, |s| s.system_id);
+    if system & 0x3FFF_FFFF == 0 {
+        return;
+    }
+    crate::world::remove_player(cx, system, session);
+    if let Some(slot) = cx.logic.players.get_mut(session) {
+        crate::player::flush_pending_visits(slot);
+    }
+    if cx
+        .logic
+        .players
+        .get(session)
+        .is_some_and(|s| s.system_id != 0)
+    {
+        if let Some(slot) = cx.logic.players.get_mut(session) {
+            slot.system_id = 0;
+        }
+        let _ = cx.dispatch(
+            neuron_server::controller::ControllerId::BROADCAST,
+            &mut crate::events::ControllerMessage::SystemExit {
+                system,
+                destination: 0,
+                player: session,
+            },
+        );
+    }
+    if cx.world.config().single_player {
+        crate::world::shutdown(cx, system);
+    }
+}
+
+/// `PlayerDB_LeaveBase(slot, session)` (`Server/server_classes.cpp:2197`):
+/// for a base whose low 30 bits are not 0, the room (when its low 30 bits
+/// are not 0) is left (`BaseDB::exit_location`) and the base unloaded
+/// (`BaseDB::unload_base`); then the slot's base and room are 0 either way.
+pub fn leave_base(cx: &mut Cx<'_>, session: u32) {
+    let (base, location) = cx
+        .logic
+        .players
+        .get(session)
+        .map_or((0, 0), |s| (s.current_base, s.current_location));
+    if base & 0x3FFF_FFFF != 0 {
+        if location & 0x3FFF_FFFF != 0 {
+            crate::bases::exit_location(cx, session, location);
+        }
+        crate::bases::unload_base(cx, base);
+    }
+    if let Some(slot) = cx.logic.players.get_mut(session) {
+        slot.current_base = 0;
+        slot.current_location = 0;
+    }
+}
+
+/// The prologue `PlayerDB::logout`, `PlayerDB::cleanup`,
+/// `PlayerData_DeselectCharacter`, `PlayerData_BuildCharacterSet` and
+/// `PlayerData_SelectCharacter` share (`Server/server_classes.cpp:2553`,
+/// `2239`, `2646`, `2735`, `2873`): [`leave_system`], [`leave_base`], the
+/// `SystemExit {system, 0, session}` of a system id whose low 30 bits are
+/// still not 0 (vestigial: `leave_system` cleared every such id, so it
+/// never fires; kept as the C++ keeps it), then a trade the player is in
+/// ends with reason 4 ([`end_trade`]).
+pub fn leave_world(cx: &mut Cx<'_>, session: u32) {
+    leave_system(cx, session);
+    leave_base(cx, session);
+    let system = cx.logic.players.get(session).map_or(0, |s| s.system_id);
+    if system & 0x3FFF_FFFF != 0 {
+        let _ = cx.dispatch(
+            neuron_server::controller::ControllerId::BROADCAST,
+            &mut crate::events::ControllerMessage::SystemExit {
+                system,
+                destination: 0,
+                player: session,
+            },
+        );
+    }
+    end_trade(cx, session);
+}
+
+/// `PlayerData_DeselectCharacter(slot, session)`
+/// (`Server/server_classes.cpp:2637-2688`): leaving the world without
+/// logging out. Nothing in single player or without a selected character;
+/// otherwise [`leave_world`], `PlayerLogout` to the bus, the group hears of
+/// it (`CPlayerGroup::HandleClientLogout`), every other player in use
+/// loses the player from its list, `PlayerLogin` goes to the bus, and the
+/// selection is dropped.
+pub fn deselect_character(cx: &mut Cx<'_>, session: u32) {
+    if cx.world.config().single_player {
+        return;
+    }
+    if cx
+        .logic
+        .players
+        .get(session)
+        .is_none_or(|s| !s.selected_character.is_valid())
+    {
+        return;
+    }
+    leave_world(cx, session);
+    let _ = cx.dispatch(
+        neuron_server::controller::ControllerId::BROADCAST,
+        &mut crate::events::ControllerMessage::PlayerLogout { player: session },
+    );
+    if let Some(group) = cx.logic.players.get(session).and_then(|s| s.group) {
+        crate::group::handle_client_logout(cx, group, session);
+    }
+    let max = cx.logic.players.max_players() as u32;
+    for other in 1..=max {
+        if other == session || !cx.logic.players.is_valid(other) {
+            continue;
+        }
+        crate::client::player_list_remove(cx, other, session);
+    }
+    let _ = cx.dispatch(
+        neuron_server::controller::ControllerId::BROADCAST,
+        &mut crate::events::ControllerMessage::PlayerLogin { player: session },
+    );
+    if let Some(slot) = cx.logic.players.get_mut(session) {
+        slot.selected_character.clear();
+    }
 }
 
 /// The `TerminateTrade(session, 4)` of a player leaving the game in a

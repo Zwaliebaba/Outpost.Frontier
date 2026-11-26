@@ -8,10 +8,12 @@
 //! text as the C++ prints it, before that translation; [`serialize_to_file`]
 //! writes it where the C++ does and returns what happened.
 //!
-//! Two gaps remain until later work packages: the position of a ship in space on a
-//! multiplayer server is the object's own, because the remote physics
-//! controller the C++ asks first belongs to P3.4; and `GetLocalTime` is the
-//! caller's (the `tstamp` argument), so a test can fix it.
+//! The position of a ship in space is the object's own in single player
+//! and, on a multiplayer server, the latest sample of its remote physics
+//! controller (the ship's own before the first sample, zeros without
+//! one), as the C++ reads it (`Server/server_pub.cpp:1566-1620`).
+//! `GetLocalTime` is the caller's (the `tstamp` argument), so a test can
+//! fix it.
 
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -347,13 +349,25 @@ fn print(
         }
     } else {
         let ship_object = slot.ship_object_id;
-        let live = cx
-            .world
-            .find(ship_object)
-            .and_then(|h| cx.world.get(h))
-            .map(|o| (o.engine.position, o.engine.orientation));
-        if let Some((position, orientation)) = live {
-            saved_pos = [position.x, position.y, position.z];
+        let live = crate::dock::lookup_live(cx, ship_object).and_then(|h| {
+            let o = cx.world.get(h)?;
+            Some((h, o.engine.position, o.engine.orientation))
+        });
+        if let Some((h, position, orientation)) = live {
+            // The position: the ship's own in single player; on a
+            // multiplayer server the remote correction's latest sample once
+            // it has one, the ship's own before, and the zeros the locals
+            // hold when the ship is not under remote correction.
+            if single_player {
+                saved_pos = [position.x, position.y, position.z];
+            } else if let Some(rc) = cx.world.rc_simulation(h) {
+                let p = if rc.sample_count() != 0 {
+                    rc.latest_update()
+                } else {
+                    position
+                };
+                saved_pos = [p.x, p.y, p.z];
+            }
             key(
                 &mut out,
                 "pos",

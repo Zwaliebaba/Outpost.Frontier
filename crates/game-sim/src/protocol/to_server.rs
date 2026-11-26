@@ -334,10 +334,16 @@ wire_message! {
     }
 }
 
-/// `FLPACKET_CLIENT_SAVEGAME`: the save's description. The character ID
-/// the C++ packet holds does not travel.
+/// `FLPACKET_CLIENT_SAVEGAME`: the save's description and, in the
+/// single-player form only, the character id (the save's name) that
+/// rpclocal's payload carries at +0x000 (`rpc_payload_ch3.cpp:599-620`,
+/// `IServerImpl::SaveGame(char_id, description, session)`). The wire form
+/// leaves the id out (`rpc_wire_ch3.cpp:403-412`): a multiplayer server
+/// returns before reading it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SaveGame {
+    /// The character id; empty in the wire form.
+    pub character_id: Vec<u8>,
     /// The description, UTF-16.
     pub description: Vec<u16>,
 }
@@ -346,15 +352,24 @@ impl Body for SaveGame {
     const ID: u32 = 0x3001e;
     const NAME: &'static str = "FLPACKET_CLIENT_SAVEGAME";
 
-    fn encode_body(&self, _ctx: &WireContext, writer: &mut WireWriter) -> Result<(), WireError> {
+    fn encode_body(&self, ctx: &WireContext, writer: &mut WireWriter) -> Result<(), WireError> {
+        if ctx.single_player {
+            put_character_id(writer, &self.character_id)?;
+        }
         writer.put_u32(count_u32(self.description.len())?)?;
         put_units(writer, &self.description)
     }
 
-    fn decode_body(_ctx: &WireContext, reader: &mut WireReader<'_>) -> Result<Self, WireError> {
+    fn decode_body(ctx: &WireContext, reader: &mut WireReader<'_>) -> Result<Self, WireError> {
+        let character_id = if ctx.single_player {
+            get_character_id(reader)?
+        } else {
+            Vec::new()
+        };
         let count = reader.get_u32()?;
         let count = super::field::wire_len(count, 2, reader)?;
         Ok(Self {
+            character_id,
             description: reader.get_wide(count)?,
         })
     }

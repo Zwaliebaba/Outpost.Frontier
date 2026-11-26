@@ -665,6 +665,22 @@ fn a_cargo_stack_decays() {
     let (count, hit_pts, destroyed) = stack_state(&cx, h);
     assert_eq!((count, hit_pts), (1, 0.0));
     assert!(destroyed);
+
+    // A valid owning player's open trade freezes the decay
+    // (`Server/server_gameobject.cpp:4171-4175`).
+    let h = fighter(&mut cx, BASE, 3);
+    set_stack(&mut cx, h, 3, 50.0);
+    cx.world.get_mut(h).unwrap().simple.owner_player = 1;
+    {
+        let slot = cx.logic.players.get_mut(1).unwrap();
+        slot.client_id = 1;
+        slot.trade_offer = Some(game_logic::trade::TradeOffer::default());
+    }
+    cargo::decay_cargo(&mut cx, h, 1.0);
+    assert_eq!(stack_state(&cx, h), (3, 50.0, false));
+    cx.logic.players.get_mut(1).unwrap().trade_offer = None;
+    cargo::decay_cargo(&mut cx, h, 1.0);
+    assert_eq!(stack_state(&cx, h), (3, 49.0, false));
 }
 
 #[test]

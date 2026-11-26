@@ -139,6 +139,8 @@ pub fn create_mine_from(
     };
     let h = cx.world.create_mine(system, &spawn).ok()?;
     mine_state(cx, h)?;
+    // `enter_system(this, nullptr)`'s remote correction.
+    crate::replication::begin_remote_control(cx, h);
     arm(cx, h);
     let info = crate::replication::launch_create_info(cx.world, h, &spawn, equip, spin);
     crate::replication::mine_created(cx, system, h, &info);
@@ -367,6 +369,8 @@ pub fn create_counter_measure_from(
     };
     let h = cx.world.create_counter_measure(system, &spawn).ok()?;
     let _ = cx.logic.objects.entry(cx.world, h);
+    // `enter_system(this, nullptr)`'s remote correction.
+    crate::replication::begin_remote_control(cx, h);
     divert_missiles(cx, h);
     let info = crate::replication::launch_create_info(cx.world, h, &spawn, equip, spin);
     crate::replication::counter_created(cx, system, h, &info);
