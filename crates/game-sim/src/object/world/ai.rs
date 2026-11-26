@@ -189,25 +189,91 @@ impl World {
     }
 }
 
+/// The ship state the motion model reads besides its archetype and
+/// equipment, in place of the object's own ([`World::motion_with`]): a
+/// behaviour-tick replay's motion world, whose ships stand where they were
+/// spawned, answers with the recorded state.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct MotionState {
+    /// The zone (`CSimple::ZoneAtA4`'s drag modifier, `None` without a
+    /// zone) and the immersion (`ScannerInterference`).
+    pub zone: Option<(Option<f32>, f32)>,
+    /// The first engine's `bActive` and `bCruiseActive`.
+    pub engine: Option<(bool, bool)>,
+}
+
 impl World {
-    /// The ship's motion model with the zone of `pos` (its drag modifier
-    /// and immersion, `CSimple::update_zones` there) in place of the zone
-    /// the ship is in: a behaviour-tick replay's motion world, whose ships
-    /// stand where they were spawned, answers for the recorded position.
+    /// The ship's motion model over `state` in place of the ship's own zone
+    /// and engine state.
     #[must_use]
-    pub fn motion_at(&self, h: ObjHandle, pos: Vector) -> Option<Box<dyn MotionModel + '_>> {
-        let o = self.get(h)?;
-        o.as_ship()?;
-        let zone = o
-            .simple
-            .system
-            .and_then(|system| self.physical_zone_at(system, pos))
-            .map_or((None, 0.0), |(_, drag, immersion)| (Some(drag), immersion));
+    pub fn motion_with(
+        &self,
+        h: ObjHandle,
+        state: MotionState,
+    ) -> Option<Box<dyn MotionModel + '_>> {
+        self.get(h)?.as_ship()?;
         Some(Box::new(ShipMotion {
             world: self,
             h,
-            zone: Some(zone),
+            zone: state.zone,
+            engine: state.engine,
         }))
+    }
+
+    /// What the motion model of `h` reads, as text (a replay's report):
+    /// the mass, the archetype's linear drag, the first engine (its
+    /// archetype id, `bActive`, `bCruiseActive`, maximum force, linear
+    /// drag), the thrusters' maximum forces, the zone and the immersion,
+    /// each the object's own or `state`'s.
+    #[must_use]
+    pub fn motion_inputs(&self, h: ObjHandle, state: MotionState) -> String {
+        let Some(o) = self.get(h) else {
+            return "no object".to_owned();
+        };
+        let (Some(s), Some(eq)) = (o.as_ship(), o.as_equipped()) else {
+            return "no ship".to_owned();
+        };
+        let engine = eq
+            .equipment
+            .first(types::ENGINE)
+            .and_then(|item| match &item.kind {
+                EquipKind::Engine(en) => Some(format!(
+                    "engine {:#010x} active {} cruise {} max_force {:08x} linear_drag {:08x}",
+                    item.arch_id,
+                    state.engine.map_or(item.is_active(), |e| e.0),
+                    state.engine.map_or(en.cruise_active, |e| e.1),
+                    en.arch.max_force.to_bits(),
+                    en.linear_drag().to_bits()
+                )),
+                _ => None,
+            });
+        let thrusters: Vec<String> = eq
+            .equipment
+            .traverse(types::THRUSTER, false)
+            .into_iter()
+            .filter_map(|slot| match eq.equipment.get(slot).map(|e| &e.kind) {
+                Some(EquipKind::Thruster(t)) => Some(format!("{:08x}", t.max_force.to_bits())),
+                _ => None,
+            })
+            .collect();
+        let (zone_drag, interference) = state
+            .zone
+            .unwrap_or((o.simple.zone_drag, o.simple.scanner_interference));
+        format!(
+            "mass {:08x} arch linear_drag {:08x} {} thrusters {:?} zone {:?} drag {:?} interference {:08x}{}",
+            self.mass(h).to_bits(),
+            s.flight.arch.linear_drag.to_bits(),
+            engine.unwrap_or_else(|| "no engine".to_owned()),
+            thrusters,
+            o.simple.zone,
+            zone_drag.map(f32::to_bits),
+            interference.to_bits(),
+            if state.zone.is_some() {
+                " (recorded zone)"
+            } else {
+                ""
+            }
+        )
     }
 }
 
@@ -217,8 +283,11 @@ struct ShipMotion<'a> {
     world: &'a World,
     h: ObjHandle,
     /// The zone's drag modifier and the immersion in place of the
-    /// object's own ([`World::motion_at`]).
+    /// object's own ([`World::motion_with`]).
     zone: Option<(Option<f32>, f32)>,
+    /// The first engine's `bActive` and `bCruiseActive` in place of its
+    /// own.
+    engine: Option<(bool, bool)>,
 }
 
 impl ShipMotion<'_> {
@@ -255,16 +324,26 @@ impl ShipMotion<'_> {
             }
             return (0.0, drag);
         };
-        let linear = ship::linear_drag(&s.flight, &eq.equipment, zone.map(|z| z.0), consts);
-        ship::collect_force_components(
-            &s.flight,
-            &eq.equipment,
-            throttle,
-            kind,
-            zone,
-            consts,
-            linear,
-        )
+        // The recorded engine state, on a copy of the items.
+        let overridden;
+        let equipment = match self.engine {
+            Some((active, cruise)) => {
+                let mut copy = eq.equipment.clone();
+                if let Some(slot) = copy.find_first(types::ENGINE)
+                    && let Some(item) = copy.get_mut(slot)
+                {
+                    item.active = active;
+                    if let EquipKind::Engine(en) = &mut item.kind {
+                        en.cruise_active = cruise;
+                    }
+                }
+                overridden = copy;
+                &overridden
+            }
+            None => &eq.equipment,
+        };
+        let linear = ship::linear_drag(&s.flight, equipment, zone.map(|z| z.0), consts);
+        ship::collect_force_components(&s.flight, equipment, throttle, kind, zone, consts, linear)
     }
 
     fn mass(&self) -> f32 {
@@ -649,6 +728,7 @@ impl AiWorld for World {
             world: self,
             h,
             zone: None,
+            engine: None,
         }))
     }
 

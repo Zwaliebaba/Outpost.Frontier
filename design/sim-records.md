@@ -370,7 +370,9 @@ within `near_radius` of the ship's position, walked with
 `directive` (P3.6d: an object a recorded `directive` names, such as a dock's
 object or a lane's rings; written at once when the ship's own tick submitted it,
 from a directive callback, else in the read set of the ship's next tick);
-`answer` (P3.6d: named by an answer of the tick, above). An object has every
+`answer` (P3.6d: named by an answer of the tick, above); `far` (P3.6d: a
+planet, moon or sun beyond `near_radius` whose sphere meets 20 km around the
+ship, which `ClassifyObstaclePhase`'s bucket query finds). An object has every
 role that applies, in that order.
 
 Object fields, each the `IObjInspect` slot of `include/common_iface.h`
@@ -383,7 +385,9 @@ min, then max), `mass` f, `hp` f, `hp_max` f (`get_status`), `shield`
 f3\|null, `nudge` f3\|null, `strafe` i\|null, `cruise` [b, b]\|null
 (cruise, trade lane: the second is the cruise charge, whatever the SDK name),
 `lane` b\|null (P3.6d, `is_using_tradelane`, which a formation follower
-asks of its leader), `target` u\|null, `subtarget` u\|null,
+asks of its leader), (P3.6d, an object with `CSimple`) `zone_drag` f\|null
+(`ZoneAtA4->GetDragModifier()`, null outside a zone) and `interference` f
+(`ScannerInterference`), which the motion model reads, `target` u\|null, `subtarget` u\|null,
 `formation_leader` u\|null, `follow_leader` u\|null, `followers` [u, …],
 (P2.5 escort) `formation_offset` f3\|null and `follow_offset` f3\|null
 (`get_formation_offset`, `get_follow_offset`, which the formation and

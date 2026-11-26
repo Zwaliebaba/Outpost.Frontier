@@ -651,6 +651,10 @@ pub struct ObjRecord {
     /// `lane` (P3.6d): `is_using_tradelane` (`None` when it failed and for
     /// older records).
     pub using_tradelane: Option<bool>,
+    /// `zone_drag` and `interference` (P3.6d): the object's zone's drag
+    /// modifier (`None` outside a zone) and its scanner interference, as
+    /// `CSimple::update_zones` left them; `None` for older records.
+    pub zone: Option<(Option<f32>, f32)>,
 }
 
 /// One recorded query.
@@ -1057,6 +1061,10 @@ pub fn read_ai_ticks(path: &Path) -> Vec<AiTick> {
                                 Some((Vector::new(m[0], m[1], m[2]), matrix(m.get(3..12)?)?))
                             }),
                         using_tradelane: j.get("lane").and_then(Json::as_bool),
+                        zone: j
+                            .get("interference")
+                            .and_then(Json::as_f32)
+                            .map(|i| (j.get("zone_drag").and_then(Json::as_f32), i)),
                     }),
                     "ai_answer" => t.answers.push(answer(&j)),
                     "ai_query" => {

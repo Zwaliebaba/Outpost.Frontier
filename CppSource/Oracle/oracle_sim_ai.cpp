@@ -30,6 +30,7 @@
 #include "common_misc.h"     // SUBOBJ_ID_NONE
 #include "common_ini.h"      // Vector
 #include "common_csys.h"     // Matrix
+#include "common_universe.h" // Universe::IZone::GetDragModifier (P3.6d)
 #include "oracle_ai.h"
 #include "oracle_sim_hooks.h"
 
@@ -253,6 +254,13 @@ namespace
         // P3.6d: is_using_tradelane (slot 77), which a formation follower asks of its leader.
         int LaneResult;
         bool bUsingLane;
+        // P3.6d: CSimple's zone state, which the motion model (get_linear_drag,
+        // collect_force_components) reads: ZoneAtA4 set, its drag modifier, and the
+        // ScannerInterference update_zones left.
+        bool bSimple;
+        bool bZone;
+        float ZoneDrag;
+        float Interference;
         int TargetResult;
         unsigned int TargetId;
         int SubtargetResult;
@@ -386,6 +394,20 @@ namespace
         Out.Id = O->get_id();
         CObject const* const C = O->cobject();
         Out.Class = C != nullptr ? static_cast<unsigned int>(C->ObjectClass) : 0;
+        Out.bSimple = C != nullptr && (Out.Class & 3u) == 3u;
+        Out.bZone = false;
+        Out.ZoneDrag = 0.0f;
+        Out.Interference = 0.0f;
+        if (Out.bSimple)
+        {
+            CSimple const* const Simple = static_cast<CSimple const*>(C);
+            Out.Interference = Simple->ScannerInterference;
+            if (Simple->ZoneAtA4 != nullptr)
+            {
+                Out.bZone = true;
+                Out.ZoneDrag = Simple->ZoneAtA4->GetDragModifier();
+            }
+        }
         Out.TypeResult = O->get_type(Out.Type);
         Out.Pos = O->get_position();
         Out.Orient = O->get_orientation();
@@ -626,6 +648,14 @@ namespace
             J.Bool("lane", Obj.bUsingLane);
         else
             J.Null("lane");
+        if (Obj.bSimple)
+        {
+            if (Obj.bZone)
+                J.Float("zone_drag", Obj.ZoneDrag);
+            else
+                J.Null("zone_drag");
+            J.Float("interference", Obj.Interference);
+        }
         OptUint(J, "target", Obj.TargetResult == 0 && Obj.TargetId != 0 ? 0 : -1, Obj.TargetId);
         OptUint(J, "subtarget", Obj.SubtargetResult, Obj.Subtarget);
         OptUint(J, "formation_leader", Obj.LeaderResult == 0 && Obj.LeaderId != 0 ? 0 : -1, Obj.LeaderId);
@@ -1107,7 +1137,21 @@ namespace
                 const double Dy = (double)P.y - SelfPos.y;
                 const double Dz = (double)P.z - SelfPos.z;
                 if (Dx * Dx + Dy * Dy + Dz * Dz <= (double)kNearRadius * kNearRadius)
+                {
                     Add(O, "near");
+                    continue;
+                }
+                // P3.6d: the planets, moons and suns whose sphere meets 20 km around the ship
+                // (ClassifyObstaclePhase's ObjectDb->GetBucket(7)->QuerySphere), role "far".
+                unsigned int Type = 0;
+                if (O->get_type(Type) != 0 || (Type & 7u) == 0)
+                    continue;
+                float Radius = 0.0f;
+                Vector Center = {0.0f, 0.0f, 0.0f};
+                O->get_physical_radius(Radius, Center);
+                const double Reach = 20000.0 + (double)Radius;
+                if (Dx * Dx + Dy * Dy + Dz * Dz <= Reach * Reach)
+                    Add(O, "far");
             }
         }
         // The auto-turret scan asks can_point_at for the list it builds during the tick

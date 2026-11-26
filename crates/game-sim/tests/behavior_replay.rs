@@ -68,7 +68,7 @@ use game_sim::ai::world::{
     AI_SCAN_MASK, AiCommand, AiRand, AiWorld, DockHardpoints, EquipInfo, LaneStart, MotionModel,
     ObjectView, RayContact, RecordedRand, RequestAnswer, SpatialQueries,
 };
-use game_sim::object::world::{ShipSpawn, WorldConfig};
+use game_sim::object::world::{MotionState, ShipSpawn, WorldConfig};
 use game_sim::object::{ObjHandle, World};
 use neuron_core::id::create_id;
 use neuron_core::math::{Matrix, Transform, Vector};
@@ -227,6 +227,13 @@ struct ReplayWorld<'a> {
     callback: Vec<(DirectiveOp, i32)>,
     /// `is_using_tradelane` of the snapshot's objects (`ai_obj.lane`).
     lanes: BTreeMap<u32, bool>,
+    /// The motion state of the snapshot's ships the motion model reads:
+    /// the recorded zone (`ai_obj.zone_drag`, `interference`) and the
+    /// first engine's active and cruise flags.
+    motion_states: BTreeMap<u32, MotionState>,
+    /// What the tick asked of the motion models and the scanner (the
+    /// mismatch report's diagnostics).
+    log: std::cell::RefCell<Vec<String>>,
 }
 
 impl<'a> ReplayWorld<'a> {
@@ -314,6 +321,21 @@ impl<'a> ReplayWorld<'a> {
                 .iter()
                 .filter_map(|o| o.using_tradelane.map(|l| (o.id, l)))
                 .collect(),
+            motion_states: t
+                .objects
+                .iter()
+                .filter_map(|o| {
+                    let v = o.view.as_ref()?;
+                    Some((
+                        o.id,
+                        MotionState {
+                            zone: o.zone,
+                            engine: v.engine.map(|e| (e.active, v.cruise.is_some_and(|c| c.0))),
+                        },
+                    ))
+                })
+                .collect(),
+            log: std::cell::RefCell::new(Vec::new()),
         }
     }
 
@@ -584,9 +606,11 @@ impl AiWorld for ReplayWorld<'_> {
         out
     }
 
-    /// The motion world's ship, with the zone of the snapshot's position
-    /// (the motion model reads the zone's drag modifier and immersion; the
-    /// motion world's ships stand where they were spawned).
+    /// The motion world's ship with the snapshot's zone and engine state
+    /// (the motion model reads the zone's drag modifier and immersion and
+    /// whether the engine runs or cruises; the motion world's ships stand
+    /// where they were spawned, their engines as spawned). A record
+    /// without the zone keeps the motion world's (P2.5's runs).
     fn motion(&self, h: u32) -> Option<Box<dyn MotionModel + '_>> {
         let (world, handle) = self.motion?;
         let handle = if h == self.ship {
@@ -594,10 +618,22 @@ impl AiWorld for ReplayWorld<'_> {
         } else {
             *self.others.get(&h)?
         };
-        match self.objects.get(&h) {
-            Some(v) => world.motion_at(handle, v.position),
-            None => world.motion(handle),
+        let mut state = self.motion_states.get(&h).copied().unwrap_or_default();
+        if state.zone.is_none() {
+            state = MotionState::default();
         }
+        if let Ok(mut log) = self.log.try_borrow_mut()
+            && log.len() < 8
+        {
+            let line = format!("motion of {h}: {}", world.motion_inputs(handle, state));
+            if !log.contains(&line) {
+                log.push(line);
+            }
+        }
+        if state == MotionState::default() {
+            return world.motion(handle);
+        }
+        world.motion_with(handle, state)
     }
 
     /// The target list's mask answers the list the tick built; another
@@ -614,25 +650,37 @@ impl AiWorld for ReplayWorld<'_> {
             // (`scan_list` answers, P3.6d), in its order; older records
             // without one: every targetable object of the snapshot.
             let word_mask = int(mask);
+            let recorded: Vec<String> = self
+                .answers
+                .iter()
+                .filter(|a| a.kind == "scan_list" && a.id == h)
+                .map(|a| format!("{:?}", a.ints))
+                .collect();
             if let Some(a) = self.take_answer("scan_list", |a| {
                 a.id == h && a.ints.first() == Some(&word_mask)
             }) {
-                return Some(
-                    a.ints
-                        .iter()
-                        .skip(2)
-                        .map(|&id| word(id))
-                        .filter(|id| self.objects.contains_key(id))
-                        .collect(),
-                );
+                let ids: Vec<u32> = a
+                    .ints
+                    .iter()
+                    .skip(2)
+                    .map(|&id| word(id))
+                    .filter(|id| self.objects.contains_key(id))
+                    .collect();
+                self.log.borrow_mut().push(format!(
+                    "scan_list({h}, {mask:#x}) from the record: {ids:?} (recorded for the ship: {recorded:?})"
+                ));
+                return Some(ids);
             }
-            return Some(
-                self.objects
-                    .values()
-                    .filter(|v| v.id != self.ship && v.is_targetable && !v.is_dying)
-                    .map(|v| v.id)
-                    .collect(),
-            );
+            let ids: Vec<u32> = self
+                .objects
+                .values()
+                .filter(|v| v.id != self.ship && v.is_targetable && !v.is_dying)
+                .map(|v| v.id)
+                .collect();
+            self.log.borrow_mut().push(format!(
+                "scan_list({h}, {mask:#x}) without a record (recorded for the ship: {recorded:?}): every targetable snapshot object {ids:?}"
+            ));
+            return Some(ids);
         }
         Some(
             self.scan
@@ -1589,6 +1637,29 @@ fn report(
             r,
             "\n  commands oracle {theirs:08x?}\n  commands rust   {ours_c:08x?}"
         );
+    }
+    // Diagnostics (P3.6d): what the tick asked of the scanner and the
+    // motion models, and the ship's recorded state they read.
+    if theirs != ours_c || !pathfind_equal(ours.pathfind.as_ref(), out.pathfind.as_ref()) {
+        for line in world.log.borrow().iter() {
+            let _ = write!(r, "\n  {line}");
+        }
+        if let Some(o) = t.objects.iter().find(|o| o.id == t.id)
+            && let Some(v) = &o.view
+        {
+            let _ = write!(
+                r,
+                "\n  recorded ship: throttle {:?} engine {:?} cruise {:?} thrusters {:?} mass {:08x} zone {:?} position {:?} velocity {:?}",
+                v.throttle.map(f32::to_bits),
+                v.engine,
+                v.cruise,
+                v.thrusters,
+                v.mass.to_bits(),
+                o.zone.map(|(d, i)| (d.map(f32::to_bits), i.to_bits())),
+                v.position,
+                v.velocity
+            );
+        }
     }
     if !world.rand.exhausted_exactly() {
         let _ = write!(
