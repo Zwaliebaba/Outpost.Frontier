@@ -768,6 +768,7 @@ fn build_comm_sequences(cx: &mut Cx<'_>, tree: &VignetteTree, path: &TreePath, o
                         speaker: l.speaker,
                         target: seq.target,
                         text: l.text.clone(),
+                        line: crate::content::gcs::lines::Line::random_mission(),
                     })
                     .collect(),
             });

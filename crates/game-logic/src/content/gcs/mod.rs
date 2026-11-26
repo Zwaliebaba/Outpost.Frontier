@@ -27,10 +27,12 @@
 //! What the C++ holds by pointer (a line's system record, an event's
 //! objects) is held by id and looked up again.
 //!
-//! **Not here.** `FGcsPlayerListLine` and `FGcsConversationManager::Add`,
-//! the random missions' conversations (TU61), are P3.7b's (D939). The patrol
-//! guide's scanner queues its events through [`queue_conversation`] with
-//! [`Event::Scan`].
+//! **The random missions' conversations** (TU61's comm sequences) come
+//! through [`add`] (`FGcsConversationManager::Add`): their lines are
+//! player-list lines (`FGcsPlayerListLine`, [`lines::player_list_play`]),
+//! spoken to every listed player's ship. They take no admission roll. The
+//! patrol guide's scanner queues its events through [`queue_conversation`]
+//! with [`Event::Scan`].
 
 // The x87 comparisons keep their NaN outcome as written (`!(a > b)`).
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
@@ -628,6 +630,29 @@ pub fn queue_conversation(cx: &mut Cx<'_>, event: &Event) -> f32 {
     duration
 }
 
+/// `FGcsConversationManager::Add(Conversation)` (`:3460-3479`): a random
+/// mission's comm-sequence conversation (`FRmConversation`, TU61) is
+/// cloned, and the clone, when valid (`FRmConversation::IsValid`,
+/// `RandomMissionRuntime.cpp:306-316`: marked ready and every line
+/// playable, [`conversations::is_valid`]), is started (its first line
+/// plays) and queued after the others. False while the manager is off or
+/// for an invalid conversation, which is dropped.
+pub fn add(cx: &mut Cx<'_>, ready: bool, lines: &[lines::Line]) -> bool {
+    if !cx.logic.content.state.gcs.enabled {
+        return false;
+    }
+    let conversation = Conversation::random_mission(ready, lines.to_vec());
+    if !conversations::is_valid(cx, &conversation) {
+        return false;
+    }
+    // `Start`.
+    if let Some(first) = conversation.lines.first().cloned() {
+        lines::play(cx, &first);
+    }
+    cx.logic.content.state.gcs.conversations.push(conversation);
+    true
+}
+
 /// `FGcsConversationManager::OnMessage(Parms)` (`:3481-3499`), SpaceSupport's
 /// `CommComplete`: the first conversation that has the line drops it and
 /// plays its next one when it can, else is finished; a finished one is
@@ -639,7 +664,7 @@ pub fn on_message(cx: &mut Cx<'_>, done: &LineDone) {
     let mut at = 0;
     while at < cx.logic.content.state.gcs.conversations.len() {
         let c = &cx.logic.content.state.gcs.conversations[at];
-        let Some(line) = c.lines.iter().position(|l| lines::is_done(l, done)) else {
+        let Some(line) = c.lines.iter().position(|l| lines::is_done(cx, l, done)) else {
             at += 1;
             continue;
         };
