@@ -8,12 +8,15 @@ pub mod cameras;
 pub mod client_state;
 pub mod frame;
 pub mod input_router;
+pub mod login;
 pub mod login_history;
 pub mod machine_warning;
 #[cfg(windows)]
 pub mod movies;
+pub mod oracle;
 pub mod perf_options;
 pub mod profile;
+pub mod receiver;
 pub mod render_mode;
 pub mod session;
 pub mod startup_config;

@@ -106,7 +106,7 @@ the DLLs built from `CppSource` with the catalogs built from
 | --- | --- | --- | --- |
 | Start-up, window, message pump, timing, engine init, loading screen | 5.0k | `apps/outpost-frontier`; `neuron-client::{platform, engine}`; `game-app::boot` | P4.1, P4.16, P5.1 |
 | Client state machine and flow | 6.5k | `game-app::{client_state, frame, session}` (record 0009). P5.1 first increment: the state machine of `client_state.cpp` (`EnterClientState` with its eight states, the load-game path, `QueueLoadGameCharacter`, the pending state), `TickClientFrame`'s order, and the session seam with `TickLocalServer` and the modal frame's server rule; the states themselves come with their packages | P5.1 |
-| Networking glue, login, connect flow | 6.7k | `game-app::session`; `neuron-client::net` | P5.3, P6.1 |
+| Networking glue, login, connect flow | 6.7k | `game-app::{session, receiver, login}`; `apps/outpost-frontier::local_server`; `neuron-client::net`. P5.3 first increment: the in-process single-player server behind the session, the first `IClient` slots with the port's IClient log, and `CLoginMgr`'s single-player connect, login and character-list request | P5.3, P6.1 |
 | Client game objects and object database | 19.8k | `game-app::world` | P5.4 |
 | Space rendering glue and effects | 46.7k | `neuron-client::render` (generic layers); `game-app::world` (game rules) | P5.6, P5.8, P6.4 |
 | Cameras | 8.6k | `game-app::camera` | P5.4 |

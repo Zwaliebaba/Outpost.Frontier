@@ -138,7 +138,7 @@ Gate G5 asks that interface-tree dumps equal the oracle for every screen.
    `game_logic::saves::server_save_game`) and names any change to
    `game-logic` in its pull request.
 
-4. **The event receiver.** `game-app::session::receiver` takes each
+4. **The event receiver.** `game-app::receiver` takes each
    `game_sim::protocol::ToClient` and calls one handler per `IClient` slot
    (126 slots, `include/rpc_iclient.h`), in delivery order. The client's
    view of the objects follows record 0002: in single player a create
