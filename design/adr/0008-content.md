@@ -729,7 +729,7 @@ Paths are relative to `CppSource/`.
     | P3.5a2 | `[ObjList]` (23 directives and their AI ops) and `[MetaBehavior]` | The same dumps extended to both sections |
     | P3.5b | The mission, trigger, snapshot and `[StoryInfo]` sections (`format_f` itself came with P3.4d) | `format_f` vectors; save round trips; Rust saves loaded by the C++ build (Gate G3) |
     | P3.5c | The run time: the trigger engine, conditions, the 85 actions in groups (one pull request per group if large), object lists, nags, the NN path | Tier B mission trace (Verification) |
-    | P3.5d | The story shell and `StoryMissions.cpp`'s overrides | Tier B story trace |
+    | P3.5d | The story shell and `StoryMissions.cpp`'s overrides | Tier B story trace (`dump story_session`, question 9) |
     | P3.6a | SpaceSupport's core: handler order, loot preparation, the players' formations, dock queues (with the dock-list half of `SystemEnter` and `SystemExit`); the trade lanes moved in | `dock_at_station` through the server; scenarios with SpaceSupport on both sides |
     | P3.6b | GCS and voices | D734 removed; a scenario without `comms off` |
     | P3.6c | NPC ships, callback handles, guides, the NPC name builder (moved from P3.4c), `GenerateCargo` (moved from P3.4c), the NPC formations (`PromoteFormationLeader`, `PickFormationLeader`, `BreakFormationAtDock`'s NPC part; moved from P3.6a), the combat reputation of TU56 and the players' hostile contacts (D845), the AI's target, cruise, thruster and equipment requests to the server (D760) | D168, D184, D760 removed; D194 rewritten; flee, follow and guide scenarios driven by Content |
@@ -906,6 +906,22 @@ and 5 to 10 as recommended on 2026-11-22, and 4 as recommended on 2026-11-24:
    the NN path and the nags (D970 narrowed to `Act_EnableEnc`, D973 to
    P3.5d's and P3.6d's calls, D1021 removed); their sends go to the
    player's client only, so the session's records do not change.
+   P3.5d is judged on the Tier B story trace, the same pattern on
+   Story (`dump story_session`, `story.jsonl`; `Content/oracle_story_session.cpp`
+   with the hooks of `oracle_story_trace.h` in Story, StoryLauncher and the
+   story missions' factory): after the multiplayer start-up, a slotless
+   player 7 in `he01_02_Base`'s system gets a StoryLauncher on the bus, a
+   Story on `PlayerLogin`, `newplayer.fl`'s `[StoryInfo]` (`Mission_01a`
+   made, loaded and started), `Mission_01a` accepted and succeeded
+   (`Mission_01b` made), `Mission_01b`'s base enter and success (chapter 5's
+   worth), a worth below it, a chapter-21 save whose worth starts
+   `Mission_07`, a ship bought and the teardown, each step from
+   `srand(0x4f524143 + step)`. Every message, event, create, destroy and
+   state of Story and each step's draws, mission number, live mission,
+   attack clamp and completed random missions are compared exactly, record
+   by record. The missions run their real handlers on the bus; the success
+   is the harness's (the desired state set and `ApplyDesiredMissionState`),
+   as an action's SUCCEED and the handler's tail make it.
 10. **Order of the packages.** P3.4, then P3.5 and P3.6 interleaved as in
     point 10, then P3.7, each increment a pull request merged on green
     under O41. *Recommended as written.*
@@ -915,7 +931,7 @@ and 5 to 10 as recommended on 2026-11-22, and 4 as recommended on 2026-11-24:
 | Package | CI or data job compares | New oracle work |
 | --- | --- | --- |
 | P3.4 | `content_<table>` dumps of every table after start-up, and of the system records after every system's `SystemLoaded`, against `crates/game-logic/tests/data_dump.rs` (data job). The pilots against `OracleSimPilotPersonality`. `[mPlayer]` and gate-lock round trips. Heartbeat phases against `load_rand.jsonl` | Content.dll export `OracleDumpContentTables`; session file `Oracle/content_tables.txt` (`dump content_tables`) on the multiplayer start-up, as `system_loads.txt` uses `OracleDumpSystemLoads` |
-| P3.5 | Mission script dumps of the 14 story missions, each created on a fixed seed; the dump includes the CRT's draw count before and after (Gate G3). Save round trips and C++ loads of Rust saves (Gate G3). `format_f` vectors (CI). The mission trace (Tier B) | Export `OracleDumpMissionScripts` (all 129 class dumpers, in a new `Content/oracle_content_dump.cpp`); session file `Oracle/mission_scripts.txt`; the `mission` option of open question 9 and `mission.jsonl`; `format_f` cases in the number suite |
+| P3.5 | Mission script dumps of the 14 story missions, each created on a fixed seed; the dump includes the CRT's draw count before and after (Gate G3). Save round trips and C++ loads of Rust saves (Gate G3). `format_f` vectors (CI). The mission trace and the story trace (Tier B) | Export `OracleDumpMissionScripts` (all 129 class dumpers, in a new `Content/oracle_content_dump.cpp`); session file `Oracle/mission_scripts.txt`; the `mission` option of open question 9 and `mission.jsonl`; `OracleDumpStorySession`, session file `Oracle/story_session.txt` and `story.jsonl` (P3.5d); `format_f` cases in the number suite |
 | P3.6 | The scenarios with SpaceSupport, GCS and the populators on both sides, within approved envelopes. The dispatch trace. The population draws of `load_rand.jsonl`. `dock_at_station` through the server (Gate G3) | `dispatch.jsonl` (record 0006 point 10, owed); scenarios for flee, loot, follow and guide under Content; a populated scenario |
 | P3.7 | Offers built from fixed seeds over the data's bases and zones, and the rebuild of saved `[RandomMission]` sections from their seeds (Gate G3), field by field: the tree path, rank, texts, objectives and counters. The router and machine traces (Tier B) | Export `OracleDumpRmOffers` (query, seed and counters in; offer out); session file `Oracle/rm_offers.txt` |
 

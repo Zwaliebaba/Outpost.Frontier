@@ -13,6 +13,7 @@
 #include "common_server.h"
 #include "common_server_controller.h"
 #include "server_cobject.h"
+#include "oracle_story_trace.h" // P3.5d oracle instrumentation, inert outside OracleDumpStorySession
 
 #include <cstddef>
 #include <cstdio>
@@ -456,8 +457,11 @@ namespace
     template <class TMission>
     IDLL* NewMission(unsigned int ControllerId, void const* Parms)
     {
-        return new (std::nothrow)
+        TMission* const Mission = new (std::nothrow)
             TMission(&ControllerId, static_cast<FStoryMissionCreateParms const*>(Parms));
+        // Oracle instrumentation (P3.5d): the story session's mission.
+        OracleStoryNoteMission(Mission, ControllerId);
+        return Mission;
     }
 }
 

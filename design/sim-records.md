@@ -1209,6 +1209,47 @@ first record's `[NNObjective]`s, `SaveNNObjectives`) and `SaveRandEncs`
 (none); binary, the `\n` the format strings write. It is compared byte for
 byte, the first differing line reported in `rust-rm-session.txt`; the
 port's is kept as `rust-rm_save.ini`.
+## `story.jsonl` (`dump story_session`)
+
+The Tier B story trace (P3.5d, decision record 0008 point 10 and question 9;
+`Content/oracle_story_session.cpp` with the hooks of
+`Content/oracle_story_trace.h` in `Story.cpp`, `StoryLauncher.cpp` and
+`StoryMissions.cpp`, and Server.dll's `OracleBaseDbLoadBase` and
+`OracleBusTick`), read by `crates/game-logic/tests/story_session.rs`. After
+the multiplayer start-up: player 7 registered in `he01_02_Base`'s system
+without a ship or a server slot, `BaseDB::load_base` of the base. Fourteen
+steps, each from `srand(0x4f524143 + step)`, every message through the bus to
+one controller: `launcher` (a StoryLauncher made at `BELOW_NORMAL`), `login`
+(`PlayerLogin {7}` to it: Story made), `load` (`PlayerLoad` of `newplayer.fl`'s
+`[StoryInfo]` to Story: `Mission_01a` made, loaded and started), `accept`
+(`MissionResponse {mission, 0, accepted, 7}` to the mission), `succeed` (the
+mission's desired state SUCCEED and its `ApplyDesiredMissionState`:
+`Mission_01b` made and started), `teardown` (the bus's heartbeat walk and
+timers with 0), `base_enter` (GameSupport's case of `BaseEnter
+{he01_02_Base, 7}`, then `BaseEnter` to `Mission_01b`), `succeed`,
+`teardown`, `worth` (`PlayerWorthChanged {7}` to Story), `load_chapter` (a
+`[StoryInfo]` at chapter 21 with the worth 0), `worth` (`Mission_07` made
+and started), `ship_bought` (`PlayerShipArchSet {7}`) and `teardown`
+(`Mission_07`, Story and the launcher destroyed, then the heartbeat walk).
+The session stops after the step that should have made a mission when the
+mission the factory made last did not change. One JSON object per line, ids
+unsigned decimal, a `float` as its bits in lower-case hexadecimal:
+
+| `rec` | Fields | Written |
+| --- | --- | --- |
+| `step` | `step`, `name` | at a step's start |
+| `send` | `step`, `msg` | before each controller message the session sends |
+| `message` | `step`, `msg` | a message to Story's `HandleMessage`, before its case runs |
+| `event` | `step`, `kind`, `chapter`, `controller` | Story's `OnMissionEvent`, before it runs |
+| `create` | `step`, `name`, `id` | a `pub::Controller::Create` of Story (a chapter's mission) or StoryLauncher (`Story`), with the id it gave |
+| `destroy` | `step`, `id` | a `pub::Controller::Destroy` of Story's, before it is made |
+| `state` | `step`, `num`, `worth`, `bought`, `mission`, `controller` | Story's mission number, worth, ship flag and mission name and `GStoryMissionController` when its handler or `OnMissionEvent` returns |
+| `end` | `step`, `draws`, `num`, `live`, `attack`, `completed` | a step's end: the draws since its seeding (-1 beyond 0x10000), player 7's mission number and live mission, the attack clamp (`GSpacePopAttackClamp`) and his completed random missions as `[type, count]` |
+
+The comparison is exact, record by record, to the first difference,
+reported with the records around it in `rust-story-session.txt`; the port's
+trace is kept as `rust-story.jsonl`. On `outdir/` the port writes 70
+records.
 
 ## `spread.jsonl` (`--runs N`)
 

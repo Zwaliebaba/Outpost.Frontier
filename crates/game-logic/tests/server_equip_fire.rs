@@ -659,12 +659,18 @@ fn a_cargo_stack_decays() {
     set_stack(&mut cx, h, 3, 0.5);
     cargo::decay_cargo(&mut cx, h, 1.0);
     assert_eq!(stack_state(&cx, h), (2, 100.0, false));
-    // A spent single unit is destroyed.
+    // A spent single unit is destroyed, and outside single player it
+    // leaves the ship at once (`CEqObj::destroy_sub_objs` and
+    // `CEquipManager::CleanUp`).
     set_stack(&mut cx, h, 1, 0.5);
     cargo::decay_cargo(&mut cx, h, 1.0);
-    let (count, hit_pts, destroyed) = stack_state(&cx, h);
-    assert_eq!((count, hit_pts), (1, 0.0));
-    assert!(destroyed);
+    assert!(
+        cx.world
+            .get(h)
+            .and_then(|o| o.equipped.as_deref())
+            .and_then(|eq| eq.equipment.by_id(CARGO_ID))
+            .is_none()
+    );
 
     // A valid owning player's open trade freezes the decay
     // (`Server/server_gameobject.cpp:4171-4175`).

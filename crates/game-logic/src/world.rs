@@ -317,7 +317,7 @@ fn unload(cx: &mut Cx<'_>, system: u32) {
     if let Some(s) = system_mut(cx, system) {
         s.observers.clear();
     }
-    cx.logic.solar_trees.remove(system);
+    cx.world.free_solar_partition(system);
     cx.world.unload_system(system);
 }
 
@@ -443,6 +443,9 @@ impl ServerHooks for Hooks<'_> {
             world,
             logic: self.logic,
         };
+        // The loot of fates 4 and 5, which the C++ makes while it builds
+        // the list (`destroy_equip`, `destroy_cargo`).
+        crate::objects::drop_pending_loot(&mut cx, object, list);
         crate::objects::begin_damage_list(&mut cx, object, list);
         crate::ship::stamp_damage_times(&mut cx, object, list);
         true
@@ -680,7 +683,7 @@ pub const NEAR_SOLAR_RADIUS: f32 = 10000.0;
 /// of at most 0x800 entries, so a solar near two players is in it twice.
 #[must_use]
 pub fn near_solars(world: &World, logic: &Logic, system: u32) -> Option<Vec<ObjHandle>> {
-    let tree = logic.solar_trees.get(system)?;
+    let tree = world.solar_partition(system)?;
     let mut scan = game_sim::data::spatial::QueryResult::default();
     let observers = logic
         .server_world
