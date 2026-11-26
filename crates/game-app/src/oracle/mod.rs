@@ -113,32 +113,25 @@ impl OracleRun {
     }
 }
 
-/// The client's answers to the script: the tree of its interface and
-/// clicks on it; no screenshot, command or key yet (they come with the
-/// screens); the pending state it takes.
-pub struct StartupHost {
-    /// The client's interface (the `Win3D` registry).
-    pub ui: Ui,
+/// The client's answers to the script for one frame: the tree of its
+/// interface and clicks on it; no screenshot, command or key yet (they come
+/// with the screens); the pending state it takes.
+pub struct ClientHost<'a> {
+    /// The engine's interface (the `Win3D` registry), when it has one.
+    pub ui: Option<&'a mut Ui>,
     /// The state the script asked for (`state`, or 1 at its end).
-    pub pending_state: Option<u32>,
+    pub pending_state: &'a mut Option<u32>,
 }
 
-impl StartupHost {
-    #[must_use]
-    pub fn new(ui: Ui) -> Self {
-        Self {
-            ui,
-            pending_state: None,
-        }
-    }
-}
-
-impl script::OracleHost for StartupHost {
+impl script::OracleHost for ClientHost<'_> {
     fn take_shot(&mut self, _: &str) -> bool {
         false
     }
     fn tree(&mut self, dump: u32) -> tree::TreeDump {
-        tree::dump_nodes(&self.ui, dump)
+        self.ui
+            .as_deref()
+            .map(|ui| tree::dump_nodes(ui, dump))
+            .unwrap_or_default()
     }
     fn command(&mut self, _: &str) -> Result<String, String> {
         Err("not ported yet".into())
@@ -147,9 +140,12 @@ impl script::OracleHost for StartupHost {
         Err("not ported yet".into())
     }
     fn click(&mut self, spec: &str) -> Result<String, String> {
-        tree::click(&mut self.ui, spec)
+        match self.ui.as_deref_mut() {
+            Some(ui) => tree::click(ui, spec),
+            None => Err("not found".into()),
+        }
     }
     fn set_pending_state(&mut self, id: u32) {
-        self.pending_state = Some(id);
+        *self.pending_state = Some(id);
     }
 }
