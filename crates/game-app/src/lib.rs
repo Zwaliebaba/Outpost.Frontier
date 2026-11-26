@@ -5,7 +5,9 @@ use std::io::{self, Write};
 
 pub mod account_keys;
 pub mod base;
+pub mod boot_interface;
 pub mod cameras;
+pub mod chat;
 pub mod client_state;
 pub mod frame;
 pub mod input_router;
@@ -168,6 +170,12 @@ pub fn run(start_server: session::StartLocalServer<'_>) -> io::Result<()> {
         .map_err(|e| failure(e.to_string()))?;
     for notice in &engine.notices {
         writeln!(out, "engine: {notice}")?;
+    }
+    // InitializeEngine's interface windows: the briefing's parent, the
+    // group-request window, the tool tip and the rollover.
+    if let Some(ui) = engine.ui_mut() {
+        boot_interface::register(&mut ui.factory);
+        boot_interface::create(ui);
     }
     // SavePerfOptions with the mode the device took.
     if let Err(e) = paths
