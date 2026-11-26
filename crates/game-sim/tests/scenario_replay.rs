@@ -66,10 +66,13 @@
 //! with Content's ships, which only the server makes, are skipped. The
 //! fights (`dogfight`, `skirmish`: AI ships of hostile
 //! factions; `strafe`: an AI fighter and a hostile ship without one) take
-//! each pilot's personality and the ships' attitudes from the oracle's
-//! `ai.jsonl` (a ship without a manager the reverse attitude of the AI
-//! ship's snapshot), and are judged to their first contact or munition
-//! impact (see below; record 0003 point 9): each ship's exact span, the
+//! each pilot's personality from the oracle's `ai.jsonl`; each ship's
+//! `faction` gives it a vibe of that reputation group, as the oracle's
+//! harness does, so the world answers the attitudes from the initial
+//! world's feelings (P3.11b; the oracle's first answers are reported
+//! beside them, `report_attitudes`); they are judged to their first
+//! contact or munition impact (see below; record 0003 point 9): each
+//! ship's exact span, the
 //! first behaviour and target difference, the behaviour sequences, the
 //! hits before the first divergence and the outcome are reported. Every
 //! object's line says whether it is bit-exact over the run, and where it
@@ -99,8 +102,8 @@ use game_sim::scenario::{
     self, AiInputs, Contact, EXACT_SCENARIOS, GROSS_POSITION, Hit, Run, Scenario, State, Unit,
     dist, first_event, first_event_of, first_judged, fmt_contact, gun_text, judge_contact,
     judge_exact, judge_fight, needs_ai, needs_server, oracle_ai_inputs, oracle_run, parse,
-    report_first_divergence, report_guided, report_object_errors, same_state, scenario_files,
-    scenarios_dir, spawn_orientation, world_config,
+    report_attitudes, report_first_divergence, report_guided, report_object_errors, same_state,
+    scenario_files, scenarios_dir, spawn_orientation, world_config,
 };
 use neuron_core::id::create_id;
 use neuron_core::math::Vector;
@@ -109,11 +112,12 @@ use neuron_core::physics::replay::{CoreRecord, compare};
 use neuron_core::rng::CrtRand;
 use support::records::{Json, find_files, read_lines};
 
-/// A scenario's run without a server: the world over `outdir/`
-/// ([`support::world::world`]) and the library's driver with
-/// [`NoServerHooks`]. `None` when the game data is missing.
+/// A scenario's run without a server: the world over `outdir/` with the
+/// initial world's faction feelings ([`support::world::scenario_world`])
+/// and the library's driver with [`NoServerHooks`]. `None` when the game
+/// data is missing.
 fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
-    let world = support::world::world(world_config(s))?;
+    let world = support::world::scenario_world(world_config(s))?;
     Some(scenario::run(world, s, ai, &mut NoServerHooks))
 }
 
@@ -1521,6 +1525,7 @@ fn scenarios_against_the_oracle() {
                     s.name
                 );
             }
+            report_attitudes(&mut summary, &s, &ai, &our_run);
             if !ai.attitudes.is_empty() {
                 report_combat(&mut summary, &s.name, &our_run, &their_run);
             }

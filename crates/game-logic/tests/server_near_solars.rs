@@ -212,3 +212,55 @@ fn a_destroyed_solar_leaves_the_bsp() {
     found.sort();
     assert_eq!(found, rest);
 }
+
+/// `ScanList::add_in_range` (`Common/common_cescanner.cpp:160`) takes its
+/// solars from the system's bucket (`GetBucket(0xfdff)`, the BSP the
+/// server's load builds) in the BSP's order, before the server's lists:
+/// a fighter among he01_14's solars lists every targetable solar the
+/// BSP's sphere query of its radar range answers, in that order.
+#[test]
+fn the_scanner_lists_the_bsp_solars_in_its_order() {
+    let Some((mut world, mut logic)) = setup() else {
+        return;
+    };
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    world::load(&mut cx, he01());
+    let station = cx
+        .world
+        .find(create_id(b"he01_14"))
+        .expect("he01_14 is loaded");
+    let at = cx.world.get(station).unwrap().engine.position;
+    let position = Vector::new(at.x + 300.0, at.y + 400.0, at.z - 600.0);
+    let ship = fighter(&mut cx, 0, position);
+    let scanner = cx
+        .world
+        .get(ship)
+        .and_then(|o| o.equipped.as_deref())
+        .and_then(|eq| eq.equipment.first(game_sim::equip::types::SCANNER))
+        .map(|e| e.id)
+        .expect("a scanner");
+    let range = cx.world.radar_range(ship, scanner).expect("its range");
+    cx.world.scan_for_types(ship, 0xfdff);
+    let listed: Vec<ObjHandle> = cx
+        .world
+        .scan_list(ship)
+        .into_iter()
+        .filter(|&h| {
+            cx.world
+                .get(h)
+                .is_some_and(|o| o.kind == game_sim::object::ObjectKind::Solar)
+        })
+        .collect();
+    let bucket: Vec<ObjHandle> = cx
+        .world
+        .solars_in_sphere(he01(), position, range)
+        .expect("he01 has its BSP")
+        .into_iter()
+        .filter(|&h| cx.world.get(h).is_some_and(|o| o.is_targetable()))
+        .collect();
+    assert!(bucket.len() >= 2, "{} solars in range", bucket.len());
+    assert_eq!(listed, bucket);
+}

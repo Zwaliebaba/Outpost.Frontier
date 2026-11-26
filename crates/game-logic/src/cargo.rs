@@ -84,8 +84,10 @@ fn jettison_state<'c>(cx: &'c mut Cx<'_>, h: ObjHandle) -> Option<&'c mut Jettis
 /// cargo stack. At most the stack's count (an unsigned comparison) goes;
 /// `CargoJettisoned` reaches the bus with the good. A stack in a pod loses
 /// the pod (`destroy_equip` with fate 4 in a cause-0x16 list from the ship,
-/// applied at once). Otherwise the stack's description with that count is
-/// queued (-5 when the stack is empty), the bay opens, outside single
+/// applied at once), whose container carries the stack (`destroy_cargo`,
+/// [`crate::objects::drop_pending_loot`], mode 1). Otherwise the stack's
+/// description with that count is queued (-5 when the stack is empty), the
+/// bay opens, outside single
 /// player the units leave the stack, and the observers hear of it
 /// (`notify_jettison`). `SourceClient` is not read. 0 otherwise.
 pub fn jettison(

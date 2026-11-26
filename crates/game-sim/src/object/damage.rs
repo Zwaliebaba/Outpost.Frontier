@@ -11,8 +11,13 @@
 //! functions over a [`DamageTarget`] view. The damage replay test runs them
 //! from the oracle's recorded `munition_hit` inputs.
 //!
-//! Fuses (`light_fuse` when a sub-object crosses a fuse's threshold) and
-//! the loot drops of fates 4 and 5 are the server's and come with P3.3.
+//! Fuses (`light_fuse` when a sub-object crosses a fuse's threshold) are
+//! the server's (P3.3). So is the loot of fates 4 and 5: `destroy_equip`
+//! and `destroy_cargo` make their entries here and leave the loot, which
+//! reads the players, asks the controllers (`EquipDropLoot`) and makes the
+//! containers, to the server as the list's [`PendingLoot`]s, in the order
+//! the C++ makes them during the list's build; the server takes them
+//! before it applies the list (P3.11b).
 
 use neuron_core::id::sub_object::{is_arch_group_id, is_equip_id};
 use neuron_core::scene::InstanceId;
@@ -71,6 +76,44 @@ pub struct DamageList {
     pub inflictor_id: u32,
     /// +0x18 the inflicting player.
     pub inflictor_owner: u32,
+    /// The loot of the items destroyed with fate 4 or 5 while the list was
+    /// built, in the C++'s order; the server makes it (and sets each
+    /// entry's last fate) before the list is applied.
+    pub loot: Vec<PendingLoot>,
+}
+
+/// An item `destroy_equip` or `destroy_cargo` destroys with fate 4
+/// (`EquipDropLoot` asks the controllers for the description) or 5 (the
+/// item's own), whose loot is the server's
+/// (`Server/server_gameobject.cpp:3256-3488`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PendingLoot {
+    /// The item; for a cargo pod, the pod.
+    pub equip: SubObjId,
+    /// 4 or 5.
+    pub fate: Fate,
+    /// A cargo pod's stack (`CECargoPod+0x4c`), whose description the pod's
+    /// container carries; `None` for any other item.
+    pub pod_cargo: Option<SubObjId>,
+    /// The index of the item's entry, made with `fate` and the fate the
+    /// entry had before (`None` for a new entry), so that the server can
+    /// set the fate the C++ adds it with (`add_damage_entry`'s more severe
+    /// fate of the two).
+    pub entry: (usize, Option<Fate>),
+}
+
+impl PendingLoot {
+    /// The fate the C++ adds the entry with once the loot is decided:
+    /// `last`, or the earlier entry's when that is more severe.
+    pub fn settle(&self, list: &mut DamageList, last: Fate) {
+        let (index, prior) = self.entry;
+        if let Some(entry) = list.entries.get_mut(index) {
+            entry.fate = match prior {
+                Some(p) if p.value() > last.value() => p,
+                _ => last,
+            };
+        }
+    }
 }
 
 impl DamageList {
@@ -397,9 +440,28 @@ pub fn damage_equip(
     true
 }
 
-/// `EqObj::destroy_equip`: a zero-hit-point entry with the fate. Cargo
-/// pods (`destroy_cargo`) and the loot fates 4 and 5 are the server's
-/// (P3.3); a loot fate on an item that cannot be looted separates it.
+/// The entry of a loot item, with its loot left to the server
+/// ([`PendingLoot`]).
+fn add_loot_entry(list: &mut DamageList, id: SubObjId, fate: Fate, pod_cargo: Option<SubObjId>) {
+    let index = list.entries.iter().position(|e| e.sub_obj_id == id);
+    let prior = index.map(|i| list.entries[i].fate);
+    list.add_damage_entry(id, 0.0, fate);
+    let index = index.unwrap_or(list.entries.len() - 1);
+    list.loot.push(PendingLoot {
+        equip: id,
+        fate,
+        pod_cargo,
+        entry: (index, prior),
+    });
+}
+
+/// `EqObj::destroy_equip` (`Server/server_gameobject.cpp:3365-3488`): a
+/// destroyed item is left alone; a cargo pod goes through
+/// [`destroy_cargo`]. A loot fate (4 or 5) on an item that cannot be
+/// looted or is disabled separates it; on any other its loot is the
+/// server's ([`PendingLoot`]: the solar visit, the description, the
+/// container), which may separate it too. The item's zero-hit-point entry
+/// with the fate.
 pub fn destroy_equip(t: &DamageTarget<'_>, id: SubObjId, fate: Fate, list: &mut DamageList) {
     let Some(equip) = t.equipment.by_id(id) else {
         return;
@@ -407,11 +469,44 @@ pub fn destroy_equip(t: &DamageTarget<'_>, id: SubObjId, fate: Fate, list: &mut 
     if equip.is_destroyed() {
         return;
     }
+    if equip.type_bits == types::CARGO_POD {
+        destroy_cargo(t, id, fate, list);
+        return;
+    }
     let mut fate = fate;
-    if matches!(fate, Fate::Loot | Fate::LootSilent)
-        && (!equip.lootable || equip.is_disabled(t.weapons_offline))
-    {
-        fate = Fate::Separated;
+    if matches!(fate, Fate::Loot | Fate::LootSilent) {
+        if !equip.lootable || equip.is_disabled(t.weapons_offline) {
+            fate = Fate::Separated;
+        } else {
+            add_loot_entry(list, id, fate, None);
+            return;
+        }
+    }
+    list.add_damage_entry(id, 0.0, fate);
+}
+
+/// `EqObj::destroy_cargo` (`:3256-3362`): the stack in the pod (if any)
+/// goes first. With a fate other than 4 or 5, a separated pod drops its
+/// stack as loot ([`destroy_equip`] with fate 4) and any other fate
+/// destroys it; with fate 4 or 5 the pod's container carries the stack
+/// (the server's, [`PendingLoot`]), and the stack is destroyed. Then the
+/// pod's entry with the fate (which the server may make a separation).
+pub fn destroy_cargo(t: &DamageTarget<'_>, id: SubObjId, fate: Fate, list: &mut DamageList) {
+    let cargo = match t.equipment.by_id(id).map(|e| &e.kind) {
+        Some(EquipKind::CargoPod(p)) => p.contents,
+        _ => None,
+    };
+    if let Some(cargo) = cargo {
+        if matches!(fate, Fate::Loot | Fate::LootSilent) {
+            list.add_damage_entry(cargo, 0.0, Fate::Destroyed);
+            add_loot_entry(list, id, fate, Some(cargo));
+            return;
+        }
+        if fate == Fate::Separated {
+            destroy_equip(t, cargo, Fate::Loot, list);
+        } else {
+            list.add_damage_entry(cargo, 0.0, Fate::Destroyed);
+        }
     }
     list.add_damage_entry(id, 0.0, fate);
 }
@@ -1108,5 +1203,110 @@ mod tests {
             l.entries.iter().find(|x| x.sub_obj_id == 4).map(|x| x.fate),
             Some(Fate::Destroyed)
         );
+    }
+
+    fn equipment(class: u32, id: SubObjId, nickname: u32) -> crate::equip::Equip {
+        let mut a = crate::data::archetype::equipment::Equipment::new(class);
+        a.root.nickname = nickname;
+        a.root.hit_pts = 50.0;
+        if class == crate::equip::classes::COMMODITY {
+            return crate::equip::Equip::cargo(id, &a, false, 1.0, 3);
+        }
+        crate::equip::Equip::alloc(id, &a, false, true, None).expect("an item")
+    }
+
+    /// A pod (0x30) holding a cargo stack (0x31), and a commodity stack
+    /// (0x32) of its own.
+    fn hold() -> EquipManager {
+        let mut m = EquipManager::default();
+        let mut pod = equipment(crate::equip::classes::CARGO_POD, 0x30, 1);
+        if let EquipKind::CargoPod(p) = &mut pod.kind {
+            p.contents = Some(0x31);
+        }
+        // Mounted (an unconnected external item reads as destroyed).
+        if let Some(m) = &mut pod.mount {
+            m.connected = true;
+        }
+        if let Some(a) = &mut pod.attached {
+            a.attachment = Some(crate::equip::Attachment::NonPhysical {
+                instance: None,
+                hp_crc: 0,
+                collisions: true,
+            });
+        }
+        m.add(pod);
+        m.add(equipment(crate::equip::classes::COMMODITY, 0x31, 2));
+        m.add(equipment(crate::equip::classes::COMMODITY, 0x32, 3));
+        m
+    }
+
+    #[test]
+    fn a_loot_fate_leaves_its_loot_to_the_server() {
+        let mut m = hold();
+        let f = |_, _| 1.0;
+        let t = target(&m, &[], &f);
+        // Fate 5 on a lootable item: its entry with the fate, the loot
+        // pending with the entry's index.
+        let mut l = DamageList::new(0x15, 7, 0);
+        l.add_damage_entry(SUBOBJ_ID_ROOT, 90.0, Fate::None);
+        destroy_equip(&t, 0x32, Fate::LootSilent, &mut l);
+        assert_eq!(l.entries[1].fate, Fate::LootSilent);
+        assert_eq!(
+            l.loot,
+            [PendingLoot {
+                equip: 0x32,
+                fate: Fate::LootSilent,
+                pod_cargo: None,
+                entry: (1, None),
+            }]
+        );
+        // The server separates it: the entry takes the fate it settles on.
+        let p = l.loot[0];
+        p.settle(&mut l, Fate::Separated);
+        assert_eq!(l.entries[1].fate, Fate::Separated);
+        // An item that cannot be looted separates at once.
+        if let Some(e) = m.by_id_mut(0x32) {
+            e.lootable = false;
+        }
+        let t = target(&m, &[], &f);
+        let mut l = DamageList::new(0x15, 7, 0);
+        destroy_equip(&t, 0x32, Fate::Loot, &mut l);
+        assert_eq!(l.entries[0].fate, Fate::Separated);
+        assert!(l.loot.is_empty());
+    }
+
+    #[test]
+    fn a_pod_drops_or_carries_its_stack() {
+        let m = hold();
+        let f = |_, _| 1.0;
+        let t = target(&m, &[], &f);
+        // Separated: the stack is looted (fate 4, through `destroy_equip`),
+        // then the pod's entry.
+        let mut l = DamageList::new(CAUSE_GUN, 7, 0);
+        destroy_equip(&t, 0x30, Fate::Separated, &mut l);
+        let fates: Vec<_> = l.entries.iter().map(|e| (e.sub_obj_id, e.fate)).collect();
+        assert_eq!(fates, [(0x31, Fate::Loot), (0x30, Fate::Separated)]);
+        assert_eq!(l.loot.len(), 1);
+        assert_eq!((l.loot[0].equip, l.loot[0].pod_cargo), (0x31, None));
+        // A loot fate: the stack is destroyed, the pod carries it.
+        let mut l = DamageList::new(0x16, 7, 0);
+        destroy_equip(&t, 0x30, Fate::Loot, &mut l);
+        let fates: Vec<_> = l.entries.iter().map(|e| (e.sub_obj_id, e.fate)).collect();
+        assert_eq!(fates, [(0x31, Fate::Destroyed), (0x30, Fate::Loot)]);
+        assert_eq!(
+            l.loot,
+            [PendingLoot {
+                equip: 0x30,
+                fate: Fate::Loot,
+                pod_cargo: Some(0x31),
+                entry: (1, None),
+            }]
+        );
+        // Any other fate destroys the stack with the pod.
+        let mut l = DamageList::new(CAUSE_GUN, 7, 0);
+        destroy_equip(&t, 0x30, Fate::Destroyed, &mut l);
+        let fates: Vec<_> = l.entries.iter().map(|e| (e.sub_obj_id, e.fate)).collect();
+        assert_eq!(fates, [(0x31, Fate::Destroyed), (0x30, Fate::Destroyed)]);
+        assert!(l.loot.is_empty());
     }
 }

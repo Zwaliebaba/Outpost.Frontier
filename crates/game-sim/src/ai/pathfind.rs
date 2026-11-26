@@ -14,10 +14,10 @@
 //! 0 and 2 and the box of mode 1) and `UpdateHeadingBlend`.
 //!
 //! `ClassifyObstaclePhase` walks the scan list (mask 0xfd58) and the
-//! planets, moons and suns within 20 km; the reference reads the latter
-//! from the object database's spatial bucket 7, the port from the
-//! system's objects with the same sphere test (their order only moves
-//! the deflection slot the next candidate refills).
+//! planets, moons and suns of the object database's spatial bucket 7
+//! within 20 km (`ObjectDb->GetBucket(7)->QuerySphere`, the server's solar
+//! partition, [`AiWorld::bucket_query`](super::world::AiWorld::bucket_query)),
+//! in the partition's order.
 
 use neuron_core::math::Quaternion;
 use neuron_core::math::{Matrix, Transform, Vector, quaternion_to_matrix, transform_matrix};
@@ -860,23 +860,15 @@ impl PathfindManager {
         let Some(list) = world.scan_list(ship, 0xfd58, scan.keep) else {
             return 4;
         };
-        // `ObjectDb->GetBucket(7)->QuerySphere`: the planets, moons and
-        // suns whose sphere meets 20 km around the ship.
+        // `ObjectDb->GetBucket(7)` and, when it is there, its
+        // `QuerySphere` of 20000 around the ship's position
+        // (`common_obstacleavoidance.cpp:1140-1153`); the pass below keeps
+        // the planets, moons and suns (mask 7).
         let origin = ship_xform.translation;
         let nearby: Vec<W::Handle> = world
             .system_of(ship)
-            .map(|system| world.system_objects(system, 0))
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|&h| {
-                world.inspect(h).is_some_and(|v| {
-                    let d = sub(v.position, origin);
-                    v.type_flags & 7 != 0
-                        && ((e(d.x) * e(d.x) + e(d.y) * e(d.y)) + e(d.z) * e(d.z)).sqrt()
-                            <= 20000.0 + e(v.radius)
-                })
-            })
-            .collect();
+            .and_then(|system| world.bucket_query(system, origin, 20000.0))
+            .unwrap_or_default();
 
         let mut best_distance = f32::MAX;
         let mut best: Option<(ObjectView, AvoidSlot)> = None;
