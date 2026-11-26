@@ -401,12 +401,20 @@ impl World {
     /// ([`World::rc_begin`]).
     #[must_use]
     pub fn rc_active(&self, h: ObjHandle) -> bool {
-        self.objects
-            .get(h)
-            .and_then(|o| {
-                let world = self.physics.world(o.physical.system)?;
-                world.remote_simulation(o.physical.body?)
-            })
-            .is_some()
+        self.rc_simulation(h).is_some()
+    }
+
+    /// The dead reckoning of an object's remote correction (the
+    /// `CRemotePhysicsController`'s simulation at +0xd0: its sample count
+    /// at +0x388, its latest sample at +0xe0), `None` when the body is not
+    /// under remote correction (the C++'s failed `dynamic_cast`).
+    #[must_use]
+    pub fn rc_simulation(
+        &self,
+        h: ObjHandle,
+    ) -> Option<&neuron_core::physics::RemotePhysicsSimulation> {
+        let o = self.objects.get(h)?;
+        let world = self.physics.world(o.physical.system)?;
+        world.remote_simulation(o.physical.body?)
     }
 }

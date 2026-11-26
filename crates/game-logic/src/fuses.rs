@@ -1416,53 +1416,54 @@ fn sweep(
     }
 }
 
-/// The fuse parts of `EqObj::apply_root_entry` and `apply_group_entry`, in
-/// the list's order, before the entries are written: a root entry that
-/// changes the hull's hit points sweeps the archetype's fuses, a group
-/// entry that changes the group's sweeps the group's; then, while a death
-/// fuse burns, a group entry of a cause below 0x10 loses its fate (the
-/// group stays attached). A group entry naming a group the object lacks is
-/// skipped (the C++ reads through null, D618).
-pub fn sweep_damage_list(cx: &mut Cx<'_>, h: ObjHandle, list: &mut DamageList) {
-    if !is_eq_obj(cx.world, h) || list.entries.is_empty() {
+/// The fuse part of `EqObj::apply_root_entry` and `apply_group_entry`
+/// (`Server/server_gameobject.cpp:1559-1565`, `1708-1718`) for entry `i`
+/// of the list, before it is written (after the earlier entries are): a
+/// root entry that changes the hull's hit points sweeps the archetype's
+/// fuses, a group entry that changes the group's sweeps the group's; then,
+/// while a death fuse burns, a group entry of a cause below 0x10 loses its
+/// fate (the group stays attached). A group entry naming a group the object
+/// lacks is skipped (the C++ reads through null, D618).
+pub fn sweep_entry(cx: &mut Cx<'_>, h: ObjHandle, list: &mut DamageList, i: usize) {
+    if !is_eq_obj(cx.world, h) {
         return;
     }
+    let Some(&entry) = list.entries.get(i) else {
+        return;
+    };
     let inflictor = list.inflictor_id;
-    for i in 0..list.entries.len() {
-        let entry = list.entries[i];
-        let id = entry.sub_obj_id;
-        if id == SUBOBJ_ID_ROOT {
-            if hull_hit_pts(cx.world, h).is_some_and(|hp| hp != entry.hit_pts) {
-                let fuses = arch_fuses(cx.world, h);
-                sweep(
-                    cx,
-                    h,
-                    &fuses,
-                    |w| hull_hit_pts(w, h),
-                    entry.hit_pts,
-                    SUBOBJ_ID_ROOT,
-                    inflictor,
-                );
-            }
-        } else if neuron_core::id::sub_object::is_arch_group_id(id) {
-            let Some(hp) = group_hit_pts(cx.world, h, id) else {
-                continue;
-            };
-            if hp != entry.hit_pts {
-                let fuses = group_fuses(cx.world, h, id);
-                sweep(
-                    cx,
-                    h,
-                    &fuses,
-                    |w| group_hit_pts(w, h, id),
-                    entry.hit_pts,
-                    id,
-                    inflictor,
-                );
-            }
-            if is_death_fuse_burning(&cx.logic.objects, h) && list.cause < 0x10 {
-                list.entries[i].fate = Fate::None;
-            }
+    let id = entry.sub_obj_id;
+    if id == SUBOBJ_ID_ROOT {
+        if hull_hit_pts(cx.world, h).is_some_and(|hp| hp != entry.hit_pts) {
+            let fuses = arch_fuses(cx.world, h);
+            sweep(
+                cx,
+                h,
+                &fuses,
+                |w| hull_hit_pts(w, h),
+                entry.hit_pts,
+                SUBOBJ_ID_ROOT,
+                inflictor,
+            );
+        }
+    } else if neuron_core::id::sub_object::is_arch_group_id(id) {
+        let Some(hp) = group_hit_pts(cx.world, h, id) else {
+            return;
+        };
+        if hp != entry.hit_pts {
+            let fuses = group_fuses(cx.world, h, id);
+            sweep(
+                cx,
+                h,
+                &fuses,
+                |w| group_hit_pts(w, h, id),
+                entry.hit_pts,
+                id,
+                inflictor,
+            );
+        }
+        if is_death_fuse_burning(&cx.logic.objects, h) && list.cause < 0x10 {
+            list.entries[i].fate = Fate::None;
         }
     }
 }

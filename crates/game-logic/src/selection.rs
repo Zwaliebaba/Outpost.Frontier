@@ -5,11 +5,11 @@
 //!
 //! On a multiplayer server, re-selecting while a character is selected
 //! first takes the old one out of its system and base (`PlayerDB_LeaveSystem`,
-//! `PlayerDB_LeaveBase`, the `SystemExit` broadcast) and ends its trade.
-//! Leaving the system and the base is not done yet; the trade's end
-//! (reason 4, [`crate::login::end_trade`]) and the rest of the
-//! re-selection (the `PlayerLogout` broadcast, leaving the group, the
-//! player-list removals and `PlayerLogin`, for another character) are.
+//! `PlayerDB_LeaveBase`, the `SystemExit` broadcast) and ends its trade
+//! (reason 4), [`crate::login::leave_world`]; for another character the
+//! re-selection then broadcasts `PlayerLogout`, leaves the group, removes
+//! the player from the others' lists and broadcasts `PlayerLogin`
+//! (`Server/server_classes.cpp:2870-2913`).
 
 use neuron_core::ini::IniReader;
 use neuron_server::controller::ControllerId;
@@ -58,7 +58,7 @@ pub fn select_character(
             .map(|slot| slot.selected_character.clone())
             .unwrap_or_default();
         if selected.is_valid() {
-            crate::login::end_trade(cx, session);
+            crate::login::leave_world(cx, session);
         }
         if selected.is_valid() && *id != selected {
             broadcast(cx, &mut ControllerMessage::PlayerLogout { player: session });

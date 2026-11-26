@@ -58,11 +58,12 @@
 //! - **The changed affiliations** after each system's observers
 //!   ([`send_changed_affiliations`]).
 //!
-//! The callers of the fire, launch, jettison, cruise, thruster,
-//! ship-target, comm and cargo notifiers are not ported yet; the notifiers
-//! are, for those callers to use. The trade-lane notifiers are called by
-//! the server's `Ship::go_tradelane` and `stop_tradelane`
-//! ([`crate::tradelane`]).
+//! The notifiers' callers are the server's: the fire, tractor, thruster,
+//! target and equipment requests ([`crate::equip_fire`], [`crate::receive`]),
+//! the jettison, item use and cargo changes ([`crate::cargo`]), a trade's
+//! cargo ([`crate::trade`]), the comms (`pub::SpaceObj::SendComm`), the
+//! fuses ([`crate::fuses`]) and the trade lanes (`Ship::go_tradelane` and
+//! `stop_tradelane`, [`crate::tradelane`]).
 //!
 //! [`ClientSink::link_saturation`]: crate::server::ClientSink::link_saturation
 //! [`TransportSink`]: crate::server::TransportSink
@@ -2787,9 +2788,17 @@ fn lane_event_to(cx: &mut Cx<'_>, h: ObjHandle, event: &LaneEvent) {
 // ---------------------------------------------------------------------------
 // Remote correction and the changed affiliations.
 
-/// `GameObject::enter_system`'s remote correction: on a multiplayer server
-/// an object a player owns follows its client from now on
-/// (`PhySys::RCBegin` from its position, velocity and orientation).
+/// `GameObject::enter_system`'s remote correction
+/// (`Server/server_gameobject.cpp:417-449`): on a multiplayer server an
+/// object a player owns follows its client from now on (`PhySys::RCBegin`
+/// from its position, velocity and orientation). Every server object
+/// calls it as it enters a system: a player's ship ([`crate::ship`],
+/// [`crate::world::add_ship`]) and the system's creators of loot, mines,
+/// counter-measures, guided munitions and bullets
+/// (`StarSystem::create_loot`, `create_mine`, `create_counter_measure`,
+/// `create_guided`, `create_bullet`, `Server/server_classes.cpp:9367`,
+/// `9488`, `9575`, `9662`, `9756`). Those creators make their objects with
+/// `OwnerPlayer` 0, as the C++ does, so only a player's ship starts one.
 pub fn begin_remote_control(cx: &mut Cx<'_>, h: ObjHandle) {
     if single_player(cx.world) {
         return;

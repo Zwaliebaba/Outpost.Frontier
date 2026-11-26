@@ -467,6 +467,32 @@ impl World {
         }
     }
 
+    /// The manager's type-0 event for the object `h`, a damage record
+    /// (`IBehaviorManager::Slot00({0, &FBehaviorDamageEvent})`, which
+    /// `EqObj_NotifyBehaviorOfDamage` sends from each `apply_*_entry`,
+    /// `Server/server_gameobject.cpp:1497-1520`): nothing without a manager
+    /// or a current behaviour (`Common/common_behaviormanager.cpp:2198`);
+    /// otherwise the system manager's timer table accumulates the damage
+    /// when the record's object is the ship and its cause lies in 2 to 7
+    /// (`AccumulateSystemManagerTimerLevel`,
+    /// `Common/common_sysmgr_timertable.cpp:283`).
+    pub fn behavior_damage_event(&mut self, h: ObjHandle, object_id: u32, cause: i32, damage: f32) {
+        let Some(own) = self.get(h).map(|o| o.simple.id) else {
+            return;
+        };
+        let Some(manager) = self.behavior_managers.get_mut(&h) else {
+            return;
+        };
+        if manager.state.behavior == -1 {
+            return;
+        }
+        manager
+            .state
+            .sys
+            .timers
+            .accumulate_level(own, object_id, cause, damage);
+    }
+
     /// The manager's type-4 event for the object `h`
     /// (`IBehaviorManager::Slot00({4, &Payload})`): nothing for an object
     /// without a manager (`get_behavior_interface` answers null).

@@ -403,6 +403,10 @@ pub struct World {
     /// The server's asteroid fields of each system that loaded them
     /// ([`World::load_asteroid_fields`]), in load order.
     pub(crate) asteroid_fields: BTreeMap<u32, Vec<super::field::FieldRuntime>>,
+    /// The zones' loot the field loads set (`SetLootableInfo` on the
+    /// universe's zones, which the world shares read-only): by zone, the
+    /// loot that replaces the data's ([`World::zone_lootable`]).
+    pub(crate) zone_loot: BTreeMap<u32, Option<crate::data::asteroid_field::LootableZoneEntry>>,
     /// The results of every fire call, when kept ([`World::set_fire_log`]).
     pub(crate) fire_log: Option<Vec<FireCall>>,
     /// Every guided munition's seeker step, when kept
@@ -512,6 +516,7 @@ impl World {
             anim_scripts: BTreeMap::new(),
             ambient: BTreeMap::new(),
             asteroid_fields: BTreeMap::new(),
+            zone_loot: BTreeMap::new(),
             fire_log: None,
             guided_trace: None,
         }

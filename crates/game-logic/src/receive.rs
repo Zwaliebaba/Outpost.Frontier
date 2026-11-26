@@ -51,11 +51,10 @@
 //!
 //! [`deliver`] answers false for the packets the session's entry points,
 //! the chat and the player-state requests take ([`crate::session::route`],
-//! [`crate::session::route_common`]). In single player
-//! `FLPACKET_CLIENT_SAVEGAME` reaches none of them: its decoded form
-//! carries only the description, while `IServerImpl::SaveGame` names the save by the
-//! character id that rpclocal's single-player payload holds and the wire
-//! leaves out; [`crate::saves::server_save_game`] takes it from the caller.
+//! [`crate::session::route_common`]). `FLPACKET_CLIENT_SAVEGAME` is the
+//! session's: its single-player form carries the character id that
+//! rpclocal's payload holds and the wire leaves out, and the session hands
+//! it to [`crate::saves::server_save_game`].
 
 use game_sim::equip::SUBOBJ_ID_NONE;
 use game_sim::object::{ObjHandle, ObjectKind, class};

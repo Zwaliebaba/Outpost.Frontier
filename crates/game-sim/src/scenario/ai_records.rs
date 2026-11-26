@@ -767,6 +767,7 @@ pub fn object_view(j: &Json) -> Option<ObjectView> {
             .map(|a| a.iter().filter_map(Json::as_u32).collect())
             .unwrap_or_default(),
         is_player: b(j, "player").unwrap_or(false),
+        group_id: 0,
         is_dying: b(j, "dying").unwrap_or(false),
         is_targetable: b(j, "targetable").unwrap_or(false),
         toughness: i(j, "toughness").unwrap_or(0),

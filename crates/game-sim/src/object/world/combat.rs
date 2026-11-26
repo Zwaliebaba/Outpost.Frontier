@@ -948,16 +948,19 @@ impl World {
         if !hooks.before_damage_list(self, h, &mut owned) {
             return;
         }
-        let list = &owned.clone();
         let now = self.time;
         let stack_rule = hooks.cargo_stack_rule(self, h);
-        let Some(o) = self.objects.get_mut(h) else {
-            return;
-        };
-        if o.dead {
+        if self.objects.get(h).is_none_or(|o| o.dead) {
             return;
         }
-        for entry in &list.entries {
+        for index in 0..owned.entries.len() {
+            // The server's part of the entry (`EqObj::apply_*_entry`'s
+            // event, behaviour notice and fuses) before it is written.
+            hooks.damage_entry(self, h, &mut owned, index);
+            let entry = &owned.entries[index];
+            let Some(o) = self.objects.get_mut(h) else {
+                break;
+            };
             let id = entry.sub_obj_id;
             if id == SUBOBJ_ID_ROOT {
                 o.simple.hit_pts = entry.hit_pts;
@@ -1009,7 +1012,11 @@ impl World {
                 }
             }
         }
-        let weapons_offline = o.equipped.as_deref().is_some_and(|e| e.weapons_offline);
+        let weapons_offline = self
+            .objects
+            .get(h)
+            .and_then(|o| o.equipped.as_deref())
+            .is_some_and(|e| e.weapons_offline);
         self.sync_shield_collisions(h);
         hooks.after_damage_list(self, h, &mut owned);
         if owned.destroyed && !weapons_offline {
