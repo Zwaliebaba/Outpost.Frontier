@@ -5,7 +5,8 @@ name: Client oracle trial
 # G5's interface-tree dumps need not wait for the owner's machine? This job
 # builds the reference client, runs menu_walk.txt twice on the original data
 # in outdir/ with the run-folder values of the owner's run (section 3: no
-# startup movies, intro.ini's bDrawScripts = false), compares the two runs
+# startup movies, intro.ini's bDrawScripts = false; a PerfOptions.ini that
+# skips the low-machine warning dialog), compares the two runs
 # with each other and their figures with the owner run of 2026-11-17, and
 # logs what the runner gives the client (session, display, audio,
 # DirectPlay). It is a trial: it runs on request and when this file or the
@@ -133,8 +134,38 @@ jobs:
               $g.Dispose(); $bmp.Dispose()
             } catch { Write-Host "Desktop capture failed: $($_.Exception.Message)" }
           }
-          function Windows() {
-            Get-Process | Where-Object { $_.MainWindowTitle } | ForEach-Object { "$($_.Id) $($_.ProcessName): $($_.MainWindowTitle)" }
+          Add-Type -TypeDefinition @"
+          using System; using System.Text; using System.Collections.Generic; using System.Runtime.InteropServices;
+          public static class Win {
+            delegate bool EnumProc(IntPtr h, IntPtr l);
+            [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc f, IntPtr l);
+            [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+            [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+            [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
+            [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+            [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+            public static List<IntPtr> Of(uint pid) {
+              var r = new List<IntPtr>();
+              EnumWindows((h, l) => { uint p; GetWindowThreadProcessId(h, out p); if (p == pid) r.Add(h); return true; }, IntPtr.Zero);
+              return r;
+            }
+            public static string Describe(IntPtr h) {
+              var t = new StringBuilder(256); var c = new StringBuilder(256);
+              GetWindowText(h, t, 256); GetClassName(h, c, 256);
+              return string.Format("{0:x} class={1} title={2} visible={3}", h.ToInt64(), c, t, IsWindowVisible(h));
+            }
+            public static bool Visible(IntPtr h) { return IsWindowVisible(h); }
+            public static bool Front(IntPtr h) {
+              keybd_event(0x12, 0, 0, UIntPtr.Zero); keybd_event(0x12, 0, 2, UIntPtr.Zero);
+              SetForegroundWindow(h);
+              return GetForegroundWindow() == h;
+            }
+          }
+          "@
+          function Windows($id) {
+            [Win]::Of([uint32]$id) | ForEach-Object { [Win]::Describe($_) }
           }
           $result = @()
           foreach ($n in 1, 2) {
@@ -143,18 +174,33 @@ jobs:
             New-Item -ItemType Directory -Force (Split-Path $out), $diag | Out-Null
             Remove-Item "$env:USERPROFILE\Documents\My Games\OutpostFrontier\UserKeyMap.ini" -ErrorAction SilentlyContinue
             Remove-Item $spew -ErrorAction SilentlyContinue
+            # The low-machine warning (engine_init.cpp, BuildLowMachineWarning) asks the
+            # renderer's device level and opens a modal dialog on the runner's adapter; the C++
+            # skips it when PerfOptions.ini says so, in the form its own writer uses.
+            $user = "$env:USERPROFILE\Documents\My Games\OutpostFrontier"
+            New-Item -ItemType Directory -Force $user | Out-Null
+            "[PerfVersion]`nversion=5`nSkipMachineWarnings=TRUE`n" | Set-Content -NoNewline "$user\PerfOptions.ini"
             [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(0, 0)
             $start = Get-Date
             $p = Start-Process -FilePath "$run\OutpostFrontier.exe" -ArgumentList '+oracle', "`"$script`"", "`"$out`"" -WorkingDirectory $run -PassThru
             $code = 'timeout'
             $shots = 15, 60, 180
+            $fronted = $false
             for ($t = 1; $t -le 300; $t++) {
               if ($p.WaitForExit(1000)) { $code = $p.ExitCode; break }
-              if ($shots -contains $t) { Capture "$diag\desktop_$t.png"; Write-Host "t=$t s: $((Windows) -join ' | ')" }
+              if (-not $fronted) {
+                $main = [Win]::Of([uint32]$p.Id) | Where-Object { [Win]::Visible($_) } | Select-Object -First 1
+                if ($main) { $fronted = $true; Write-Host "t=$t s: foreground $([Win]::Front($main)) for $([Win]::Describe($main))" }
+              }
+              if ($shots -contains $t) {
+                Capture "$diag\desktop_$t.png"
+                Write-Host "t=$t s: foreground $([Win]::Describe([Win]::GetForegroundWindow()))"
+                Windows $p.Id | ForEach-Object { Write-Host "  $_" }
+              }
             }
             if ($code -eq 'timeout') {
               Capture "$diag\desktop_timeout.png"
-              Windows | Set-Content "$diag\windows.txt"
+              Windows $p.Id | Set-Content "$diag\windows.txt"
               Get-Process | Sort-Object ProcessName | Format-Table Id, ProcessName, SessionId, MainWindowTitle -AutoSize | Out-String -Width 200 | Set-Content "$diag\processes.txt"
               Get-Content "$diag\windows.txt" | Write-Host
               taskkill /T /F /PID $p.Id | Out-Null
