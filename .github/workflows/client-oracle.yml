@@ -1,0 +1,200 @@
+name: Client oracle trial
+
+# Phase 5 (decision O50): can the C++ client's +oracle mode
+# (design/reference-build.md section 8) run on a hosted runner, so that Gate
+# G5's interface-tree dumps need not wait for the owner's machine? This job
+# builds the reference client, runs menu_walk.txt twice on the original data
+# in outdir/ with the run-folder values of the owner's run (section 3: no
+# startup movies, intro.ini's bDrawScripts = false), compares the two runs
+# with each other and their figures with the owner run of 2026-11-17, and
+# logs what the runner gives the client (session, display, audio,
+# DirectPlay). It is a trial: it runs on request and when this file or the
+# oracle scripts change, and no other job depends on it.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/client-oracle.yml"
+      - "CppSource/OutpostFrontier/oracle/**"
+
+concurrency:
+  group: client-oracle-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  client:
+    name: C++ client +oracle on a hosted runner
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Restore the C++ build
+        id: client-bin
+        uses: actions/cache/restore@v4
+        with:
+          key: client-bin-v1-${{ hashFiles('CppSource/**') }}
+          path: bin
+      - name: Build the reference solution
+        # The whole solution, as the reference job builds it: the client loads its DLLs by
+        # name from the engine INI and the local server from the client INI. The image's
+        # default toolset, because OutpostServer needs MFC, which only v145 has.
+        if: ${{ steps.client-bin.outputs.cache-hit != 'true' }}
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+          & $msbuild CppSource\OutpostFrontier.sln /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Save the C++ build
+        if: ${{ success() && steps.client-bin.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          key: ${{ steps.client-bin.outputs.cache-primary-key }}
+          path: bin
+
+      - name: Describe the runner
+        # What the client will find: the session it runs in (0 is the services session,
+        # which has no desktop), the display, the adapters, the audio service and endpoints.
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms
+          $session = (Get-Process -Id $PID).SessionId
+          $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          Write-Host "Session $session, interactive $([Environment]::UserInteractive), screen $($screen.Width)x$($screen.Height)"
+          Get-CimInstance Win32_VideoController | Format-Table Name, DriverVersion, CurrentHorizontalResolution, CurrentVerticalResolution -AutoSize | Out-String | Write-Host
+          Get-Service Audiosrv, AudioEndpointBuilder -ErrorAction SilentlyContinue | Format-Table Name, Status, StartType -AutoSize | Out-String | Write-Host
+          Get-CimInstance Win32_SoundDevice | Format-Table Name, Status -AutoSize | Out-String | Write-Host
+          Get-WindowsOptionalFeature -Online -FeatureName DirectPlay -ErrorAction SilentlyContinue | Format-List FeatureName, State | Out-String | Write-Host
+
+      - name: Prepare the runner
+        # Each change is tried and logged; the run below shows whether the client needs it.
+        # DirectPlay: section 5 enables it for single player too (the login manager uses it).
+        # The display: a windowed 1024x768 client area with its frame does not fit a
+        # 1024x768 screen, and a windowed Direct3D 8 screenshot copies the screen area.
+        shell: pwsh
+        run: |
+          DISM /Online /Enable-Feature /FeatureName:DirectPlay /All /NoRestart /Quiet
+          Write-Host "DISM DirectPlay: exit code $LASTEXITCODE"
+          try { Set-DisplayResolution -Width 1920 -Height 1080 -Force -ErrorAction Stop; Write-Host 'Set-DisplayResolution: done' }
+          catch { Write-Host "Set-DisplayResolution: $($_.Exception.Message)" }
+          try {
+            Set-Service Audiosrv -StartupType Automatic -ErrorAction Stop
+            Start-Service AudioEndpointBuilder, Audiosrv -ErrorAction Stop
+            Write-Host 'Audio service: started'
+          } catch { Write-Host "Audio service: $($_.Exception.Message)" }
+          Add-Type -AssemblyName System.Windows.Forms
+          $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          Write-Host "Screen now $($screen.Width)x$($screen.Height)"
+
+      - name: Prepare the run folder
+        # The owner run's folder (section 3): bin\ with the INI files, the .fl templates and
+        # flconfigdatabase.txt beside it, data\ a junction to outdir\data. The two run-folder
+        # values are made in this checkout only: the client INI plays no startup movies, and
+        # intro.ini draws no intro scene.
+        shell: pwsh
+        run: |
+          $run = "$env:RUNNER_TEMP\run"
+          New-Item -ItemType Directory -Force $run | Out-Null
+          Copy-Item bin\* $run -Recurse
+          Copy-Item outdir\*.ini, outdir\*.fl, outdir\flconfigdatabase.txt $run
+          New-Item -ItemType Junction -Path "$run\data" -Target "$PWD\outdir\data" | Out-Null
+          $ini = "$run\OutpostFrontier.ini"
+          (Get-Content $ini) -replace '^(movie_file\s*=)', ';$1' | Set-Content $ini
+          $intro = 'outdir\data\INTERFACE\intro.ini'
+          (Get-Content $intro) -replace '^bDrawScripts\s*=\s*true', 'bDrawScripts = false' | Set-Content $intro
+          Select-String -Path $ini -Pattern 'movie_file' | ForEach-Object { Write-Host $_.Line }
+          Select-String -Path $intro -Pattern 'bDrawScripts' | ForEach-Object { Write-Host $_.Line }
+
+      - name: Run menu_walk.txt twice
+        # Section 8: the pointer parked in a screen corner, no UserKeyMap.ini, the window left
+        # in front. Each run gets ten minutes; the owner's run took 398 frames at 30 fps.
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $run = "$env:RUNNER_TEMP\run"
+          $script = "$PWD\CppSource\OutpostFrontier\oracle\menu_walk.txt"
+          $spew = "$env:LOCALAPPDATA\OutpostFrontier\FLSpew.txt"
+          $result = @()
+          foreach ($n in 1, 2) {
+            $out = "$env:RUNNER_TEMP\oracle-out\run$n"
+            New-Item -ItemType Directory -Force (Split-Path $out) | Out-Null
+            Remove-Item "$env:USERPROFILE\Documents\My Games\OutpostFrontier\UserKeyMap.ini" -ErrorAction SilentlyContinue
+            Remove-Item $spew -ErrorAction SilentlyContinue
+            [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(0, 0)
+            $start = Get-Date
+            $p = Start-Process -FilePath "$run\OutpostFrontier.exe" -ArgumentList '+oracle', "`"$script`"", "`"$out`"" -WorkingDirectory $run -PassThru
+            if (-not $p.WaitForExit(600000)) { $p.Kill(); $code = 'timeout' } else { $code = $p.ExitCode }
+            $seconds = [int]((Get-Date) - $start).TotalSeconds
+            Write-Host "Run $n`: exit $code after $seconds s"
+            New-Item -ItemType Directory -Force $out | Out-Null
+            if (Test-Path $spew) { Copy-Item $spew "$out\FLSpew.txt" }
+            $result += "$n,$code,$seconds"
+          }
+          $result | Set-Content "$env:RUNNER_TEMP\oracle-out\exit.csv"
+
+      - name: Compare the runs
+        # Run 1 against the owner run's figures (section 8, "Owner run"), run 2 against run 1.
+        # The start record names the output folder, so it is left out of the comparison.
+        shell: pwsh
+        run: |
+          $root = "$env:RUNNER_TEMP\oracle-out"
+          function Lines($path) { if (Test-Path $path) { @(Get-Content $path) } else { @() } }
+          function Figures($dir) {
+            $session = Lines "$dir\session.jsonl" | ForEach-Object { $_ | ConvertFrom-Json }
+            $quit = $session | Where-Object rec -eq 'quit' | Select-Object -Last 1
+            $dumps = @($session | Where-Object rec -eq 'dump')
+            $shots = @($dumps | Where-Object { $_.shot })
+            $keymap = Lines "$dir\keymap.jsonl" | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object rec -eq 'load'
+            $base = $keymap | Where-Object phase -eq 'base' | Select-Object -First 1
+            $iclient = Lines "$dir\iclient.jsonl" | ForEach-Object { ($_ | ConvertFrom-Json).seq } | Sort-Object -Unique
+            [ordered]@{
+              'quit frame' = $quit.frame
+              'dumps' = $dumps.Count
+              'screenshots' = $shots.Count
+              'key map base (cmds/groups)' = if ($base) { "$($base.cmds)/$($base.groups)" } else { '' }
+              'layout records' = (Lines "$dir\layout.jsonl").Count
+              'IClient calls' = @($iclient).Count
+            }
+          }
+          $owner = [ordered]@{ 'quit frame' = 398; 'dumps' = 9; 'screenshots' = 9; 'key map base (cmds/groups)' = '122/5'; 'layout records' = 176; 'IClient calls' = 6 }
+          $one = Figures "$root\run1"; $two = Figures "$root\run2"
+          $summary = @('## Client oracle trial: menu_walk.txt', '', '| Run | Exit | Seconds |', '| --- | --- | --- |')
+          Get-Content "$root\exit.csv" | ForEach-Object { $f = $_ -split ','; $summary += "| $($f[0]) | $($f[1]) | $($f[2]) |" }
+          $summary += @('', '| Figure | Owner run 2026-11-17 | Run 1 | Run 2 |', '| --- | --- | --- | --- |')
+          foreach ($k in $owner.Keys) { $summary += "| $k | $($owner[$k]) | $($one[$k]) | $($two[$k]) |" }
+          $summary += @('', '### Run 2 against run 1', '')
+          foreach ($file in 'session.jsonl', 'tree.jsonl', 'keymap.jsonl', 'layout.jsonl', 'iclient.jsonl') {
+            $a = Lines "$root\run1\$file" | Where-Object { $_ -notmatch '"rec":"start"' }
+            $b = Lines "$root\run2\$file" | Where-Object { $_ -notmatch '"rec":"start"' }
+            if ($a.Count -eq 0 -and $b.Count -eq 0) { $state = 'missing in both' }
+            elseif ((Compare-Object $a $b -SyncWindow 0).Count -eq 0) { $state = "equal ($($a.Count) lines)" }
+            else { $state = "differs ($($a.Count) and $($b.Count) lines)" }
+            $summary += "- ``$file``: $state"
+          }
+          $shots1 = Get-ChildItem "$root\run1\shot_*.bmp" -ErrorAction SilentlyContinue
+          $same = 0
+          foreach ($s in $shots1) {
+            $o = "$root\run2\$($s.Name)"
+            if ((Test-Path $o) -and (Get-FileHash $s).Hash -eq (Get-FileHash $o).Hash) { $same++ }
+          }
+          $summary += "- screenshots: $same of $(@($shots1).Count) byte-identical"
+          $summary | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          $summary | Write-Host
+          if (-not (Test-Path "$root\run1\tree.jsonl")) { Write-Host 'Run 1 wrote no interface tree.'; exit 1 }
+
+      - name: Keep the outputs
+        # Made from the game data, so kept as a short-lived artifact and never committed
+        # (AGENTS.md); the owner can compare them with a local run.
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-oracle-trial
+          path: ${{ runner.temp }}/oracle-out
+          retention-days: 7
+          if-no-files-found: warn
