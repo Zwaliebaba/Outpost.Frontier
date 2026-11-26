@@ -16,7 +16,10 @@
 //! Each frame then hands the mission the session's scripted messages of the
 //! tick ([`STEPS`], targeted), and runs the server's frame
 //! (`IServerImpl::Update`, the global time, `ElapseTime`: the systems, the
-//! controllers' heartbeats and timers).
+//! controllers' heartbeats and timers). The harness's player has no client,
+//! so the server would step no system; as the oracle's harness does
+//! (`GOracleSimHooks.StepSystemId`), the scenario's system is stepped
+//! every frame (`ServerWorld::step_system`).
 //!
 //! Three records are compared:
 //!
@@ -166,6 +169,10 @@ struct Delivery {
     msg: u32,
     /// A heartbeat's elapsed time, as bits.
     elapsed: Option<u32>,
+    /// A `CombatState`'s `CSNType` and its two ids (reported, not
+    /// compared: the ids are the bus's counter, which the oracle's
+    /// harness controller shifts).
+    combat: Option<(u32, u32, u32)>,
 }
 
 /// One object after a frame (`mission_objects.jsonl`'s `obj`).
@@ -174,6 +181,8 @@ struct ObjRecord {
     tick: u32,
     kind: &'static str,
     name: String,
+    /// The object's id (not compared; it names a `CombatState`'s ids).
+    id: u32,
     pos: [u32; 3],
 }
 
@@ -199,6 +208,15 @@ fn before_deliver(
         ControllerMessage::Heartbeat { elapsed } => Some(elapsed.to_bits()),
         _ => None,
     };
+    let combat = match message {
+        ControllerMessage::CombatState {
+            state,
+            param1,
+            param2,
+            ..
+        } => Some((*state, *param1, *param2)),
+        _ => None,
+    };
     DELIVERIES.with(|d| {
         d.borrow_mut().push(Delivery {
             tick,
@@ -206,6 +224,7 @@ fn before_deliver(
             flid: id.0,
             msg,
             elapsed,
+            combat,
         });
     });
     DEPTH.with(|d| d.set(depth + 1));
@@ -255,6 +274,7 @@ fn objects_after_frame(cx: &Cx<'_>, id: ControllerId, tick: u32, out: &mut Vec<O
                 tick,
                 kind,
                 name: String::from_utf8_lossy(neuron_core::hash::c_str(name)).into_owned(),
+                id: object,
                 pos: [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()],
             });
         }
@@ -437,6 +457,9 @@ fn run_session(
         .unwrap_or_default();
     let controllers: Vec<u32> = cx.logic.bus.active().iter().map(|n| n.id.0).collect();
     let _ = cx.dispatch(id, &mut ControllerMessage::MissionStart);
+    // The harness steps its scenario's system, whose player has no client
+    // (`GOracleSimHooks.StepSystemId`, set after the mission's start).
+    cx.logic.server_world.step_system = system;
 
     let dt = s.frame as f32;
     let mut objects = Vec::new();
@@ -531,8 +554,35 @@ fn run_session(
 
 // ---- the comparison --------------------------------------------------------------------------
 
+/// The `CombatState`s the mission was handed (one per broadcast), as
+/// `tick T csn C <owner> -> <target>`, each id named by the mission's
+/// objects (`?<id>` for one that is not, `-` for 0). Reported, not
+/// compared.
+fn combat_lines(deliveries: &[Delivery], mission: u32, objects: &[ObjRecord]) -> Vec<String> {
+    let names: BTreeMap<u32, &str> = objects.iter().map(|o| (o.id, o.name.as_str())).collect();
+    let name = |id: u32| match id {
+        0 => "-".to_owned(),
+        _ => names
+            .get(&id)
+            .map_or_else(|| format!("?{id}"), |n| (*n).to_owned()),
+    };
+    deliveries
+        .iter()
+        .filter(|d| d.flid == mission)
+        .filter_map(|d| {
+            let (csn, owner, target) = d.combat?;
+            Some(format!(
+                "tick {} csn {csn} {} -> {}",
+                d.tick,
+                name(owner),
+                name(target)
+            ))
+        })
+        .collect()
+}
+
 /// Records shown on each side of a first difference.
-const REPORT_WINDOW: usize = 2;
+const REPORT_WINDOW: usize = 4;
 
 /// The first difference of two sequences, with the records around it.
 fn first_difference(
@@ -594,6 +644,10 @@ fn oracle_deliveries(path: &Path) -> Vec<Delivery> {
                 flid: r.get("flid")?.as_u32()?,
                 msg: r.get("msg")?.as_u32()?,
                 elapsed: r.get("elapsed").and_then(Json::as_f32).map(f32::to_bits),
+                combat: r
+                    .get("csn")
+                    .and_then(Json::as_u32)
+                    .and_then(|csn| Some((csn, r.get("p1")?.as_u32()?, r.get("p2")?.as_u32()?))),
             })
         })
         .collect()
@@ -615,6 +669,7 @@ fn oracle_objects(path: &Path) -> Vec<ObjRecord> {
                 tick: r.get("tick")?.as_u32()?,
                 kind,
                 name: r.get("name")?.as_str()?.to_owned(),
+                id: r.get("id").and_then(Json::as_u32).unwrap_or(0),
                 pos: [
                     pos.first()?.as_u32()?,
                     pos.get(1)?.as_u32()?,
@@ -977,6 +1032,21 @@ fn data_dump_mission_session() {
 
     // The objects.
     let their_objects = oracle_objects(&dir.join("mission_objects.jsonl"));
+    // The combat states (P3.5c4; reported): who reported which state.
+    let ours_c = combat_lines(&ours.deliveries, ours.mission, &ours.objects);
+    let their_c = combat_lines(&their_all, their_mission, &their_objects);
+    let _ = writeln!(
+        summary,
+        "combat states: rust {} oracle {}",
+        ours_c.len(),
+        their_c.len()
+    );
+    for i in 0..ours_c.len().max(their_c.len()) {
+        let r = ours_c.get(i).map_or("-", String::as_str);
+        let o = their_c.get(i).map_or("-", String::as_str);
+        let mark = if r == o { " " } else { ">" };
+        let _ = writeln!(summary, "{mark} {i}: rust {r} | oracle {o}");
+    }
     compare_objects(
         &mut summary,
         &mut failures,

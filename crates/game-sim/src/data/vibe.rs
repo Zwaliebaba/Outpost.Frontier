@@ -857,7 +857,7 @@ impl Vibes {
 
     /// `Vibe::AttitudeTowards`: (-2, 0) without `from`, (-3, 0) without
     /// `to`.
-    pub fn attitude_towards(&mut self, from: i32, to: i32, rep: &Reputation) -> (i32, f32) {
+    pub fn attitude_towards(&self, from: i32, to: i32, rep: &Reputation) -> (i32, f32) {
         let (code, out, _) = self.attitude_core(from, to, false, rep);
         (code, out)
     }
@@ -865,7 +865,7 @@ impl Vibes {
     /// `Vibe::AttitudeTowardsSymmetrical`: both directions; the second is
     /// left `None` when a lookup fails.
     pub fn attitude_towards_symmetrical(
-        &mut self,
+        &self,
         from: i32,
         to: i32,
         rep: &Reputation,
@@ -874,7 +874,7 @@ impl Vibes {
     }
 
     fn attitude_core(
-        &mut self,
+        &self,
         from: i32,
         to: i32,
         both: bool,

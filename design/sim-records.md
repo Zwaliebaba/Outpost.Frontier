@@ -727,7 +727,7 @@ so a broadcast shows as one record per controller in list order.
 
 | `rec` | Fields |
 | --- | --- |
-| `deliver` | `tick` u (0 for the start-up, before frame 1), `seq` u (from 0, in delivery order), `depth` i (the deliveries already in progress: 0 for one no handler made, 1 for one sent by a handler, and so on), `flid` u (the receiving controller), `msg` i (the `pub::Controller::EMessage` value), `path` s (`broadcast`, `send` or `heartbeat`), [`elapsed` f (`Heartbeat`: the whole periods delivered)], [`p1` u, `p2` u (`TimerExpired`: the timer's two words; `p1` is Content's counter value for Content's timers)] |
+| `deliver` | `tick` u (0 for the start-up, before frame 1), `seq` u (from 0, in delivery order), `depth` i (the deliveries already in progress: 0 for one no handler made, 1 for one sent by a handler, and so on), `flid` u (the receiving controller), `msg` i (the `pub::Controller::EMessage` value), `path` s (`broadcast`, `send` or `heartbeat`), [`elapsed` f (`Heartbeat`: the whole periods delivered)], [`p1` u, `p2` u (`TimerExpired`: the timer's two words; `p1` is Content's counter value for Content's timers)], [`csn` u, `p1` u, `p2` u (`CombatState`: the `CSNType` and the two ids of `FSpaceObjCombatStateMsg`; P3.5c4)] |
 
 `crates/game-logic/tests/content_startup.rs` compares the heartbeats
 Content's controllers get with the port's bus and reports the
@@ -1104,7 +1104,13 @@ without the harness's controller of the `server` record); objects by kind
 and nickname, ids not compared. Judged up to the first action that runs
 without effect (D970) in the port's trace, at tick `J`: the trace through
 that record, the deliveries before `J`, the objects within the gross bound
-(500 m) through `J`; reported after (rule accepted by the owner on 2026-11-25). The port's records are kept as
+(500 m) through `J`; reported after (rule accepted by the owner on 2026-11-25). The
+`CombatState`s the mission was handed are listed beside the oracle's
+(`dispatch.jsonl`'s `csn`, `p1` and `p2`, the ids named by the mission's
+objects; reported, not judged). As the oracle's harness steps its
+scenario's system although the player has no client
+(`GOracleSimHooks.StepSystemId`), the port's session steps it through
+`ServerWorld::step_system`. The port's records are kept as
 `rust-mission-session.jsonl` and `rust-mission-objects.jsonl`. On `outdir/`, `J`
 was tick 2: with P3.5c2 at `Act_SetVibe` (18 records), with P3.5c3 at
 `Act_CallSceneScript` (30 records), a P3.5c4 action. With P3.5c4 no action
