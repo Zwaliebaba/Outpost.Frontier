@@ -318,6 +318,8 @@ pub enum Controller {
         /// The player.
         player: u32,
     },
+    /// 0x02 `{base, player}`: the player.
+    BaseExit(u32),
     /// 0x0a.
     GroupMemberJoined(u32),
     /// 0x09.
@@ -332,8 +334,18 @@ pub enum Controller {
     AbortMission(u32),
     /// 0x12.
     DockRequest,
-    /// 0x25.
-    ShipJumped,
+    /// 0x25 `{ship, ..}`: the ship.
+    ShipJumped(u32),
+    /// 0x06 `{player, base}`: the player.
+    PlayerLaunch(u32),
+    /// 0x37 `{system, player}`: the player.
+    SpaceExit(u32),
+    /// 0x26.
+    JumpInComplete,
+    /// 0x1006 `{ship, word, 1}`: the word of the ship's first directive.
+    CommLinesDone(u32),
+    /// 0x1010 `{npc}`: the NPC ship.
+    NpcShipCreated(crate::events::NpcShipKey),
     /// 0x1009.
     FormationLeaderChanged,
     /// Any other message, by id.

@@ -29,15 +29,24 @@
 //! prepared on the offer's lines and spoken by the comm system
 //! ([`crate::content::gcs::add`], player-list lines).
 //!
-//! What waits for later packages (D1021 and D1024): the mission objectives
-//! the players see (`FMissionPlayer`'s lists and their sends, P3.5c5; the
-//! `rand()` draws of their path objectives are made where the C++ makes
-//! them) and the mission object's body beyond what a random mission's
-//! players reach (D973).
+//! **The objectives** the players see are their mission records'
+//! ([`records`], P3.5c5): the machines' objectives laid into them with the
+//! paths, the docked marker and the player count, sent when they change.
+//!
+//! **The mission object** of TU38 runs where `FRandomMissionObject::Slot2`
+//! hands it a message (P3.7d, [`mission`]): the single-player save's
+//! sections after `[RandomMission]`, the snapshot on `SpaceExit` and before
+//! a save, the solars of a respawn on `PlayerLaunch`, the jumpers, the
+//! `NpcShipCreated` case and the failure of `Msg0x1006`, through P3.5c2's
+//! paths over [`RandomMission::object`]. A random mission keeps no NPC
+//! object, ship, solar, loot or random encounter of TU38's lists, so on
+//! the shipped data its snapshots, respawns and jumpers find nothing and
+//! its save writes the first record's objectives.
 
 mod machine;
 pub mod message;
 mod mission;
+mod records;
 mod sub;
 #[cfg(test)]
 mod tests;
@@ -55,6 +64,7 @@ use self::message::{Controller, ControllerEvent, RmMessage};
 use super::RmDataKey;
 use super::offer::LootSpawn;
 use crate::content::Instance;
+use crate::content::mission::object::MissionObject;
 use crate::content::router::{self, HandlerOwner};
 use crate::events::{ControllerMessage, NpcShipKey};
 use crate::server::{CreateParams, Cx};
@@ -190,14 +200,16 @@ pub struct RandomMission {
     pub data: Option<RmDataKey>,
     /// TU38 `PlayerId`.
     pub player: u32,
-    /// TU38 `Players`: the players with a mission record, by id.
-    pub records: BTreeSet<u32>,
+    /// TU38 `Players`: the players' mission records, by id.
+    pub records: BTreeMap<u32, crate::content::mission::object::MissionPlayer>,
     /// TU38 `DeadPlayerIds`.
     pub dead_players: Vec<u32>,
     /// TU38 `Reward` (`+0x10`).
     pub reward: u32,
     /// TU38 `HeartbeatInterval`.
     pub heartbeat_interval: f32,
+    /// TU38 `Field_0x84`: the objective timer's seconds.
+    pub objective_timer: f32,
     /// TU38 `Field_0x80`: 7, then the first offer's type.
     pub kind: u8,
     /// TU38 `Field_0x50`: the mission's title.
@@ -243,18 +255,33 @@ pub struct RandomMission {
     pub running_machines: Vec<u32>,
     /// Every machine of the mission, by handler id.
     pub machines: BTreeMap<u32, Machine>,
+    /// The rest of TU38's mission object (P3.7d), which the snapshot, the
+    /// save, the jumpers and the `NpcShipCreated` case read and write
+    /// through P3.5c2's paths
+    /// ([`crate::content::mission::object::of`]): its ships, solars,
+    /// loot and random encounters, which nothing loads for a random
+    /// mission (only `FMissionScript::LoadMissionIni` and a script's
+    /// restore do, `MissionObject.cpp:4141-4283`, `MissionSave.cpp:891-1222`),
+    /// the respawn records of a snapshot, the marks, invulnerables, cloaks,
+    /// attitudes and solar reputations, the NPC objects (registered only by
+    /// `FMissionScript`'s `NpcShipCreated`, `MissionScript.cpp:1286`), the
+    /// label map, the jumpers and the jump. Its player, records, dead
+    /// players, reward, timer and destroy flags are the fields above.
+    pub object: MissionObject,
 }
 
 impl RandomMission {
     /// The instance before its constructor's body.
-    fn new(data: Option<RmDataKey>) -> Self {
+    fn new(data: Option<RmDataKey>, id: ControllerId) -> Self {
         Self {
+            object: MissionObject::new(id),
             data,
             player: 0,
-            records: BTreeSet::new(),
+            records: BTreeMap::new(),
             dead_players: Vec::new(),
             reward: 0,
             heartbeat_interval: crate::content::mission::object::HEARTBEAT,
+            objective_timer: 0.0,
             kind: 7,
             title: FmtStr::new(0),
             description: FmtStr::new(0),
@@ -584,14 +611,14 @@ pub fn construct(cx: &mut Cx<'_>, id: ControllerId, params: &CreateParams) -> In
     // process can route a message to the mission at once.
     cx.logic.content.instances.insert(
         id,
-        Instance::RandomMission(Box::new(RandomMission::new(data))),
+        Instance::RandomMission(Box::new(RandomMission::new(data, id))),
     );
     mission::construct(cx, id);
     cx.logic
         .content
         .instances
         .remove(&id)
-        .unwrap_or_else(|| Instance::RandomMission(Box::new(RandomMission::new(data))))
+        .unwrap_or_else(|| Instance::RandomMission(Box::new(RandomMission::new(data, id))))
 }
 
 /// `~FDestroyMission` and its bases ([`mission::destruct`]).
@@ -711,6 +738,7 @@ fn controller_event(message: &ControllerMessage<'_>) -> ControllerEvent {
             system: *system,
             player: *player,
         },
+        M::BaseExit { player, .. } => Controller::BaseExit(*player),
         M::GroupMemberJoined { player } => Controller::GroupMemberJoined(*player),
         M::GroupMemberLeft { player } => Controller::GroupMemberLeft(*player),
         M::PlayerLoad { player, .. } => Controller::PlayerLoad(*player),
@@ -718,7 +746,12 @@ fn controller_event(message: &ControllerMessage<'_>) -> ControllerEvent {
         M::PlayerLogout { player } => Controller::PlayerLogout(*player),
         M::AbortMission { player, .. } => Controller::AbortMission(*player),
         M::DockRequest { .. } => Controller::DockRequest,
-        M::Msg0x25 { .. } => Controller::ShipJumped,
+        M::Msg0x25 { ship, .. } => Controller::ShipJumped(*ship),
+        M::PlayerLaunch { player, .. } => Controller::PlayerLaunch(*player),
+        M::SpaceExit { player, .. } => Controller::SpaceExit(*player),
+        M::JumpInComplete { .. } => Controller::JumpInComplete,
+        M::Msg0x1006 { directive_word, .. } => Controller::CommLinesDone(*directive_word),
+        M::NpcShipCreated { ship } => Controller::NpcShipCreated(*ship),
         M::FormationLeaderChanged { .. } => Controller::FormationLeaderChanged,
         _ => Controller::Other,
     };
@@ -765,6 +798,22 @@ pub(crate) fn player_position(cx: &mut Cx<'_>, player: u32) -> Vector {
     let (system, base) = (state.system.unwrap_or(0), state.base.unwrap_or(0));
     let source = crate::content::data_source(cx);
     crate::api::gf::base_position(cx, &*source, system, base).unwrap_or(Vector::ZERO)
+}
+
+/// The oracle session's `FDestroyMission::OracleSave`: what a
+/// `PlayerSave {client, file}` writes of mission `id` into `out`, the
+/// `[RandomMission]` section and the mission object's sections, without
+/// the message's two single-player gates (the Tier B session's server is a
+/// multiplayer one, as P3.5b's mission saves are written). Only the
+/// random-mission session's tests call it; the bus's `PlayerSave` runs the
+/// gated cases.
+pub fn oracle_save(cx: &mut Cx<'_>, id: ControllerId, client: u32, out: &mut dyn Write) {
+    let mut host = Host {
+        cx,
+        mission: id,
+        save: Some(out),
+    };
+    mission::oracle_save(&mut host, client);
 }
 
 /// The oracle session's `FRandomMissionObject::OracleJoinPlayer`: player

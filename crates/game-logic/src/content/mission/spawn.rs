@@ -47,9 +47,7 @@ use super::obj_list::ObjListDirective;
 use super::object::{Jumper, MissionLoot, MissionObject, MissionShip, ShipGroup};
 use super::object_save::{RandEncRespawn, VibeInfo};
 use super::rand_enc::{MISSION_RANDOM_ENCOUNTER, RandEncArm, ShipChoice};
-use super::runtime::{
-    self, ID_MASK, find_npc_by_name, label_object_id, player_state, script, script_mut,
-};
+use super::runtime::{self, ID_MASK, find_npc_by_name, label_object_id, player_state, script};
 use crate::api;
 use crate::api::ai::{BaseOp, CallbackArg, Op, SetPersonalityParams};
 use crate::api::space_obj::{CargoDesc, EqInfo, LootInfo, SolarInfo};
@@ -74,20 +72,31 @@ pub const PLAYER_LABEL: &[u8] = b"Player";
 /// record's.
 pub const NO_OBJECT_LIST: &[u8] = b"no_ol";
 
+/// The mission object of a script or a random mission (P3.7d: the
+/// random missions' snapshot, jumpers and `NpcShipCreated` case run here).
 fn object<'c>(cx: &'c Cx<'_>, id: ControllerId) -> Option<&'c MissionObject> {
-    script(cx, id).map(|s| &s.object)
+    super::object::of(cx, id)
 }
 
 fn object_mut<'c>(cx: &'c mut Cx<'_>, id: ControllerId) -> Option<&'c mut MissionObject> {
-    script_mut(cx, id).map(|s| &mut s.object)
+    super::object::of_mut(cx, id)
+}
+
+/// `FindContentPlayerState(PlayerId)` of the mission object, a script's or
+/// a random mission's.
+fn mission_player_state<'c>(
+    cx: &'c Cx<'_>,
+    id: ControllerId,
+) -> Option<&'c crate::content::players::PlayerState> {
+    let player = super::object::player_of(cx, id)?;
+    cx.logic.content.state.players.get(&player)
 }
 
 /// The mission player's system record, when the player has a state and
 /// the record exists (`PlayerState->GetSystemRecord()`).
 #[must_use]
 pub fn player_system(cx: &Cx<'_>, id: ControllerId) -> Option<u32> {
-    let s = script(cx, id)?;
-    player_state(cx, s)?
+    mission_player_state(cx, id)?
         .system
         .filter(|system| cx.logic.content.state.systems.contains_key(system))
 }
@@ -95,8 +104,7 @@ pub fn player_system(cx: &Cx<'_>, id: ControllerId) -> Option<u32> {
 /// The mission player's ship, 0 without a state or a ship.
 #[must_use]
 pub fn player_ship_id(cx: &Cx<'_>, id: ControllerId) -> u32 {
-    script(cx, id)
-        .and_then(|s| player_state(cx, s))
+    mission_player_state(cx, id)
         .and_then(|p| p.ship.as_ref())
         .map_or(0, |s| s.ship)
 }
@@ -434,7 +442,7 @@ pub fn spawn_solar_record(cx: &mut Cx<'_>, id: ControllerId, index: usize) -> bo
     let Some(record) = object(cx, id).and_then(|o| o.solars.get(index)).cloned() else {
         return false;
     };
-    let player = object(cx, id).map_or(0, |o| o.player);
+    let player = super::object::player_of(cx, id).unwrap_or(0);
     let space_obj = api::misc::nickname_id(c_str(&record.nickname));
     if let Some(solar) = object_mut(cx, id).and_then(|o| o.solars.get_mut(index)) {
         solar.space_obj_id = space_obj;
@@ -862,10 +870,11 @@ pub fn npc_ship_created(cx: &mut Cx<'_>, id: ControllerId, key: NpcShipKey) {
         return;
     };
     let (ship, nickname) = (n.base.ship, n.nickname.clone());
-    let Some(s) = script(cx, id) else { return };
-    let player = s.object.player;
-    let marked = s
-        .object
+    let Some(player) = super::object::player_of(cx, id) else {
+        return;
+    };
+    let Some(o) = object(cx, id) else { return };
+    let marked = o
         .mark_obj_names
         .iter()
         .any(|m| c_str(&nickname) == c_str(m));
@@ -1196,8 +1205,7 @@ pub fn relocate_ship(
 /// gate's target is known; a mission NPC's own jump takes its entry (state
 /// 1).
 pub fn on_ship_jump(cx: &mut Cx<'_>, id: ControllerId, ship: u32) {
-    let Some(s) = script(cx, id) else { return };
-    let Some(own) = player_state(cx, s)
+    let Some(own) = mission_player_state(cx, id)
         .and_then(|p| p.ship.as_ref())
         .map(|p| (p.ship, p.target))
     else {
@@ -1354,7 +1362,7 @@ pub fn place_jumpers_at_launch(cx: &mut Cx<'_>, id: ControllerId, system: u32, a
             let (p, o) = location(cx, arrival);
             orientation = o;
             placement = Transform::new(o, p);
-        } else if script(cx, id).and_then(|s| player_state(cx, s)).is_some() {
+        } else if mission_player_state(cx, id).is_some() {
             let (p, o) = location(cx, player_ship_id(cx, id));
             orientation = o;
             placement = Transform::new(o, p);
@@ -1384,8 +1392,9 @@ pub fn place_jumpers_at_launch(cx: &mut Cx<'_>, id: ControllerId, system: u32, a
 /// `RespawnMissionObjects(bKeepHitPoints)` (`MissionObject.cpp:2508-2561`):
 /// every respawn record is made again (its slots' hit points -1 unless
 /// kept); the random encounters' formations wait for the populators
-/// (P3.6d, D984); the first ship of each record takes its directives at its
-/// priority; both lists empty.
+/// (P3.6d, D984); the first ship of each record takes its slot's guide
+/// (`SetGuide(Guide, true, true)`) or else its directives at its priority;
+/// both lists empty, the records' guides released.
 pub fn respawn_mission_objects(cx: &mut Cx<'_>, id: ControllerId, keep_hit_points: bool) {
     let Some(o) = object_mut(cx, id) else { return };
     if !keep_hit_points {
@@ -1407,8 +1416,10 @@ pub fn respawn_mission_objects(cx: &mut Cx<'_>, id: ControllerId, keep_hit_point
         else {
             continue;
         };
-        // The slot's guide (none on the shipped data, D985) or its
-        // directives.
+        if let Some(guide) = first.guide_ref {
+            crate::content::guides::set_guide(cx, key, Some(guide), true, true);
+            continue;
+        }
         let arena = &mut cx.logic.content.state.directives;
         let mut list: DirectiveList = first
             .directives
@@ -1420,10 +1431,38 @@ pub fn respawn_mission_objects(cx: &mut Cx<'_>, id: ControllerId, keep_hit_point
         npc_ships::set_directives(cx, ShipKey::Npc(key), &list, priority);
         directives::clear_list(&mut cx.logic.content.state.directives, &mut list);
     }
+    clear_respawn_ships(cx, id);
     if let Some(o) = object_mut(cx, id) {
-        o.respawn_ships.clear();
         o.rand_enc_respawns.clear();
     }
+}
+
+/// `RespawnShips.clear()`: the records go, each slot's guide released (the
+/// `TRefHandle`'s destructor; also the mission's destructor's).
+pub fn clear_respawn_ships(cx: &mut Cx<'_>, id: ControllerId) {
+    let Some(o) = object_mut(cx, id) else { return };
+    let guides: Vec<_> = std::mem::take(&mut o.respawn_ships)
+        .iter()
+        .flat_map(|g| g.ships.iter().filter_map(|s| s.guide_ref))
+        .collect();
+    for guide in guides {
+        crate::content::guides::release(cx, guide);
+    }
+}
+
+/// `TakeGuide(Ship, Guide)` (`MissionSave.cpp:77-95`): the slot holds the
+/// NPC ship's guide (its old one released unless it is the same, the new
+/// one referenced), and the guide is given no ship (`SetShip(nullptr)`)
+/// while the NPC ship keeps it.
+fn take_guide(cx: &mut Cx<'_>, slot: &mut MissionShip, guide: crate::content::guides::GuideRef) {
+    if slot.guide_ref != Some(guide) {
+        if let Some(old) = slot.guide_ref.take() {
+            crate::content::guides::release(cx, old);
+        }
+        slot.guide_ref = Some(guide);
+        cx.logic.content.state.guides.add_ref(guide);
+    }
+    crate::content::guides::set_ship(cx, guide, None);
 }
 
 /// The ship's hit points (`GetHealth`'s current value through `ftol`).
@@ -1456,8 +1495,11 @@ fn directives_of(cx: &Cx<'_>, key: NpcShipKey) -> Vec<ObjListDirective> {
 /// system by name; then the attitudes ([`snapshot_vibe_infos`]).
 #[allow(clippy::too_many_lines)]
 pub fn snapshot_mission_objects(cx: &mut Cx<'_>, id: ControllerId) {
+    if object(cx, id).is_none() {
+        return;
+    }
+    clear_respawn_ships(cx, id);
     let Some(o) = object_mut(cx, id) else { return };
-    o.respawn_ships.clear();
     o.rand_enc_respawns.clear();
     o.respawn_solars.clear();
     let random = create_id(MISSION_RANDOM_ENCOUNTER);
@@ -1495,7 +1537,7 @@ pub fn snapshot_mission_objects(cx: &mut Cx<'_>, id: ControllerId) {
             let priority = n.directives.priority;
             let hp = hit_points(cx, n.base.ship);
             let jumper = {
-                // The ship is not tested for null in the C++ (D985).
+                // The ship is not tested for null in the C++ (D1042).
                 let Some(o) = object_mut(cx, id) else { return };
                 let Some(slot) = o.find_ship_mut(&n.nickname) else {
                     continue;
@@ -1529,9 +1571,12 @@ pub fn snapshot_mission_objects(cx: &mut Cx<'_>, id: ControllerId) {
             let Some(first) = copy.ships.first_mut() else {
                 continue;
             };
-            if n.guide.is_none() {
-                first.init_objectives = local;
-                first.directives = directives_of(cx, key);
+            match n.guide {
+                Some(guide) => take_guide(cx, first, guide),
+                None => {
+                    first.init_objectives = local;
+                    first.directives = directives_of(cx, key);
+                }
             }
             if let Some(o) = object_mut(cx, id) {
                 o.respawn_ships.push(copy);
@@ -1653,16 +1698,28 @@ pub fn snapshot_mission_objects(cx: &mut Cx<'_>, id: ControllerId) {
                 }
             }
             ships.push(slot);
-            if n.guide.is_none() {
-                let directives = directives_of(cx, key);
-                if let Some(first) = ships.first_mut() {
-                    first.init_objectives = local;
-                    first.directives = directives;
+            match n.guide {
+                Some(guide) => {
+                    if let Some(first) = ships.first_mut() {
+                        take_guide(cx, first, guide);
+                    }
+                }
+                None => {
+                    let directives = directives_of(cx, key);
+                    if let Some(first) = ships.first_mut() {
+                        first.init_objectives = local;
+                        first.directives = directives;
+                    }
                 }
             }
         }
         if !abandon && found_group {
             dest.ships = ships;
+        } else {
+            // The collected ships' destructors release a guide one took.
+            for guide in ships.iter().filter_map(|s| s.guide_ref) {
+                crate::content::guides::release(cx, guide);
+            }
         }
         // `std::sort` by the ships' formation slots (both NPCs found).
         let slots: Vec<Option<u32>> = dest
@@ -1742,8 +1799,8 @@ pub fn snapshot_vibe_infos(cx: &mut Cx<'_>, id: ControllerId) {
     let Some(system) = player_system(cx, id) else {
         return;
     };
+    let player = super::object::player_of(cx, id).unwrap_or(0);
     let Some(o) = object(cx, id) else { return };
-    let player = o.player;
     let reps = o.solar_reps.clone();
     let npcs: Vec<(u32, NpcShipKey)> = o.npc_objects.iter().map(|(&s, &k)| (s, k)).collect();
     let solars: Vec<(u32, Vec<u8>)> = o

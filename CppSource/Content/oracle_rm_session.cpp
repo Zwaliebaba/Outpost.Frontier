@@ -20,6 +20,11 @@
 //                     GameSupport's heartbeat adds it), Heartbeat {1.0} to the mission through the
 //                     bus (_SendMessage), then the bus's timers fired with 1 s (Server.dll's
 //                     OracleBusFireTimers), which hands the router's timers to SpaceSupport;
+//   (save)            P3.7d, no step and no record: the mission's save mid-run, what a PlayerSave
+//                     {7, file} writes of it without the message's two single-player gates
+//                     (FDestroyMission::OracleSave: the [RandomMission] section, then the mission
+//                     object's SaveMission and SaveRandEncs), into <Dir>\rm_save.ini (binary: the
+//                     "\n" the format strings write); it draws no rand() and changes nothing;
 //   abort             AbortMission {7, mission} to the mission through the bus;
 //   teardown          Server.dll's OracleBusTick(0): the queued controllers torn down, the
 //                     mission's destructor among them.
@@ -372,6 +377,17 @@ extern "C" __declspec(dllexport) int __cdecl OracleDumpRmSession(char const* Dir
             pub::Controller::_SendMessage(Mission, EMessage::Heartbeat, &Dt);
             FireTimers(1.0f);
             OracleRmEnd();
+        }
+
+        // P3.7d: the save mid-run (no record).
+        {
+            std::string const SavePath = std::string(Dir) + "\\rm_save.ini";
+            FILE* const Save = std::fopen(SavePath.c_str(), "wb");
+            if (Save != nullptr)
+            {
+                GOracleRmMission->OracleSave(OracleRmPlayerId, Save);
+                std::fclose(Save);
+            }
         }
 
         OracleRmBegin(++Step, "abort");

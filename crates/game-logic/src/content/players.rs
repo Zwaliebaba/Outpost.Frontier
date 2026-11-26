@@ -121,6 +121,10 @@ pub struct PlayerShip {
     /// [`NpcShip::directives`](super::npc_ships::NpcShip::directives) and
     /// leaves its base's empty.
     pub directives: super::directives::ShipDirectives,
+    /// `PendingComms` (TU20 `+0x108`): the mission dialog lines the ship
+    /// says when the line before ends (P3.5c4,
+    /// [`super::systems::send_pending_comms`]).
+    pub pending_comms: Vec<super::systems::PendingComm>,
 }
 
 impl PlayerShip {
@@ -148,6 +152,7 @@ impl PlayerShip {
             hostile_contacts: Vec::new(),
             attackers: [super::combat_reputation::Attacker::default(); 8],
             directives: super::directives::ShipDirectives::default(),
+            pending_comms: Vec::new(),
         }
     }
 }
@@ -691,6 +696,70 @@ pub fn join_mission_as_group(
         let _ = api::controller::send_message(cx, ControllerId::BROADCAST, &mut message);
         let set_by = if player == 0 { member } else { player };
         api::player::set_msn_id(cx, member, controller, set_by, notify, notify_arg);
+    }
+}
+
+/// `FContentPlayerState::JoinMission(&ControllerId, SubId, bNotify,
+/// NotifyArg)` (`PlayerState.cpp:799-811`): nothing without the player's
+/// state; else the live mission, `PlayerMissionChanged {controller,
+/// player}` broadcast, and the mission id set by `sub` (the player for 0).
+pub fn join_mission(
+    cx: &mut Cx<'_>,
+    player: u32,
+    controller: u32,
+    sub: u32,
+    notify: bool,
+    notify_arg: u32,
+) {
+    use crate::events::ControllerMessage;
+    use neuron_server::controller::ControllerId;
+
+    let Some(state) = cx.logic.content.state.players.get_mut(&player) else {
+        return;
+    };
+    state.live_mission = controller;
+    let mut message = ControllerMessage::PlayerMissionChanged {
+        mission: ControllerId(controller),
+        player,
+    };
+    let _ = api::controller::send_message(cx, ControllerId::BROADCAST, &mut message);
+    let sub = if sub == 0 { player } else { sub };
+    api::player::set_msn_id(cx, player, controller, sub, notify, notify_arg);
+}
+
+/// `FContentPlayerState::EndLiveMission(_, VnpcState, bGroup)`
+/// (`PlayerState.cpp:718-743`): the player's marked vnpc records (value 3
+/// at 1) take `vnpc_state`; then the player, or with `group` every group
+/// member with a state, leaves the live mission (0,
+/// `PlayerMissionChanged {0, member}` broadcast, the mission id cleared).
+pub fn end_live_mission(cx: &mut Cx<'_>, player: u32, vnpc_state: u32, group: bool) {
+    use crate::events::ControllerMessage;
+    use neuron_server::controller::ControllerId;
+
+    let Some(state) = cx.logic.content.state.players.get_mut(&player) else {
+        return;
+    };
+    for record in &mut state.vnpcs {
+        if record[3] == 1 {
+            record[3] = vnpc_state;
+        }
+    }
+    let members = if group {
+        api::player::group_members(cx, player).unwrap_or_default()
+    } else {
+        vec![player]
+    };
+    for member in members {
+        let Some(state) = cx.logic.content.state.players.get_mut(&member) else {
+            continue;
+        };
+        state.live_mission = 0;
+        let mut message = ControllerMessage::PlayerMissionChanged {
+            mission: ControllerId(0),
+            player: member,
+        };
+        let _ = api::controller::send_message(cx, ControllerId::BROADCAST, &mut message);
+        api::player::set_msn_id(cx, member, 0, member, false, 0);
     }
 }
 

@@ -38,11 +38,21 @@
 //! The mission object's body (`FMissionObject::HandleMissionMessage`) came
 //! with P3.5c2: the NPC registration of `NpcShipCreated`, the jumpers, the
 //! respawns, the snapshot and the vibes, `ObjectDestroyed` and the logouts
-//! ([`super::spawn`]). What waits for later increments (D973): the random
-//! encounters' messages (P3.6d); the cut scenes, ambient scenes and costume
-//! hints of the base, location and space cases (P3.5c4, over P3.6e's bar
-//! scenes, `content::bar::create_bar_scene`); the objectives, the objective
-//! timer, the group members, the NN path and the nags of the tail (P3.5c5).
+//! ([`super::spawn`]). P3.5c4 brought the cut scenes, ambient scenes and
+//! costume hints of the base, location, character, space and
+//! `PlayerMissionChanged` cases ([`super::scenes`], over P3.6e's bar
+//! scenes). P3.5c5 brought the objectives ([`super::objectives`]: the
+//! renumbers of the base and space cases and of a restore, the hidden
+//! objectives, `PlayerMissionChanged`'s first-objective resend, the
+//! records' sends as they go, the formation leader's renumber, the
+//! objective timer), the NN path and the nags of the tail
+//! ([`super::nn_path`], [`super::nags`]), the group members' join, and
+//! the live mission's end and reward of a success or a failure. P3.5d
+//! brought Story's events (an acceptance, a restored acceptance and a
+//! success, [`super::story_missions::notify_story`]) and the story
+//! missions' overrides of slots 21 and 23 ([`super::story_missions`]). What
+//! waits for a later increment (D973): the random encounters' messages
+//! (P3.6d).
 
 use game_sim::protocol::fmtstr::FmtStr;
 use neuron_server::controller::ControllerId;
@@ -52,7 +62,7 @@ use super::execute;
 use super::runtime::{self, ID_MASK, Parms, label_object_id, player_state, script, script_mut};
 use super::trace::TraceRecord;
 use super::trigger::{STATE_ACTIVE, STATE_COMPLETE, STATE_INACTIVE};
-use super::{MissionScript, save, spawn};
+use super::{MissionScript, nags, nn_path, objectives, save, scenes, spawn};
 use crate::api;
 use crate::content::NoDispatch;
 use crate::events::ControllerMessage;
@@ -386,14 +396,16 @@ pub fn set_desired_state(s: &mut MissionScript, state: i32, mad_lib: u32) {
 
 /// `FMissionObject::HandleMessage` (`MissionObject.cpp:129-142`): a mission
 /// that destroyed itself ignores every message; one that asks for its
-/// teardown, before or during the message, has it asked of the bus.
+/// teardown, before or during the message, has it asked of the bus. The
+/// message goes to slot 21 of the mission's kind
+/// ([`super::story_missions::handle_mission_message`]).
 pub fn handle_message(cx: &mut Cx<'_>, id: ControllerId, message: &mut ControllerMessage<'_>) {
     let Some(s) = script(cx, id) else { return };
     if s.object.destroyed {
         return;
     }
     if !s.object.pending_destroy {
-        handle_mission_message(cx, id, message);
+        super::story_missions::handle_mission_message(cx, id, message);
         if !script(cx, id).is_some_and(|s| s.object.pending_destroy) {
             return;
         }
@@ -429,8 +441,10 @@ pub fn handle_mission_message(
                 on_base_enter(cx, id, message);
             }
         }
-        M::BaseExit { player: p, .. } => {
+        M::BaseExit { base, player: p } => {
             if *p == player {
+                // `OnBaseExit` (`:1358-1394`).
+                scenes::on_base_exit(cx, id, *base);
                 dispatch(cx, id, event, &Parms::Message(message));
             }
         }
@@ -471,11 +485,35 @@ pub fn handle_mission_message(
         M::PlayerLoad { player: p, reader } => {
             base_body = false;
             let p = *p;
-            let _ = crate::content::with_instance_taken(cx, id, |cx, instance| {
+            let steps = crate::content::with_instance_taken(cx, id, |cx, instance| {
                 if let crate::content::Instance::Mission(s) = instance {
-                    let _ = save::player_load(cx, s, p, reader);
+                    save::player_load(cx, s, p, reader)
+                } else {
+                    Vec::new()
                 }
-            });
+            })
+            .unwrap_or_default();
+            // The restore's calls out, in its order: the started cut
+            // scenes' bar scenes, the group's join with Story's event 1
+            // after it, and the emptied objectives' send. They come
+            // after the restore, where the C++ makes them during it (D1045);
+            // the join's `PlayerMissionChanged` to this mission changes
+            // nothing either way (its own id skips `OnMessage100b`, the read
+            // `[MissionState]` the NN path, and a new mission has no nags).
+            for step in steps {
+                match step {
+                    save::RestoreStep::ReleaseRtcScript { handle } => {
+                        scenes::release_restored_rtc(cx, id, handle);
+                    }
+                    save::RestoreStep::JoinMission => {
+                        crate::content::players::join_mission_as_group(
+                            cx, player, id.0, 0, 0, false, 0,
+                        );
+                        super::story_missions::notify_story(cx, id, 1);
+                    }
+                    save::RestoreStep::SendObjectives => objectives::send_empty_all(cx, id),
+                }
+            }
         }
         M::PlayerLaunch { player: p, .. } => {
             if *p == player {
@@ -522,9 +560,10 @@ pub fn handle_mission_message(
                 record.sub_obj_id = u32::from(sub_object);
             }
         }
-        M::GfObjSelect { player: p, .. } => {
-            // The cut scenes' bar characters are P3.5c4's (D973).
+        M::GfObjSelect { object, player: p } => {
             if *p == player {
+                // `OnCharacterSelect` (`:1397-1427`).
+                scenes::on_character_select(cx, id, *object);
                 dispatch(cx, id, event, &Parms::Message(message));
             }
         }
@@ -564,9 +603,13 @@ pub fn handle_mission_message(
                 dispatch(cx, id, event, &Parms::Message(message));
             }
         }
-        M::LocationExit { player: p, .. } => {
-            // The cut scenes' roles are P3.5c4's (D973).
+        M::LocationExit {
+            location,
+            player: p,
+        } => {
             if *p == player {
+                // `OnLocationExit` (`:1430-1475`).
+                scenes::on_location_exit(cx, id, *location);
                 dispatch(cx, id, event, &Parms::Message(message));
             }
         }
@@ -644,30 +687,78 @@ pub fn handle_mission_message(
                 s.field_0x2e8 = if *one == 1 { 0x5462 } else { *one };
             }
         }
-        // OnMessage100b: the cut scenes and the objectives (P3.5c4,
-        // P3.5c5; D973).
-        M::PlayerMissionChanged { .. } => {}
+        // `OnMessage100b` (`:1671-1729`): the cut scenes, then, when the
+        // player leaves a live mission, the first objective's resend.
+        M::PlayerMissionChanged { mission, .. } => {
+            scenes::on_mission_changed(cx, id, mission.0);
+            if mission.0 == 0 {
+                objectives::resend_first(cx, id);
+            }
+        }
         _ => {}
     }
     if base_body {
         mission_object_body(cx, id, message);
     }
-    // The tail: the NN path and the nags (P3.5c5, D973), then the state.
+    // The tail (`:1302-1313`): unless the mission is ending, the NN path
+    // (while active, no restore pending, and the mission the player's live
+    // one or none) and the nags; then the state.
+    if let Some(s) = script(cx, id)
+        && !s.object.pending_destroy
+    {
+        let live = cx
+            .logic
+            .content
+            .state
+            .players
+            .get(&s.object.player)
+            .map(|p| p.live_mission);
+        let path = !s.field_0x2ec
+            && s.nn_path.active
+            && live.is_some_and(|l| l == id.0 || l & ID_MASK == 0);
+        if path {
+            nn_path::handle_message(cx, id, message);
+        }
+        nags::dispatch(cx, id, message);
+    }
     apply_desired_state(cx, id);
 }
 
 /// `FMissionObject::HandleMissionMessage` (`MissionObject.cpp:1496-1926`):
 /// the mission object's cases (P3.5c1's abort and dead players, P3.5c2's
-/// objects, jumpers, respawns and snapshot). The random encounters'
-/// `NotifyRandEncs` (P3.6d), the group members' cases, the formation
-/// leader's objectives and the objective timer of the tail (P3.5c5) wait
+/// objects, jumpers, respawns and snapshot, P3.5c5's records, group
+/// members and formation leader), then its tail, the objective timer while
+/// the mission is its player's live one (`FMissionScript::
+/// UpdateObjectiveTimer`, `MissionScript.cpp:829-834`: not while the NN
+/// path is active). The random encounters' `NotifyRandEncs` (P3.6d) waits
 /// (D973).
-#[allow(clippy::too_many_lines)]
 fn mission_object_body(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMessage<'_>) {
-    use ControllerMessage as M;
     let Some(player) = live_player(cx, id) else {
         return;
     };
+    mission_object_cases(cx, id, player, message);
+    let Some(s) = script(cx, id) else { return };
+    let live = cx
+        .logic
+        .content
+        .state
+        .players
+        .get(&s.object.player)
+        .map(|p| p.live_mission);
+    if live == Some(id.0) && !s.nn_path.active {
+        objectives::update_timer(cx, id, message);
+    }
+}
+
+/// The cases of [`mission_object_body`].
+#[allow(clippy::too_many_lines)]
+fn mission_object_cases(
+    cx: &mut Cx<'_>,
+    id: ControllerId,
+    player: u32,
+    message: &ControllerMessage<'_>,
+) {
+    use ControllerMessage as M;
     match message {
         M::PlayerLaunch { player: p, .. } => {
             if !api::misc::single_player(cx) || *p != player {
@@ -682,13 +773,13 @@ fn mission_object_body(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMe
         }
         M::PlayerLogout { player: p } | M::GroupMemberLeft { player: p } => {
             let p = *p;
-            // `RemovePlayerById`: the record's objectives are P3.5c5's
-            // (D973); the record goes.
-            if let Some(s) = script_mut(cx, id) {
-                s.object.players.remove(&p);
-                if let Some(at) = s.object.dead_players.iter().position(|d| *d == p) {
-                    s.object.dead_players.remove(at);
-                }
+            // `RemovePlayerById`: the record's emptied objectives sent,
+            // the record gone.
+            objectives::remove_player(cx, id, p);
+            if let Some(s) = script_mut(cx, id)
+                && let Some(at) = s.object.dead_players.iter().position(|d| *d == p)
+            {
+                s.object.dead_players.remove(at);
             }
             if p == player {
                 // `Slot15` is false: the first remaining record's player,
@@ -705,6 +796,18 @@ fn mission_object_body(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMe
                 s.object.pending_destroy = true;
             }
         }
+        M::GroupMemberJoined { player: member } => {
+            // The member joins the mission (`JoinMission`; a member
+            // without a state, which the C++ does not test, joins
+            // nothing, D1043).
+            if api::player::is_group_member(cx, player, *member) {
+                crate::content::players::join_mission(cx, *member, id.0, player, false, 0);
+            }
+        }
+        M::FormationLeaderChanged {
+            new_leader,
+            old_leader,
+        } => on_formation_leader_changed(cx, id, *new_leader, *old_leader),
         M::Heartbeat { elapsed } => spawn::update_jumpers(cx, id, *elapsed),
         M::AbortMission { player: p, .. } => {
             let live = cx
@@ -804,25 +907,80 @@ pub fn slot28(cx: &mut Cx<'_>, id: ControllerId, words: [u32; 3]) {
     dispatch(cx, id, NPC_SYSTEM_ENTER, &Parms::NpcEnter(words));
 }
 
-/// `OnBaseEnter` (`MissionScript.cpp:1317-1355`): the objectives' renumber
-/// flag is cleared (the renumber, the NN path's rebuild, the cut scenes
-/// and the ambient scenes are later increments', D973), then `BaseEnter`.
+/// `OnBaseEnter` (`MissionScript.cpp:1317-1355`): the cut scenes started
+/// and the base's ambient scenes made ([`scenes::on_base_enter`]); after a
+/// restore the objectives renumbered (and the flag cleared), else an
+/// active NN path rebuilt and sent; then `BaseEnter`.
 fn on_base_enter(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMessage<'_>) {
-    if let Some(s) = script_mut(cx, id)
-        && s.field_0x2ec
-    {
-        s.field_0x2ec = false;
+    if let ControllerMessage::BaseEnter { base, .. } = *message {
+        scenes::on_base_enter(cx, id, base);
+    }
+    let Some(s) = script(cx, id) else { return };
+    if s.field_0x2ec {
+        objectives::renumber_all(cx, id);
+        if let Some(s) = script_mut(cx, id) {
+            s.field_0x2ec = false;
+        }
+    } else if s.nn_path.active {
+        nn_path::rebuild(cx, id);
+        nn_path::send_objectives(cx, id, false, false);
     }
     dispatch(cx, id, message.id(), &Parms::Message(message));
 }
 
-/// `OnSpaceEnter` (`MissionScript.cpp:1522-1556`): `SpaceEnter`, then the
-/// renumber flag cleared (the costume hints and the objectives are later
-/// increments', D973).
+/// `OnSpaceEnter` (`MissionScript.cpp:1522-1556`): the dialog speakers'
+/// costume hints ([`scenes::send_costume_hints`]), `SpaceEnter`, then the
+/// objectives renumbered, or, with an active NN path, the path rebuilt,
+/// every objective hidden and the path sent; the restore flag cleared.
 fn on_space_enter(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMessage<'_>) {
+    scenes::send_costume_hints(cx, id);
     dispatch(cx, id, message.id(), &Parms::Message(message));
+    let Some(s) = script(cx, id) else { return };
+    if s.nn_path.active {
+        nn_path::rebuild(cx, id);
+        objectives::hide_all(cx, id);
+        nn_path::send_objectives(cx, id, false, false);
+    } else {
+        objectives::renumber_all(cx, id);
+    }
     if let Some(s) = script_mut(cx, id) {
         s.field_0x2ec = false;
+    }
+}
+
+/// The `FormationLeaderChanged {new leader, old leader}` case
+/// (`MissionObject.cpp:1819-1859`): when the old leader is an NPC of this
+/// mission, each record with a visible type 4 objective whose label is the
+/// new leader's ship (a ship, else a loot, else a solar, only while the
+/// player has a ship) renumbers every record.
+fn on_formation_leader_changed(
+    cx: &mut Cx<'_>,
+    id: ControllerId,
+    new_leader: crate::events::NpcShipKey,
+    old_leader: crate::events::NpcShipKey,
+) {
+    let npcs = &cx.logic.content.state.npc_ships;
+    if npcs.get(&old_leader).is_none_or(|n| n.controller != id.0) {
+        return;
+    }
+    let leader = npcs.get(&new_leader).map_or(0, |n| n.base.ship);
+    let Some(s) = script(cx, id) else { return };
+    let records: Vec<u32> = s.object.players.keys().copied().collect();
+    for record in records {
+        let Some(s) = script(cx, id) else { return };
+        let Some(r) = s.object.players.get(&record) else {
+            continue;
+        };
+        let hit = r.objectives.iter().any(|o| {
+            if o.hidden || o.kind != 4 {
+                return false;
+            }
+            let target = label_object_id(cx, s, &o.label);
+            target & ID_MASK != 0 && target == leader
+        });
+        if hit {
+            objectives::renumber_all(cx, id);
+        }
     }
 }
 
@@ -923,9 +1081,10 @@ fn on_pop_up_answer(cx: &mut Cx<'_>, id: ControllerId, player: u32, button: u32)
 
 /// `OnOfferResponse` (`MissionScript.cpp:1478-1519`): a refusal only
 /// dispatches; an acceptance shows the empty type-10 message, dispatches,
+/// ends another live mission of the player (its controller destroyed),
 /// resets the pop-up, sets the clamps and joins the player's group to the
-/// mission. Story's event and the end of another live mission are P3.5d's
-/// and P3.5c5's (D973).
+/// mission. Story hears of the acceptance (event 1) before the other
+/// mission's end (`:1495-1497`).
 fn on_offer_response(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMessage<'_>) {
     let ControllerMessage::MissionResponse { accepted, .. } = *message else {
         return;
@@ -936,6 +1095,18 @@ fn on_offer_response(cx: &mut Cx<'_>, id: ControllerId, message: &ControllerMess
     };
     let _ = api::player::display_mission_message(cx, player, &FmtStr::new(0), 0xa, true);
     dispatch(cx, id, message.id(), &Parms::Message(message));
+    super::story_missions::notify_story(cx, id, 1);
+    let live = cx
+        .logic
+        .content
+        .state
+        .players
+        .get(&player)
+        .map_or(0, |p| p.live_mission);
+    if live & ID_MASK != 0 && live != id.0 {
+        api::controller::destroy(cx, ControllerId(live));
+        crate::content::players::end_live_mission(cx, player, 4, true);
+    }
     let Some(s) = script_mut(cx, id) else { return };
     s.rep_pop_up_shown = false;
     s.rep_pop_up_armed = false;
@@ -1000,8 +1171,11 @@ fn on_damage_reputation(cx: &mut Cx<'_>, id: ControllerId, kind: u32, ship: u32,
     }
 }
 
-/// `ApplyDesiredMissionState` (`MissionScript.cpp:846-865`). Story's
-/// `OnMissionEvent` after a success is P3.5d's (D973).
+/// `ApplyDesiredMissionState` (`MissionScript.cpp:846-865`, slot 30): a
+/// new desired state becomes the previous one; a failure runs slot 24, a
+/// success slot 23 of the mission's kind
+/// ([`super::story_missions::on_mission_succeed`]) and then Story's event
+/// 3 with the mission's chapter.
 pub fn apply_desired_state(cx: &mut Cx<'_>, id: ControllerId) {
     let Some(s) = script_mut(cx, id) else { return };
     let (desired, previous) = (s.mission_state, s.previous_state);
@@ -1017,16 +1191,19 @@ pub fn apply_desired_state(cx: &mut Cx<'_>, id: ControllerId) {
     if desired == MISSION_STATE_FAIL {
         on_mission_fail(cx, id);
     } else if desired == MISSION_STATE_SUCCEED {
-        on_mission_succeed(cx, id);
+        super::story_missions::on_mission_succeed(cx, id);
+        super::story_missions::notify_story(cx, id, 3);
     }
 }
 
 /// `FMissionScript::OnMissionSucceed` (`MissionScript.cpp:870-885`) and the
-/// mission object's (`MissionObject.cpp:1932-1945`): the success message
-/// and the mission objects' teardown, then `EndMission`. The completion
-/// count, the reward, the objectives and the end of the live mission are
-/// P3.5c5's (D973).
-fn on_mission_succeed(cx: &mut Cx<'_>, id: ControllerId) {
+/// mission object's (`MissionObject.cpp:1932-1945`): the success message,
+/// the completion of a type 7 random mission counted and the mission
+/// objects' teardown; then, with the player's state, the reward split over
+/// the player's group (an unsigned division) and paid, the objectives
+/// cleared, `EndMission` and the live mission ended for the group (vnpc
+/// state 2); without it `EndMission` alone.
+pub(crate) fn on_mission_succeed(cx: &mut Cx<'_>, id: ControllerId) {
     let Some(s) = script_mut(cx, id) else { return };
     let player = s.object.player;
     if s.field_0x2e8 != 0 && cx.logic.content.state.players.contains_key(&player) {
@@ -1036,16 +1213,30 @@ fn on_mission_succeed(cx: &mut Cx<'_>, id: ControllerId) {
         }
         let text = FmtStr::new(s.field_0x2e8);
         let _ = api::player::display_mission_message(cx, player, &text, 1, true);
-        // `CountRandomMissionCompleted(7)` is P3.5c5's (D973).
+        if let Some(state) = cx.logic.content.state.players.get_mut(&player) {
+            *state.stats.random_missions_completed.entry(7).or_insert(0) += 1;
+        }
         spawn::destroy_mission_objects(cx, id);
     }
+    // FMissionObject::OnMissionSucceed.
+    let Some(s) = script(cx, id) else { return };
+    let (player, reward) = (s.object.player, s.object.reward);
+    if !cx.logic.content.state.players.contains_key(&player) {
+        end_mission(cx, id);
+        return;
+    }
+    let group_size = api::player::group_size(cx, player).max(1);
+    api::player::reward_group(cx, player, (reward / group_size) as i32);
+    objectives::clear_objectives(cx, id);
     end_mission(cx, id);
+    crate::content::players::end_live_mission(cx, player, 2, true);
 }
 
 /// `FMissionScript::OnMissionFail` (`MissionScript.cpp:888-905`) and the
 /// mission object's (`MissionObject.cpp:1950-1961`): the failure message,
-/// the NPCs muted, the mission objects' teardown, then `EndMission` (the
-/// rest as for the success, D973).
+/// the NPCs muted, the mission objects' teardown, the objectives cleared,
+/// then `EndMission`, and when the mission is its player's live one the
+/// live mission ended for the group (vnpc state 3).
 fn on_mission_fail(cx: &mut Cx<'_>, id: ControllerId) {
     let Some(s) = script_mut(cx, id) else { return };
     if s.field_0x2e8 == 1 {
@@ -1060,14 +1251,28 @@ fn on_mission_fail(cx: &mut Cx<'_>, id: ControllerId) {
         }
     }
     spawn::destroy_mission_objects(cx, id);
+    // FMissionObject::OnMissionFail.
+    objectives::clear_objectives(cx, id);
+    let live = cx
+        .logic
+        .content
+        .state
+        .players
+        .get(&player)
+        .is_some_and(|p| p.live_mission == id.0);
     end_mission(cx, id);
+    if live {
+        crate::content::players::end_live_mission(cx, player, 3, true);
+    }
 }
 
 /// `FMissionScript::EndMission` (`MissionScript.cpp:908-956`) and the
-/// mission object's (`MissionObject.cpp:1292-1322`). The nags, the cut
-/// scenes and the players' objectives are later increments' (D973).
+/// mission object's (`MissionObject.cpp:1292-1322`): the nags go first,
+/// and the mission object's records each send their emptied objectives as
+/// they go.
 pub fn end_mission(cx: &mut Cx<'_>, id: ControllerId) {
     let Some(s) = script_mut(cx, id) else { return };
+    s.nags.clear();
     s.timers.clear();
     let player = s.object.player;
     // The player's ship id is read without a test of the state (D976).
@@ -1081,6 +1286,7 @@ pub fn end_mission(cx: &mut Cx<'_>, id: ControllerId) {
     if ship & ID_MASK == 0 {
         let _ = api::ai::lock_maneuvers(cx, ship, false);
     }
+    scenes::release_rtc_scripts(cx, id);
     let Some(s) = script_mut(cx, id) else { return };
     s.friendly_fire_excused.clear();
     s.object.rand_encs.clear();
@@ -1107,7 +1313,10 @@ pub fn end_mission(cx: &mut Cx<'_>, id: ControllerId) {
     s.object.decloaked.clear();
     s.object.mark_obj_names.clear();
     // FMissionObject::EndMission.
-    s.object.players.clear();
+    while let Some(first) = script(cx, id).and_then(|s| s.object.players.keys().next().copied()) {
+        objectives::remove_player(cx, id, first);
+    }
+    let Some(s) = script_mut(cx, id) else { return };
     s.object.title = 0;
     s.object.offer = 0;
     s.object.npcs.clear();
@@ -1121,6 +1330,38 @@ pub fn end_mission(cx: &mut Cx<'_>, id: ControllerId) {
     s.object.solars.clear();
     s.object.rand_encs.clear();
     s.object.pending_destroy = true;
+}
+
+/// The missions' destructors (P3.5c4): `~FMissionScript`
+/// (`MissionScript.cpp:683-720`: the cut scenes and ambient scenes,
+/// [`scenes::destruct`], and the nags), then `~FMissionObject`
+/// (`MissionObject.cpp:107-125`: the random encounters, the players'
+/// records, each sending its emptied objectives as it goes, and every
+/// jumper out of every system deleted), then the members' (the respawn
+/// records' guides released).
+pub fn destruct(cx: &mut Cx<'_>, id: ControllerId) {
+    scenes::destruct(cx, id);
+    let Some(s) = script_mut(cx, id) else { return };
+    s.nags.clear();
+    s.object.rand_encs.clear();
+    while let Some(first) = script(cx, id).and_then(|s| s.object.players.keys().next().copied()) {
+        objectives::remove_player(cx, id, first);
+    }
+    let Some(s) = script_mut(cx, id) else { return };
+    let gone: Vec<_> = s
+        .object
+        .jumpers
+        .iter_mut()
+        .filter(|j| j.state != 0)
+        .map(|j| {
+            j.state = 0;
+            j.npc
+        })
+        .collect();
+    for npc in gone {
+        crate::content::npc_ships::destroy(cx, npc);
+    }
+    spawn::clear_respawn_ships(cx, id);
 }
 
 /// Turns the mission's trace on, from tick 0.

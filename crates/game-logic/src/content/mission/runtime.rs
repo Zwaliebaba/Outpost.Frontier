@@ -952,10 +952,15 @@ pub fn matches(
             c.count += 1;
             c.count >= c.needed
         }
-        // A started cut scene's sequence id comes with the cut scenes'
-        // start (P3.5c4, over P3.6e's bar scenes; D977): no script of the
-        // list is started before.
-        Condition::RtcDone(_) => false,
+        // `MissionCnd.cpp:2319-2336`: a started cut scene whose sequence id
+        // is word 1 and whose path is the condition's (`_stricmp`).
+        Condition::RtcDone(c) => {
+            let Some(w) = w else { return false };
+            s.rtc_scripts.iter().any(|r| {
+                r.script.as_ref().is_some_and(|l| l.sequence_id == w[1])
+                    && eq_ignore_case(c_str(&r.path), c_str(&c.rtc_file))
+            })
+        }
         Condition::RumorHeard(c) => {
             let Parms::Message(ControllerMessage::RumorHeard { player, role }) = parms else {
                 return false;

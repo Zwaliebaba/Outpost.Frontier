@@ -261,7 +261,7 @@ fn advance(cx: &mut Cx<'_>, s: &mut MissionScript) {
         s.rtc_scripts.push(RtcScript {
             path: path.to_vec(),
             handle: -1,
-            started: false,
+            script: None,
             finished,
             field_0x95,
         });

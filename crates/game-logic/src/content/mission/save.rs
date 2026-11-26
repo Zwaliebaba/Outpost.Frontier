@@ -53,8 +53,9 @@ pub struct RtcScript {
     pub path: Vec<u8>,
     /// `Field_0x8c`: the bar scene's handle, -1 for none (run time).
     pub handle: i32,
-    /// `Field_0x90`: the script was started (run time).
-    pub started: bool,
+    /// `Field_0x90`: the started RTC script, its sequence id `Cnd_RTCDone`'s
+    /// (run time, P3.5c4).
+    pub script: Option<Box<crate::content::bar::CharacterEncounter>>,
     /// `Field_0x94`: finished; the save skips it.
     pub finished: bool,
     /// `Field_0x95`: the `rtc` line's second value.
@@ -75,8 +76,9 @@ pub struct AmbientScene {
     pub base_id: u32,
 }
 
-/// The NN path's saved state (`FMissionNnPath`, `MissionObject.h:560-590`).
-/// Its objectives, legs and timer are the run time's (P3.5c).
+/// The NN path (`FMissionNnPath`, `MissionObject.h:560-590`): its saved
+/// state, and its objectives, legs and timer, the run time's
+/// ([`super::nn_path`], P3.5c5).
 #[derive(Clone, Debug, PartialEq)]
 pub struct NnPath {
     /// `Position`.
@@ -97,6 +99,14 @@ pub struct NnPath {
     pub active: bool,
     /// `State` (0; 1 once started).
     pub state: i32,
+    /// `Objectives` (run time): the path's type 5 objectives.
+    pub objectives: Vec<super::objective::Objective>,
+    /// `Legs` (run time).
+    pub legs: Vec<crate::content::space_paths::NnPathLeg>,
+    /// `bArrived` (run time): the target was reached once.
+    pub arrived: bool,
+    /// `TimerId` (run time): the path's last timer.
+    pub timer_id: u32,
 }
 
 impl Default for NnPath {
@@ -112,6 +122,10 @@ impl Default for NnPath {
             system_id: 0,
             active: false,
             state: 0,
+            objectives: Vec::new(),
+            legs: Vec::new(),
+            arrived: false,
+            timer_id: 0,
         }
     }
 }
@@ -502,7 +516,7 @@ pub fn player_save(
 /// `ReleaseRtcScripts`: every cut scene dropped, a started one as a step.
 fn release_rtc_scripts(script: &mut MissionScript, steps: &mut Vec<RestoreStep>) {
     for rtc in &script.rtc_scripts {
-        if rtc.started {
+        if rtc.script.is_some() {
             steps.push(RestoreStep::ReleaseRtcScript { handle: rtc.handle });
         }
     }
@@ -546,7 +560,7 @@ fn load_state_value(
         script.rtc_scripts.push(RtcScript {
             path,
             handle: -1,
-            started: false,
+            script: None,
             finished: false,
             field_0x95,
         });

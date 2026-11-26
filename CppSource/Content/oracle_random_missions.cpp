@@ -677,7 +677,10 @@ extern "C" __declspec(dllexport) int __cdecl OracleDumpRandomMissions(char const
 // the case.
 //
 // OracleLoadRandomMissionSaves(Dir) loads <Dir>\rust\rmsave_<n>.ini, n = 0 up while the file
-// opens, then <Dir>\rust\rmsave_pair.ini, the same way, into <Dir>\rmload_<table>.txt.
+// opens, then <Dir>\rust\rmsave_pair.ini, then (P3.7d) <Dir>\rust\rmsave_run.ini, the port's save
+// of the random-mission session's mission mid-run (the [RandomMission] section followed by the
+// mission object's sections, which the loader passes over as Support.cpp's restore does), the
+// same way, into <Dir>\rmload_<table>.txt.
 //
 // Both return the number of lines written, -1 when a file cannot be opened.
 // =======================================================================================
@@ -834,8 +837,9 @@ namespace
     }
 
     // Every rmsave_<n>.ini of SaveDir, n = 0 up while one opens (fewer than Count when Count >= 0),
-    // then rmsave_pair.ini, into Root's rmload_<table>.txt. -1 when an output file cannot be opened.
-    int LoadOracleRmSaves(std::string const& Root, std::string const& SaveDir, int Count)
+    // then rmsave_pair.ini, then (P3.7d) the file Extra names when it is not null, the next case
+    // after the pair's, into Root's rmload_<table>.txt. -1 when an output file cannot be opened.
+    int LoadOracleRmSaves(std::string const& Root, std::string const& SaveDir, int Count, char const* Extra)
     {
         FILE* Files[7] = {};
         bool bOpen = true;
@@ -862,6 +866,13 @@ namespace
             int const Pair = LoadOracleRm(F, SaveDir + "\\rmsave_pair.ini", Case);
             if (Pair > 0)
                 Lines += Pair;
+            if (Extra != nullptr)
+            {
+                unsigned int const ExtraCase = Pair >= 0 ? Case + 1 : Case;
+                int const Loaded = LoadOracleRm(F, SaveDir + "\\" + Extra, ExtraCase);
+                if (Loaded > 0)
+                    Lines += Loaded;
+            }
         }
         CloseOracleRmFiles(Files);
         return Lines;
@@ -984,20 +995,21 @@ extern "C" __declspec(dllexport) int __cdecl OracleDumpRandomMissionSaves(char c
         RemoveContentPlayerState(OracleRmPlayerId);
         return -1;
     }
-    int const Loads = LoadOracleRmSaves(Root, Root, Saves);
+    int const Loads = LoadOracleRmSaves(Root, Root, Saves, nullptr);
     GRmObjectiveZones.clear();
     RemoveContentPlayerState(OracleRmPlayerId);
     return Loads < 0 ? -1 : Lines + Loads;
 }
 
-// The C++ restore of the port's saves in <Dir>\rust\.
+// The C++ restore of the port's saves in <Dir>\rust\, and (P3.7d) of the port's save of the
+// random-mission session's mission mid-run, rmsave_run.ini, after the pair.
 extern "C" __declspec(dllexport) int __cdecl OracleLoadRandomMissionSaves(char const* Dir)
 {
     if (Dir == nullptr)
         return -1;
     std::string const Root(Dir);
     ReplaceContentPlayerState(OracleRmPlayerId);
-    int const Lines = LoadOracleRmSaves(Root, Root + "\\rust", -1);
+    int const Lines = LoadOracleRmSaves(Root, Root + "\\rust", -1, "rmsave_run.ini");
     GRmObjectiveZones.clear();
     RemoveContentPlayerState(OracleRmPlayerId);
     return Lines;

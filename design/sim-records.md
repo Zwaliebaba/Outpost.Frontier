@@ -727,7 +727,7 @@ so a broadcast shows as one record per controller in list order.
 
 | `rec` | Fields |
 | --- | --- |
-| `deliver` | `tick` u (0 for the start-up, before frame 1), `seq` u (from 0, in delivery order), `depth` i (the deliveries already in progress: 0 for one no handler made, 1 for one sent by a handler, and so on), `flid` u (the receiving controller), `msg` i (the `pub::Controller::EMessage` value), `path` s (`broadcast`, `send` or `heartbeat`), [`elapsed` f (`Heartbeat`: the whole periods delivered)], [`p1` u, `p2` u (`TimerExpired`: the timer's two words; `p1` is Content's counter value for Content's timers)] |
+| `deliver` | `tick` u (0 for the start-up, before frame 1), `seq` u (from 0, in delivery order), `depth` i (the deliveries already in progress: 0 for one no handler made, 1 for one sent by a handler, and so on), `flid` u (the receiving controller), `msg` i (the `pub::Controller::EMessage` value), `path` s (`broadcast`, `send` or `heartbeat`), [`elapsed` f (`Heartbeat`: the whole periods delivered)], [`p1` u, `p2` u (`TimerExpired`: the timer's two words; `p1` is Content's counter value for Content's timers)], [`csn` u, `p1` u, `p2` u (`CombatState`: the `CSNType` and the two ids of `FSpaceObjCombatStateMsg`; P3.5c4)] |
 
 `crates/game-logic/tests/content_startup.rs` compares the heartbeats
 Content's controllers get with the port's bus and reports the
@@ -1022,7 +1022,8 @@ are written as in `rm_<table>.txt`.
 | `random_mission_saves/rmload_missions.txt` | per load `save loaded player offer_base offer_group enemy_group dest_sys zone pos reward rep_reward rep_hit difficulty jump_pref offer_ids random_seed path offers draws serial zones description enemy_uses` |
 | `random_mission_saves/rmload_<table>.txt` | the rebuilt offers in the format of `rm_<table>.txt` (`offers`, `offer_ship_groups`, `offer_ships`, `offer_solars`, `offer_objectives`, `offer_comms`), the load's number as the case; the same Tier B fields as there |
 | `rust/rmsave_<n>.ini`, `rust/rmsave_pair.ini` | (written by the port before `dump random_mission_save_loads`, through the text-mode translation) the port's saves of the same offers |
-| `rmload_<table>.txt` | (`dump random_mission_save_loads`) the C++ loads of the port's saves, `n` = 0 up while a file opens, then the pair, in the same format |
+| `rust/rmsave_run.ini` | (P3.7d, written by `rm_session.rs`' `rust_rm_save_for_the_oracle`, through the text-mode translation) the port's save of the random-mission session's mission after its ticks, as `rm_session/rm_save.ini` below |
+| `rmload_<table>.txt` | (`dump random_mission_save_loads`) the C++ loads of the port's saves, `n` = 0 up while a file opens, then the pair, then `rmsave_run.ini` (the case after the pair's), in the same format |
 
 Under D954 (owner, 2026-11-25) a base without a dock object may differ in
 its `rms_offers.txt` lines in number and every field but `source` and
@@ -1104,10 +1105,27 @@ without the harness's controller of the `server` record); objects by kind
 and nickname, ids not compared. Judged up to the first action that runs
 without effect (D970) in the port's trace, at tick `J`: the trace through
 that record, the deliveries before `J`, the objects within the gross bound
-(500 m) through `J`; reported after (rule accepted by the owner on 2026-11-25). The port's records are kept as
+(500 m) through `J`; reported after (rule accepted by the owner on 2026-11-25). The
+`CombatState`s the mission was handed are listed beside the oracle's
+(`dispatch.jsonl`'s `csn`, `p1` and `p2`, the ids named by the mission's
+objects; reported, not judged). As the oracle's harness steps its
+scenario's system although the player has no client
+(`GOracleSimHooks.StepSystemId`), the port's session steps it through
+`ServerWorld::step_system`. The port's records are kept as
 `rust-mission-session.jsonl` and `rust-mission-objects.jsonl`. On `outdir/`, `J`
-is tick 2: with P3.5c2 at `Act_SetVibe` (18 records), with P3.5c3 at
-`Act_CallSceneScript` (30 records), a P3.5c4 action.
+was tick 2: with P3.5c2 at `Act_SetVibe` (18 records), with P3.5c3 at
+`Act_CallSceneScript` (30 records), a P3.5c4 action. With P3.5c4 no action
+without effect runs in the 900 ticks (the first P3.5c5 or P3.6d action of
+`Mission_01a` comes later), so the whole session is judged; with P3.5c5
+only `Act_EnableEnc` (P3.6d) is left without effect, and the objectives,
+NN path and nags the session's `SpaceEnter` renumbers and sends go to
+the player's client, which the harness's player does not have, so the
+records stay as they were: the 1051 trace
+records, every delivery and every object over the 900 ticks. The port
+clamps Content's comm system for the scenario's `comms off` before the
+system's load, as the oracle's `OracleSimSetGcsClamp`. The comms and
+dialogs of the session go to the player's client and feed nothing back
+through the bus; their scripted `CommComplete`s stay the session's own.
 ## `base.jsonl` (`dump base_session`)
 The Tier B base session trace (P3.6e, decision record 0008 points 7 and 10;
 `Content/oracle_base_session.cpp`, the hook `OracleBaseDbTrace` of
@@ -1180,6 +1198,58 @@ Common's two), because the values follow the DLL's static initialisation
 order (D1027). The comparison is exact, record by record, to the first
 difference, reported with the records around it in
 `rust-rm-session.txt`; the port's trace is kept as `rust-rm.jsonl`.
+
+After the twelve ticks, before `abort`, with no step and no record (P3.7d),
+the session writes `rm_save.ini`: what a `PlayerSave {7, file}` writes of
+the mission without the message's two single-player gates
+(`FDestroyMission::OracleSave`, the port's `runtime::oracle_save`):
+`[RandomMission]`, `type = DestroyMission`, `FRandomMissionData::Save`,
+then the mission object's `SaveMission` (for a random mission only its
+first record's `[NNObjective]`s, `SaveNNObjectives`) and `SaveRandEncs`
+(none); binary, the `\n` the format strings write. It is compared byte for
+byte, the first differing line reported in `rust-rm-session.txt`; the
+port's is kept as `rust-rm_save.ini`.
+## `story.jsonl` (`dump story_session`)
+
+The Tier B story trace (P3.5d, decision record 0008 point 10 and question 9;
+`Content/oracle_story_session.cpp` with the hooks of
+`Content/oracle_story_trace.h` in `Story.cpp`, `StoryLauncher.cpp` and
+`StoryMissions.cpp`, and Server.dll's `OracleBaseDbLoadBase` and
+`OracleBusTick`), read by `crates/game-logic/tests/story_session.rs`. After
+the multiplayer start-up: player 7 registered in `he01_02_Base`'s system
+without a ship or a server slot, `BaseDB::load_base` of the base. Fourteen
+steps, each from `srand(0x4f524143 + step)`, every message through the bus to
+one controller: `launcher` (a StoryLauncher made at `BELOW_NORMAL`), `login`
+(`PlayerLogin {7}` to it: Story made), `load` (`PlayerLoad` of `newplayer.fl`'s
+`[StoryInfo]` to Story: `Mission_01a` made, loaded and started), `accept`
+(`MissionResponse {mission, 0, accepted, 7}` to the mission), `succeed` (the
+mission's desired state SUCCEED and its `ApplyDesiredMissionState`:
+`Mission_01b` made and started), `teardown` (the bus's heartbeat walk and
+timers with 0), `base_enter` (GameSupport's case of `BaseEnter
+{he01_02_Base, 7}`, then `BaseEnter` to `Mission_01b`), `succeed`,
+`teardown`, `worth` (`PlayerWorthChanged {7}` to Story), `load_chapter` (a
+`[StoryInfo]` at chapter 21 with the worth 0), `worth` (`Mission_07` made
+and started), `ship_bought` (`PlayerShipArchSet {7}`) and `teardown`
+(`Mission_07`, Story and the launcher destroyed, then the heartbeat walk).
+The session stops after the step that should have made a mission when the
+mission the factory made last did not change. One JSON object per line, ids
+unsigned decimal, a `float` as its bits in lower-case hexadecimal:
+
+| `rec` | Fields | Written |
+| --- | --- | --- |
+| `step` | `step`, `name` | at a step's start |
+| `send` | `step`, `msg` | before each controller message the session sends |
+| `message` | `step`, `msg` | a message to Story's `HandleMessage`, before its case runs |
+| `event` | `step`, `kind`, `chapter`, `controller` | Story's `OnMissionEvent`, before it runs |
+| `create` | `step`, `name`, `id` | a `pub::Controller::Create` of Story (a chapter's mission) or StoryLauncher (`Story`), with the id it gave |
+| `destroy` | `step`, `id` | a `pub::Controller::Destroy` of Story's, before it is made |
+| `state` | `step`, `num`, `worth`, `bought`, `mission`, `controller` | Story's mission number, worth, ship flag and mission name and `GStoryMissionController` when its handler or `OnMissionEvent` returns |
+| `end` | `step`, `draws`, `num`, `live`, `attack`, `completed` | a step's end: the draws since its seeding (-1 beyond 0x10000), player 7's mission number and live mission, the attack clamp (`GSpacePopAttackClamp`) and his completed random missions as `[type, count]` |
+
+The comparison is exact, record by record, to the first difference,
+reported with the records around it in `rust-story-session.txt`; the port's
+trace is kept as `rust-story.jsonl`. On `outdir/` the port writes 70
+records.
 
 ## `spread.jsonl` (`--runs N`)
 

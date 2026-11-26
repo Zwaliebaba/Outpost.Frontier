@@ -103,10 +103,14 @@ record! {
         /// copy of its ship's directives, or a restored `[MObjective]`
         /// (P3.5b), written back as `[MObjective]`.
         directives: Vec<ObjListDirective> = Vec::new(),
-        /// `Guide` (+0x68): none after the parse; a restored ship's guide,
-        /// kept as the `[MetaBehavior]` object `CreateGuide` made it from
-        /// (P3.5b; the guide objects are P3.6c's). The save writes its line.
+        /// The `[MetaBehavior]` object a restored ship's guide was made
+        /// from (`CreateGuide`, P3.5b); none after the parse.
         guide: Option<MetaBehavior> = None,
+        /// `Guide` (+0x68): the live guide, one reference held: a restored
+        /// ship's (made from [`Self::guide`]) or, in a respawn record, the
+        /// guide the snapshot took from the ship (`TakeGuide`, P3.5c4); the
+        /// respawn hands it back and the save writes its line.
+        guide_ref: Option<crate::content::guides::GuideRef> = None,
     }
 }
 
@@ -258,6 +262,34 @@ pub struct MissionPlayer {
     pub player: u32,
     /// `Objectives`.
     pub objectives: Vec<Objective>,
+    /// `SentObjectives` (+0x28): a clone of each new objective sent with
+    /// flag 0x10, which a later send compares (run time, P3.5c5).
+    pub sent: Vec<Objective>,
+    /// `Field_0x24`: a random mission's path checked once per launch.
+    pub path_checked: bool,
+    /// `Field_0x25`: the send repeats every objective as it is (the
+    /// objective timer's and `PlayerMissionChanged`'s resends).
+    pub resend: bool,
+}
+
+impl MissionPlayer {
+    /// `FMissionPlayer(PlayerId, Mission)`: no objectives, both flags clear.
+    #[must_use]
+    pub fn new(player: u32) -> Self {
+        Self {
+            player,
+            ..Self::default()
+        }
+    }
+
+    /// `SetField25(bValue)` (`MissionObject.cpp:1072-1078`): clearing the
+    /// flag drops the sent clones.
+    pub fn set_resend(&mut self, resend: bool) {
+        self.resend = resend;
+        if !resend {
+            self.sent.clear();
+        }
+    }
 }
 
 /// The mission object (`FMissionObject`, TU38): what its constructor and
@@ -353,6 +385,9 @@ pub struct MissionObject {
     pub jump_timer: f32,
     /// `JumpDelay` (3).
     pub jump_delay: i32,
+    /// `Field_0x84`: the seconds since the objectives were last sent, which
+    /// the objective timer adds up (run time, P3.5c5).
+    pub objective_timer: f32,
     /// The `[ObjList]` directives as the counted objects the spawns hand
     /// out (`ObjLists`' `FMissionDirectiveList`, one reference held on
     /// each): made from [`Self::obj_lists`] the first time a list is
@@ -368,6 +403,41 @@ pub struct Jumper {
     pub npc: NpcShipKey,
     /// `State`.
     pub state: i32,
+}
+
+/// The mission object of controller `id`: a script mission's, or the
+/// lists of TU38 a random mission keeps
+/// ([`RandomMission::object`](crate::content::random_mission::runtime::RandomMission::object),
+/// P3.7d), so the snapshot, the jumpers and the `NpcShipCreated` case run
+/// on either.
+#[must_use]
+pub fn of<'c>(cx: &'c Cx<'_>, id: ControllerId) -> Option<&'c MissionObject> {
+    match cx.logic.content.instances.get(&id) {
+        Some(crate::content::Instance::Mission(s)) => Some(&s.object),
+        Some(crate::content::Instance::RandomMission(r)) => Some(&r.object),
+        _ => None,
+    }
+}
+
+/// [`of`], to change.
+pub fn of_mut<'c>(cx: &'c mut Cx<'_>, id: ControllerId) -> Option<&'c mut MissionObject> {
+    match cx.logic.content.instances.get_mut(&id) {
+        Some(crate::content::Instance::Mission(s)) => Some(&mut s.object),
+        Some(crate::content::Instance::RandomMission(r)) => Some(&mut r.object),
+        _ => None,
+    }
+}
+
+/// The mission object's `PlayerId` of controller `id`: a script mission's,
+/// or a random mission's own
+/// ([`RandomMission::player`](crate::content::random_mission::runtime::RandomMission::player)).
+#[must_use]
+pub fn player_of(cx: &Cx<'_>, id: ControllerId) -> Option<u32> {
+    match cx.logic.content.instances.get(&id) {
+        Some(crate::content::Instance::Mission(s)) => Some(s.object.player),
+        Some(crate::content::Instance::RandomMission(r)) => Some(r.player),
+        _ => None,
+    }
 }
 
 impl MissionObject {
@@ -413,6 +483,7 @@ impl MissionObject {
             jump_pending: false,
             jump_timer: -1.0,
             jump_delay: 3,
+            objective_timer: 0.0,
             obj_list_refs: BTreeMap::new(),
         }
     }
@@ -849,7 +920,10 @@ pub fn load(cx: &mut Cx<'_>, reader: &mut IniReader, object: &mut MissionObject)
             load_header(cx, reader, object);
         } else if reader.is_header(b"NNObjective") {
             let parsed = objective::load(cx, reader);
-            if let (Some(objective), Some(player)) = (parsed, object.players.values_mut().next()) {
+            if let (Some(mut objective), Some(player)) =
+                (parsed, object.players.values_mut().next())
+            {
+                objective.owner = object.player_state.then_some(object.player);
                 player.objectives.push(objective);
             }
         }

@@ -6,7 +6,7 @@
 //! A mission's constructor ([`construct`]) sets the mission object's
 //! heartbeat (1/30 s, `MissionObject.cpp:101`, one `rand()`), takes its
 //! player, sets its chapter and, for `Mission_01a`, the heartbeat again
-//! (`StoryMissions.cpp:100`), then loads its mission file
+//! (`StoryMissions.cpp:101`), then loads its mission file
 //! (`LoadMissionIni`, [`load_mission`]):
 //!
 //! 1. the mission object's sections ([`object`]: ships, solars, loot,
@@ -22,7 +22,7 @@
 //! `Cnd_Timer`'s ranges) and calls the `pub::` getters of record 0008. The
 //! saves came with P3.5b ([`save`] for the script's sections,
 //! [`object_save`] for the mission object's); the run time is P3.5c's, the
-//! story shell P3.5d's. The
+//! story missions' overrides ([`story_missions`]) P3.5d's. The
 //! mission object's `[ObjList]` directives ([`obj_list`]) and
 //! `[MetaBehavior]` objects ([`meta_behavior`]) came with P3.5a2; they draw
 //! nothing.
@@ -34,15 +34,20 @@ pub mod engine;
 pub mod execute;
 pub mod field;
 pub mod meta_behavior;
+pub mod nags;
+pub mod nn_path;
 pub mod obj_list;
 pub mod obj_list_execute;
 pub mod object;
 pub mod object_save;
 pub mod objective;
+pub mod objectives;
 pub mod rand_enc;
 pub mod runtime;
 pub mod save;
+pub mod scenes;
 pub mod spawn;
+pub mod story_missions;
 pub mod trace;
 pub mod trigger;
 
@@ -61,7 +66,7 @@ use crate::content::tables;
 use crate::server::{ControllerKind, CreateParams, Cx};
 
 /// The size of `FStoryOnLoadCreateParms::GenericMissionPath`
-/// (`Content/Story.cpp:37-42`), terminator included.
+/// (`Content/Story.cpp:38-43`), terminator included.
 pub const MISSION_PATH_BUFFER: usize = 0x3c;
 
 /// A `GenericMission`'s script path as its create parameters carry it:
@@ -114,7 +119,7 @@ impl std::fmt::Debug for MissionPath {
 /// `G_MissionStateNoState`: a new script's previous and desired states.
 pub const MISSION_STATE_NO_STATE: i32 = 2;
 
-/// One story mission's constructor values (`StoryMissions.cpp:85-437`):
+/// One story mission's constructor values (`StoryMissions.cpp:86-438`):
 /// `SetChapter`'s four values and the mission file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Chapter {
@@ -221,7 +226,7 @@ pub fn chapter(kind: ControllerKind) -> Option<Chapter> {
 }
 
 /// The fields only `Mission_01a` and `Mission_01b` add
-/// (`StoryMissions.cpp:63-205`).
+/// (`StoryMissions.cpp:64-206`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct StoryMissionFields {
     /// `bBaseEnterHandled` (+0x32c, 0).
@@ -298,6 +303,8 @@ pub struct MissionScript {
     /// `Timers` (+0x1f8): the delayed actions, each by its trigger and its
     /// place there, with the seconds left (P3.5c1).
     pub timers: Vec<engine::MissionTimer>,
+    /// `Nags` (+0x204): the nags by id (P3.5c5, [`nags`]).
+    pub nags: BTreeMap<u32, nags::Nag>,
     /// `NagClamp` (+0x218).
     pub nag_clamp: bool,
     /// `Field_0x2c8` (+0x2c8): a static camera is up.
@@ -496,13 +503,7 @@ pub fn construct_script(
     if let Some(state) = state
         && (single_player || state.system.is_some())
     {
-        object.players.insert(
-            player,
-            MissionPlayer {
-                player,
-                objectives: Vec::new(),
-            },
-        );
+        object.players.insert(player, MissionPlayer::new(player));
     }
     let mut script = MissionScript {
         kind,
@@ -533,6 +534,7 @@ pub fn construct_script(
         friendly_fire_excused: Vec::new(),
         ambient_scenes: Vec::new(),
         timers: Vec::new(),
+        nags: BTreeMap::new(),
         nag_clamp: false,
         field_0x2c8: false,
         rep_pop_up_shown: false,

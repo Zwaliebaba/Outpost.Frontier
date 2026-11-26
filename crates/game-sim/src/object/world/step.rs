@@ -1169,7 +1169,7 @@ impl World {
             let keep = self
                 .objects
                 .get(t)
-                .is_some_and(|o| !o.dead && o.simple.targetable);
+                .is_some_and(|o| !o.dead && o.is_targetable());
             if !keep && let Some(s) = self.objects.get_mut(h).and_then(|o| o.as_ship_mut()) {
                 s.target = None;
                 s.sub_target = 0;

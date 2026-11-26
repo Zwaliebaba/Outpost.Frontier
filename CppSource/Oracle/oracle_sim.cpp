@@ -218,6 +218,13 @@ namespace
         // machines' trace as rm.jsonl through its OracleDumpRmSession; no system loads and no
         // scenario runs (P3.7b, decision record 0008 point 10).
         bool bDumpRmSession = false;
+        // `dump story_session`: right after the server starts, Content.dll runs Story for a
+        // synthetic player through two chapter transitions (StoryLauncher, the new player's
+        // [StoryInfo], Mission_01a accepted and succeeded, Mission_01b, a chapter's worth) and
+        // writes Story's messages, events, creates, destroys and states as story.jsonl through its
+        // OracleDumpStorySession; no system loads and no scenario runs (P3.5d, decision record
+        // 0008 point 10).
+        bool bDumpStorySession = false;
         unsigned int Seed = 0x4f524143u;
         double ClockStart = 1000.0;
         std::vector<FObjectDesc> Objects;
@@ -588,6 +595,10 @@ namespace
             {
                 Out.bDumpRmSession = true;
             }
+            else if (Key == "dump" && T.size() == 2 && Lower(T[1]) == "story_session")
+            {
+                Out.bDumpStorySession = true;
+            }
             else if (Key == "seed" && T.size() == 2 && ParseUnsigned(T[1], Value))
             {
                 Out.Seed = (unsigned int)Value;
@@ -659,13 +670,13 @@ namespace
         // A dump session needs no object: every `dump` line but `replication`, which records
         // the objects the session spawns (P3.6a: `content_systems` joins the list; P3.7a:
         // `random_missions`; P3.7c: `random_mission_saves` and `random_mission_save_loads`; P3.5c1:
-        // `mission_trace`; P3.6e: `base_session`; P3.7b: `rm_session`).
+        // `mission_trace`; P3.6e: `base_session`; P3.7b: `rm_session`; P3.5d: `story_session`).
         bool const bObjectlessDump = Out.bDumpSystemLoads || Out.bDumpContentTables ||
                                      Out.bDumpContentSystems || Out.bDumpMissionScripts ||
                                      Out.bDumpMissionSaves || Out.bDumpMissionSaveLoads ||
                                      Out.bDumpRandomMissions || Out.bDumpRandomMissionSaves ||
                                      Out.bDumpRandomMissionSaveLoads || Out.bDumpMissionTrace ||
-                                     Out.bDumpBaseSession || Out.bDumpRmSession;
+                                     Out.bDumpBaseSession || Out.bDumpRmSession || Out.bDumpStorySession;
         if (Out.Objects.empty() && !bObjectlessDump)
             return Error = "a scenario needs at least one object", false;
         std::stable_sort(Out.Commands.begin(), Out.Commands.end(),
@@ -1764,6 +1775,15 @@ namespace
                 unsigned int const* const Words = static_cast<unsigned int const*>(MsgData);
                 J.Uint("p1", Words[0]);
                 J.Uint("p2", Words[1]);
+            }
+            else if (MsgId == (int)pub::Controller::EMessage::CombatState)
+            {
+                // P3.5c4 (reporting only): FSpaceObjCombatStateMsg (Content/NpcBase.h), the CSNType
+                // and the two ids of the combat_state_notification that sent it.
+                unsigned int const* const Words = static_cast<unsigned int const*>(MsgData);
+                J.Uint("csn", Words[0]);
+                J.Uint("p1", Words[1]);
+                J.Uint("p2", Words[2]);
             }
         }
         Write(FileDispatch, J);
@@ -3214,6 +3234,28 @@ namespace oracle
                                      "unknown, no mission was accepted or Server.dll lacks its bus exports");
             FOracleJson J;
             J.Str("rec", "rm_session");
+            J.Int("records", Records);
+            Write(FileSession, J);
+            EndProcess(Records < 0 ? 3 : 0);
+            return Records < 0 ? 3 : 0;
+        }
+
+        // `dump story_session` (P3.5d): Story through two chapter transitions after the start-up,
+        // through Content.dll's Oracle export, then the end of the run.
+        if (GScenario.bDumpStorySession)
+        {
+            typedef int(__cdecl * FDumpStorySession)(char const*);
+            HMODULE const Content = GetModuleHandleA("Content.dll");
+            FDumpStorySession const DumpStorySession =
+                Content != nullptr ? (FDumpStorySession)GetProcAddress(Content, "OracleDumpStorySession") : nullptr;
+            int const Records = DumpStorySession != nullptr ? DumpStorySession(OutDir.c_str()) : -1;
+            if (DumpStorySession == nullptr)
+                SessionNote("error", "dump story_session: Content.dll is not loaded or lacks OracleDumpStorySession");
+            else if (Records < 0)
+                SessionNote("error", "OracleDumpStorySession failed: story.jsonl could not be opened, the base is "
+                                     "unknown, Story or a mission was not made or Server.dll lacks its exports");
+            FOracleJson J;
+            J.Str("rec", "story_session");
             J.Int("records", Records);
             Write(FileSession, J);
             EndProcess(Records < 0 ? 3 : 0);

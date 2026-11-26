@@ -171,7 +171,7 @@ impl World {
             mass: self.mass(h),
             hit_pts: o.simple.hit_pts,
             max_hit_pts: o.simple.max_hit_pts,
-            targetable: o.simple.targetable,
+            targetable: o.is_targetable(),
             owner_player: o.simple.owner_player,
             power: o.equipped.as_deref().map(|e| e.power),
             ship,

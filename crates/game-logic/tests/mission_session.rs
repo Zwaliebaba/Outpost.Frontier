@@ -16,7 +16,10 @@
 //! Each frame then hands the mission the session's scripted messages of the
 //! tick ([`STEPS`], targeted), and runs the server's frame
 //! (`IServerImpl::Update`, the global time, `ElapseTime`: the systems, the
-//! controllers' heartbeats and timers).
+//! controllers' heartbeats and timers). The harness's player has no client,
+//! so the server would step no system; as the oracle's harness does
+//! (`GOracleSimHooks.StepSystemId`), the scenario's system is stepped
+//! every frame (`ServerWorld::step_system`).
 //!
 //! Three records are compared:
 //!
@@ -47,7 +50,15 @@
 //!   port's records `rust-mission-session.jsonl` and
 //!   `rust-mission-objects.jsonl`.
 //! - `the_space_part_runs_on_outdir`: the session on `outdir/`, its spawns
-//!   checked by hand; it returns early without the data.
+//!   checked by hand; it returns early without the data. Since P3.5c4 no
+//!   action without an effect runs in its 900 ticks, so the judged window
+//!   is the whole session.
+//! - `the_ai_and_reputation_actions_on_outdir` (P3.5c3),
+//!   `the_objectives_path_nags_and_end_on_outdir` (P3.5c5),
+//!   `the_dialogs_speak_and_complete_on_outdir`,
+//!   `a_cut_scene_starts_and_ends_on_outdir` and
+//!   `a_guided_ship_respawns_with_its_guide_on_outdir` (P3.5c4): the
+//!   actions and their run time checked on the live session.
 //!
 //! Nothing these tests write is committed.
 
@@ -55,6 +66,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use game_logic::api;
@@ -62,24 +74,28 @@ use game_logic::api::ai::{BaseOp, CallbackArg, Op, SetPersonalityParams};
 use game_logic::content::Instance;
 use game_logic::content::guides;
 use game_logic::content::mission::action::{self, Action};
+use game_logic::content::mission::dialog::{DialogLine, MissionDialog};
 use game_logic::content::mission::execute;
 use game_logic::content::mission::meta_behavior::{MbGuide, MetaBehavior};
+use game_logic::content::mission::nags::NagKind;
 use game_logic::content::mission::obj_list::{self, DirectiveKind, Goto, Idle, ObjListDirective};
 use game_logic::content::mission::runtime;
 use game_logic::content::mission::trace::{Trace, TraceRecord};
 use game_logic::content::mission::trigger::Trigger;
-use game_logic::content::mission::{MissionScript, engine};
+use game_logic::content::mission::{MissionScript, engine, object_save, spawn};
 use game_logic::content::npc_ships;
 use game_logic::content::players::{PlayerShip, PlayerState};
 use game_logic::content::ships::{self, ShipKey};
+use game_logic::content::systems::PendingComm;
 use game_logic::events::{CommResult, ControllerMessage, NpcShipKey};
-use game_logic::server::{ControllerKind, CreateParams, Cx, Logic, RecordingSink};
+use game_logic::server::{ClientSink, ControllerKind, CreateParams, Cx, Logic, RecordingSink};
 use game_logic::{selection, world};
 use game_sim::ai::state_graph::GraphType;
 use game_sim::data::DataSource;
 use game_sim::data::config::{DataConfig, GameData};
 use game_sim::object::World;
 use game_sim::object::world::{Assets, ShipSpawn};
+use game_sim::protocol::{CommonMessage, ServerMessage, ToClient};
 use game_sim::scenario::records::{Json, read_lines};
 use game_sim::scenario::{GROSS_POSITION, Scenario, dist, parse, spawn_orientation, world_config};
 use neuron_core::id::create_id;
@@ -155,6 +171,10 @@ struct Delivery {
     msg: u32,
     /// A heartbeat's elapsed time, as bits.
     elapsed: Option<u32>,
+    /// A `CombatState`'s `CSNType` and its two ids (reported, not
+    /// compared: the ids are the bus's counter, which the oracle's
+    /// harness controller shifts).
+    combat: Option<(u32, u32, u32)>,
 }
 
 /// One object after a frame (`mission_objects.jsonl`'s `obj`).
@@ -163,6 +183,8 @@ struct ObjRecord {
     tick: u32,
     kind: &'static str,
     name: String,
+    /// The object's id (not compared; it names a `CombatState`'s ids).
+    id: u32,
     pos: [u32; 3],
 }
 
@@ -188,6 +210,15 @@ fn before_deliver(
         ControllerMessage::Heartbeat { elapsed } => Some(elapsed.to_bits()),
         _ => None,
     };
+    let combat = match message {
+        ControllerMessage::CombatState {
+            state,
+            param1,
+            param2,
+            ..
+        } => Some((*state, *param1, *param2)),
+        _ => None,
+    };
     DELIVERIES.with(|d| {
         d.borrow_mut().push(Delivery {
             tick,
@@ -195,6 +226,7 @@ fn before_deliver(
             flid: id.0,
             msg,
             elapsed,
+            combat,
         });
     });
     DEPTH.with(|d| d.set(depth + 1));
@@ -244,6 +276,7 @@ fn objects_after_frame(cx: &Cx<'_>, id: ControllerId, tick: u32, out: &mut Vec<O
                 tick,
                 kind,
                 name: String::from_utf8_lossy(neuron_core::hash::c_str(name)).into_owned(),
+                id: object,
                 pos: [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()],
             });
         }
@@ -364,6 +397,12 @@ fn run_session(
     let mut reader = IniReader::new();
     reader.open_memory(&text);
     selection::load_world_state(&mut cx, &mut reader);
+    // `comms off`: the GCS clamp, as the oracle's `OracleSimSetGcsClamp`
+    // sets it before the system's load, so Content's comm system admits
+    // nothing and draws no roll (P3.6b).
+    if s.comms_off {
+        cx.logic.content.state.clamps.set_gcs_clamp_enabled(1);
+    }
 
     // The system's load, the seeding point, the ship and the player.
     cx.world.rng().seed(s.seed);
@@ -420,6 +459,9 @@ fn run_session(
         .unwrap_or_default();
     let controllers: Vec<u32> = cx.logic.bus.active().iter().map(|n| n.id.0).collect();
     let _ = cx.dispatch(id, &mut ControllerMessage::MissionStart);
+    // The harness steps its scenario's system, whose player has no client
+    // (`GOracleSimHooks.StepSystemId`, set after the mission's start).
+    cx.logic.server_world.step_system = system;
 
     let dt = s.frame as f32;
     let mut objects = Vec::new();
@@ -514,8 +556,35 @@ fn run_session(
 
 // ---- the comparison --------------------------------------------------------------------------
 
+/// The `CombatState`s the mission was handed (one per broadcast), as
+/// `tick T csn C <owner> -> <target>`, each id named by the mission's
+/// objects (`?<id>` for one that is not, `-` for 0). Reported, not
+/// compared.
+fn combat_lines(deliveries: &[Delivery], mission: u32, objects: &[ObjRecord]) -> Vec<String> {
+    let names: BTreeMap<u32, &str> = objects.iter().map(|o| (o.id, o.name.as_str())).collect();
+    let name = |id: u32| match id {
+        0 => "-".to_owned(),
+        _ => names
+            .get(&id)
+            .map_or_else(|| format!("?{id}"), |n| (*n).to_owned()),
+    };
+    deliveries
+        .iter()
+        .filter(|d| d.flid == mission)
+        .filter_map(|d| {
+            let (csn, owner, target) = d.combat?;
+            Some(format!(
+                "tick {} csn {csn} {} -> {}",
+                d.tick,
+                name(owner),
+                name(target)
+            ))
+        })
+        .collect()
+}
+
 /// Records shown on each side of a first difference.
-const REPORT_WINDOW: usize = 2;
+const REPORT_WINDOW: usize = 4;
 
 /// The first difference of two sequences, with the records around it.
 fn first_difference(
@@ -577,6 +646,10 @@ fn oracle_deliveries(path: &Path) -> Vec<Delivery> {
                 flid: r.get("flid")?.as_u32()?,
                 msg: r.get("msg")?.as_u32()?,
                 elapsed: r.get("elapsed").and_then(Json::as_f32).map(f32::to_bits),
+                combat: r
+                    .get("csn")
+                    .and_then(Json::as_u32)
+                    .and_then(|csn| Some((csn, r.get("p1")?.as_u32()?, r.get("p2")?.as_u32()?))),
             })
         })
         .collect()
@@ -598,6 +671,7 @@ fn oracle_objects(path: &Path) -> Vec<ObjRecord> {
                 tick: r.get("tick")?.as_u32()?,
                 kind,
                 name: r.get("name")?.as_str()?.to_owned(),
+                id: r.get("id").and_then(Json::as_u32).unwrap_or(0),
                 pos: [
                     pos.first()?.as_u32()?,
                     pos.get(1)?.as_u32()?,
@@ -960,6 +1034,21 @@ fn data_dump_mission_session() {
 
     // The objects.
     let their_objects = oracle_objects(&dir.join("mission_objects.jsonl"));
+    // The combat states (P3.5c4; reported): who reported which state.
+    let ours_c = combat_lines(&ours.deliveries, ours.mission, &ours.objects);
+    let their_c = combat_lines(&their_all, their_mission, &their_objects);
+    let _ = writeln!(
+        summary,
+        "combat states: rust {} oracle {}",
+        ours_c.len(),
+        their_c.len()
+    );
+    for i in 0..ours_c.len().max(their_c.len()) {
+        let r = ours_c.get(i).map_or("-", String::as_str);
+        let o = their_c.get(i).map_or("-", String::as_str);
+        let mark = if r == o { " " } else { ">" };
+        let _ = writeln!(summary, "{mark} {i}: rust {r} | oracle {o}");
+    }
     compare_objects(
         &mut summary,
         &mut failures,
@@ -1050,25 +1139,35 @@ fn the_space_part_runs_on_outdir() {
             .iter()
             .any(|d| d.flid == ours.mission && d.msg == 0x20)
     );
-    // Act_MovePlayer put the player's ship at its point.
+    // P3.5c4's comms, dialogs and scene scripts have their effect, and no
+    // action of P3.5c5 or P3.6d runs in the session's 900 ticks: the
+    // judged window is the whole session.
     assert!(
-        !ours.unported.is_empty(),
-        "M01a runs actions of later increments"
+        ours.unported.is_empty(),
+        "actions without an effect: {}",
+        unported_summary(&ours.unported)
     );
-    // P3.5c3's actions all have their effect: the window ends at a comm or
-    // scene action of P3.5c4.
-    let first = ours.unported.first().map(|u| u.3);
-    assert!(
-        matches!(first, Some("Act_CallSceneScript" | "Act_StartDialog")),
-        "the first action without an effect: {first:?}"
-    );
+    // The opening's dialogs start on their timers and on the scripted
+    // `CommComplete`s: the rendezvous (5 s after tick 2), Samura's
+    // acknowledgement (the first line's end, tick 200) and the escorts'
+    // launch (3 s after the second line's end, tick 260).
+    for (trigger, tick) in [
+        (&b"fp7_rendezvous_chatter_transport"[..], 152),
+        (b"Samura_Ack_dlg", 200),
+        (b"Base_sends_escorts", 350),
+        (b"fp7_attack_dialog", 320),
+    ] {
+        assert_eq!(
+            fired(id(trigger)).map(|f| f.0),
+            Some(tick),
+            "{}",
+            String::from_utf8_lossy(trigger)
+        );
+    }
     println!(
-        "{} trace records ({}), unported: {}; judged window: tick {}, {} records",
+        "{} trace records ({}); judged window: the whole session",
         ours.trace.len(),
         counts(&ours.trace),
-        unported_summary(&ours.unported),
-        ours.unported.first().map_or(u32::MAX, |u| u.0),
-        judged_records(&ours)
     );
 }
 
@@ -1516,4 +1615,760 @@ fn the_ai_and_reputation_actions_on_outdir() {
         return;
     }
     assert!(checked.get(), "the probe ran at tick 3");
+}
+
+// ---- P3.5c4: the dialogs, the cut scenes and the guides' hand-over ------------------------------
+
+/// A client sink the probes read (the session's own is boxed away).
+#[derive(Clone, Default)]
+struct Shared(Rc<RefCell<Vec<(u32, ToClient)>>>);
+
+impl Shared {
+    fn take(&self) -> Vec<(u32, ToClient)> {
+        std::mem::take(&mut *self.0.borrow_mut())
+    }
+}
+
+impl ClientSink for Shared {
+    fn send(&mut self, client: u32, message: ToClient) {
+        self.0.borrow_mut().push((client, message));
+    }
+}
+
+/// One comm among the sent messages: client, speaker, addressee, texts.
+type SentComm = (u32, u32, u32, Vec<u32>);
+
+/// The comms among the sent messages.
+fn comms(sent: &[(u32, ToClient)]) -> Vec<SentComm> {
+    sent.iter()
+        .filter_map(|(client, m)| match m {
+            ToClient::Server(ServerMessage::SendComm(c)) => {
+                Some((*client, c.field_20, c.field_24, c.text_ids.clone()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The firings of a trigger in the mission's trace: tick and event.
+fn firings(cx: &Cx<'_>, id: ControllerId, trigger: u32) -> Vec<(u32, u32)> {
+    script_of(cx, id)
+        .and_then(|s| s.trace.as_ref())
+        .map(|t| {
+            t.records
+                .iter()
+                .filter_map(|r| match *r {
+                    TraceRecord::Fire {
+                        tick,
+                        trigger: g,
+                        event,
+                    } if g == trigger => Some((tick, event)),
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The space object of the session's ship.
+fn session_ship(cx: &Cx<'_>, session: u32) -> u32 {
+    ships::id(&cx.logic.content.state, ShipKey::Player(session))
+}
+
+/// The pending comms of a ship.
+fn pending(cx: &Cx<'_>, ship: ShipKey) -> Option<Vec<PendingComm>> {
+    ships::base(&cx.logic.content.state, ship).map(|s| s.pending_comms.clone())
+}
+
+/// A `CommComplete` of `line` through the bus, as the client reports a
+/// comm's end (`IServerImpl::CommComplete`).
+fn comm_done(cx: &mut Cx<'_>, listener: u32, system: u32, speaker: u32, line: u32) {
+    let mut message = ControllerMessage::CommComplete {
+        listener,
+        system,
+        speaker,
+        line,
+        result: CommResult::Success,
+    };
+    let _ = cx.dispatch(ControllerId::BROADCAST, &mut message);
+}
+
+/// A dialog of two speakers in `system`: the transport's line `l1` to the
+/// player, then the player's answer `l2`.
+fn two_line_dialog(id: ControllerId, system: u32, l1: u32, l2: u32) -> MissionDialog {
+    let mut dialog = MissionDialog::new(id);
+    dialog.system = Some(system);
+    dialog.speakers.insert(
+        b"fp7_transport1".to_vec(),
+        vec![DialogLine {
+            speaker: b"fp7_transport1".to_vec(),
+            target: b"Player".to_vec(),
+            first: true,
+            key: 0,
+            text_id: l1,
+            ..DialogLine::default()
+        }],
+    );
+    dialog.speakers.insert(
+        b"Player".to_vec(),
+        vec![DialogLine {
+            speaker: b"Player".to_vec(),
+            target: b"fp7_transport1".to_vec(),
+            first: false,
+            key: l1,
+            text_id: l2,
+            ..DialogLine::default()
+        }],
+    );
+    dialog
+}
+
+/// The mission dialogs on `outdir/` (`MissionDialogs.cpp`, `NpcBase.cpp`,
+/// `SystemInfo.cpp`): `Mission_01a`'s rendezvous dialog of tick 152 said
+/// its line from the transport to the player's ship and left it as the
+/// transport's pending comm; a two-line dialog says its first line at once
+/// and its second when the client reports the first one's end
+/// (SpaceSupport's `SendPendingComms`); a dialog line's end reaches the
+/// mission's `Cnd_CommComplete`, whose trigger starts the next dialog.
+#[test]
+fn the_dialogs_speak_and_complete_on_outdir() {
+    let root = outdir();
+    let Some(file) = read_session() else {
+        println!("notice: CppSource/Oracle/mission_session.txt does not parse");
+        return;
+    };
+    let session = file.mission.1;
+    let system = create_id(file.scenario.system.as_bytes());
+    let sink = Shared::default();
+    let checked = Cell::new(false);
+    let mut probe = |cx: &mut Cx<'_>, id: ControllerId, tick: u32| {
+        if tick == 1 {
+            cx.logic.client = Box::new(sink.clone());
+        }
+        if tick == 151 {
+            // The session has no client: the player gets one, and its view
+            // takes every object it tracks as created (no client
+            // acknowledges them), so the comms reach the client.
+            if let Some(slot) = cx.logic.players.get_mut(session) {
+                slot.client_id = session;
+            }
+            if let Some(r) = cx.logic.server_world.systems.get_mut(&system) {
+                for view in &mut r.observers {
+                    for t in &mut view.tracked {
+                        t.created_on_client = true;
+                    }
+                }
+            }
+        }
+        if tick != 160 {
+            return;
+        }
+        checked.set(true);
+        let ship = session_ship(cx, session);
+        let key = npc_of(cx, id, b"fp7_transport1").expect("the transport");
+        let transport = npc_ships::space_obj(cx, key);
+        let line0 = create_id(b"DX_M01_0000_FREEPORT_7_BRIDGE");
+        // `FP7_Rendezvous_transport` (tick 152): one line, said at once
+        // and kept as the speaker's pending comm.
+        let sent = comms(&sink.take());
+        assert!(
+            sent.contains(&(session, transport, ship, vec![line0])),
+            "{sent:?}"
+        );
+        assert_eq!(
+            pending(cx, ShipKey::Npc(key)),
+            Some(vec![PendingComm {
+                key: 0,
+                text_id: line0,
+                target_id: ship,
+                field_0x0c: 0,
+            }])
+        );
+
+        let (l1, l2) = (create_id(b"p3_5c4_line_one"), create_id(b"p3_5c4_line_two"));
+        let dialog_id = create_id(b"p3_5c4_dialog");
+        let dialog = two_line_dialog(id, system, l1, l2);
+        cx.logic
+            .content
+            .state
+            .mission_dialogs
+            .insert(dialog_id, dialog);
+        // The player in the record's players, as GameSupport's
+        // `SpaceEnter` puts him.
+        if let Some(r) = cx.logic.content.state.systems.get_mut(&system)
+            && !r.players.contains(&session)
+        {
+            r.players.push(session);
+        }
+        assert!(run(
+            cx,
+            id,
+            Action::StartDialog(action::StartDialog {
+                dialog_id,
+                ..action::StartDialog::default()
+            })
+        ));
+        assert_eq!(
+            comms(&sink.take()),
+            vec![(session, transport, ship, vec![l1])]
+        );
+        assert_eq!(
+            pending(cx, ShipKey::Player(session)),
+            Some(vec![PendingComm {
+                key: l1,
+                text_id: l2,
+                target_id: transport,
+                field_0x0c: 0,
+            }])
+        );
+        // The targets stay written into the dialog map.
+        let written = cx.logic.content.state.mission_dialogs[&dialog_id].speakers[&b"Player"[..]]
+            [0]
+        .target_id;
+        assert_eq!(written, transport);
+
+        // The client reports the first line's end: SpaceSupport has the
+        // player's ship say the second, which leaves its pending comms.
+        comm_done(cx, ship, system, transport, l1);
+        assert_eq!(
+            comms(&sink.take()),
+            vec![(session, ship, transport, vec![l2])]
+        );
+        assert_eq!(pending(cx, ShipKey::Player(session)), Some(Vec::new()));
+
+        // The rendezvous line's end reaches the mission: `Samura_Ack_dlg`
+        // (`Cnd_CommComplete = DX_M01_0000_FREEPORT_7_BRIDGE`) fires and
+        // starts `Samura_Ack`, the transport's next line.
+        comm_done(cx, ship, system, transport, line0);
+        assert_eq!(
+            firings(cx, id, create_id(b"Samura_Ack_dlg")),
+            vec![(160, 0x0b)]
+        );
+        let line1 = create_id(b"DX_M01_0005_Samura_SA_14");
+        assert!(comms(&sink.take()).contains(&(session, transport, ship, vec![line1])));
+    };
+    if run_session(&root, &root.join("data"), &file, &mut probe).is_none() {
+        println!("notice: outdir/ is missing or the session could not start; it was not run");
+        return;
+    }
+    assert!(checked.get(), "the probe ran at tick 160");
+}
+
+/// A cut scene on `outdir/` (`MissionScript.cpp`, `RtcScripts.cpp`,
+/// `MissionCnd.cpp:2319-2336`): with the player on he01_01_Base,
+/// `Act_AddRTC` of `Mission_01a`'s first cut scene loads its RTC script
+/// and makes its bar scene with a new sequence id; `Cnd_RTCDone` matches
+/// the `RtcDone` of that sequence id only, and its trigger's
+/// `Act_PopUpDialog` reaches the client; `Act_RemoveRTC` finishes the
+/// scene, and the base's exit releases it.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn a_cut_scene_starts_and_ends_on_outdir() {
+    let root = outdir();
+    let Some(file) = read_session() else {
+        println!("notice: CppSource/Oracle/mission_session.txt does not parse");
+        return;
+    };
+    let session = file.mission.1;
+    let sink = Shared::default();
+    let checked = Cell::new(false);
+    let mut probe = |cx: &mut Cx<'_>, id: ControllerId, tick: u32| {
+        if tick != 3 {
+            return;
+        }
+        checked.set(true);
+        cx.logic.client = Box::new(sink.clone());
+        let base = api::misc::base_id(cx, b"he01_01_Base").expect("the base");
+        assert!(cx.logic.content.state.bases.contains_key(&base));
+        if let Some(p) = cx.logic.content.state.players.get_mut(&session) {
+            p.base = Some(base);
+        }
+        // As `Act_AddRTC = missions\\m01a\\M000_s002xe_Li01_01_nrml.ini` reads it.
+        let path = b"missions\\\\m01a\\\\M000_s002xe_Li01_01_nrml.ini".to_vec();
+        assert!(run(
+            cx,
+            id,
+            Action::AddRtc(action::AddRtc {
+                path: path.clone(),
+                repeatable: false,
+            })
+        ));
+        let rtc = script_of(cx, id)
+            .and_then(|s| s.rtc_scripts.last().cloned())
+            .expect("the cut scene");
+        let loaded = rtc.script.as_deref().expect("started");
+        let location = api::gf::find_location(base, b"Cityscape");
+        assert_eq!((loaded.location, loaded.base_id), (location, base));
+        assert_eq!(loaded.roles.len(), 1);
+        assert_eq!(loaded.roles[0].role, b"Lonnigan");
+        let sequence = loaded.sequence_id;
+        assert_ne!(sequence, 0);
+        assert_ne!(rtc.handle, -1);
+        let scene = cx.logic.content.state.bases[&base]
+            .bar_scenes
+            .iter()
+            .find(|b| b.scene_id == rtc.handle)
+            .cloned()
+            .expect("the bar scene");
+        assert_eq!((scene.player, scene.room), (session, location));
+        assert_eq!(scene.characters.len(), 1);
+
+        // `rtcd_cityscape` (`Cnd_RTCDone` of the file): another sequence
+        // id does not match, the scene's does.
+        let trigger = create_id(b"rtcd_cityscape");
+        engine::activate_trigger(cx, id, trigger);
+        let _ = sink.take();
+        let done = |cx: &mut Cx<'_>, rtc: u32| {
+            let mut message = ControllerMessage::RtcDone {
+                player: session,
+                rtc,
+            };
+            let _ = cx.dispatch(id, &mut message);
+        };
+        done(cx, sequence.wrapping_add(1));
+        assert!(firings(cx, id, trigger).is_empty());
+        done(cx, sequence);
+        assert_eq!(firings(cx, id, trigger), vec![(3, 0x22)]);
+        // Its `Act_Popupdialog = 21891, 21925, CLOSE`.
+        assert!(sink.take().iter().any(|(client, m)| *client == session
+            && matches!(m, ToClient::Common(CommonMessage::PopUpDialog(p)) if p.field_10 == 8)));
+
+        // `Act_RemoveRTC` in the scene's room: the scene's character loses
+        // its behaviour and the scene is finished.
+        if let Some(s) = runtime::script_mut(cx, id) {
+            s.current_location = location;
+        }
+        let character = scene.characters[0];
+        assert!(run(
+            cx,
+            id,
+            Action::RemoveRtc(action::RemoveRtc { rtc_file: path })
+        ));
+        assert!(
+            script_of(cx, id)
+                .and_then(|s| s.rtc_scripts.last())
+                .is_some_and(|r| r.finished)
+        );
+        assert_eq!(
+            game_logic::content::bar::character(cx, base, character).map(|c| c.behavior),
+            Some(u32::MAX)
+        );
+        // The base's exit releases the bar scene and unlinks the finished
+        // record.
+        let mut exit = ControllerMessage::BaseExit {
+            base,
+            player: session,
+        };
+        let _ = cx.dispatch(id, &mut exit);
+        assert!(script_of(cx, id).is_some_and(|s| s.rtc_scripts.is_empty()));
+        assert!(
+            !cx.logic.content.state.bases[&base]
+                .bar_scenes
+                .iter()
+                .any(|b| b.scene_id == rtc.handle)
+        );
+    };
+    if run_session(&root, &root.join("data"), &file, &mut probe).is_none() {
+        println!("notice: outdir/ is missing or the session could not start; it was not run");
+        return;
+    }
+    assert!(checked.get(), "the probe ran at tick 3");
+}
+
+/// The guide's hand-over on `outdir/` (`MissionSave.cpp:77-95`,
+/// `MissionObject.cpp:2540-2556`): the snapshot of a guided mission ship
+/// gives its respawn record the ship's guide (one more reference, the
+/// guide's ship taken away), the save writes the guide's line, and the
+/// respawn gives the new ship the same guide, the record's reference
+/// released.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn a_guided_ship_respawns_with_its_guide_on_outdir() {
+    let root = outdir();
+    let Some(file) = read_session() else {
+        println!("notice: CppSource/Oracle/mission_session.txt does not parse");
+        return;
+    };
+    let held: Cell<Option<guides::GuideRef>> = Cell::new(None);
+    let checked = Cell::new(false);
+    let line = b"MB_GOTOGUIDE = p3_5c4_goto".to_vec();
+    let mut probe = |cx: &mut Cx<'_>, id: ControllerId, tick: u32| match tick {
+        3 => {
+            let mb = create_id(b"mb_p3_5c4_test");
+            if let Some(s) = runtime::script_mut(cx, id) {
+                s.object.meta_behaviors.insert(
+                    mb,
+                    vec![MetaBehavior::GotoGuide(MbGuide {
+                        line: line.clone(),
+                        target_name: b"Player".to_vec(),
+                        destination: Vector::new(3600.0, 1000.0, -21000.0),
+                        range: 500.0,
+                        ..MbGuide::default()
+                    })],
+                );
+            }
+            run(
+                cx,
+                id,
+                Action::GiveMb(action::GiveMb {
+                    npc: b"fp7base_escort3".to_vec(),
+                    list_id: mb,
+                }),
+            );
+            let e3 = npc_of(cx, id, b"fp7base_escort3").expect("the escort");
+            let guide = npc_ships::get(cx, e3)
+                .and_then(|n| n.guide)
+                .expect("a guide");
+            spawn::snapshot_mission_objects(cx, id);
+            let slot = script_of(cx, id)
+                .and_then(|s| {
+                    s.object
+                        .respawn_ships
+                        .iter()
+                        .flat_map(|g| g.ships.iter())
+                        .find(|s| s.nickname == b"fp7base_escort3")
+                        .cloned()
+                })
+                .expect("the escort's record");
+            assert_eq!(slot.guide_ref, Some(guide));
+            assert!(slot.directives.is_empty());
+            assert_eq!(cx.logic.content.state.guides.refs(guide), 2);
+            assert_eq!(
+                cx.logic.content.state.guides.get(guide).map(|g| g.ship),
+                Some(None)
+            );
+            // The save writes the guide's line.
+            let mut object = script_of(cx, id)
+                .map(|s| s.object.clone())
+                .expect("the mission");
+            let mut out = Vec::new();
+            object_save::write(cx, &mut out, &mut object).expect("in memory");
+            let mut wanted = b"\n[MetaBehavior]\n".to_vec();
+            wanted.extend_from_slice(&line);
+            wanted.extend_from_slice(b"\n[MsnShipSave]\nnickname = fp7base_escort3\n");
+            assert!(
+                out.windows(wanted.len()).any(|w| w == wanted.as_slice()),
+                "{}",
+                String::from_utf8_lossy(&out)
+            );
+            // Only the escort's record respawns; the escort goes.
+            if let Some(s) = runtime::script_mut(cx, id) {
+                s.object
+                    .respawn_ships
+                    .retain(|g| g.ships.iter().any(|s| s.guide_ref.is_some()));
+            }
+            let ship = npc_ships::space_obj(cx, e3);
+            assert!(api::space_obj::destroy(cx, ship, 0).is_ok());
+            held.set(Some(guide));
+        }
+        4 => {
+            let Some(guide) = held.get() else { return };
+            checked.set(true);
+            assert!(npc_of(cx, id, b"fp7base_escort3").is_none());
+            assert_eq!(cx.logic.content.state.guides.refs(guide), 1);
+            spawn::respawn_mission_objects(cx, id, true);
+            let e3 = npc_of(cx, id, b"fp7base_escort3").expect("the escort again");
+            assert_eq!(npc_ships::get(cx, e3).and_then(|n| n.guide), Some(guide));
+            assert_eq!(
+                cx.logic.content.state.guides.get(guide).map(|g| g.ship),
+                Some(Some(e3))
+            );
+            assert_eq!(cx.logic.content.state.guides.refs(guide), 1);
+            assert!(script_of(cx, id).is_some_and(|s| s.object.respawn_ships.is_empty()));
+        }
+        _ => {}
+    };
+    if run_session(&root, &root.join("data"), &file, &mut probe).is_none() {
+        println!("notice: outdir/ is missing or the session could not start; it was not run");
+        return;
+    }
+    assert!(checked.get(), "the probe ran at tick 4");
+}
+
+// ---- P3.5c5: the objectives, the NN path, the nags, the group and the end ----------------------
+
+/// The `SETMISSIONOBJECTIVES` among the sent messages: client and the
+/// objectives' state bytes.
+fn objective_sends(sent: &[(u32, ToClient)]) -> Vec<(u32, Vec<u8>)> {
+    sent.iter()
+        .filter_map(|(client, m)| match m {
+            ToClient::Server(ServerMessage::SetMissionObjectives(o)) => Some((
+                *client,
+                o.objectives.iter().map(|o| o.state).collect::<Vec<u8>>(),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The mission record's objective of `nickname`.
+fn objective_of(
+    cx: &Cx<'_>,
+    id: ControllerId,
+    player: u32,
+    nickname: &[u8],
+) -> Option<game_logic::content::mission::objective::Objective> {
+    let nickname = create_id(nickname);
+    script_of(cx, id)?
+        .object
+        .players
+        .get(&player)?
+        .objectives
+        .iter()
+        .find(|o| o.nickname == nickname)
+        .cloned()
+}
+
+/// P3.5c5's actions and run time on `outdir/` (`MissionAct.cpp`,
+/// `MissionObject.cpp`, `MissionScript.cpp`): `Mission_01a`'s
+/// `[NNObjective]` records renumbered and sent hidden at `SpaceEnter`; then,
+/// on the live mission, an objective given, advanced and hidden
+/// (`Act_SetNNObj`, `Act_SetNNState`, `Act_SetNNHidden`,
+/// `Act_GiveNNObjs`); an NN path started (`Act_NNPath`), laid out and sent
+/// on its timer; a distance nag (`Act_NagDistTowards`) armed and saying its
+/// line after 20 s; the player joining as a group member
+/// (`GroupMemberJoined`); and the mission's success paying the
+/// `[Mission]` reward, counting the completion and ending.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn the_objectives_path_nags_and_end_on_outdir() {
+    let root = outdir();
+    let Some(file) = read_session() else {
+        println!("notice: CppSource/Oracle/mission_session.txt does not parse");
+        return;
+    };
+    let session = file.mission.1;
+    let sink = Shared::default();
+    let nag_id = create_id(b"p3_5c5_nag");
+    let checks = Cell::new(0u32);
+    let mut probe = |cx: &mut Cx<'_>, id: ControllerId, tick: u32| {
+        match tick {
+            1 => {
+                cx.logic.client = Box::new(sink.clone());
+                if let Some(slot) = cx.logic.players.get_mut(session) {
+                    slot.client_id = session;
+                }
+            }
+            4 => {
+                // `SpaceEnter` (tick 2): no NN path, so every record was
+                // renumbered; every objective is hidden, so the record sent
+                // an empty list.
+                let s = script_of(cx, id).expect("the mission");
+                let record = s.object.players.get(&session).expect("the record");
+                assert_eq!(record.objectives.len(), 17, "{:?}", record.objectives);
+                assert!(record.objectives.iter().all(|o| o.hidden && o.index == -1));
+                let sent = objective_sends(&sink.take());
+                assert!(sent.contains(&(session, Vec::new())), "{sent:?}");
+
+                // `Act_SetNNObj = mlog_job`: the path reset, every objective
+                // hidden, the objective's state 0x3a, shown, renumbered and
+                // sent alone (new with 0x10: a clone kept).
+                assert!(run(
+                    cx,
+                    id,
+                    Action::SetNnObj(action::SetNnObj {
+                        objective_id: create_id(b"mlog_job"),
+                        state: 0x3a,
+                    })
+                ));
+                let job = objective_of(cx, id, session, b"mlog_job").unwrap();
+                assert!(!job.hidden);
+                assert_eq!((job.index, job.state), (0, 0x3a));
+                assert_eq!(job.description.mad_lib_id, 21810);
+                assert_eq!(objective_sends(&sink.take()), [(session, vec![0x3a])]);
+                let record = &script_of(cx, id).unwrap().object.players[&session];
+                assert_eq!(record.sent.len(), 1);
+
+                // `Act_SetNNState = mlog_job, COMPLETE`: its place's state
+                // sent.
+                assert!(run(
+                    cx,
+                    id,
+                    Action::SetNnState(action::SetNnState {
+                        objective_id: create_id(b"mlog_job"),
+                        state: 3,
+                    })
+                ));
+                let states: Vec<_> = sink
+                    .take()
+                    .into_iter()
+                    .filter_map(|(c, m)| match m {
+                        ToClient::Server(ServerMessage::SetMissionObjectiveState(s)) => {
+                            Some((c, s.field_04, s.field_08))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(states, [(session, 0, 3)]);
+
+                // `Act_SetNNHidden = mlog_job, true`, then `Act_GiveNNObjs`:
+                // hidden, and the renumber sends an empty list.
+                assert!(run(
+                    cx,
+                    id,
+                    Action::SetNnHidden(action::SetNnHidden {
+                        visible: false,
+                        objective_id: create_id(b"mlog_job"),
+                    })
+                ));
+                assert!(objective_of(cx, id, session, b"mlog_job").unwrap().hidden);
+                assert!(run(cx, id, Action::GiveNnObjs(action::GiveNnObjs {})));
+                assert_eq!(objective_sends(&sink.take()), [(session, Vec::new())]);
+                assert_eq!(
+                    objective_of(cx, id, session, b"mlog_job").unwrap().index,
+                    -1
+                );
+
+                // `Act_NNPath` to a point 6 km from the player in its system.
+                let ship = session_ship(cx, session);
+                let (at, _) = api::space_obj::location(cx, ship).unwrap();
+                let to = Vector::new(at.x + 6000.0, at.y, at.z);
+                assert!(run(
+                    cx,
+                    id,
+                    Action::NnPath(action::NnPath {
+                        position: to,
+                        label: Vec::new(),
+                        system_id: 0,
+                        travel_ids: 21900,
+                        target_ids: 21901,
+                    })
+                ));
+                let path = &script_of(cx, id).unwrap().nn_path;
+                assert!(path.active);
+                assert_eq!(path.state, 1);
+                checks.set(checks.get() + 1);
+            }
+            50 => {
+                // The first heartbeat started the path's 1 s timer (state
+                // 2); its expiry rebuilt it: free flight to the point, one
+                // type 5 objective of the target's ids (one leg in the
+                // path's system: arrived, state 5), sent as 0x3a.
+                let path = &script_of(cx, id).unwrap().nn_path;
+                assert!(path.active);
+                assert!(path.arrived);
+                assert_eq!(path.state, 3);
+                assert_eq!(path.objectives.len(), 1, "{:?}", path.objectives);
+                let o = &path.objectives[0];
+                assert_eq!((o.kind, o.ids), (5, 21901));
+                let sent = objective_sends(&sink.take());
+                assert_eq!(sent.first(), Some(&(session, vec![0x3a])), "{sent:?}");
+                // The later sends (one a second) show it as 0xa.
+                assert!(sent[1..].iter().all(|(_, s)| s == &[0xa]), "{sent:?}");
+
+                // `Mission_01a` clamps its nags here: `Act_NagClamp = false`,
+                // then `Act_NagDistTowards = POS, p3_5c5_nag, none, x, y, z`
+                // with a distance of 10, the point 20 km off.
+                assert!(run(
+                    cx,
+                    id,
+                    Action::NagClamp(action::NagClamp {
+                        clamp: false,
+                        ..action::NagClamp::default()
+                    })
+                ));
+                let ship = session_ship(cx, session);
+                let (at, _) = api::space_obj::location(cx, ship).unwrap();
+                assert!(run(
+                    cx,
+                    id,
+                    Action::NagDistTowards(action::NagDistTowards {
+                        nag_id,
+                        speaker: b"none".to_vec(),
+                        target: Vec::new(),
+                        distance: 10.0,
+                        fail_mad_lib_id: 1,
+                        position: Vector::new(at.x, at.y, at.z + 20_000.0),
+                        nag_in_combat: false,
+                        nag_out_of_combat: true,
+                    })
+                ));
+                assert!(script_of(cx, id).unwrap().nags.contains_key(&nag_id));
+                checks.set(checks.get() + 1);
+            }
+            51 => {
+                // The next heartbeat armed it: the player is farther than
+                // 10.
+                let nag = &script_of(cx, id).unwrap().nags[&nag_id];
+                let NagKind::Dist(d) = &nag.kind else {
+                    panic!("{nag:?}")
+                };
+                assert!(d.armed, "{nag:?}");
+                assert_eq!((d.threshold, d.nags_left), (900.0, 4));
+                checks.set(checks.get() + 1);
+            }
+            640 => {
+                // The mission's own triggers clamped the nags again; the
+                // timer comes at tick 651.
+                assert!(run(
+                    cx,
+                    id,
+                    Action::NagClamp(action::NagClamp {
+                        clamp: false,
+                        ..action::NagClamp::default()
+                    })
+                ));
+            }
+            700 => {
+                // 20 s later the timer found the player no closer: the
+                // position line (no speaker: the NN message `nag_pos_01-`)
+                // and one nag spent, the timer set again.
+                let nag = &script_of(cx, id).unwrap().nags[&nag_id];
+                let NagKind::Dist(d) = &nag.kind else {
+                    panic!("{nag:?}")
+                };
+                assert_eq!(d.nags_left, 3, "{nag:?}");
+                assert!(d.armed);
+                let line = create_id(b"nag_pos_01-");
+                assert_eq!(nag.line, line);
+                let nn: Vec<_> = sink
+                    .take()
+                    .into_iter()
+                    .filter_map(|(c, m)| match m {
+                        ToClient::Server(ServerMessage::SendNnMessage(m)) => Some((c, m.value)),
+                        _ => None,
+                    })
+                    .collect();
+                assert!(nn.contains(&(session, line)), "{nn:?}");
+
+                // `GroupMemberJoined` of the player (`IsGroupMember` of the
+                // player himself is true): `JoinMission`.
+                let mut joined = ControllerMessage::GroupMemberJoined { player: session };
+                let _ = api::controller::send_message(cx, id, &mut joined);
+                assert_eq!(cx.logic.content.state.players[&session].live_mission, id.0);
+
+                // The success: the reward paid to the player (no group; the
+                // multiplayer server without a character counts it earned
+                // and keeps the cash), the completion counted, the
+                // objectives cleared and sent, the mission ended and left.
+                let earned = |cx: &Cx<'_>| cx.logic.players.get(session).map(|p| p.total_earned);
+                let before = earned(cx).unwrap();
+                let reward = script_of(cx, id).unwrap().object.reward;
+                assert_eq!(reward, 2000);
+                if let Some(Instance::Mission(s)) = cx.logic.content.instances.get_mut(&id) {
+                    engine::set_desired_state(s, engine::MISSION_STATE_SUCCEED, 1);
+                }
+                sink.take();
+                engine::apply_desired_state(cx, id);
+                assert_eq!(earned(cx), Some(before + 2000));
+                let state = &cx.logic.content.state.players[&session];
+                assert_eq!(state.stats.random_missions_completed.get(&7), Some(&1));
+                assert_eq!(state.live_mission, 0);
+                let s = script_of(cx, id).unwrap();
+                assert!(s.object.players.is_empty());
+                assert!(s.nags.is_empty());
+                assert!(s.object.pending_destroy);
+                let sent = objective_sends(&sink.take());
+                assert!(sent.contains(&(session, Vec::new())), "{sent:?}");
+                checks.set(checks.get() + 1);
+            }
+            _ => {}
+        }
+    };
+    let ran = run_session(&root, &root.join("data"), &file, &mut probe);
+    if ran.is_none() {
+        println!("notice: outdir/OutpostFrontier.ini is missing; the session was not run");
+        return;
+    }
+    assert_eq!(checks.get(), 4, "every probe ran");
 }

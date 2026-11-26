@@ -30,6 +30,7 @@ use crate::api;
 use crate::api::audio::Tryptich;
 use crate::content::combat_reputation::apply_faction_reputation_change;
 use crate::content::mission::object::HEARTBEAT;
+use crate::content::mission::{object_save, spawn};
 use crate::content::router::{self, HandlerOwner};
 use crate::events::ControllerMessage;
 use crate::server::Cx;
@@ -100,8 +101,10 @@ pub(super) fn construct(cx: &mut Cx<'_>, id: ControllerId) {
         };
         for p in players {
             // The record's slot 2 flag cleared, its placeholder objective
-            // sent (P3.5c5, D1021).
-            get_or_create_record(&mut host, p);
+            // sent.
+            if get_or_create_record(&mut host, p) {
+                super::records::send_placeholder(&mut host, p);
+            }
         }
     }
     let _ = api::player::display_mission_message(cx, player, &FmtStr::new(0), 0xa, true);
@@ -169,6 +172,31 @@ pub(super) fn destruct(cx: &mut Cx<'_>, id: ControllerId) {
         r.members.clear();
     }
     router::unregister(host.cx, handler);
+    // `~FMissionObject` (`MissionObject.cpp:107-125`), the last base: the
+    // random encounters, the records (each sending its emptied
+    // objectives), every jumper out of every system deleted; then the
+    // respawn records' guides released (the members').
+    if let Some(r) = host.rm_mut() {
+        r.object.rand_encs.clear();
+    }
+    while let Some(first) = host.rm().and_then(|r| r.records.keys().next().copied()) {
+        super::records::remove(&mut host, first);
+    }
+    let gone: Vec<_> = host.rm_mut().map_or_else(Vec::new, |r| {
+        r.object
+            .jumpers
+            .iter_mut()
+            .filter(|j| j.state != 0)
+            .map(|j| {
+                j.state = 0;
+                j.npc
+            })
+            .collect()
+    });
+    for npc in gone {
+        crate::content::npc_ships::destroy(host.cx, npc);
+    }
+    spawn::clear_respawn_ships(host.cx, id);
 }
 
 /// `FRandomMissionObject::SetPlayer` (slot 18, `:1085-1112`): the map and
@@ -207,11 +235,15 @@ fn add_player_name(r: &mut super::RandomMission, name: Vec<u16>) {
     r.player_names.push(name);
 }
 
-/// `GetOrCreatePlayer` (slot 2 of TU47 over TU38's, `MissionObject.cpp:1233-1252`):
-/// the player's mission record, made for a player with a state (in a
-/// system, outside single player). False when there is none.
+/// `GetOrCreatePlayer` (slot 2 of TU47 over TU38's, `MissionObject.cpp:1233-1252`,
+/// `RandomMissionDB.cpp:1072-1078`): the player's mission record, made for
+/// a player with a state (in a system, outside single player), its resend
+/// flag cleared. False when there is none.
 pub(super) fn get_or_create_record(host: &mut Host<'_, '_>, player: u32) -> bool {
-    if host.rm().is_some_and(|r| r.records.contains(&player)) {
+    if let Some(record) = host.rm_mut().and_then(|r| r.records.get_mut(&player)) {
+        if record.resend {
+            record.set_resend(false);
+        }
         return true;
     }
     let Some(state) = host.cx.logic.content.state.players.get(&player) else {
@@ -221,7 +253,10 @@ pub(super) fn get_or_create_record(host: &mut Host<'_, '_>, player: u32) -> bool
         return false;
     }
     if let Some(r) = host.rm_mut() {
-        r.records.insert(player);
+        r.records.insert(
+            player,
+            crate::content::mission::object::MissionPlayer::new(player),
+        );
     }
     true
 }
@@ -462,6 +497,16 @@ fn player_save(host: &mut Host<'_, '_>, client: u32) {
     if !api::misc::single_player(host.cx) || client != player {
         return;
     }
+    write_random_mission_section(host, data, first);
+}
+
+/// The `[RandomMission]` section (`DestroyMission.cpp:412-418`) unless the
+/// first running machine cannot save.
+fn write_random_mission_section(
+    host: &mut Host<'_, '_>,
+    data: Option<super::RmDataKey>,
+    first: Option<u32>,
+) {
     if let Some(first) = first
         && !machine::can_save(host, first)
     {
@@ -497,8 +542,11 @@ fn random_mission_object(host: &mut Host<'_, '_>, event: &Event<'_>) -> bool {
         }
         Controller::SpaceEnter { system, player } => {
             if host.is_mapped(player) {
-                // The record's objectives cleared (P3.5c5), then refreshed.
+                // The record's objectives deleted (not sent), then refreshed.
                 get_or_create_record(host, player);
+                if let Some(record) = host.rm_mut().and_then(|r| r.records.get_mut(&player)) {
+                    record.objectives.clear();
+                }
                 refresh_objectives(host, player);
             }
             if host.rm().is_some_and(|r| r.elapsed_time <= flag_time) {
@@ -580,25 +628,50 @@ fn flag_time(host: &Host<'_, '_>) -> f32 {
 }
 
 /// `FMissionObject::HandleMissionMessage` (`MissionObject.cpp:1496-1925`)
-/// for what a random mission reaches of it: the players leaving and
-/// joining, the dead players. Its saves, loads, respawns, jumpers and
-/// random encounters are D1024's.
+/// for what a random mission reaches of it: every message but those
+/// `FRandomMissionObject::Slot2` answers itself (`SystemEnter`,
+/// `SpaceEnter`, `AbortMission`, `ObjectDestroyed`,
+/// `FormationLeaderChanged`, `PlayerLoad` and `GroupMemberJoined`,
+/// `RandomMissionDB.cpp:1637-1739`), so a random mission never respawns
+/// its objects on `SpaceEnter`, places its jumpers on `SystemEnter` or
+/// reads `LoadMissionSave`. The cases ([`mission_object_cases`]), then the
+/// tail, the objective timer while the mission is its player's live one
+/// ([`super::records::update_timer`]). `NotifyRandEncs` (`:1504-1505`,
+/// `:2563-2581`) walks the random encounters, which nothing loads for a
+/// random mission ([`RandomMission::object`](super::RandomMission::object)).
 fn mission_object(host: &mut Host<'_, '_>, message: Controller) {
     let player = host.rm().map_or(0, |r| r.player);
     if !host.cx.logic.content.state.players.contains_key(&player) {
         return;
     }
+    mission_object_cases(host, player, message);
+    let player = host.rm().map_or(0, |r| r.player);
+    let live = host
+        .cx
+        .logic
+        .content
+        .state
+        .players
+        .get(&player)
+        .map(|p| p.live_mission);
+    if live == Some(host.mission.0) {
+        super::records::update_timer(host, message);
+    }
+}
+
+/// The cases of [`mission_object`].
+fn mission_object_cases(host: &mut Host<'_, '_>, player: u32, message: Controller) {
     match message {
         Controller::PlayerLogout(gone) | Controller::GroupMemberLeft(gone) => {
+            super::records::remove(host, gone);
             if let Some(r) = host.rm_mut() {
-                r.records.remove(&gone);
                 erase_first(&mut r.dead_players, gone);
             }
             if player == gone {
                 // `Slot15` is false: the first remaining record's player.
                 let next = host
                     .rm()
-                    .and_then(|r| r.records.iter().next().copied())
+                    .and_then(|r| r.records.keys().next().copied())
                     .unwrap_or(0);
                 set_player(host.cx, host.mission, next);
             }
@@ -627,7 +700,143 @@ fn mission_object(host: &mut Host<'_, '_>, message: Controller) {
                 erase_first(&mut r.dead_players, p);
             }
         }
+        // `PlayerSave` (`:1510-1529`): the mission's player in single
+        // player.
+        Controller::PlayerSave(client) => {
+            if client == player && api::misc::single_player(host.cx) {
+                save_sections(host);
+            }
+        }
+        // `PlayerLaunch` (`:1548-1561`): in single player, the mission's
+        // player's launch spawns every solar of the snapshot by name, then
+        // the list is emptied.
+        Controller::PlayerLaunch(p) => {
+            if !api::misc::single_player(host.cx) || p != player {
+                return;
+            }
+            let names = host
+                .rm_mut()
+                .map(|r| std::mem::take(&mut r.object.respawn_solars))
+                .unwrap_or_default();
+            for name in names {
+                spawn::spawn_solar(host.cx, host.mission, &name, None);
+            }
+        }
+        // `Heartbeat` (`:1618-1621`): `UpdateJumpers` with the frame time.
+        Controller::Heartbeat(dt) => spawn::update_jumpers(host.cx, host.mission, dt),
+        // `Msg0x25` (`:1638-1641`): `OnShipJump`.
+        Controller::ShipJumped(ship) => spawn::on_ship_jump(host.cx, host.mission, ship),
+        // `JumpInComplete` (`:1643-1647`): a pending jump starts its timer.
+        Controller::JumpInComplete => spawn::jump_in_complete(host.cx, host.mission),
+        // `SpaceExit` (`:1688-1695`): in single player, the mission's
+        // player's exit takes the snapshot.
+        Controller::SpaceExit(p) => {
+            if api::misc::single_player(host.cx) && p == player {
+                spawn::snapshot_mission_objects(host.cx, host.mission);
+            }
+        }
+        // `Msg0x1006` (`:1813-1817`): an NPC ship's comm lines done with
+        // its first directive's word 0 fail the mission (slot 24).
+        Controller::CommLinesDone(word) => {
+            if word == 0 {
+                on_mission_fail(host);
+            }
+        }
+        // `NpcShipCreated` (`:1869-1913`): a ship of this mission.
+        Controller::NpcShipCreated(key) => {
+            let ours = host
+                .cx
+                .logic
+                .content
+                .state
+                .npc_ships
+                .get(&key)
+                .is_some_and(|n| n.controller == host.mission.0);
+            if ours {
+                spawn::npc_ship_created(host.cx, host.mission, key);
+            }
+        }
         _ => {}
+    }
+}
+
+/// The mission object's `PlayerSave` case past its player and
+/// single-player gates (`MissionObject.cpp:1520-1528`): unless a trigger
+/// save is pending (`Act_Save` is a script's: never for a random mission),
+/// the snapshot when the player has a ship, then `SaveMission` (the respawn
+/// records, the solars, marks, invulnerables, cloaks and attitudes, the
+/// first record's objectives) and `SaveRandEncs` into the save
+/// (`MissionSave.cpp:702-889`, P3.5b's writer). Without a record (a
+/// restore's `RejoinPlayer` drops it until the next heartbeat) the C++
+/// reads the objectives through null; the port writes none (D1084).
+fn save_sections(host: &mut Host<'_, '_>) {
+    let id = host.mission;
+    if host.rm().is_none_or(|r| r.object.trigger_save_pending) {
+        return;
+    }
+    if spawn::player_ship_id(host.cx, id) != 0 {
+        spawn::snapshot_mission_objects(host.cx, id);
+    }
+    let Host { cx, save, .. } = host;
+    let Some(file) = save.as_deref_mut() else {
+        return;
+    };
+    let _ = crate::content::with_instance_taken(cx, id, |cx, instance| {
+        if let crate::content::Instance::RandomMission(r) = instance {
+            let first = r.records.values().next().map(|p| p.objectives.as_slice());
+            let _ = object_save::write_sections(cx, file, &mut r.object, first);
+        }
+    });
+}
+
+/// What a `PlayerSave {client, file}` writes of the mission without the
+/// two single-player gates, which the message's path tests
+/// (`DestroyMission.cpp:404-422`, then the mission object's case through
+/// `FRandomMissionObject::Slot2`, `RandomMissionDB.cpp:1629-1630` and
+/// `:1741-1745`, `MissionObject.cpp:1501-1529`): the `[RandomMission]`
+/// section for the mission's player unless the first running machine
+/// cannot save, then, with players, the player's state and `client` the
+/// mission's player, the mission object's sections. The oracle's
+/// `FDestroyMission::OracleSave` writes the same for the random-mission
+/// session; nothing else calls it.
+pub(super) fn oracle_save(host: &mut Host<'_, '_>, client: u32) {
+    let Some((player, data, first)) = host
+        .rm()
+        .map(|r| (r.player, r.data, r.running_machines.first().copied()))
+    else {
+        return;
+    };
+    if client == player {
+        write_random_mission_section(host, data, first);
+    }
+    if host.rm().is_none_or(|r| r.players.is_empty()) {
+        return;
+    }
+    let player = host.rm().map_or(0, |r| r.player);
+    if !host.cx.logic.content.state.players.contains_key(&player) || client != player {
+        return;
+    }
+    save_sections(host);
+}
+
+/// `FMissionObject::OnMissionFail` (slot 24, `MissionObject.cpp:1950-1961`),
+/// which neither TU47 nor TU27 replaces: every record's objectives cleared
+/// and sent; with the player's live mission this one, `EndMission` (TU27's)
+/// and the group's live mission ended (3), else `EndMission`.
+fn on_mission_fail(host: &mut Host<'_, '_>) {
+    super::records::clear_all(host);
+    let player = host.rm().map_or(0, |r| r.player);
+    let live = host
+        .cx
+        .logic
+        .content
+        .state
+        .players
+        .get(&player)
+        .is_some_and(|s| s.live_mission == host.mission.0);
+    end_mission(host);
+    if live {
+        end_live_mission(host, player, 3, true);
     }
 }
 
@@ -681,15 +890,29 @@ fn refresh_all_objectives(host: &mut Host<'_, '_>) {
     }
 }
 
-/// `RefreshObjectives` (slot 38, `:1300-1316`): the record, then the path
-/// objectives towards the mission's system, which draw `rand()` where the
-/// C++ draws it; the docked and player-count objectives and the send are
-/// P3.5c5's (D1021).
+/// `RefreshObjectives` (slot 38, `:1312-1326`): the record, then the path
+/// objectives towards the mission's system, the docked objective and,
+/// outside single player, the player count; any change sends the record.
 fn refresh_objectives(host: &mut Host<'_, '_>, player: u32) {
+    use super::records;
     if !get_or_create_record(host, player) {
         return;
     }
-    update_path_objectives(host, player);
+    let target = slot08(host);
+    let jump_pref = host
+        .rm()
+        .and_then(|r| r.data)
+        .and_then(|k| host.cx.logic.content.state.rm.missions.get(k))
+        .map_or(0, |d| d.jump_pref);
+    let path = records::update_mission_path(host, player, target, jump_pref);
+    let docked = records::update_docked(host, player);
+    let mut count = false;
+    if !api::misc::single_player(host.cx) {
+        count = records::update_player_count(host, player, false);
+    }
+    if docked || path || count {
+        records::send(host, player);
+    }
 }
 
 /// `Slot08`: the first running machine's system, else the destination's.
@@ -699,36 +922,6 @@ fn slot08(host: &Host<'_, '_>) -> u32 {
         Some(&m) => machine::system_id(host, m),
         None => r.dest_system,
     }
-}
-
-/// `FRandomMissionObject::UpdatePathObjectives` (slot 40, `:1367-1434`):
-/// for a player with a position away from the origin in another system
-/// than the mission's, not travelling a lane, the path's first text id is
-/// drawn (`RmRandomBelow(5)`).
-fn update_path_objectives(host: &mut Host<'_, '_>, player: u32) {
-    let target = slot08(host);
-    if target == 0 {
-        return;
-    }
-    if !host.cx.logic.content.state.players.contains_key(&player) {
-        return;
-    }
-    let at = super::player_position(host.cx, player);
-    let axis = |v: f32| f64::from(v) * f64::from(v) <= 1.0;
-    if axis(at.x) && axis(at.y) && axis(at.z) {
-        return;
-    }
-    let Some(state) = host.cx.logic.content.state.players.get(&player) else {
-        return;
-    };
-    let Some(system) = state.system else { return };
-    if system == target {
-        return;
-    }
-    if state.ship.as_ref().is_some_and(|s| s.lane_entry != 0) {
-        return;
-    }
-    let _ = host.cx.world.rng().rand();
 }
 
 /// `UpdatePlayerSystemFlags` (`:1505-1531`).
@@ -763,9 +956,9 @@ fn rejoin_player(host: &mut Host<'_, '_>, player: u32) {
     if let Some(r) = host.rm_mut() {
         r.player_map.insert(player);
         r.players = r.player_map.iter().copied().collect();
-        // An existing record takes the state and is dropped (`RemovePlayer`).
-        r.records.remove(&player);
     }
+    // An existing record takes the state and is dropped (`RemovePlayer`).
+    super::records::remove(host, player);
 }
 
 /// `OnPlayerLeftGroup` (`:1557-1571`): a player in a group leaves it;
@@ -802,7 +995,9 @@ fn add_group_member(host: &mut Host<'_, '_>, player: u32) {
         add_player_name(r, name);
     }
     join_mission(host, player, 0);
-    get_or_create_record(host, player);
+    if get_or_create_record(host, player) {
+        super::records::send_placeholder(host, player);
+    }
     let description = host.rm().map(|r| r.description.clone()).unwrap_or_default();
     let _ = api::player::display_mission_message(host.cx, player, &FmtStr::new(0), 0xa, false);
     let _ = api::player::display_mission_message(host.cx, player, &description, 8, false);
@@ -940,6 +1135,7 @@ pub(super) fn fail_mission(host: &mut Host<'_, '_>, reason: i32) {
     }
     let (group, rate) = event_rate(host, if reason == 1 { 3 } else { 2 });
     change_group_reputation(host, group, rate, reason != 1);
+    super::records::clear_all(host);
     end_mission(host);
     let player = host.rm().map_or(0, |r| r.player);
     let live = host
@@ -968,8 +1164,8 @@ fn remove_mission_player(host: &mut Host<'_, '_>, player: u32, reason: i32) {
     );
     let (group, rate) = event_rate(host, if reason == 1 { 3 } else { 2 });
     change_player_reputation(host, player, group, rate, false, true);
+    super::records::remove(host, player);
     if let Some(r) = host.rm_mut() {
-        r.records.remove(&player);
         r.player_map.remove(&player);
         r.players = r.player_map.iter().copied().collect();
     }
@@ -1011,10 +1207,22 @@ fn end_mission(host: &mut Host<'_, '_>) {
     for m in running {
         machine::shutdown(host, m);
     }
+    while let Some(first) = host.rm().and_then(|r| r.records.keys().next().copied()) {
+        super::records::remove(host, first);
+    }
     if let Some(r) = host.rm_mut() {
-        r.records.clear();
         r.title = FmtStr::new(0);
         r.description = FmtStr::new(0);
+        // The mission object's lists (`MissionObject.cpp:1306-1319`): for
+        // a random mission only its label map's ships are ever kept, and
+        // that map stays.
+        r.object.npcs.clear();
+        r.object.npc_objects.clear();
+        r.object.ships.clear();
+        r.object.obj_lists.clear();
+        r.object.meta_behaviors.clear();
+        r.object.solars.clear();
+        r.object.rand_encs.clear();
         r.pending_destroy = true;
     }
 }
@@ -1055,6 +1263,7 @@ fn on_mission_succeed(host: &mut Host<'_, '_>) {
     }
     let size = api::player::group_size(host.cx, player).max(1);
     api::player::reward_group(host.cx, player, (reward / size) as i32);
+    super::records::clear_all(host);
     end_mission(host);
     end_live_mission(host, player, 2, true);
 }
