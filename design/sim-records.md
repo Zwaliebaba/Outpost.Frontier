@@ -1022,7 +1022,8 @@ are written as in `rm_<table>.txt`.
 | `random_mission_saves/rmload_missions.txt` | per load `save loaded player offer_base offer_group enemy_group dest_sys zone pos reward rep_reward rep_hit difficulty jump_pref offer_ids random_seed path offers draws serial zones description enemy_uses` |
 | `random_mission_saves/rmload_<table>.txt` | the rebuilt offers in the format of `rm_<table>.txt` (`offers`, `offer_ship_groups`, `offer_ships`, `offer_solars`, `offer_objectives`, `offer_comms`), the load's number as the case; the same Tier B fields as there |
 | `rust/rmsave_<n>.ini`, `rust/rmsave_pair.ini` | (written by the port before `dump random_mission_save_loads`, through the text-mode translation) the port's saves of the same offers |
-| `rmload_<table>.txt` | (`dump random_mission_save_loads`) the C++ loads of the port's saves, `n` = 0 up while a file opens, then the pair, in the same format |
+| `rust/rmsave_run.ini` | (P3.7d, written by `rm_session.rs`' `rust_rm_save_for_the_oracle`, through the text-mode translation) the port's save of the random-mission session's mission after its ticks, as `rm_session/rm_save.ini` below |
+| `rmload_<table>.txt` | (`dump random_mission_save_loads`) the C++ loads of the port's saves, `n` = 0 up while a file opens, then the pair, then `rmsave_run.ini` (the case after the pair's), in the same format |
 
 Under D954 (owner, 2026-11-25) a base without a dock object may differ in
 its `rms_offers.txt` lines in number and every field but `source` and
@@ -1197,6 +1198,17 @@ Common's two), because the values follow the DLL's static initialisation
 order (D1027). The comparison is exact, record by record, to the first
 difference, reported with the records around it in
 `rust-rm-session.txt`; the port's trace is kept as `rust-rm.jsonl`.
+
+After the twelve ticks, before `abort`, with no step and no record (P3.7d),
+the session writes `rm_save.ini`: what a `PlayerSave {7, file}` writes of
+the mission without the message's two single-player gates
+(`FDestroyMission::OracleSave`, the port's `runtime::oracle_save`):
+`[RandomMission]`, `type = DestroyMission`, `FRandomMissionData::Save`,
+then the mission object's `SaveMission` (for a random mission only its
+first record's `[NNObjective]`s, `SaveNNObjectives`) and `SaveRandEncs`
+(none); binary, the `\n` the format strings write. It is compared byte for
+byte, the first differing line reported in `rust-rm-session.txt`; the
+port's is kept as `rust-rm_save.ini`.
 
 ## `spread.jsonl` (`--runs N`)
 

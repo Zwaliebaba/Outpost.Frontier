@@ -19,6 +19,12 @@
 //! 4. twelve ticks: the game time plus 1 s, `Heartbeat {1.0}` to the
 //!    mission through the bus, the bus's timers fired with 1 s (the
 //!    router's timers on SpaceSupport among them);
+//! - (P3.7d, no step and no record) the mission's save mid-run: what a
+//!   `PlayerSave {7, file}` writes of it without the message's two
+//!   single-player gates (`runtime::oracle_save`, the oracle's
+//!   `FDestroyMission::OracleSave`): the `[RandomMission]` section, then
+//!   the mission object's sections, here player 7's record's
+//!   `[NNObjective]`s;
 //! 5. `AbortMission` to the mission;
 //! 6. the bus's heartbeat walk with 0: the queued mission torn down.
 //!
@@ -31,8 +37,16 @@
 //! the first difference.
 //!
 //! - `data_dump_rm_session` (`OUTPOST_DATA_DIR`, `OUTPOST_ORACLE_DIR`):
-//!   against `rm_session/rm.jsonl`; summary `rust-rm-session.txt`, the
-//!   port's trace `rust-rm.jsonl`.
+//!   against `rm_session/rm.jsonl`, and the save mid-run byte for byte
+//!   against `rm_session/rm_save.ini` (P3.7d); summary
+//!   `rust-rm-session.txt`, the port's trace `rust-rm.jsonl` and save
+//!   `rust-rm_save.ini`.
+//! - `rust_rm_save_for_the_oracle` (`OUTPOST_DATA_DIR`,
+//!   `OUTPOST_SAVE_LOADS_DIR`): the port's save mid-run written as
+//!   `rust/rmsave_run.ini` through the text-mode translation, which the
+//!   C++ build restores after the P3.7c saves (`dump
+//!   random_mission_save_loads`, compared by `random_missions.rs`'
+//!   `oracle_loads_of_rust_random_mission_saves`).
 //! - `the_rm_session_runs_on_outdir`: the session on `outdir/`, its records
 //!   checked by hand; it returns early without the data.
 //!
@@ -55,6 +69,7 @@ use game_sim::data::config::{DataConfig, GameData};
 use game_sim::object::World;
 use game_sim::object::world::{Assets, WorldConfig};
 use neuron_core::ini::IniReader;
+use neuron_core::msvcrt::text_mode_write;
 use neuron_core::rng::CrtRand;
 use neuron_core::vfs::Host;
 use neuron_server::controller::{self, ControllerId, Priority};
@@ -75,11 +90,20 @@ fn outdir() -> PathBuf {
 /// A multiplayer server over a data root, started as the oracle starts it
 /// (as `base_session.rs` does).
 fn started(exe: &Path, data_dir: &Path) -> Option<(World, Logic)> {
+    started_with(exe, data_dir, false)
+}
+
+/// [`started`], in single player when `single_player`.
+fn started_with(exe: &Path, data_dir: &Path, single_player: bool) -> Option<(World, Logic)> {
     let config = DataConfig::read(&Host::new(exe), b"OutpostFrontier.ini")?;
     let mut data = GameData::new();
     data.load(&Host::new(data_dir), &config, None);
-    let mut world = World::new(Arc::new(data), WorldConfig::default())
-        .with_assets(Assets::new(data_dir.to_path_buf()));
+    let world_config = WorldConfig {
+        single_player,
+        ..WorldConfig::default()
+    };
+    let mut world =
+        World::new(Arc::new(data), world_config).with_assets(Assets::new(data_dir.to_path_buf()));
     let mut logic = Logic::new(Box::new(RecordingSink::default()), 16, true);
     let mut cx = Cx {
         world: &mut world,
@@ -395,7 +419,10 @@ fn data_dump_rm_session() {
         world: &mut world,
         logic: &mut logic,
     };
-    let (lines, names, accepted) = run_session(&mut cx);
+    let mut save = Vec::new();
+    let (lines, names, accepted) = run_session_with(&mut cx, &mut |cx, mission| {
+        runtime::oracle_save(cx, mission, PLAYER, &mut save);
+    });
     let mut summary = String::new();
     let _ = writeln!(
         summary,
@@ -436,9 +463,104 @@ fn data_dump_rm_session() {
     for line in &report {
         let _ = writeln!(summary, "{line}");
     }
+    // P3.7d: the save mid-run, byte for byte.
+    let _ = std::fs::write(oracle_dir.join("rust-rm_save.ini"), &save);
+    let save_path = oracle_dir.join("rm_session").join("rm_save.ini");
+    let save_problem = match std::fs::read(&save_path) {
+        Ok(bytes) => first_difference("rm_save.ini", &bytes, &save),
+        Err(e) => Some(format!("{}: {e}", save_path.display())),
+    };
+    match &save_problem {
+        None => {
+            let _ = writeln!(
+                summary,
+                "the save mid-run ({} bytes, {} [NNObjective]) equals the oracle's",
+                save.len(),
+                count_headers(&save, b"[NNObjective]")
+            );
+        }
+        Some(p) => {
+            let _ = writeln!(summary, "the save mid-run differs: {p}");
+        }
+    }
     print!("{summary}");
     let _ = std::fs::write(oracle_dir.join("rust-rm-session.txt"), &summary);
     assert!(!failed, "random-mission session: differs from the oracle");
+    assert!(
+        save_problem.is_none(),
+        "random-mission session: the save mid-run differs from the oracle's"
+    );
+}
+
+/// The first differing line of two saves, or none.
+fn first_difference(name: &str, want: &[u8], got: &[u8]) -> Option<String> {
+    if want == got {
+        return None;
+    }
+    let want = String::from_utf8_lossy(want);
+    let got = String::from_utf8_lossy(got);
+    let mut w = want.split('\n');
+    let mut g = got.split('\n');
+    let mut line = 1;
+    loop {
+        match (w.next(), g.next()) {
+            (Some(a), Some(b)) if a == b => line += 1,
+            (a, b) => {
+                return Some(format!(
+                    "{name} line {line}: oracle {:?}, port {:?}",
+                    a.unwrap_or("<end>"),
+                    b.unwrap_or("<end>")
+                ));
+            }
+        }
+    }
+}
+
+/// The lines of `text` that are `header`.
+fn count_headers(text: &[u8], header: &[u8]) -> usize {
+    text.split(|&b| b == b'\n').filter(|l| *l == header).count()
+}
+
+/// The session's save mid-run (`runtime::oracle_save` in the probe).
+fn session_save(cx: &mut Cx<'_>) -> (Vec<u8>, bool) {
+    let mut save = Vec::new();
+    let (_, _, accepted) = run_session_with(cx, &mut |cx, mission| {
+        runtime::oracle_save(cx, mission, PLAYER, &mut save);
+    });
+    (save, accepted)
+}
+
+/// Writes the port's save mid-run into `$OUTPOST_SAVE_LOADS_DIR/rust/` as
+/// the server's text-mode save path writes it, for the C++ restore.
+#[test]
+fn rust_rm_save_for_the_oracle() {
+    let (Some(root), Some(dir)) = (
+        std::env::var_os("OUTPOST_DATA_DIR").map(PathBuf::from),
+        std::env::var_os("OUTPOST_SAVE_LOADS_DIR").map(PathBuf::from),
+    ) else {
+        println!(
+            "notice: OUTPOST_DATA_DIR or OUTPOST_SAVE_LOADS_DIR is not set; no save mid-run was written for the oracle"
+        );
+        return;
+    };
+    let Some((mut world, mut logic)) = started(&root.join("EXE"), &root.join("DATA")) else {
+        println!("notice: no EXE/OutpostFrontier.ini under the dump root");
+        return;
+    };
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    let (save, accepted) = session_save(&mut cx);
+    assert!(accepted, "no vendor mission was accepted");
+    let out = dir.join("rust");
+    std::fs::create_dir_all(&out).expect("the saves' folder");
+    std::fs::write(out.join("rmsave_run.ini"), text_mode_write(&save)).expect("the save");
+    println!(
+        "the save mid-run ({} bytes) written to {}",
+        save.len(),
+        out.display()
+    );
 }
 
 fn step_lines<'a>(lines: &'a [String], names: &[&str], name: &str) -> Vec<&'a str> {
@@ -644,4 +766,182 @@ fn a_random_missions_objectives_on_outdir() {
     );
     // The abort failed the mission: no record is left.
     assert!(mission_id(&cx).is_none());
+}
+
+/// The mission's `[RandomMission]` section as `write_section` writes it.
+fn mission_section(cx: &Cx<'_>, mission: ControllerId) -> Vec<u8> {
+    let mut out = Vec::new();
+    if let Some(Instance::RandomMission(r)) = cx.logic.content.instances.get(&mission)
+        && let Some(data) = r
+            .data
+            .and_then(|k| cx.logic.content.state.rm.missions.get(k))
+    {
+        game_logic::content::random_mission::mission::write_section(data, &mut out)
+            .expect("in memory");
+    }
+    out
+}
+
+/// P3.7d: the save mid-run is the `[RandomMission]` section, then what the
+/// mission object's `SaveMission` writes of a random mission: no respawn
+/// record, solar, mark, invulnerable, cloak or attitude (it keeps no NPC
+/// object), and the first record's objectives (`SaveNNObjectives`); no
+/// random encounter.
+#[test]
+fn a_running_missions_save_holds_its_records_objectives_on_outdir() {
+    use game_logic::content::mission::object_save;
+    let root = outdir();
+    let Some((mut world, mut logic)) = started(&root, &root.join("data")) else {
+        println!("notice: outdir/OutpostFrontier.ini is missing; the session was not run");
+        return;
+    };
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    let mut save = Vec::new();
+    let mut want = Vec::new();
+    let (_, _, accepted) = run_session_with(&mut cx, &mut |cx, mission| {
+        runtime::oracle_save(cx, mission, PLAYER, &mut save);
+        want = mission_section(cx, mission);
+        if let Some(Instance::RandomMission(r)) = cx.logic.content.instances.get(&mission) {
+            assert!(r.object.npc_objects.is_empty());
+            assert!(r.object.respawn_ships.is_empty() && r.object.vibe_infos.is_empty());
+            let record = r.records.values().next().expect("player 7's record");
+            object_save::write_objectives(&mut want, &record.objectives).expect("in memory");
+        }
+    });
+    assert!(accepted, "no vendor mission was accepted");
+    assert!(save.starts_with(b"[RandomMission]\ntype = DestroyMission\n"));
+    assert!(
+        count_headers(&save, b"[NNObjective]") > 0,
+        "the docked objective"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&save),
+        String::from_utf8_lossy(&want)
+    );
+    // A save for another client writes nothing.
+    let (mut world, mut logic) = started(&root, &root.join("data")).expect("outdir/");
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    let mut other = Vec::new();
+    let _ = run_session_with(&mut cx, &mut |cx, mission| {
+        runtime::oracle_save(cx, mission, PLAYER + 1, &mut other);
+    });
+    assert!(other.is_empty());
+}
+
+/// P3.7d: a running random mission saved through the bus in single player
+/// (`PlayerSave` to the controller) writes what the oracle's session
+/// writes; restored (`LoadContentPlayerState`'s `[RandomMission]`, then
+/// `PlayerLoad` to the new controller) it is the same mission, and only
+/// its `[RandomMission]` section is read: the mission object's sections
+/// are never loaded for a random mission (`FRandomMissionObject::Slot2`
+/// answers `PlayerLoad` with `RejoinPlayer`), so the restored mission
+/// writes no objective until its records are refreshed again.
+#[test]
+fn a_running_mission_saves_and_restores_in_single_player_on_outdir() {
+    use game_logic::content::players;
+    let root = outdir();
+    let Some((mut world, mut logic)) = started_with(&root, &root.join("data"), true) else {
+        println!("notice: outdir/OutpostFrontier.ini is missing; the session was not run");
+        return;
+    };
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    assert!(api::misc::single_player(&cx));
+    let mut bus = Vec::new();
+    let mut gateless = Vec::new();
+    let mut section = Vec::new();
+    let mut objectives = 0;
+    let (_, _, accepted) = run_session_with(&mut cx, &mut |cx, mission| {
+        let mut message = ControllerMessage::PlayerSave {
+            client: PLAYER,
+            file: &mut bus,
+        };
+        let _ = api::controller::send_message(cx, mission, &mut message);
+        runtime::oracle_save(cx, mission, PLAYER, &mut gateless);
+        section = mission_section(cx, mission);
+        if let Some(Instance::RandomMission(r)) = cx.logic.content.instances.get(&mission) {
+            objectives = r.records.values().next().map_or(0, |p| p.objectives.len());
+        }
+    });
+    assert!(accepted, "no vendor mission was accepted");
+    assert_eq!(
+        String::from_utf8_lossy(&bus),
+        String::from_utf8_lossy(&gateless)
+    );
+    assert!(bus.starts_with(&section));
+    assert!(objectives > 0);
+    assert_eq!(count_headers(&bus, b"[NNObjective]"), objectives);
+
+    // The restore on a new single-player server.
+    let (mut world, mut logic) = started_with(&root, &root.join("data"), true).expect("outdir/");
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    let base = api::misc::base_id(&mut cx, BASE).unwrap_or(0);
+    let system = api::misc::base_system(&mut cx, base).ok();
+    let mut state = PlayerState::new(&cx, PLAYER);
+    state.system = system.filter(|s| cx.logic.content.state.systems.contains_key(s));
+    // Docked on the base, as the saved player was.
+    state.base = Some(base);
+    let mut reader = IniReader::new();
+    reader.open(b"save.ini", text_mode_write(&bus));
+    players::load_player_state(&mut cx, &mut state, &mut reader);
+    let restored = ControllerId(state.live_mission);
+    cx.logic.content.state.players.insert(PLAYER, state);
+    assert!(
+        matches!(
+            cx.logic.content.instances.get(&restored),
+            Some(Instance::RandomMission(_))
+        ),
+        "a DestroyMission controller"
+    );
+    runtime::join_player(&mut cx, restored, PLAYER);
+    let mut reader = IniReader::new();
+    reader.open(b"save.ini", text_mode_write(&bus));
+    let mut load = ControllerMessage::PlayerLoad {
+        player: PLAYER,
+        reader: &mut reader,
+    };
+    let _ = api::controller::send_message(&mut cx, restored, &mut load);
+    // The same mission: its section is the saved one.
+    assert_eq!(
+        String::from_utf8_lossy(&mission_section(&cx, restored)),
+        String::from_utf8_lossy(&section)
+    );
+    let Some(Instance::RandomMission(r)) = cx.logic.content.instances.get(&restored) else {
+        panic!("the restored mission");
+    };
+    assert!(r.records.values().all(|p| p.objectives.is_empty()));
+    assert!(r.object.respawn_ships.is_empty() && r.object.respawn_solars.is_empty());
+    let mut again = Vec::new();
+    let mut message = ControllerMessage::PlayerSave {
+        client: PLAYER,
+        file: &mut again,
+    };
+    let _ = api::controller::send_message(&mut cx, restored, &mut message);
+    assert_eq!(
+        String::from_utf8_lossy(&again),
+        String::from_utf8_lossy(&section),
+        "the restored mission writes its section and no objective"
+    );
+    // A heartbeat refreshes the records: the docked objective is back.
+    let mut heartbeat = ControllerMessage::Heartbeat { elapsed: 1.0 };
+    let _ = api::controller::send_message(&mut cx, restored, &mut heartbeat);
+    let Some(Instance::RandomMission(r)) = cx.logic.content.instances.get(&restored) else {
+        panic!("the restored mission");
+    };
+    let record = r.records.get(&PLAYER).expect("player 7's record");
+    assert_eq!(
+        record.objectives.first().map(|o| (o.kind, o.ids)),
+        Some((2, 0x3319))
+    );
 }

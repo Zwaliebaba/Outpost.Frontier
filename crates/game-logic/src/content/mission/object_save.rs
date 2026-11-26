@@ -557,6 +557,24 @@ pub fn write_rand_encs(
 ///
 /// The writer's.
 pub fn write(cx: &Cx<'_>, out: &mut dyn Write, object: &mut MissionObject) -> io::Result<()> {
+    let first = object.players.values().next().map(|p| p.objectives.clone());
+    write_sections(cx, out, object, first.as_deref())
+}
+
+/// [`write`] with the first player's objectives given: a random mission
+/// keeps its records apart from its mission object (P3.7d,
+/// [`RandomMission::records`](crate::content::random_mission::runtime::RandomMission::records)).
+/// `None` writes no `[NNObjective]` (D832).
+///
+/// # Errors
+///
+/// The writer's.
+pub fn write_sections(
+    cx: &Cx<'_>,
+    out: &mut dyn Write,
+    object: &mut MissionObject,
+    first: Option<&[Objective]>,
+) -> io::Result<()> {
     for group in &object.respawn_ships {
         write_wing(cx, out, group)?;
     }
@@ -580,8 +598,8 @@ pub fn write(cx: &Cx<'_>, out: &mut dyn Write, object: &mut MissionObject) -> io
     }
     write_names(out, b"\n[Decloaked]\n", b"decloaked= ", &object.decloaked)?;
     write_vibes(out, &object.vibe_infos)?;
-    if let Some(player) = object.players.values().next() {
-        write_objectives(out, &player.objectives)?;
+    if let Some(objectives) = first {
+        write_objectives(out, objectives)?;
     }
     write_rand_encs(cx, out, &mut object.rand_encs)
 }
