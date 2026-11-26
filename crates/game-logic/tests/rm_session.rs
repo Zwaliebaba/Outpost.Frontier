@@ -219,6 +219,15 @@ fn mission_id(cx: &Cx<'_>) -> Option<ControllerId> {
 /// The session's trace on a started server; `None` when no mission was
 /// accepted.
 fn run_session(cx: &mut Cx<'_>) -> (Vec<String>, Vec<&'static str>, bool) {
+    run_session_with(cx, &mut |_, _| {})
+}
+
+/// [`run_session`] with `probe` run on the mission after the ticks, before
+/// the abort.
+fn run_session_with(
+    cx: &mut Cx<'_>,
+    probe: &mut dyn FnMut(&mut Cx<'_>, ControllerId),
+) -> (Vec<String>, Vec<&'static str>, bool) {
     let ids = support_ids(cx);
     let base = api::misc::base_id(cx, BASE).unwrap_or(0);
     let system = api::misc::base_system(cx, base).ok();
@@ -287,6 +296,7 @@ fn run_session(cx: &mut Cx<'_>) -> (Vec<String>, Vec<&'static str>, bool) {
         controller::fire_timers(cx, 1.0);
         s.end(cx);
     }
+    probe(cx, mission);
 
     s.begin(cx, "abort");
     let mut abort = ControllerMessage::AbortMission {
@@ -571,4 +581,67 @@ fn the_rm_session_runs_on_outdir() {
             .is_some_and(|r| r.pending().is_empty()),
         "{summary}"
     );
+}
+
+/// P3.5c5 (D1021): the mission's player, docked on the offer's base with no
+/// ship, holds a record whose objectives the mission built: the docked
+/// objective (a nav marker of ids `0x3319` at the player's base, state
+/// 0x10) first, and the record's objectives described; the abort's
+/// failure then clears and removes every record.
+#[test]
+fn a_random_missions_objectives_on_outdir() {
+    use game_logic::content::mission::object::MissionPlayer;
+    let root = outdir();
+    let Some((mut world, mut logic)) = started(&root, &root.join("data")) else {
+        println!("notice: outdir/OutpostFrontier.ini is missing; the session was not run");
+        return;
+    };
+    let mut cx = Cx {
+        world: &mut world,
+        logic: &mut logic,
+    };
+    let mut record: Option<MissionPlayer> = None;
+    let mut probe = |cx: &mut Cx<'_>, mission: ControllerId| {
+        if let Some(Instance::RandomMission(r)) = cx.logic.content.instances.get(&mission) {
+            record = r.records.get(&PLAYER).cloned();
+        }
+    };
+    let (_, _, accepted) = run_session_with(&mut cx, &mut probe);
+    assert!(accepted, "no vendor mission was accepted");
+    let record = record.expect("the player's record");
+    let docked = record.objectives.first().expect("an objective");
+    assert_eq!(
+        (docked.kind, docked.ids),
+        (2, 0x3319),
+        "{:?}",
+        record.objectives
+    );
+    // Made with flag 0x10 (new): its first send kept a clone, and a later
+    // send found it known and cleared the flag.
+    assert!(
+        record
+            .sent
+            .iter()
+            .any(|k| k.ids == 0x3319 && k.state == 0x10),
+        "{:?}",
+        record.sent
+    );
+    assert_eq!(docked.state & 0x10, 0);
+    assert!(
+        f32::from_bits(docked.marker[2]).abs() > 1.0
+            || f32::from_bits(docked.marker[3]).abs() > 1.0
+            || f32::from_bits(docked.marker[4]).abs() > 1.0
+    );
+    // Every objective the record holds was described when it was sent:
+    // the docked one is its nav marker under its mad lib.
+    assert_eq!(docked.description.mad_lib_id, 0x3319);
+    assert!(record.objectives.iter().all(|o| o.kind != 7 || !o.hidden));
+    assert!(
+        record
+            .objectives
+            .iter()
+            .all(|o| matches!(o.kind, 2 | 5 | 7 | 8))
+    );
+    // The abort failed the mission: no record is left.
+    assert!(mission_id(&cx).is_none());
 }

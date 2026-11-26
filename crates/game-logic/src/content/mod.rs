@@ -201,6 +201,11 @@ pub struct ContentState {
     /// (first id wins); a script mission's end empties it (P3.5c), its
     /// destructor does not ([`mission::dialog`]).
     pub mission_dialogs: BTreeMap<u32, mission::dialog::MissionDialog>,
+    /// `GObjectiveTimerRunning` (`Content/MissionObject.cpp:1332`, true):
+    /// the missions' objective timer runs; the mission player's
+    /// `BaseExit` stops it and `SpaceEnter` restarts it (P3.5c5,
+    /// [`mission::objectives`]).
+    pub objective_timer_running: bool,
     /// The six clamps the missions save and restore (P3.5b;
     /// [`mission::save::Clamps`]): `GSpacePopAttackClamp`,
     /// `GSpacePopEncounterEnabled` (`Populators.cpp:44-56`),
@@ -286,6 +291,7 @@ impl ContentState {
             exclusion_spheres: Vec::new(),
             solar_detection: true,
             mission_dialogs: BTreeMap::new(),
+            objective_timer_running: true,
             clamps: mission::save::Clamps::default(),
             story_debug: 0,
             dock_queues: dock_queues::DockQueues::default(),

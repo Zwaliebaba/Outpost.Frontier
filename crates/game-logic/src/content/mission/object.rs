@@ -262,6 +262,34 @@ pub struct MissionPlayer {
     pub player: u32,
     /// `Objectives`.
     pub objectives: Vec<Objective>,
+    /// `SentObjectives` (+0x28): a clone of each new objective sent with
+    /// flag 0x10, which a later send compares (run time, P3.5c5).
+    pub sent: Vec<Objective>,
+    /// `Field_0x24`: a random mission's path checked once per launch.
+    pub path_checked: bool,
+    /// `Field_0x25`: the send repeats every objective as it is (the
+    /// objective timer's and `PlayerMissionChanged`'s resends).
+    pub resend: bool,
+}
+
+impl MissionPlayer {
+    /// `FMissionPlayer(PlayerId, Mission)`: no objectives, both flags clear.
+    #[must_use]
+    pub fn new(player: u32) -> Self {
+        Self {
+            player,
+            ..Self::default()
+        }
+    }
+
+    /// `SetField25(bValue)` (`MissionObject.cpp:1072-1078`): clearing the
+    /// flag drops the sent clones.
+    pub fn set_resend(&mut self, resend: bool) {
+        self.resend = resend;
+        if !resend {
+            self.sent.clear();
+        }
+    }
 }
 
 /// The mission object (`FMissionObject`, TU38): what its constructor and
@@ -357,6 +385,9 @@ pub struct MissionObject {
     pub jump_timer: f32,
     /// `JumpDelay` (3).
     pub jump_delay: i32,
+    /// `Field_0x84`: the seconds since the objectives were last sent, which
+    /// the objective timer adds up (run time, P3.5c5).
+    pub objective_timer: f32,
     /// The `[ObjList]` directives as the counted objects the spawns hand
     /// out (`ObjLists`' `FMissionDirectiveList`, one reference held on
     /// each): made from [`Self::obj_lists`] the first time a list is
@@ -417,6 +448,7 @@ impl MissionObject {
             jump_pending: false,
             jump_timer: -1.0,
             jump_delay: 3,
+            objective_timer: 0.0,
             obj_list_refs: BTreeMap::new(),
         }
     }
@@ -853,7 +885,10 @@ pub fn load(cx: &mut Cx<'_>, reader: &mut IniReader, object: &mut MissionObject)
             load_header(cx, reader, object);
         } else if reader.is_header(b"NNObjective") {
             let parsed = objective::load(cx, reader);
-            if let (Some(objective), Some(player)) = (parsed, object.players.values_mut().next()) {
+            if let (Some(mut objective), Some(player)) =
+                (parsed, object.players.values_mut().next())
+            {
+                objective.owner = object.player_state.then_some(object.player);
                 player.objectives.push(objective);
             }
         }

@@ -54,6 +54,7 @@
 //!   action without an effect runs in its 900 ticks, so the judged window
 //!   is the whole session.
 //! - `the_ai_and_reputation_actions_on_outdir` (P3.5c3),
+//!   `the_objectives_path_nags_and_end_on_outdir` (P3.5c5),
 //!   `the_dialogs_speak_and_complete_on_outdir`,
 //!   `a_cut_scene_starts_and_ends_on_outdir` and
 //!   `a_guided_ship_respawns_with_its_guide_on_outdir` (P3.5c4): the
@@ -76,6 +77,7 @@ use game_logic::content::mission::action::{self, Action};
 use game_logic::content::mission::dialog::{DialogLine, MissionDialog};
 use game_logic::content::mission::execute;
 use game_logic::content::mission::meta_behavior::{MbGuide, MetaBehavior};
+use game_logic::content::mission::nags::NagKind;
 use game_logic::content::mission::obj_list::{self, DirectiveKind, Goto, Idle, ObjListDirective};
 use game_logic::content::mission::runtime;
 use game_logic::content::mission::trace::{Trace, TraceRecord};
@@ -2081,4 +2083,292 @@ fn a_guided_ship_respawns_with_its_guide_on_outdir() {
         return;
     }
     assert!(checked.get(), "the probe ran at tick 4");
+}
+
+// ---- P3.5c5: the objectives, the NN path, the nags, the group and the end ----------------------
+
+/// The `SETMISSIONOBJECTIVES` among the sent messages: client and the
+/// objectives' state bytes.
+fn objective_sends(sent: &[(u32, ToClient)]) -> Vec<(u32, Vec<u8>)> {
+    sent.iter()
+        .filter_map(|(client, m)| match m {
+            ToClient::Server(ServerMessage::SetMissionObjectives(o)) => Some((
+                *client,
+                o.objectives.iter().map(|o| o.state).collect::<Vec<u8>>(),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The mission record's objective of `nickname`.
+fn objective_of(
+    cx: &Cx<'_>,
+    id: ControllerId,
+    player: u32,
+    nickname: &[u8],
+) -> Option<game_logic::content::mission::objective::Objective> {
+    let nickname = create_id(nickname);
+    script_of(cx, id)?
+        .object
+        .players
+        .get(&player)?
+        .objectives
+        .iter()
+        .find(|o| o.nickname == nickname)
+        .cloned()
+}
+
+/// P3.5c5's actions and run time on `outdir/` (`MissionAct.cpp`,
+/// `MissionObject.cpp`, `MissionScript.cpp`): `Mission_01a`'s
+/// `[NNObjective]` records renumbered and sent hidden at `SpaceEnter`; then,
+/// on the live mission, an objective given, advanced and hidden
+/// (`Act_SetNNObj`, `Act_SetNNState`, `Act_SetNNHidden`,
+/// `Act_GiveNNObjs`); an NN path started (`Act_NNPath`), laid out and sent
+/// on its timer; a distance nag (`Act_NagDistTowards`) armed and saying its
+/// line after 20 s; the player joining as a group member
+/// (`GroupMemberJoined`); and the mission's success paying the
+/// `[Mission]` reward, counting the completion and ending.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn the_objectives_path_nags_and_end_on_outdir() {
+    let root = outdir();
+    let Some(file) = read_session() else {
+        println!("notice: CppSource/Oracle/mission_session.txt does not parse");
+        return;
+    };
+    let session = file.mission.1;
+    let sink = Shared::default();
+    let nag_id = create_id(b"p3_5c5_nag");
+    let checks = Cell::new(0u32);
+    let mut probe = |cx: &mut Cx<'_>, id: ControllerId, tick: u32| {
+        match tick {
+            1 => {
+                cx.logic.client = Box::new(sink.clone());
+                if let Some(slot) = cx.logic.players.get_mut(session) {
+                    slot.client_id = session;
+                }
+            }
+            4 => {
+                // `SpaceEnter` (tick 2): no NN path, so every record was
+                // renumbered; every objective is hidden, so the record sent
+                // an empty list.
+                let s = script_of(cx, id).expect("the mission");
+                let record = s.object.players.get(&session).expect("the record");
+                assert_eq!(record.objectives.len(), 17, "{:?}", record.objectives);
+                assert!(record.objectives.iter().all(|o| o.hidden && o.index == -1));
+                let sent = objective_sends(&sink.take());
+                assert!(sent.contains(&(session, Vec::new())), "{sent:?}");
+
+                // `Act_SetNNObj = mlog_job`: the path reset, every objective
+                // hidden, the objective's state 0x3a, shown, renumbered and
+                // sent alone (new with 0x10: a clone kept).
+                assert!(run(
+                    cx,
+                    id,
+                    Action::SetNnObj(action::SetNnObj {
+                        objective_id: create_id(b"mlog_job"),
+                        state: 0x3a,
+                    })
+                ));
+                let job = objective_of(cx, id, session, b"mlog_job").unwrap();
+                assert!(!job.hidden);
+                assert_eq!((job.index, job.state), (0, 0x3a));
+                assert_eq!(job.description.mad_lib_id, 21810);
+                assert_eq!(objective_sends(&sink.take()), [(session, vec![0x3a])]);
+                let record = &script_of(cx, id).unwrap().object.players[&session];
+                assert_eq!(record.sent.len(), 1);
+
+                // `Act_SetNNState = mlog_job, COMPLETE`: its place's state
+                // sent.
+                assert!(run(
+                    cx,
+                    id,
+                    Action::SetNnState(action::SetNnState {
+                        objective_id: create_id(b"mlog_job"),
+                        state: 3,
+                    })
+                ));
+                let states: Vec<_> = sink
+                    .take()
+                    .into_iter()
+                    .filter_map(|(c, m)| match m {
+                        ToClient::Server(ServerMessage::SetMissionObjectiveState(s)) => {
+                            Some((c, s.field_04, s.field_08))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(states, [(session, 0, 3)]);
+
+                // `Act_SetNNHidden = mlog_job, true`, then `Act_GiveNNObjs`:
+                // hidden, and the renumber sends an empty list.
+                assert!(run(
+                    cx,
+                    id,
+                    Action::SetNnHidden(action::SetNnHidden {
+                        visible: false,
+                        objective_id: create_id(b"mlog_job"),
+                    })
+                ));
+                assert!(objective_of(cx, id, session, b"mlog_job").unwrap().hidden);
+                assert!(run(cx, id, Action::GiveNnObjs(action::GiveNnObjs {})));
+                assert_eq!(objective_sends(&sink.take()), [(session, Vec::new())]);
+                assert_eq!(
+                    objective_of(cx, id, session, b"mlog_job").unwrap().index,
+                    -1
+                );
+
+                // `Act_NNPath` to a point 6 km from the player in its system.
+                let ship = session_ship(cx, session);
+                let (at, _) = api::space_obj::location(cx, ship).unwrap();
+                let to = Vector::new(at.x + 6000.0, at.y, at.z);
+                assert!(run(
+                    cx,
+                    id,
+                    Action::NnPath(action::NnPath {
+                        position: to,
+                        label: Vec::new(),
+                        system_id: 0,
+                        travel_ids: 21900,
+                        target_ids: 21901,
+                    })
+                ));
+                let path = &script_of(cx, id).unwrap().nn_path;
+                assert!(path.active);
+                assert_eq!(path.state, 1);
+                checks.set(checks.get() + 1);
+            }
+            50 => {
+                // The first heartbeat started the path's 1 s timer (state
+                // 2); its expiry rebuilt it: free flight to the point, one
+                // type 5 objective of the target's ids (one leg in the
+                // path's system: arrived, state 5), sent as 0x3a.
+                let path = &script_of(cx, id).unwrap().nn_path;
+                assert!(path.active);
+                assert!(path.arrived);
+                assert_eq!(path.state, 3);
+                assert_eq!(path.objectives.len(), 1, "{:?}", path.objectives);
+                let o = &path.objectives[0];
+                assert_eq!((o.kind, o.ids), (5, 21901));
+                let sent = objective_sends(&sink.take());
+                assert_eq!(sent.first(), Some(&(session, vec![0x3a])), "{sent:?}");
+                // The later sends (one a second) show it as 0xa.
+                assert!(sent[1..].iter().all(|(_, s)| s == &[0xa]), "{sent:?}");
+
+                // `Mission_01a` clamps its nags here: `Act_NagClamp = false`,
+                // then `Act_NagDistTowards = POS, p3_5c5_nag, none, x, y, z`
+                // with a distance of 10, the point 20 km off.
+                assert!(run(
+                    cx,
+                    id,
+                    Action::NagClamp(action::NagClamp {
+                        clamp: false,
+                        ..action::NagClamp::default()
+                    })
+                ));
+                let ship = session_ship(cx, session);
+                let (at, _) = api::space_obj::location(cx, ship).unwrap();
+                assert!(run(
+                    cx,
+                    id,
+                    Action::NagDistTowards(action::NagDistTowards {
+                        nag_id,
+                        speaker: b"none".to_vec(),
+                        target: Vec::new(),
+                        distance: 10.0,
+                        fail_mad_lib_id: 1,
+                        position: Vector::new(at.x, at.y, at.z + 20_000.0),
+                        nag_in_combat: false,
+                        nag_out_of_combat: true,
+                    })
+                ));
+                assert!(script_of(cx, id).unwrap().nags.contains_key(&nag_id));
+                checks.set(checks.get() + 1);
+            }
+            51 => {
+                // The next heartbeat armed it: the player is farther than
+                // 10.
+                let nag = &script_of(cx, id).unwrap().nags[&nag_id];
+                let NagKind::Dist(d) = &nag.kind else {
+                    panic!("{nag:?}")
+                };
+                assert!(d.armed, "{nag:?}");
+                assert_eq!((d.threshold, d.nags_left), (900.0, 4));
+                checks.set(checks.get() + 1);
+            }
+            640 => {
+                // The mission's own triggers clamped the nags again; the
+                // timer comes at tick 651.
+                assert!(run(
+                    cx,
+                    id,
+                    Action::NagClamp(action::NagClamp {
+                        clamp: false,
+                        ..action::NagClamp::default()
+                    })
+                ));
+            }
+            700 => {
+                // 20 s later the timer found the player no closer: the
+                // position line (no speaker: the NN message `nag_pos_01-`)
+                // and one nag spent, the timer set again.
+                let nag = &script_of(cx, id).unwrap().nags[&nag_id];
+                let NagKind::Dist(d) = &nag.kind else {
+                    panic!("{nag:?}")
+                };
+                assert_eq!(d.nags_left, 3, "{nag:?}");
+                assert!(d.armed);
+                let line = create_id(b"nag_pos_01-");
+                assert_eq!(nag.line, line);
+                let nn: Vec<_> = sink
+                    .take()
+                    .into_iter()
+                    .filter_map(|(c, m)| match m {
+                        ToClient::Server(ServerMessage::SendNnMessage(m)) => Some((c, m.value)),
+                        _ => None,
+                    })
+                    .collect();
+                assert!(nn.contains(&(session, line)), "{nn:?}");
+
+                // `GroupMemberJoined` of the player (`IsGroupMember` of the
+                // player himself is true): `JoinMission`.
+                let mut joined = ControllerMessage::GroupMemberJoined { player: session };
+                let _ = api::controller::send_message(cx, id, &mut joined);
+                assert_eq!(cx.logic.content.state.players[&session].live_mission, id.0);
+
+                // The success: the reward paid to the player (no group; the
+                // multiplayer server without a character counts it earned
+                // and keeps the cash), the completion counted, the
+                // objectives cleared and sent, the mission ended and left.
+                let earned = |cx: &Cx<'_>| cx.logic.players.get(session).map(|p| p.total_earned);
+                let before = earned(cx).unwrap();
+                let reward = script_of(cx, id).unwrap().object.reward;
+                assert_eq!(reward, 2000);
+                if let Some(Instance::Mission(s)) = cx.logic.content.instances.get_mut(&id) {
+                    engine::set_desired_state(s, engine::MISSION_STATE_SUCCEED, 1);
+                }
+                sink.take();
+                engine::apply_desired_state(cx, id);
+                assert_eq!(earned(cx), Some(before + 2000));
+                let state = &cx.logic.content.state.players[&session];
+                assert_eq!(state.stats.random_missions_completed.get(&7), Some(&1));
+                assert_eq!(state.live_mission, 0);
+                let s = script_of(cx, id).unwrap();
+                assert!(s.object.players.is_empty());
+                assert!(s.nags.is_empty());
+                assert!(s.object.pending_destroy);
+                let sent = objective_sends(&sink.take());
+                assert!(sent.contains(&(session, Vec::new())), "{sent:?}");
+                checks.set(checks.get() + 1);
+            }
+            _ => {}
+        }
+    };
+    let ran = run_session(&root, &root.join("data"), &file, &mut probe);
+    if ran.is_none() {
+        println!("notice: outdir/OutpostFrontier.ini is missing; the session was not run");
+        return;
+    }
+    assert_eq!(checks.get(), 4, "every probe ran");
 }
