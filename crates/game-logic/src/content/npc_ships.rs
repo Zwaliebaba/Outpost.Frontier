@@ -363,6 +363,109 @@ pub fn construct(cx: &mut Cx<'_>, params: &NpcShipParams) -> NpcShipKey {
     key
 }
 
+/// `ApplyNpcShipArch(Params, Arch, Pilot, Job)` (`NpcShip.cpp:155-202`):
+/// the archetype's loadout and ship, the ship's mission properties joining
+/// the block's classes (`GetShipMissionProperties`, each once), an empty
+/// nickname the archetype's (`ID_String::get_string`, at most 47 bytes),
+/// its state graph and npc classes (each once), its pilot's personality
+/// with the job, its level, then a given pilot's personality with the job.
+pub fn apply_npc_ship_arch(
+    cx: &Cx<'_>,
+    params: &mut NpcShipParams,
+    arch: &super::tables::npc_ships::NpcShipArch,
+    pilot: Option<u32>,
+    job: u32,
+) {
+    params.loadout = arch.loadout;
+    params.archetype = arch.ship_archetype;
+    let tables = &cx.logic.content.tables;
+    if let Some(properties) = tables.ship_mission_properties.get(&arch.ship_archetype) {
+        for &p in properties {
+            if !params.class_ids.contains(&p) {
+                params.class_ids.push(p);
+            }
+        }
+    }
+    if params.nickname.is_empty() {
+        let mut name = neuron_core::id::IdString(arch.nickname)
+            .to_hex_string()
+            .into_bytes();
+        name.truncate(0x2f);
+        params.nickname = name;
+    }
+    params.state_graph = arch.state_graph;
+    for &class in &arch.npc_classes {
+        if !params.class_ids.contains(&class) {
+            params.class_ids.push(class);
+        }
+    }
+    if arch.pilot != 0 {
+        params.pilot = arch.pilot;
+        let mut personality = params.personality;
+        let _ = tables
+            .pilots
+            .personality_with_job(arch.pilot, job, &mut personality);
+        params.personality = personality;
+    }
+    params.level = arch.level;
+    if let Some(pilot) = pilot.filter(|&p| p != 0) {
+        params.pilot = pilot;
+        let mut personality = params.personality;
+        let _ = tables
+            .pilots
+            .personality_with_job(pilot, job, &mut personality);
+        params.personality = personality;
+    }
+}
+
+/// `ApplyNpcShipFaction(Faction, Gender, Params)` (`NpcShip.cpp:216-224`):
+/// the faction's space costume of the gender and a voice of the role
+/// (male 1, else 2); false without the faction's properties. A failed pick
+/// leaves the block's value.
+pub fn apply_npc_ship_faction(
+    cx: &mut Cx<'_>,
+    faction: u32,
+    gender: i32,
+    params: &mut NpcShipParams,
+) -> bool {
+    let tables = cx.logic.content.tables.clone();
+    let Some(props) = tables.faction_props(faction) else {
+        return false;
+    };
+    if let Some(costume) = super::npc_names::pick_space_costume(cx, props, gender) {
+        params.costume = costume;
+    }
+    let role = if gender != 1 { 2 } else { 1 };
+    if let Some(voice) = super::npc_names::pick_voice(cx, props, role) {
+        params.voice = voice;
+    }
+    true
+}
+
+/// `FSystemInfo::CreateNpcShips(List, DockTarget, OutShips)`
+/// (`SystemInfo.cpp:789-805`): each block through [`create_in_system`];
+/// a SpacePop block whose result is not 0 (a launch queued) ends the list.
+/// The ships made.
+pub fn create_npc_ships(
+    cx: &mut Cx<'_>,
+    system: u32,
+    blocks: &[NpcShipParams],
+    dock_target: u32,
+) -> Vec<NpcShipKey> {
+    let space_pop = cx.logic.content.state.space_pop.0;
+    let mut out = Vec::new();
+    for block in blocks {
+        let (result, ship) = create_in_system(cx, system, block, dock_target);
+        if result != 0 && block.controller == space_pop {
+            return out;
+        }
+        if let Some(ship) = ship {
+            out.push(ship);
+        }
+    }
+    out
+}
+
 /// `FSystemInfo::CreateNpcShip(Params, DockTarget, OutShip)`
 /// (`SystemInfo.cpp:758-785`) without a dock target: the ship made from a
 /// copy of the block with the record as its system, appended to the

@@ -621,6 +621,31 @@ pub fn pick_voice(cx: &mut Cx<'_>, props: &FactionProps, roles: u32) -> Option<u
     None
 }
 
+/// `FFactionProps::PickSpaceCostume(Gender, &Out)` (`FactionProps.cpp:241-272`):
+/// of the faction's space costumes those whose skeleton is of the gender
+/// (`pub::GF::GetCostumeSkeletonGender`), one drawn (`rand() * n /
+/// 32768`); `None`, without a draw, when none is.
+pub fn pick_space_costume(
+    cx: &mut Cx<'_>,
+    props: &FactionProps,
+    gender: i32,
+) -> Option<game_sim::data::costume::Costume> {
+    let mut matches = Vec::with_capacity(props.space_costumes.len());
+    for (index, costume) in props.space_costumes.iter().enumerate() {
+        if api::gf::costume_skeleton_gender(cx, costume) == gender {
+            matches.push(index);
+        }
+    }
+    if matches.is_empty() {
+        return None;
+    }
+    let pick = rand_index(cx, matches.len() as i32);
+    let at = usize::try_from(pick)
+        .ok()
+        .and_then(|i| matches.get(i).copied())?;
+    props.space_costumes.get(at).cloned()
+}
+
 /// `NameValue` of the `index`-th value of `s`; the C++ follows the chain
 /// without a test, the port answers 0 past its end (D874).
 fn value_at(s: &FmtStr, index: usize) -> i32 {

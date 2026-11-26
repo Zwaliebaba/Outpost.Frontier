@@ -164,7 +164,7 @@ pub struct Objective {
 }
 
 /// One line of a comm sequence conversation (`FRmLine`).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ConversationLine {
     /// `+0x40`: the line's speaker.
     pub speaker: i32,
@@ -172,6 +172,11 @@ pub struct ConversationLine {
     pub target: i32,
     /// `+0x48`.
     pub text: Vec<u8>,
+    /// The `FGcsPlayerListLine` part (`+0x00` to `+0x3c`): what the runtime
+    /// machine's `PrepareConversation` resolves on the offer's own line
+    /// (its speaker, voice, costume, comm type, players, text and mood;
+    /// P3.7b), which the comm system speaks ([`crate::content::gcs::add`]).
+    pub line: crate::content::gcs::lines::Line,
 }
 
 /// A comm sequence conversation (`FRmConversation`).
