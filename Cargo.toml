@@ -93,7 +93,7 @@ opt-level = 3
 # The simulation is slow unoptimised: a debug server with Content's NPC
 # population (P3.6d) falls behind its frames, each longer frame steps more
 # and the run never catches up (Gate G3's scripted client). Rust contracts
-# no float operations, so the results do not change.
+# no float operations, so the results do not change (decision O51).
 [profile.dev.package.neuron-core]
 opt-level = 2
 
