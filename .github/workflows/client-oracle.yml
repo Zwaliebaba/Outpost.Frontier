@@ -1,17 +1,17 @@
 name: Client oracle trial
 
 # Phase 5 (decision O50): can the C++ client's +oracle mode
-# (design/reference-build.md section 8) run on a hosted runner, so that Gate
-# G5's interface-tree dumps need not wait for the owner's machine? This job
-# builds the reference client, runs menu_walk.txt twice on the original data
-# in outdir/ with the run-folder values of the owner's run (section 3: no
-# startup movies, intro.ini's bDrawScripts = false; a PerfOptions.ini that
-# skips the machine warnings), answers the client's sound warning (the runner
-# has no audio device), compares the two runs
-# with each other and their figures with the owner run of 2026-11-17, and
-# logs what the runner gives the client (session, display, audio,
-# DirectPlay). It is a trial: it runs on request and when this file or the
-# oracle scripts change, and no other job depends on it.
+# (design/reference-build.md section 8, "Hosted runner") run on a hosted
+# runner, so that Gate G5's interface-tree dumps need not wait for the
+# owner's machine? This job builds the reference client and runs the oracle
+# scripts on the original data in outdir/ with the run-folder values of the
+# owner's run (section 3: no startup movies, intro.ini's bDrawScripts =
+# false; a PerfOptions.ini that skips the machine warnings), answers the
+# client's sound warning (the runner has no audio device), and compares the
+# runs with each other and with the owner run's figures (the step "Run the
+# oracle scripts" lists them). It is a trial: it runs on request and when
+# this file, the oracle scripts or the client's oracle mode change, and no
+# other job depends on it.
 
 on:
   workflow_dispatch:
@@ -19,6 +19,7 @@ on:
     paths:
       - ".github/workflows/client-oracle.yml"
       - "CppSource/OutpostFrontier/oracle/**"
+      - "CppSource/OutpostFrontier/Client/oracle_*"
 
 concurrency:
   group: client-oracle-${{ github.ref }}
@@ -113,18 +114,27 @@ jobs:
           Select-String -Path $ini -Pattern 'movie_file' | ForEach-Object { Write-Host $_.Line }
           Select-String -Path $intro -Pattern 'bDrawScripts' | ForEach-Object { Write-Host $_.Line }
 
-      - name: Run menu_walk.txt twice
+      - name: Run the oracle scripts
         # Section 8: the pointer parked in a screen corner, no UserKeyMap.ini, the window left
-        # in front. Each run gets five minutes (the owner's took 398 frames at 30 fps). The
-        # desktop is captured at 15, 60 and 180 seconds and at a timeout, with the windows
-        # and processes open then; a timed-out run is killed with its process tree.
-        timeout-minutes: 20
+        # in front; each run gets five minutes, a timed-out run is killed with its process
+        # tree. The runs, in order:
+        #   w      menu_walk.txt from a fresh per-user state (the registry key and the user
+        #          folder removed), the warm-up
+        #   a, b   menu_walk.txt again, twice: the runs compared with each other
+        #   c      menu_walk.txt after removing the registry key only
+        #   d      menu_walk.txt after removing the user folder only
+        #   s1, s2 single_player.txt twice, with the in-process server on the oracle clock
+        # c and d tell which per-user state makes the first run's extra login response.
+        # Every run starts from a PerfOptions.ini that skips the machine warnings.
+        timeout-minutes: 45
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.Windows.Forms, System.Drawing
           $run = "$env:RUNNER_TEMP\run"
-          $script = "$PWD\CppSource\OutpostFrontier\oracle\menu_walk.txt"
+          $scripts = "$PWD\CppSource\OutpostFrontier\oracle"
           $spew = "$env:LOCALAPPDATA\OutpostFrontier\FLSpew.txt"
+          $user = "$env:USERPROFILE\Documents\My Games\OutpostFrontier"
+          $regKey = 'HKCU:\Software\Microsoft\Microsoft Games\OutpostFrontier'
           function Capture($path) {
             try {
               $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
@@ -183,25 +193,26 @@ jobs:
           function Windows($id) {
             [Win]::Of([uint32]$id) | ForEach-Object { [Win]::Describe($_) }
           }
-          $result = @()
-          foreach ($n in 1, 2) {
-            $out = "$env:RUNNER_TEMP\oracle-out\run$n"
-            $diag = "$env:RUNNER_TEMP\oracle-out\diag$n"
-            New-Item -ItemType Directory -Force (Split-Path $out), $diag | Out-Null
-            Remove-Item "$env:USERPROFILE\Documents\My Games\OutpostFrontier\UserKeyMap.ini" -ErrorAction SilentlyContinue
-            Remove-Item $spew -ErrorAction SilentlyContinue
+          function Reset($what) {
+            if ($what -in 'all', 'registry') { Remove-Item $regKey -Recurse -Force -ErrorAction SilentlyContinue }
+            if ($what -in 'all', 'files') { Remove-Item $user -Recurse -Force -ErrorAction SilentlyContinue }
             # The low-machine warning (engine_init.cpp, BuildLowMachineWarning) opens a modal
             # dialog when the renderer's device level is low; the C++ skips the device test
-            # when PerfOptions.ini says so, in the form its own writer uses. Kept so a runner
-            # image with a weaker adapter does not stop the run.
-            $user = "$env:USERPROFILE\Documents\My Games\OutpostFrontier"
+            # when PerfOptions.ini says so, in the form its own writer uses.
             New-Item -ItemType Directory -Force $user | Out-Null
+            Remove-Item "$user\UserKeyMap.ini" -ErrorAction SilentlyContinue
             "[PerfVersion]`nversion=5`nSkipMachineWarnings=TRUE`n" | Set-Content -NoNewline "$user\PerfOptions.ini"
+          }
+          function RunOracle($name, $script, $reset) {
+            $out = "$env:RUNNER_TEMP\oracle-out\$name"
+            $diag = "$env:RUNNER_TEMP\oracle-out\diag-$name"
+            New-Item -ItemType Directory -Force (Split-Path $out), $diag | Out-Null
+            Reset $reset
+            Remove-Item $spew -ErrorAction SilentlyContinue
             [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(0, 0)
             $start = Get-Date
-            $p = Start-Process -FilePath "$run\OutpostFrontier.exe" -ArgumentList '+oracle', "`"$script`"", "`"$out`"" -WorkingDirectory $run -PassThru
+            $p = Start-Process -FilePath "$run\OutpostFrontier.exe" -ArgumentList '+oracle', "`"$scripts\$script`"", "`"$out`"" -WorkingDirectory $run -PassThru
             $code = 'timeout'
-            $shots = 15, 60, 180
             $fronted = $false
             for ($t = 1; $t -le 300; $t++) {
               if ($p.WaitForExit(1000)) { $code = $p.ExitCode; break }
@@ -211,44 +222,45 @@ jobs:
               # has no audio device, so the client runs without sound.
               foreach ($w in [Win]::Of([uint32]$p.Id)) {
                 if ([Win]::Visible($w) -and [Win]::Class($w) -eq '#32770') {
-                  Write-Host "t=$t s: dialog $([Win]::Describe($w))"
-                  [Win]::Children($w) | ForEach-Object { Write-Host "  $_" }
-                  Write-Host "  Yes pressed: $([Win]::Click($w, 6))"
+                  $text = ([Win]::Children($w) | Where-Object { $_ -match '^id=65535' }) -join ' '
+                  Write-Host "$name t=$t s: dialog '$text', Yes pressed: $([Win]::Click($w, 6))"
                 }
               }
               if (-not $fronted) {
                 $main = [Win]::Of([uint32]$p.Id) | Where-Object { [Win]::Visible($_) -and [Win]::Class($_) -eq 'OutpostFrontier' } | Select-Object -First 1
-                if ($main) { $fronted = $true; Write-Host "t=$t s: foreground $([Win]::Front($main)) for $([Win]::Describe($main))" }
-              }
-              if ($shots -contains $t) {
-                Capture "$diag\desktop_$t.png"
-                Write-Host "t=$t s: foreground $([Win]::Describe([Win]::GetForegroundWindow()))"
-                Windows $p.Id | ForEach-Object { Write-Host "  $_" }
+                if ($main) { $fronted = $true; Write-Host "$name t=$t s: foreground $([Win]::Front($main))" }
               }
             }
             if ($code -eq 'timeout') {
               Capture "$diag\desktop_timeout.png"
-              Windows $p.Id | Set-Content "$diag\windows.txt"
-              Get-Process | Sort-Object ProcessName | Format-Table Id, ProcessName, SessionId, MainWindowTitle -AutoSize | Out-String -Width 200 | Set-Content "$diag\processes.txt"
-              Get-Content "$diag\windows.txt" | Write-Host
+              Windows $p.Id | ForEach-Object { Write-Host "  $_" }
               taskkill /T /F /PID $p.Id | Out-Null
               Get-Process WerFault, dw15, OutpostServer -ErrorAction SilentlyContinue | Stop-Process -Force
             }
             $seconds = [int]((Get-Date) - $start).TotalSeconds
-            Write-Host "Run $n`: exit $code after $seconds s"
+            Write-Host "Run $name ($script, reset $reset): exit $code after $seconds s"
             New-Item -ItemType Directory -Force $out | Out-Null
-            if (Test-Path $spew) { Copy-Item $spew "$out\FLSpew.txt"; Get-Content $spew -Tail 40 | Write-Host }
-            Write-Host "PerfOptions.ini after run $n`:"; Get-Content "$user\PerfOptions.ini" -TotalCount 6 -ErrorAction SilentlyContinue | Write-Host
-            $result += "$n,$code,$seconds"
+            if (Test-Path $spew) { Copy-Item $spew "$out\FLSpew.txt" }
+            if ($code -ne 0 -and (Test-Path $spew)) { Get-Content $spew -Tail 30 | Write-Host }
+            "$name,$script,$reset,$code,$seconds"
           }
+          $result = @()
+          $result += RunOracle 'w' 'menu_walk.txt' 'all'
+          $result += RunOracle 'a' 'menu_walk.txt' 'none'
+          $result += RunOracle 'b' 'menu_walk.txt' 'none'
+          $result += RunOracle 'c' 'menu_walk.txt' 'registry'
+          $result += RunOracle 'd' 'menu_walk.txt' 'files'
+          $result += RunOracle 's1' 'single_player.txt' 'none'
+          $result += RunOracle 's2' 'single_player.txt' 'none'
           Get-ChildItem "$env:LOCALAPPDATA\CrashDumps", "$env:ProgramData\Microsoft\Windows\WER\ReportArchive" -Recurse -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -like '*OutpostFrontier*' } | ForEach-Object { Write-Host "WER: $($_.FullName)" }
-          $result | Set-Content "$env:RUNNER_TEMP\oracle-out\exit.csv"
+          $result | Where-Object { $_ -match ',' } | Set-Content "$env:RUNNER_TEMP\oracle-out\exit.csv"
 
       - name: Compare the runs
         if: ${{ always() }}
-        # Run 1 against the owner run's figures (section 8, "Owner run"), run 2 against run 1.
-        # The start record names the output folder, so it is left out of the comparison.
+        # The figures of every run, a against the owner run's (section 8, "Owner run"); then
+        # a against b, w against a and s1 against s2 file by file, with the IClient calls that
+        # differ. The start record names the output folder, so it is left out.
         shell: pwsh
         run: |
           $root = "$env:RUNNER_TEMP\oracle-out"
@@ -257,48 +269,47 @@ jobs:
             $session = Lines "$dir\session.jsonl" | ForEach-Object { $_ | ConvertFrom-Json }
             $quit = $session | Where-Object rec -eq 'quit' | Select-Object -Last 1
             $dumps = @($session | Where-Object rec -eq 'dump')
-            $shots = @($dumps | Where-Object { $_.shot })
             $keymap = Lines "$dir\keymap.jsonl" | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object rec -eq 'load'
             $base = $keymap | Where-Object phase -eq 'base' | Select-Object -First 1
-            $iclient = Lines "$dir\iclient.jsonl" | ForEach-Object { ($_ | ConvertFrom-Json).seq } | Sort-Object -Unique
-            [ordered]@{
-              'quit frame' = $quit.frame
-              'dumps' = $dumps.Count
-              'screenshots' = $shots.Count
-              'key map base (cmds/groups)' = if ($base) { "$($base.cmds)/$($base.groups)" } else { '' }
-              'layout records' = (Lines "$dir\layout.jsonl").Count
-              'IClient calls' = @($iclient).Count
+            $calls = @(Lines "$dir\iclient.jsonl" | ForEach-Object { ($_ | ConvertFrom-Json).seq } | Sort-Object -Unique)
+            "$($quit.frame) | $($dumps.Count) | $(@($dumps | Where-Object { $_.shot }).Count) | $(if ($base) { "$($base.cmds)/$($base.groups)" }) | $((Lines "$dir\layout.jsonl").Count) | $($calls.Count)"
+          }
+          $summary = @('## Client oracle trial', '', '| Run | Script | Reset | Exit | Seconds | Quit frame | Dumps | Shots | Key map | Layout | IClient calls |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |')
+          $summary += '| owner 2026-11-17 | menu_walk.txt | | 0 | | 398 | 9 | 9 | 122/5 | 176 | 6 |'
+          $summary += '| owner 2026-11-17 | single_player.txt | | 0 | | 2626 | 7 | 7 | | | |'
+          Get-Content "$root\exit.csv" | ForEach-Object { $f = $_ -split ','; $summary += "| $($f[0]) | $($f[1]) | $($f[2]) | $($f[3]) | $($f[4]) | $(Figures "$root\$($f[0])") |" }
+          function Pair($x, $y) {
+            $out = @('', "### $y against $x", '')
+            foreach ($file in 'session.jsonl', 'tree.jsonl', 'keymap.jsonl', 'layout.jsonl', 'iclient.jsonl') {
+              $a = @(Lines "$root\$x\$file" | Where-Object { $_ -notmatch '"rec":"start"' })
+              $b = @(Lines "$root\$y\$file" | Where-Object { $_ -notmatch '"rec":"start"' })
+              if ($a.Count -eq 0 -and $b.Count -eq 0) { $out += "- ``$file``: missing in both"; continue }
+              $diff = @(Compare-Object $a $b -SyncWindow 0)
+              if ($diff.Count -eq 0) { $out += "- ``$file``: equal ($($a.Count) lines)"; continue }
+              $first = 0; while ($first -lt [Math]::Min($a.Count, $b.Count) -and $a[$first] -eq $b[$first]) { $first++ }
+              $out += "- ``$file``: differs ($($a.Count) and $($b.Count) lines, first at line $($first + 1), $($diff.Count) lines only in one)"
+              if ($file -eq 'iclient.jsonl') {
+                $diff | Select-Object -First 12 | ForEach-Object {
+                  $line = $_.InputObject; if ($line.Length -gt 300) { $line = $line.Substring(0, 300) + '...' }
+                  $out += "    $($_.SideIndicator) $line"
+                }
+              }
             }
+            $s1 = Get-ChildItem "$root\$x\shot_*.bmp" -ErrorAction SilentlyContinue
+            $same = @($s1 | Where-Object { (Test-Path "$root\$y\$($_.Name)") -and (Get-FileHash $_).Hash -eq (Get-FileHash "$root\$y\$($_.Name)").Hash }).Count
+            $out += "- screenshots: $same of $(@($s1).Count) byte-identical"
+            $out
           }
-          $owner = [ordered]@{ 'quit frame' = 398; 'dumps' = 9; 'screenshots' = 9; 'key map base (cmds/groups)' = '122/5'; 'layout records' = 176; 'IClient calls' = 6 }
-          $one = Figures "$root\run1"; $two = Figures "$root\run2"
-          $summary = @('## Client oracle trial: menu_walk.txt', '', '| Run | Exit | Seconds |', '| --- | --- | --- |')
-          Get-Content "$root\exit.csv" | ForEach-Object { $f = $_ -split ','; $summary += "| $($f[0]) | $($f[1]) | $($f[2]) |" }
-          $summary += @('', '| Figure | Owner run 2026-11-17 | Run 1 | Run 2 |', '| --- | --- | --- | --- |')
-          foreach ($k in $owner.Keys) { $summary += "| $k | $($owner[$k]) | $($one[$k]) | $($two[$k]) |" }
-          $summary += @('', '### Run 2 against run 1', '')
-          foreach ($file in 'session.jsonl', 'tree.jsonl', 'keymap.jsonl', 'layout.jsonl', 'iclient.jsonl') {
-            $a = Lines "$root\run1\$file" | Where-Object { $_ -notmatch '"rec":"start"' }
-            $b = Lines "$root\run2\$file" | Where-Object { $_ -notmatch '"rec":"start"' }
-            if ($a.Count -eq 0 -and $b.Count -eq 0) { $state = 'missing in both' }
-            elseif ((Compare-Object $a $b -SyncWindow 0).Count -eq 0) { $state = "equal ($($a.Count) lines)" }
-            else { $state = "differs ($($a.Count) and $($b.Count) lines)" }
-            $summary += "- ``$file``: $state"
-          }
-          $shots1 = Get-ChildItem "$root\run1\shot_*.bmp" -ErrorAction SilentlyContinue
-          $same = 0
-          foreach ($s in $shots1) {
-            $o = "$root\run2\$($s.Name)"
-            if ((Test-Path $o) -and (Get-FileHash $s).Hash -eq (Get-FileHash $o).Hash) { $same++ }
-          }
-          $summary += "- screenshots: $same of $(@($shots1).Count) byte-identical"
-          foreach ($n in 1, 2) {
-            $calls = Lines "$root\run$n\iclient.jsonl" | ForEach-Object { $j = $_ | ConvertFrom-Json; if ($null -eq $j.r) { "$($j.frame):$($j.m)" } }
-            $summary += "- run $n IClient calls (frame:method): $($calls -join ', ')"
+          $summary += Pair 'a' 'b'
+          $summary += Pair 'w' 'a'
+          $summary += Pair 's1' 's2'
+          $summary += @('', '### Login responses per run', '')
+          foreach ($n in 'w', 'a', 'c', 'd') {
+            $calls = Lines "$root\$n\iclient.jsonl" | Where-Object { $_ -match 'SendServerLoginResponse|"m":"Startup"|OnConnect' -and $_ -notmatch '"r":' }
+            $summary += "- $n`: $(($calls | ForEach-Object { $j = $_ | ConvertFrom-Json; "$($j.m) $($j.a | ConvertTo-Json -Compress)" }) -join ' ; ')"
           }
           $summary | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
           $summary | Write-Host
-          if (-not (Test-Path "$root\run1\tree.jsonl")) { Write-Host 'Run 1 wrote no interface tree.'; exit 1 }
 
       - name: Keep the outputs
         # Made from the game data, so kept as a short-lived artifact and never committed
