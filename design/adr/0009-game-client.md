@@ -193,7 +193,8 @@ Gate G5 asks that interface-tree dumps equal the oracle for every screen.
 - Gate G5's screen criterion becomes a mechanical comparison of the two
   oracle modes' files. Where the C++ mode cannot run in CI (the trial job
   `.github/workflows/client-oracle.yml`), the comparison runs on the
-  owner's machine from a runbook, as Gate G4's did.
+  owner's machine from a runbook, as Gate G4's did. The trial ran
+  `menu_walk.txt` there on 2026-11-26 (question 5).
 - Saves: the C++ client writes no save files (`nn_load_save.cpp:611`,
   `:814` call the server). G5's interchange criterion rests on Phase 3's
   writer; Phase 5 adds the client's raw state blobs the server stores
@@ -230,7 +231,16 @@ Gate G5 asks that interface-tree dumps equal the oracle for every screen.
    log of a session is compared as a sequence of slots only.
 4. The comparison rules of point 6 (`rtti` left out, `flags` bits 0 to 3
    as the dump already writes). Recommended.
-5. Where Gate G5's comparisons run: in CI if the trial job shows the C++
-   client runs on a hosted runner, else on the owner's machine from a
-   runbook. The trial's result is added here before this record is
-   decided.
+5. Where Gate G5's comparisons run. The trial job
+   (`.github/workflows/client-oracle.yml`, [reference-build.md](../reference-build.md)
+   section 8, "Hosted runner") ran `menu_walk.txt` on a hosted runner on
+   2026-11-26 with the owner run's figures and two runs equal in their
+   session, trees, key map, layouts and screenshots; the IClient log
+   differed by one call between them, and the runner has no sound device
+   (the client's sound warning is answered Yes). Recommended: the C++
+   oracle's menu scripts run in CI and the Rust client's comparison with
+   them is a CI job; the owner compares one CI artifact with a local run
+   once, to confirm the runner's files equal the owner's; scripts with a
+   session follow question 3, and screenshots keep the Tier C metric
+   because the runner's adapter and default options differ from the
+   owner's.

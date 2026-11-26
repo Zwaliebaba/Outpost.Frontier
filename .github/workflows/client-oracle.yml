@@ -6,7 +6,8 @@ name: Client oracle trial
 # builds the reference client, runs menu_walk.txt twice on the original data
 # in outdir/ with the run-folder values of the owner's run (section 3: no
 # startup movies, intro.ini's bDrawScripts = false; a PerfOptions.ini that
-# skips the low-machine warning dialog), compares the two runs
+# skips the machine warnings), answers the client's sound warning (the runner
+# has no audio device), compares the two runs
 # with each other and their figures with the owner run of 2026-11-17, and
 # logs what the runner gives the client (session, display, audio,
 # DirectPlay). It is a trial: it runs on request and when this file or the
@@ -189,9 +190,10 @@ jobs:
             New-Item -ItemType Directory -Force (Split-Path $out), $diag | Out-Null
             Remove-Item "$env:USERPROFILE\Documents\My Games\OutpostFrontier\UserKeyMap.ini" -ErrorAction SilentlyContinue
             Remove-Item $spew -ErrorAction SilentlyContinue
-            # The low-machine warning (engine_init.cpp, BuildLowMachineWarning) asks the
-            # renderer's device level and opens a modal dialog on the runner's adapter; the C++
-            # skips it when PerfOptions.ini says so, in the form its own writer uses.
+            # The low-machine warning (engine_init.cpp, BuildLowMachineWarning) opens a modal
+            # dialog when the renderer's device level is low; the C++ skips the device test
+            # when PerfOptions.ini says so, in the form its own writer uses. Kept so a runner
+            # image with a weaker adapter does not stop the run.
             $user = "$env:USERPROFILE\Documents\My Games\OutpostFrontier"
             New-Item -ItemType Directory -Force $user | Out-Null
             "[PerfVersion]`nversion=5`nSkipMachineWarnings=TRUE`n" | Set-Content -NoNewline "$user\PerfOptions.ini"
@@ -203,8 +205,10 @@ jobs:
             $fronted = $false
             for ($t = 1; $t -le 300; $t++) {
               if ($p.WaitForExit(1000)) { $code = $p.ExitCode; break }
-              # The low-machine warning (title IDS 210): its text into the log, then its Yes
-              # button (id 6), as a player answers it.
+              # A dialog of the client's: its text into the log, then its Yes button (id 6), as
+              # a player answers it. On the runner this is the sound warning (caption IDS 210,
+              # text "... failed to initialize sound ... continue without sound?"): the runner
+              # has no audio device, so the client runs without sound.
               foreach ($w in [Win]::Of([uint32]$p.Id)) {
                 if ([Win]::Visible($w) -and [Win]::Class($w) -eq '#32770') {
                   Write-Host "t=$t s: dialog $([Win]::Describe($w))"
@@ -288,6 +292,10 @@ jobs:
             if ((Test-Path $o) -and (Get-FileHash $s).Hash -eq (Get-FileHash $o).Hash) { $same++ }
           }
           $summary += "- screenshots: $same of $(@($shots1).Count) byte-identical"
+          foreach ($n in 1, 2) {
+            $calls = Lines "$root\run$n\iclient.jsonl" | ForEach-Object { $j = $_ | ConvertFrom-Json; if ($null -eq $j.r) { "$($j.frame):$($j.m)" } }
+            $summary += "- run $n IClient calls (frame:method): $($calls -join ', ')"
+          }
           $summary | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
           $summary | Write-Host
           if (-not (Test-Path "$root\run1\tree.jsonl")) { Write-Host 'Run 1 wrote no interface tree.'; exit 1 }

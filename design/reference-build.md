@@ -428,6 +428,39 @@ menu's background scene and are void.
 
 The outputs are made from the game data and stay outside the repository.
 
+### Hosted runner (Phase 5 trial)
+
+`.github/workflows/client-oracle.yml` runs `menu_walk.txt` twice on a
+`windows-2025-vs2026` hosted runner, on request and when the workflow or the
+oracle scripts change (decision O50's check). Run 4 of 2026-11-26
+([45784829807](https://github.com/Zwaliebaba/Outpost.Frontier/actions/runs/45784829807)),
+commit `2c63c375`, with the reference solution built by the image's default
+toolset:
+
+| Figure | Owner run 2026-11-17 | CI run 1 | CI run 2 |
+| --- | --- | --- | --- |
+| Exit code, frames | 0, 398 | 0, 398 | 0, 398 |
+| Dumps, screenshots | 9, 9 | 9, 9 | 9, 9 |
+| Key map `base` (commands, groups) | 122, 5 | 122, 5 | 122, 5 |
+| Layout records | 176 | 176 | 176 |
+| IClient calls | 6 | 7 | 6 |
+
+The two CI runs have equal `session.jsonl` (44 lines without the `start`
+record), `tree.jsonl` (1,029), `keymap.jsonl` (258) and `layout.jsonl`
+(176), and byte-identical screenshots; their IClient logs differ by one call.
+The CI files have not been compared with the owner's files, which stay
+outside the repository; the job keeps them as a 7-day artifact for that.
+
+What the runner needs, found over runs 1 to 3:
+
+| Runner | What the job does |
+| --- | --- |
+| Session 2, interactive; Hyper-V video adapter at 1024x768 | `Set-DisplayResolution` to 1920x1080, so the windowed client area fits the screen |
+| Audio services running, but no audio device | The client finds no DirectSound device and opens a modal dialog with caption IDS 210 ("OutpostFrontier Critical Warning": "failed to initialize sound ... continue without sound?"), which the job answers Yes. The runs are therefore without sound |
+| DirectPlay disabled | Enabled with DISM (section 5) |
+| No `PerfOptions.ini` | Starts from one holding only `[PerfVersion]` with `SkipMachineWarnings=TRUE`, so a weak adapter's low-machine warning cannot stop the run; every option has its default, unlike an owner's folder with local settings |
+| Another window in front | The client's window is brought to the foreground once visible, because windowed single player runs no frame while the application is inactive (`window.cpp`, `OnActivateApp`) |
+
 ### Hooks in existing files
 
 Each is one or two lines marked `Oracle instrumentation (P0.5)`: `main.cpp`
