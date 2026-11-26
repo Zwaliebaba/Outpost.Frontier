@@ -17,8 +17,9 @@
 //! The records the save writes come from the snapshot of the live ships
 //! (`SnapshotMissionObjects`, which needs the NPC ships of P3.6c and runs
 //! with the mission's run time, P3.5c) or from a restored save. The restore
-//! makes no guide object: a ship whose save has a `[MetaBehavior]` keeps
-//! the object `CreateGuide` would be given ([`MissionShip::guide`]).
+//! makes the guide of a ship whose save has a `[MetaBehavior]` with no
+//! ship (`CreateGuide`, [`MissionShip::guide_ref`], P3.5c4) and keeps the
+//! object it was made from ([`MissionShip::guide`]).
 
 use std::io::{self, Write};
 
@@ -108,6 +109,11 @@ pub struct RandEncRespawn {
     /// `Guide`: the leader's guide, kept as the `[MetaBehavior]` object it
     /// was made from (none after a restore, which makes no guide here).
     pub guide: Option<MetaBehavior>,
+    /// `Guide` (`+0x60`) as `SnapshotMissionObjects` takes it: the
+    /// leader's live guide, which the record references (the C++ keeps a
+    /// raw pointer it never releases, D1041) while the guide drives no
+    /// ship; released when the records are emptied.
+    pub guide_ref: Option<crate::content::guides::GuideRef>,
     /// `Priority` (unset in the C++ template; 0).
     pub priority: i32,
     /// `HitPoints` (-1).
@@ -125,6 +131,7 @@ impl Default for RandEncRespawn {
             names: Vec::new(),
             directives: Vec::new(),
             guide: None,
+            guide_ref: None,
             priority: 0,
             hit_points: -1,
         }
@@ -160,12 +167,12 @@ fn write_orientation(out: &mut dyn Write, m: &Matrix) -> io::Result<()> {
 /// for an empty one).
 fn write_guide_or_directives(
     out: &mut dyn Write,
-    guide: Option<&MetaBehavior>,
+    guide_line: Option<&[u8]>,
     directives: &[ObjListDirective],
 ) -> io::Result<()> {
-    if let Some(guide) = guide {
+    if let Some(line) = guide_line {
         out.write_all(b"\n[MetaBehavior]\n")?;
-        return out.write_all(&guide.guide().line);
+        return out.write_all(line);
     }
     if directives.is_empty() {
         return Ok(());
@@ -180,8 +187,18 @@ fn write_guide_or_directives(
     Ok(())
 }
 
-fn write_ship(out: &mut dyn Write, ship: &MissionShip) -> io::Result<()> {
-    write_guide_or_directives(out, ship.guide.as_ref(), &ship.directives)?;
+/// The line of a ship slot's guide (`FLineGuide::Line`): its live
+/// guide's, else the `[MetaBehavior]` object's it is kept as; `None`
+/// without a guide. A live guide of another class has none (D1041).
+fn ship_guide_line<'a>(cx: &'a Cx<'_>, ship: &'a MissionShip) -> Option<&'a [u8]> {
+    if let Some(guide) = ship.guide_ref {
+        return Some(crate::content::guides::line(cx, guide).unwrap_or_default());
+    }
+    ship.guide.as_ref().map(|m| m.guide().line.as_slice())
+}
+
+fn write_ship(cx: &Cx<'_>, out: &mut dyn Write, ship: &MissionShip) -> io::Result<()> {
+    write_guide_or_directives(out, ship_guide_line(cx, ship), &ship.directives)?;
     out.write_all(b"\n[MsnShipSave]\n")?;
     out.write_all(b"nickname = ")?;
     out.write_all(&ship.nickname)?;
@@ -203,9 +220,9 @@ fn write_ship(out: &mut dyn Write, ship: &MissionShip) -> io::Result<()> {
     Ok(())
 }
 
-fn write_wing(out: &mut dyn Write, group: &ShipGroup) -> io::Result<()> {
+fn write_wing(cx: &Cx<'_>, out: &mut dyn Write, group: &ShipGroup) -> io::Result<()> {
     for ship in &group.ships {
-        write_ship(out, ship)?;
+        write_ship(cx, out, ship)?;
     }
     out.write_all(b"\n[MsnWingSave]\n")?;
     out.write_all(b"nickname = ")?;
@@ -227,8 +244,22 @@ fn write_wing(out: &mut dyn Write, group: &ShipGroup) -> io::Result<()> {
     Ok(())
 }
 
-fn write_rand_enc_respawn(out: &mut dyn Write, record: &RandEncRespawn) -> io::Result<()> {
-    write_guide_or_directives(out, record.guide.as_ref(), &record.directives)?;
+/// The line of a random-encounter record's guide: its live guide's (a
+/// guide of another class has none, D1041), else the `[MetaBehavior]`
+/// object's it is kept as.
+fn rand_enc_guide_line<'a>(cx: &'a Cx<'_>, record: &'a RandEncRespawn) -> Option<&'a [u8]> {
+    if let Some(guide) = record.guide_ref {
+        return Some(crate::content::guides::line(cx, guide).unwrap_or_default());
+    }
+    record.guide.as_ref().map(|m| m.guide().line.as_slice())
+}
+
+fn write_rand_enc_respawn(
+    out: &mut dyn Write,
+    record: &RandEncRespawn,
+    line: Option<&[u8]>,
+) -> io::Result<()> {
+    write_guide_or_directives(out, line, &record.directives)?;
     out.write_all(b"\n[MsnRandEncSave]\n")?;
     writeln!(out, "rand_enc_owner = {}", record.encounter_id)?;
     let t = record.placement.translation;
@@ -546,10 +577,10 @@ pub fn write_rand_encs(
 /// The writer's.
 pub fn write(cx: &Cx<'_>, out: &mut dyn Write, object: &mut MissionObject) -> io::Result<()> {
     for group in &object.respawn_ships {
-        write_wing(out, group)?;
+        write_wing(cx, out, group)?;
     }
     for record in &object.rand_enc_respawns {
-        write_rand_enc_respawn(out, record)?;
+        write_rand_enc_respawn(out, record, rand_enc_guide_line(cx, record))?;
     }
     write_names(
         out,
@@ -850,6 +881,10 @@ pub fn load(cx: &mut Cx<'_>, reader: &mut IniReader, object: &mut MissionObject)
                 ship.directives.clear();
                 ship.init_meta_behavior = local_objective();
                 ship.guide = Some(first.clone());
+                // `CreateGuide(MetaList.front(), &Ship.Guide)`: a guide of
+                // no ship, which the respawn gives the ship (P3.5c4).
+                let desc = crate::content::guides::GuideDesc::from_meta(first.clone());
+                ship.guide_ref = crate::content::guides::create_detached_guide(cx, &desc);
             }
             pending_ships.push(ship);
         } else if reader.is_header(b"MsnRandEncSave") {
@@ -950,7 +985,7 @@ mod tests {
             names: vec![b"a".to_vec(), b"b".to_vec()],
             ..RandEncRespawn::default()
         };
-        let out = text(|o| write_rand_enc_respawn(o, &record));
+        let out = text(|o| write_rand_enc_respawn(o, &record, None));
         assert_eq!(
             out,
             "\n[MsnRandEncSave]\nrand_enc_owner = 3\nposition = 0.000000, 0.000000, 0.000000\n\

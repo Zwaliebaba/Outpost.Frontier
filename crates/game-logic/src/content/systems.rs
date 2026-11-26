@@ -912,6 +912,156 @@ pub fn find_player_ship(cx: &Cx<'_>, record: &SystemInfo, ship: u32) -> Option<u
     })
 }
 
+/// `FSpaceObjPendingComm` (0x10 bytes, `Content/NpcBase.h`): a mission
+/// dialog line an object says when the line before it ends
+/// (`FMissionDialog::Start`, P3.5c4).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PendingComm {
+    /// `Key` (`+0x00`): the text id of the line before it.
+    pub key: u32,
+    /// `TextId` (`+0x04`).
+    pub text_id: u32,
+    /// `TargetId` (`+0x08`).
+    pub target_id: u32,
+    /// `Field_0x0c` (0).
+    pub field_0x0c: u32,
+}
+
+/// A speaker's own voice, comm type and costume for
+/// [`send_comm`] (`VoiceId`, `CommType`, `Costume`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommSpeaker {
+    /// `VoiceId`.
+    pub voice: u32,
+    /// `CommType`.
+    pub comm_type: u32,
+    /// `Costume`.
+    pub costume: game_sim::data::costume::Costume,
+}
+
+/// `FSystemInfo::SendComm(Sender, Target, TextId, VoiceId, CommType,
+/// Costume, Duration)` (`SystemInfo.cpp:2018-2037`): `SendSpaceComm` with
+/// the one text, mood 0, interrupting, which is `pub::SpaceObj::SendComm`
+/// (the record itself is not read). Without `speaker` the voice and the
+/// comm type are 0 and the costume null.
+///
+/// # Errors
+///
+/// `pub::SpaceObj::SendComm`'s.
+pub fn send_comm(
+    cx: &mut Cx<'_>,
+    sender: u32,
+    target: u32,
+    text_id: u32,
+    speaker: Option<CommSpeaker>,
+    duration: f32,
+) -> Result<(), crate::api::PubError> {
+    let (voice, comm_type, costume) = match speaker {
+        Some(s) => (s.voice, s.comm_type, Some(s.costume)),
+        None => (0, 0, None),
+    };
+    let request = api::space_obj::CommRequest {
+        sender,
+        target,
+        voice,
+        costume,
+        comm_type,
+        text_ids: vec![text_id],
+        mood: 0,
+        duration,
+        interrupt: true,
+    };
+    api::space_obj::send_comm(cx, &request)
+}
+
+/// The pending comms of a system object (`FContentSpaceObj +0x108`).
+fn pending_comms_mut<'c>(
+    cx: &'c mut Cx<'_>,
+    object: super::gcs::SpaceObjRef,
+) -> Option<&'c mut Vec<PendingComm>> {
+    let state = &mut cx.logic.content.state;
+    match object {
+        super::gcs::SpaceObjRef::Ship(ship) => {
+            super::ships::base_mut(state, ship).map(|s| &mut s.pending_comms)
+        }
+        super::gcs::SpaceObjRef::Solar { system, at } => state
+            .systems
+            .get_mut(&system)
+            .and_then(|r| r.solar_npcs.get_mut(at))
+            .map(|n| &mut n.pending_comms),
+    }
+}
+
+/// The space object id of a system object (`SpaceObjId`, TU20 `+0x04`); 0
+/// for one that is gone.
+#[must_use]
+pub fn space_obj_id(cx: &Cx<'_>, object: super::gcs::SpaceObjRef) -> u32 {
+    let state = &cx.logic.content.state;
+    match object {
+        super::gcs::SpaceObjRef::Ship(ship) => super::ships::id(state, ship),
+        super::gcs::SpaceObjRef::Solar { system, at } => state
+            .systems
+            .get(&system)
+            .and_then(|r| r.solar_npcs.get(at))
+            .map_or(0, |n| n.object),
+    }
+}
+
+/// Replaces the pending comms of a system object (the vector assignment
+/// of `FMissionDialog::Start`, `MissionDialogs.cpp:189-192`).
+pub fn set_pending_comms(
+    cx: &mut Cx<'_>,
+    object: super::gcs::SpaceObjRef,
+    comms: Vec<PendingComm>,
+) {
+    if let Some(list) = pending_comms_mut(cx, object) {
+        *list = comms;
+    }
+}
+
+/// `FContentSpaceObj::SendPendingComm(_, Key, _)` (`NpcBase.cpp:71-90`):
+/// the first pending comm of the key is said from the object to its target
+/// (the system's `SendComm`, no voice, comm type or costume, 0.5 s) and
+/// dropped.
+pub fn send_pending_comm(cx: &mut Cx<'_>, object: super::gcs::SpaceObjRef, key: u32) {
+    let sender = space_obj_id(cx, object);
+    let Some(list) = pending_comms_mut(cx, object) else {
+        return;
+    };
+    let Some(at) = list.iter().position(|c| c.key == key) else {
+        return;
+    };
+    let comm = list.remove(at);
+    let _ = send_comm(cx, sender, comm.target_id, comm.text_id, None, 0.5);
+}
+
+/// `FSystemInfo::SendPendingComms(Arg1, _, Key)` (`SystemInfo.cpp:614-632`,
+/// SpaceSupport's `CommComplete`): the record's NPC ships, its solar NPCs,
+/// then its players' ships each say their pending comm of the key. Nothing
+/// without the record.
+pub fn send_pending_comms(cx: &mut Cx<'_>, system: u32, key: u32) {
+    use super::gcs::SpaceObjRef;
+    use super::ships::ShipKey;
+    let Some(record) = cx.logic.content.state.systems.get(&system) else {
+        return;
+    };
+    let mut objects: Vec<SpaceObjRef> = record
+        .space_objs
+        .iter()
+        .map(|&k| SpaceObjRef::Ship(ShipKey::Npc(k)))
+        .collect();
+    objects.extend((0..record.solar_npcs.len()).map(|at| SpaceObjRef::Solar { system, at }));
+    objects.extend(
+        record
+            .players
+            .iter()
+            .map(|&p| SpaceObjRef::Ship(ShipKey::Player(p))),
+    );
+    for object in objects {
+        send_pending_comm(cx, object, key);
+    }
+}
+
 /// `DistanceSquaredBetween(&Point, &Position)` (`:636-642`): the
 /// differences and their squares in extended precision (`f64`), summed
 /// z, x, y.

@@ -6,7 +6,7 @@
 //!
 //! - the triggers and the mission state: `Act_ActTrig`, `Act_DeactTrig`,
 //!   `Act_ChangeState`, `Act_Save`, `Act_DebugMsg`, and the delay of
-//!   `Act_StartDialog` (its timer; the dialog itself is P3.5c4's);
+//!   `Act_StartDialog` (its timer; the dialog itself came with P3.5c4);
 //! - the clamps: `Act_GCSClamp`, `Act_RandomPop`, `Act_RandomPopSphere`,
 //!   `Act_RpopAttClamp`, `Act_RpopTLAttacksEnabled`, `Act_HostileClamp`,
 //!   `Act_NagClamp`, `Act_DisableEnc`, `Act_DisableFriendlyFire`;
@@ -34,11 +34,20 @@
 //! `[ObjList]` directives they hand out run through
 //! [`super::obj_list_execute`].
 //!
-//! The other 23 classes (and `Act_StartDialog` but for its delay) run
-//! without an effect until their increment (D970): P3.5c4 the comms,
-//! cameras, cut scenes, ambient scenes and offers, P3.5c5 the objectives,
-//! nags and the NN path. The trace records each of them as it runs, as the
-//! C++'s does.
+//! P3.5c4 ports the 13 classes of the comms, cameras, cut scenes, ambient
+//! scenes and offers ([`comms_scenes`]): `Act_SendComm`, `Act_EtherComm`,
+//! `Act_StartDialog`'s dialog (`StartMissionDialog`,
+//! [`super::dialog::start_mission_dialog`]), `Act_CallSceneScript`,
+//! `Act_StaticCam`, `Act_RevertCam`, `Act_AddRTC`, `Act_RemoveRTC`,
+//! `Act_AddAmbient`, `Act_RemoveAmbient`, `Act_PopUpDialog`,
+//! `Act_SetOffer` and `Act_SetTitle`, over the script's cut scenes and
+//! scenes ([`super::scenes`]).
+//!
+//! The other 10 classes run without an effect until their increment
+//! (D970): P3.5c5 the objectives, nags and the NN path (and the
+//! objectives' renumber `Act_SetOffer` and `Act_SetTitle` end with), P3.6d
+//! `Act_EnableEnc`'s populator reset. The trace records each of them as it
+//! runs, as the C++'s does.
 //!
 //! An action is cloned out of its trigger before it runs and written back
 //! after it (the engine, [`super::engine`]): `Act_StartDialog` keeps its
@@ -57,11 +66,12 @@ use crate::api::audio::Tryptich;
 use crate::server::Cx;
 
 mod ai_rep;
+mod comms_scenes;
 mod objects;
 
 pub use ai_rep::set_object_vibe;
 
-/// The actions P3.5c1 to P3.5c3 run with their effect; the rest run
+/// The actions P3.5c1 to P3.5c4 run with their effect; the rest run
 /// without one until their increment (D970).
 #[must_use]
 pub fn is_ported(action: &Action) -> bool {
@@ -131,6 +141,20 @@ pub fn is_ported(action: &Action) -> bool {
             | Action::SetVibeOfferBaseHack(_)
             | Action::SetRep(_)
             | Action::RepChangeRequest(_)
+            // P3.5c4.
+            | Action::SendComm(_)
+            | Action::EtherComm(_)
+            | Action::StartDialog(_)
+            | Action::CallSceneScript(_)
+            | Action::StaticCam(_)
+            | Action::RevertCam(_)
+            | Action::AddRtc(_)
+            | Action::RemoveRtc(_)
+            | Action::AddAmbient(_)
+            | Action::RemoveAmbient(_)
+            | Action::PopUpDialog(_)
+            | Action::SetOffer(_)
+            | Action::SetTitle(_)
     )
 }
 
@@ -203,12 +227,11 @@ pub fn execute(
                 a.delay_pending = false;
                 return true;
             }
-            // StartMissionDialog: the comm and the dialog's speakers come
-            // with P3.5c4 over P3.6b's comm system (D971).
+            let result = super::dialog::start_mission_dialog(cx, a.dialog_id, player);
             if a.delay_seconds != -1 {
                 a.delay_pending = true;
             }
-            true
+            result
         }
         Action::GcsClamp(a) => {
             cx.logic.content.state.clamps.gcs_clamp_disabled = u8::from(!a.clamp);
@@ -244,9 +267,8 @@ pub fn execute(
                 .map(|s| s.object.npc_objects.values().copied().collect())
                 .unwrap_or_default();
             for key in keys {
-                if let Some(npc) = cx.logic.content.state.npc_ships.get_mut(&key) {
-                    npc.muted = a.clamp;
-                }
+                // `SetField1b1`: muting also stops the ship's event timer.
+                crate::content::npc_ships::set_muted(cx, key, a.clamp);
             }
             if let Some(s) = script_mut(cx, id) {
                 s.nag_clamp = a.clamp;
@@ -369,6 +391,18 @@ pub fn execute(
         | Action::SetVibeOfferBaseHack(_)
         | Action::SetRep(_)
         | Action::RepChangeRequest(_) => ai_rep::execute(cx, id, action),
+        Action::SendComm(_)
+        | Action::EtherComm(_)
+        | Action::CallSceneScript(_)
+        | Action::StaticCam(_)
+        | Action::RevertCam(_)
+        | Action::AddRtc(_)
+        | Action::RemoveRtc(_)
+        | Action::AddAmbient(_)
+        | Action::RemoveAmbient(_)
+        | Action::PopUpDialog(_)
+        | Action::SetOffer(_)
+        | Action::SetTitle(_) => comms_scenes::execute(cx, id, action),
         _ => objects::execute(cx, id, action),
     }
 }

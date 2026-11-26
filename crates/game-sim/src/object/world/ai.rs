@@ -496,15 +496,45 @@ impl AiWorld for World {
             .collect()
     }
 
-    /// Reputation is not ported (the server's groups): the attitude a
-    /// harness set ([`World::set_attitude`]), none otherwise.
+    /// `IObjInspectImpl::get_attitude_towards` (`common_iobjinspectimpl.cpp:765`):
+    /// the attitude a harness set for the pair ([`World::set_attitude`],
+    /// D165), else `CEqObj::attitude_towards` (`common_ceqobj.cpp:598`):
+    /// `Vibe::AttitudeTowards` of the two objects' vibes, 0 when either
+    /// vibe is unknown. `None` (the C++'s -3) unless both are equipped
+    /// objects.
     fn attitude(&self, from: ObjHandle, to: ObjHandle) -> Option<f32> {
-        let (a, b) = (self.get(from)?.simple.id, self.get(to)?.simple.id);
-        self.attitudes.get(&(a, b)).copied()
+        let (a, b) = (self.get(from)?, self.get(to)?);
+        if let Some(&value) = self.attitudes.get(&(a.simple.id, b.simple.id)) {
+            return Some(value);
+        }
+        let (va, vb) = (a.equipped.as_ref()?.vibe, b.equipped.as_ref()?.vibe);
+        match self.vibes.attitude_towards(va, vb, &self.reputation) {
+            (0, value) => Some(value),
+            _ => Some(0.0),
+        }
     }
 
+    /// `get_attitude_towards_symmetrical` (`:785`): the harness's pair in
+    /// both directions when it set either ([`World::set_attitude`], D165),
+    /// else `CEqObj::attitude_towards_symmetrical` (`common_ceqobj.cpp:621`):
+    /// `Vibe::AttitudeTowardsSymmetrical`, both 0 when it fails.
     fn attitude_symmetrical(&self, from: ObjHandle, to: ObjHandle) -> Option<(f32, f32)> {
-        Some((self.attitude(from, to)?, self.attitude(to, from)?))
+        let (a, b) = (self.get(from)?, self.get(to)?);
+        let (ia, ib) = (a.simple.id, b.simple.id);
+        if self.attitudes.contains_key(&(ia, ib)) || self.attitudes.contains_key(&(ib, ia)) {
+            return Some((
+                *self.attitudes.get(&(ia, ib))?,
+                *self.attitudes.get(&(ib, ia))?,
+            ));
+        }
+        let (va, vb) = (a.equipped.as_ref()?.vibe, b.equipped.as_ref()?.vibe);
+        match self
+            .vibes
+            .attitude_towards_symmetrical(va, vb, &self.reputation)
+        {
+            (0, toward, Some(reverse)) => Some((toward, reverse)),
+            _ => Some((0.0, 0.0)),
+        }
     }
 
     /// `get_hardpoint` (`HardpointPosition`, `common_hierarchy.cpp:55`):

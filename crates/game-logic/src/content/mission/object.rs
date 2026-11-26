@@ -103,10 +103,14 @@ record! {
         /// copy of its ship's directives, or a restored `[MObjective]`
         /// (P3.5b), written back as `[MObjective]`.
         directives: Vec<ObjListDirective> = Vec::new(),
-        /// `Guide` (+0x68): none after the parse; a restored ship's guide,
-        /// kept as the `[MetaBehavior]` object `CreateGuide` made it from
-        /// (P3.5b; the guide objects are P3.6c's). The save writes its line.
+        /// The `[MetaBehavior]` object a restored ship's guide was made
+        /// from (`CreateGuide`, P3.5b); none after the parse.
         guide: Option<MetaBehavior> = None,
+        /// `Guide` (+0x68): the live guide, one reference held: a restored
+        /// ship's (made from [`Self::guide`]) or, in a respawn record, the
+        /// guide the snapshot took from the ship (`TakeGuide`, P3.5c4); the
+        /// respawn hands it back and the save writes its line.
+        guide_ref: Option<crate::content::guides::GuideRef> = None,
     }
 }
 

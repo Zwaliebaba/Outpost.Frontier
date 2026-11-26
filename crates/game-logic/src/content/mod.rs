@@ -106,6 +106,8 @@ pub mod random_mission;
 /// The reputation handles of Content's space objects (TU19; P3.6c).
 pub mod rep_handles;
 pub mod router;
+/// The RTC scripts of the bar scenes (TU23; P3.5c4).
+pub mod rtc_scripts;
 /// Content's ships, the ship base of TU50 (P3.6a).
 pub mod ships;
 /// The solar NPCs (TU24; P3.4d).
@@ -530,16 +532,16 @@ pub fn destroy_instance(cx: &mut Cx<'_>, id: ControllerId, kind: ControllerKind)
         ControllerKind::BaseSupport => base_support::destruct(cx, id),
         ControllerKind::StoryLauncher => story::destruct_launcher(cx, id),
         ControllerKind::DestroyMission => random_mission::destruct(cx, id),
+        ControllerKind::Mission01a
+        | ControllerKind::Mission01b
+        | ControllerKind::Mission(_)
+        | ControllerKind::GenericMission => mission::engine::destruct(cx, id),
         // No destructor body: SpaceSupport, SpacePop and BasePop have none,
-        // Story's is the default one, and the missions' come with P3.5.
+        // Story's is the default one.
         ControllerKind::SpaceSupport
         | ControllerKind::SpacePop
         | ControllerKind::BasePop
-        | ControllerKind::Story
-        | ControllerKind::Mission01a
-        | ControllerKind::Mission01b
-        | ControllerKind::Mission(_)
-        | ControllerKind::GenericMission => {}
+        | ControllerKind::Story => {}
     }
     let content = &mut cx.logic.content;
     if let Some(Instance::Mission(script)) = content.instances.remove(&id)

@@ -1384,8 +1384,9 @@ pub fn place_jumpers_at_launch(cx: &mut Cx<'_>, id: ControllerId, system: u32, a
 /// `RespawnMissionObjects(bKeepHitPoints)` (`MissionObject.cpp:2508-2561`):
 /// every respawn record is made again (its slots' hit points -1 unless
 /// kept), then each random encounter's saved formation through its
-/// `[MsnRandEnc]` (P3.6d); the first ship of each record takes its
-/// directives at its priority; both lists empty.
+/// `[MsnRandEnc]` (P3.6d); the first ship of each record takes its slot's
+/// guide (`SetGuide(Guide, true, true)`) or else its directives at its
+/// priority; both lists empty, the records' guides released.
 pub fn respawn_mission_objects(cx: &mut Cx<'_>, id: ControllerId, keep_hit_points: bool) {
     let Some(o) = object_mut(cx, id) else { return };
     if !keep_hit_points {
@@ -1447,8 +1448,10 @@ pub fn respawn_mission_objects(cx: &mut Cx<'_>, id: ControllerId, keep_hit_point
         else {
             continue;
         };
-        // The slot's guide (none on the shipped data, D985) or its
-        // directives.
+        if let Some(guide) = first.guide_ref {
+            crate::content::guides::set_guide(cx, key, Some(guide), true, true);
+            continue;
+        }
         let arena = &mut cx.logic.content.state.directives;
         let mut list: DirectiveList = first
             .directives
@@ -1460,10 +1463,80 @@ pub fn respawn_mission_objects(cx: &mut Cx<'_>, id: ControllerId, keep_hit_point
         npc_ships::set_directives(cx, ShipKey::Npc(key), &list, priority);
         directives::clear_list(&mut cx.logic.content.state.directives, &mut list);
     }
-    if let Some(o) = object_mut(cx, id) {
-        o.respawn_ships.clear();
-        o.rand_enc_respawns.clear();
+    clear_respawn_ships(cx, id);
+    clear_rand_enc_respawns(cx, id);
+}
+
+/// `RandEncRespawns.clear()`: the records go, each one's guide released
+/// (the port references the guide the C++ record keeps as a raw pointer,
+/// D1041).
+pub fn clear_rand_enc_respawns(cx: &mut Cx<'_>, id: ControllerId) {
+    let Some(o) = object_mut(cx, id) else { return };
+    let guides: Vec<_> = std::mem::take(&mut o.rand_enc_respawns)
+        .iter()
+        .filter_map(|r| r.guide_ref)
+        .collect();
+    for guide in guides {
+        crate::content::guides::release(cx, guide);
     }
+}
+
+/// `SnapshotMissionObjects`' hand-over of a random-encounter leader's
+/// guide (`MissionSave.cpp:341-347`, `:374-379`): the record takes the
+/// guide (`Record.Guide = Npc->Guide`; the port references it, its old one
+/// released unless it is the same) and the guide drives no ship
+/// (`SetShip(nullptr)`) while the NPC ship keeps it, as
+/// [`take_guide`] does for a mission ship's slot.
+fn take_rand_enc_guide(
+    cx: &mut Cx<'_>,
+    id: ControllerId,
+    record: usize,
+    guide: crate::content::guides::GuideRef,
+) {
+    let old = {
+        let Some(r) = object_mut(cx, id).and_then(|o| o.rand_enc_respawns.get_mut(record)) else {
+            return;
+        };
+        if r.guide_ref == Some(guide) {
+            None
+        } else {
+            let old = r.guide_ref.replace(guide);
+            cx.logic.content.state.guides.add_ref(guide);
+            Some(old)
+        }
+    };
+    if let Some(Some(old)) = old {
+        crate::content::guides::release(cx, old);
+    }
+    crate::content::guides::set_ship(cx, guide, None);
+}
+
+/// `RespawnShips.clear()`: the records go, each slot's guide released (the
+/// `TRefHandle`'s destructor; also the mission's destructor's).
+pub fn clear_respawn_ships(cx: &mut Cx<'_>, id: ControllerId) {
+    let Some(o) = object_mut(cx, id) else { return };
+    let guides: Vec<_> = std::mem::take(&mut o.respawn_ships)
+        .iter()
+        .flat_map(|g| g.ships.iter().filter_map(|s| s.guide_ref))
+        .collect();
+    for guide in guides {
+        crate::content::guides::release(cx, guide);
+    }
+}
+
+/// `TakeGuide(Ship, Guide)` (`MissionSave.cpp:77-95`): the slot holds the
+/// NPC ship's guide (its old one released unless it is the same, the new
+/// one referenced), and the guide is given no ship (`SetShip(nullptr)`)
+/// while the NPC ship keeps it.
+fn take_guide(cx: &mut Cx<'_>, slot: &mut MissionShip, guide: crate::content::guides::GuideRef) {
+    if slot.guide_ref != Some(guide) {
+        if let Some(old) = slot.guide_ref.take() {
+            crate::content::guides::release(cx, old);
+        }
+        slot.guide_ref = Some(guide);
+        cx.logic.content.state.guides.add_ref(guide);
+    }
+    crate::content::guides::set_ship(cx, guide, None);
 }
 
 /// The ship's hit points (`GetHealth`'s current value through `ftol`).
@@ -1496,9 +1569,12 @@ fn directives_of(cx: &Cx<'_>, key: NpcShipKey) -> Vec<ObjListDirective> {
 /// system by name; then the attitudes ([`snapshot_vibe_infos`]).
 #[allow(clippy::too_many_lines)]
 pub fn snapshot_mission_objects(cx: &mut Cx<'_>, id: ControllerId) {
+    if object(cx, id).is_none() {
+        return;
+    }
+    clear_respawn_ships(cx, id);
+    clear_rand_enc_respawns(cx, id);
     let Some(o) = object_mut(cx, id) else { return };
-    o.respawn_ships.clear();
-    o.rand_enc_respawns.clear();
     o.respawn_solars.clear();
     let random = create_id(MISSION_RANDOM_ENCOUNTER);
     let local = create_id(LOCAL_OBJECTIVE);
@@ -1535,7 +1611,7 @@ pub fn snapshot_mission_objects(cx: &mut Cx<'_>, id: ControllerId) {
             let priority = n.directives.priority;
             let hp = hit_points(cx, n.base.ship);
             let jumper = {
-                // The ship is not tested for null in the C++ (D985).
+                // The ship is not tested for null in the C++ (D1042).
                 let Some(o) = object_mut(cx, id) else { return };
                 let Some(slot) = o.find_ship_mut(&n.nickname) else {
                     continue;
@@ -1569,9 +1645,12 @@ pub fn snapshot_mission_objects(cx: &mut Cx<'_>, id: ControllerId) {
             let Some(first) = copy.ships.first_mut() else {
                 continue;
             };
-            if n.guide.is_none() {
-                first.init_objectives = local;
-                first.directives = directives_of(cx, key);
+            match n.guide {
+                Some(guide) => take_guide(cx, first, guide),
+                None => {
+                    first.init_objectives = local;
+                    first.directives = directives_of(cx, key);
+                }
             }
             if let Some(o) = object_mut(cx, id) {
                 o.respawn_ships.push(copy);
@@ -1600,10 +1679,12 @@ pub fn snapshot_mission_objects(cx: &mut Cx<'_>, id: ControllerId) {
         };
         let Some(o) = object_mut(cx, id) else { return };
         let mut found = false;
-        for record in o
+        let mut guided = Vec::new();
+        for (at, record) in o
             .rand_enc_respawns
             .iter_mut()
-            .filter(|r| r.formation_ref == n.base.formation_id)
+            .enumerate()
+            .filter(|(_, r)| r.formation_ref == n.base.formation_id)
         {
             record.count += 1;
             found = true;
@@ -1615,13 +1696,18 @@ pub fn snapshot_mission_objects(cx: &mut Cx<'_>, id: ControllerId) {
             record.placement = Transform::new(orientation, position);
             record.priority = n.directives.priority;
             record.hit_points = hp;
-            if n.guide.is_none() {
-                record.directives = directives.clone();
+            match n.guide {
+                Some(guide) => guided.push((at, guide)),
+                None => record.directives = directives.clone(),
             }
+        }
+        for (at, guide) in guided {
+            take_rand_enc_guide(cx, id, at, guide);
         }
         if found {
             continue;
         }
+        let Some(o) = object_mut(cx, id) else { return };
         let mut record = RandEncRespawn {
             encounter_id: encounter,
             formation_ref: n.base.formation_id,
@@ -1639,6 +1725,10 @@ pub fn snapshot_mission_objects(cx: &mut Cx<'_>, id: ControllerId) {
             }
         }
         o.rand_enc_respawns.push(record);
+        let at = o.rand_enc_respawns.len() - 1;
+        if leader && let Some(guide) = n.guide {
+            take_rand_enc_guide(cx, id, at, guide);
+        }
     }
 
     // One record per formation group, in first-seen order.
@@ -1693,16 +1783,28 @@ pub fn snapshot_mission_objects(cx: &mut Cx<'_>, id: ControllerId) {
                 }
             }
             ships.push(slot);
-            if n.guide.is_none() {
-                let directives = directives_of(cx, key);
-                if let Some(first) = ships.first_mut() {
-                    first.init_objectives = local;
-                    first.directives = directives;
+            match n.guide {
+                Some(guide) => {
+                    if let Some(first) = ships.first_mut() {
+                        take_guide(cx, first, guide);
+                    }
+                }
+                None => {
+                    let directives = directives_of(cx, key);
+                    if let Some(first) = ships.first_mut() {
+                        first.init_objectives = local;
+                        first.directives = directives;
+                    }
                 }
             }
         }
         if !abandon && found_group {
             dest.ships = ships;
+        } else {
+            // The collected ships' destructors release a guide one took.
+            for guide in ships.iter().filter_map(|s| s.guide_ref) {
+                crate::content::guides::release(cx, guide);
+            }
         }
         // `std::sort` by the ships' formation slots (both NPCs found).
         let slots: Vec<Option<u32>> = dest

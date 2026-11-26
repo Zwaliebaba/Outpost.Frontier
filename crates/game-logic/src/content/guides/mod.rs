@@ -802,6 +802,23 @@ pub fn release(cx: &mut Cx<'_>, guide: GuideRef) {
 /// reads as one, builds none, and a type 6 from a goto guide's object has
 /// the dock target 0 (D864).
 pub fn create_guide(cx: &mut Cx<'_>, desc: &GuideDesc, ship: NpcShipKey) -> Option<GuideRef> {
+    create_guide_for(cx, desc, Some(ship))
+}
+
+/// [`create_guide`] of a description that names no ship (`Ship` null):
+/// the guide a mission save's `[MetaBehavior]` gives a restored ship slot
+/// (`MissionSave.cpp:946-952`), which the respawn hands to the ship
+/// (`SetGuide`, P3.5c4).
+pub fn create_detached_guide(cx: &mut Cx<'_>, desc: &GuideDesc) -> Option<GuideRef> {
+    create_guide_for(cx, desc, None)
+}
+
+/// `CreateGuide` for a ship or none.
+fn create_guide_for(
+    cx: &mut Cx<'_>,
+    desc: &GuideDesc,
+    ship: Option<NpcShipKey>,
+) -> Option<GuideRef> {
     let targets = Targets {
         id1: desc.target1,
         id2: desc.target2,
@@ -822,16 +839,11 @@ pub fn create_guide(cx: &mut Cx<'_>, desc: &GuideDesc, ship: NpcShipKey) -> Opti
             GuideKind::Nothing { targets, delay }
         }
         2 => GuideKind::Trade(trade::TradeGuide::new(cx, desc, targets)),
-        3 => GuideKind::Patrol(Box::new(patrol::PatrolGuide::new(
-            cx,
-            desc,
-            targets,
-            Some(ship),
-        ))),
+        3 => GuideKind::Patrol(Box::new(patrol::PatrolGuide::new(cx, desc, targets, ship))),
         4 => GuideKind::Wander(wander::WanderGuide::new(desc, targets)),
         5 => {
             let mb = desc.meta.as_ref()?.guide();
-            GuideKind::Goto(Box::new(goto::GotoGuide::new(cx, mb, Some(ship))))
+            GuideKind::Goto(Box::new(goto::GotoGuide::new(cx, mb, ship)))
         }
         6 => {
             let meta = desc.meta.as_ref()?;
@@ -839,13 +851,13 @@ pub fn create_guide(cx: &mut Cx<'_>, desc: &GuideDesc, ship: NpcShipKey) -> Opti
                 MetaBehavior::DockGuide(_, target) => *target,
                 MetaBehavior::GotoGuide(_) => 0,
             };
-            let (go, dock) = goto::new_dock(cx, meta.guide(), dock_target, Some(ship));
+            let (go, dock) = goto::new_dock(cx, meta.guide(), dock_target, ship);
             GuideKind::Dock(Box::new(go), dock)
         }
         _ => return None,
     };
     let guide = Guide {
-        ship: Some(ship),
+        ship,
         kind_id: desc.kind,
         done: false,
         kind,
@@ -1077,6 +1089,17 @@ pub fn set_ship(cx: &mut Cx<'_>, guide: GuideRef, ship: Option<NpcShipKey>) {
             GuideKind::Dock(go, dock) => goto::set_ship(cx, old, ship, go, Some(dock)),
         }
     });
+}
+
+/// `FLineGuide::Line` (`+0x18`): the `[MetaBehavior]` line of a goto or
+/// dock guide, which the mission save writes; `None` for another guide,
+/// which the C++ reads as one all the same (D1041).
+#[must_use]
+pub fn line<'a>(cx: &'a Cx<'_>, guide: GuideRef) -> Option<&'a [u8]> {
+    match &cx.logic.content.state.guides.get(guide)?.kind {
+        GuideKind::Goto(go) | GuideKind::Dock(go, _) => Some(&go.line),
+        _ => None,
+    }
 }
 
 /// `IsDone` (slot 9).

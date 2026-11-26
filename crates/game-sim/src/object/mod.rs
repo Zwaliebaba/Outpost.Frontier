@@ -432,6 +432,19 @@ pub struct Object {
 }
 
 impl Object {
+    /// `is_targetable` (the virtual `CSimple::is_targetable`,
+    /// `common_csimple.cpp:250`): bit 0 of +0xa0; an equipped object
+    /// (`CEqObj::is_targetable`, `common_ceqobj.cpp:540`) also answers false
+    /// once fully cloaked (`!(CloakPercent >= 1.0)`, true for a NaN).
+    #[must_use]
+    pub fn is_targetable(&self) -> bool {
+        self.simple.targetable
+            && self
+                .equipped
+                .as_deref()
+                .is_none_or(|e| !(e.cloak_percent >= 1.0))
+    }
+
     /// `(class & mask) == mask`.
     #[must_use]
     pub fn is(&self, mask: u32) -> bool {

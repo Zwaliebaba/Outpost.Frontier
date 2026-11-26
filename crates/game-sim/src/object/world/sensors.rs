@@ -302,7 +302,7 @@ impl World {
             let Some(co) = w.objects.get(c) else {
                 return false;
             };
-            if co.simple.id == owner_id || !co.simple.targetable || co.dead {
+            if co.simple.id == owner_id || !co.is_targetable() || co.dead {
                 return false;
             }
             let target_interference = co.simple.scanner_interference;
