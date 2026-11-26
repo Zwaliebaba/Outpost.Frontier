@@ -23,12 +23,17 @@
 //! router's deliveries go to [`receive_message`]
 //! (`StateMachineMessageHandler::receive_message`).
 //!
-//! What waits for later packages (D1021 to D1024): the mission objectives
+//! **Spawns and comms.** The ship groups spawn through the Content ships'
+//! path of the mission spawns (the NPC blocks, their reputations,
+//! `PlaceFormationBlocks` and `CreateNpcShips`); the comm sequences are
+//! prepared on the offer's lines and spoken by the comm system
+//! ([`crate::content::gcs::add`], player-list lines).
+//!
+//! What waits for later packages (D1021 and D1024): the mission objectives
 //! the players see (`FMissionPlayer`'s lists and their sends, P3.5c5; the
 //! `rand()` draws of their path objectives are made where the C++ makes
-//! them), the comm sequences' playback (the GCS conversation manager,
-//! P3.6b), the ship groups' spawn (P3.5c2's NPC blocks) and the mission
-//! object's body beyond what a random mission's players reach (D973).
+//! them) and the mission object's body beyond what a random mission's
+//! players reach (D973).
 
 mod machine;
 pub mod message;

@@ -12,6 +12,13 @@
 //!
 //! The ships a constructor looks up (`System->FindShip`) are not
 //! null-tested; a ship that is gone gives no names (D935).
+//!
+//! **The player-list line** (`FGcsPlayerListLine`, `:554-659`), the base of
+//! the random missions' comm-sequence lines (`FRmLine`, TU61), is the same
+//! [`Line`] with its players ([`Line::players`]): it is spoken to every
+//! listed player with a ship, each in the player's own system, and its
+//! `CanPlay`, `Play` and `IsDone` are the player-list forms
+//! ([`can_play`], [`play`], [`is_done`] dispatch on it).
 
 // The x87 comparisons keep their NaN outcome as written (`!(a > b)`).
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
@@ -47,6 +54,16 @@ pub struct Line {
     pub mood: u32,
     /// `+0x2c`: `SendComm`'s comm type.
     pub comm_type: u32,
+    /// `FGcsPlayerListLine::PlayerIds` (`+0x34`): `Some` for a line spoken
+    /// to a list of players (the listener is not read then), `None` for
+    /// the 61 classes of TU25, spoken to [`Line::listener`].
+    pub players: Option<Vec<u32>>,
+    /// `FRmLine::Field_0x8c`: the random mission's machine prepared the
+    /// line (`FRmOfferComponent::PrepareConversation`,
+    /// `RandomMissionMachine.cpp:395-416`), which `FRmLine::CanPlay`
+    /// (`RandomMissionRuntime.cpp:275-281`) needs. True for every other
+    /// line.
+    pub prepared: bool,
 }
 
 impl Line {
@@ -63,6 +80,28 @@ impl Line {
             system,
             mood: 0,
             comm_type: 0,
+            players: None,
+            prepared: true,
+        }
+    }
+
+    /// `FGcsPlayerListLine(System)` (`:554-560`): no speaker, listener or
+    /// players.
+    #[must_use]
+    pub fn player_list(system: Option<u32>) -> Self {
+        Self {
+            players: Some(Vec::new()),
+            ..Self::new(system, 0, 0)
+        }
+    }
+
+    /// `FRmLine::FRmLine` (`RandomMissionRuntime.cpp:263-273`): a player-list
+    /// line without a system, not prepared.
+    #[must_use]
+    pub fn random_mission() -> Self {
+        Self {
+            prepared: false,
+            ..Self::player_list(None)
         }
     }
 
@@ -146,9 +185,14 @@ fn single(
 }
 
 /// `FGcsLine::CanPlay` (`:431-436`): a mood, a system, the speaker found
-/// in it (`FindShipOrSolar`) and at least one text.
+/// in it (`FindShipOrSolar`) and at least one text. A player-list line
+/// asks [`player_list_can_play`] instead, and a random mission's line also
+/// needs to be prepared (`FRmLine::CanPlay`).
 #[must_use]
 pub fn can_play(cx: &Cx<'_>, line: &Line) -> bool {
+    if let Some(players) = &line.players {
+        return player_list_can_play(cx, line, players) && line.prepared;
+    }
     line.mood != 0
         && line.system.is_some()
         && find_ship_or_solar(cx, line.system, line.speaker).is_some()
@@ -158,8 +202,13 @@ pub fn can_play(cx: &Cx<'_>, line: &Line) -> bool {
 /// `FGcsLine::Play` (`:438-481`): the comm (`SendSpaceComm` with the
 /// line's voice, comm type, costume and mood, 0.5 s, interrupting);
 /// outside single player the manager's delayed "line done" message after
-/// the line's duration and 1.25 s.
+/// the line's duration and 1.25 s. A player-list line plays through
+/// [`player_list_play`].
 pub fn play(cx: &mut Cx<'_>, line: &Line) {
+    if let Some(players) = &line.players {
+        player_list_play(cx, line, players);
+        return;
+    }
     let costume = (line.costume != 0).then(|| api::gf::costume_by_id(cx, line.costume));
     let request = CommRequest {
         sender: line.speaker,
@@ -189,9 +238,13 @@ pub fn play(cx: &mut Cx<'_>, line: &Line) {
 }
 
 /// `FGcsLine::IsDone(Parms)` (`:483-489`): the line-done message is this
-/// line's (its listener, system, speaker and last text).
+/// line's (its listener, system, speaker and last text). A player-list
+/// line asks [`player_list_is_done`].
 #[must_use]
-pub fn is_done(line: &Line, done: &super::LineDone) -> bool {
+pub fn is_done(cx: &Cx<'_>, line: &Line, done: &super::LineDone) -> bool {
+    if let Some(players) = &line.players {
+        return player_list_is_done(cx, line, players, done);
+    }
     line.system == Some(done.system)
         && line.listener == done.listener
         && line.speaker == done.speaker
@@ -217,6 +270,113 @@ pub fn duration(cx: &Cx<'_>, line: &Line) -> f32 {
         sum = (f64::from(d) + f64::from(sum)) as f32;
     }
     sum
+}
+
+// ---- The player-list line -------------------------------------------------------------------
+
+/// The ship of player `player` (`FContentPlayerState::ShipObject` and
+/// `GetShipId`); `None` without a state or a ship.
+fn player_ship(cx: &Cx<'_>, player: u32) -> Option<u32> {
+    cx.logic
+        .content
+        .state
+        .players
+        .get(&player)
+        .and_then(|s| s.ship.as_ref())
+        .map(|s| s.ship)
+}
+
+/// `FGcsPlayerListLine::CanPlay` (`:562-578`): the first listed player
+/// with a ship decides: a speaker that is not 0 must exist and be alive
+/// (`ExistsAndAlive` 0), and the line needs a text. No such player: false.
+#[must_use]
+pub fn player_list_can_play(cx: &Cx<'_>, line: &Line, players: &[u32]) -> bool {
+    for &player in players {
+        if player_ship(cx, player).is_none() {
+            continue;
+        }
+        if line.speaker != 0 && api::space_obj::exists_and_alive(cx, line.speaker).is_err() {
+            return false;
+        }
+        return !line.texts.is_empty();
+    }
+    false
+}
+
+/// `FGcsPlayerListLine::Play` (`:580-626`): the costume fetched once (none
+/// without an id); every listed player with a ship gets the comm
+/// (`SendSpaceComm` from the speaker to its ship, with the line's voice,
+/// comm type, costume and mood, 0 s, not interrupting), the line's system
+/// becoming the player's record. Outside single player, when the last
+/// listed player has a ship, the manager's delayed "line done" message for
+/// that ship after the line's duration and 1.25 s.
+///
+/// The system the C++ writes into the line is only read for that message
+/// here (the line's `CanPlay`, `IsDone` and `GetDuration` do not read it); a
+/// player without a system record, whose null record the C++ then reads,
+/// gives the system 0 (D1081).
+pub fn player_list_play(cx: &mut Cx<'_>, line: &Line, players: &[u32]) {
+    let costume = (line.costume != 0).then(|| api::gf::costume_by_id(cx, line.costume));
+    let mut system = line.system;
+    let mut last: Option<u32> = None;
+    for &player in players {
+        last = None;
+        let Some(state) = cx.logic.content.state.players.get(&player) else {
+            continue;
+        };
+        let Some(ship) = state.ship.as_ref().map(|s| s.ship) else {
+            continue;
+        };
+        system = state
+            .system
+            .filter(|s| cx.logic.content.state.systems.contains_key(s));
+        last = Some(ship);
+        let request = CommRequest {
+            sender: line.speaker,
+            target: ship,
+            voice: line.voice,
+            costume: costume.clone(),
+            comm_type: line.comm_type,
+            text_ids: line.texts.clone(),
+            mood: line.mood,
+            duration: 0.0,
+            interrupt: false,
+        };
+        let _ = api::space_obj::send_comm(cx, &request);
+    }
+    let Some(ship) = last else { return };
+    if api::misc::single_player(cx) {
+        return;
+    }
+    let delay = (f64::from(duration(cx, line)) + 1.25) as f32;
+    let entry = super::DelayedMessage {
+        system: system.unwrap_or(0),
+        speaker: line.speaker,
+        listener: ship,
+        text: line.texts.last().copied().unwrap_or(0),
+        elapsed: 0.0,
+        delay,
+    };
+    cx.logic.content.state.gcs.delayed.push(entry);
+}
+
+/// `FGcsPlayerListLine::IsDone(Parms)` (`:628-640`): the message's
+/// listener is the ship of a listed player, and its speaker and last text
+/// are the line's; the system is not compared.
+#[must_use]
+pub fn player_list_is_done(
+    cx: &Cx<'_>,
+    line: &Line,
+    players: &[u32],
+    done: &super::LineDone,
+) -> bool {
+    let by_ship =
+        crate::content::players::find_by_ship(&cx.logic.content.state.players, done.listener);
+    players.iter().any(|&p| {
+        by_ship == Some(p)
+            && line.speaker == done.speaker
+            && line.texts.last().copied() == Some(done.text)
+    })
 }
 
 // ---- The dock and launch lines -------------------------------------------------------------
