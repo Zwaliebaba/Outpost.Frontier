@@ -306,13 +306,14 @@ are overwritten. A missing argument, an unreadable script or a folder that
 cannot be created ends the process with exit code 3 and a line on the
 debugger output.
 
-The mode forces three things and nothing else:
+The mode forces four things and nothing else:
 
 | What | How |
 | --- | --- |
 | Display | Windowed, 1024x768, 32-bit colour: InitializeEngine's render mode after `ApplyDisplayCmdlineOverrides`, the same fields `+W` and `+M1024` set. `SavePerfOptions` then writes that mode to `PerfOptions.ini`, so run the oracle from its own copy of the run folder |
 | Time step | `TickFrameTimer` paces frames at 1/30 s of real time and reports exactly 1/30 s as the measured and capped frame time; every caller of `GetClientFrameTimeCapped`, the local server tick and `Timing::UpdateGlobalTime` see it |
 | Random seed | `srand(0x4f524143)` right after InitializeEngine's `srand(timeGetTime())` |
+| Server clock | Proposed for record 0009 question 3 (commit `2c37d7b1`, not decided): the scenario oracle's fixed-clock hooks (`GOracleSimHooks`) set with the seed, so the in-process server adds 1/30 s per frame to its time, seeds `rand()` with `0x4f524143` in `IServerImpl::Startup` and reads its damage times from a clock starting at 1000 s that each frame advances; the `seed` record adds `server_seed` and `server_clock` |
 
 The window must stay in front and uncovered: a windowed Direct3D 8 screenshot
 copies the screen area of the window, and the client skips frames while it is
@@ -449,17 +450,29 @@ The two CI runs have equal `session.jsonl` (44 lines without the `start`
 record), `tree.jsonl` (1,029), `keymap.jsonl` (258) and `layout.jsonl`
 (176), and byte-identical screenshots. Their IClient logs differ by one call:
 the first run on a fresh runner has a second `SendServerLoginResponse` at
-frame 0 (`Startup`, `OnConnect`, `SendServerLoginResponse` twice,
-`SendServerCharacterInfo` at frames 0 and 118, `Shutdown` at 398); the
-second run has one, as the owner's run did. Run 5
-([45785643369](https://github.com/Zwaliebaba/Outpost.Frontier/actions/runs/45785643369))
-repeated this exactly. The likely cause is the per-user state the first start
-creates (the login manager's registry values and user files), which the
-owner's machine and the second run already have; it is not yet confirmed. A
-comparison job therefore starts the compared runs from the same per-user
-state, after one warm-up run.
-The CI files have not been compared with the owner's files, which stay
-outside the repository; the job keeps them as a 7-day artifact for that.
+frame 0. Run 6
+([45826847849](https://github.com/Zwaliebaba/Outpost.Frontier/actions/runs/45826847849),
+commit `ca8856e3`) found the cause: the first `Login` finds no single-player
+user data and answers status 2, the client logs in again and gets 3. Removing
+only the user folder (`Documents\My Games\OutpostFrontier`) before a run
+brings the two responses back; removing only the registry key does not. A
+comparison therefore starts from a user folder an earlier run made (the job's
+warm-up run), as the owner's machine has one. From such a folder two runs of
+`menu_walk.txt` are equal in every file, `iclient.jsonl` and the screenshots
+included.
+
+Run 6 also ran `single_player.txt` twice with the in-process server on the
+oracle clock (the hook of record 0009 question 3, commit `2c37d7b1`, not yet
+decided): both exit 0 after 2,626 frames with 7 dumps, as the owner's run;
+`session.jsonl` (36 lines), `tree.jsonl` (504), `keymap.jsonl` and
+`layout.jsonl` are equal, and the 225 IClient calls come in the same frames
+and order. Seven calls differ in their payload, all in bytes the sender does
+not set: `SendServerSendComm`'s `CommCostume` in the `AccessoryIds` slots at
+and beyond `AccessoryCount` (heap contents, once a UTF-16 nickname), and
+`SendServerBurnFuse`'s `Pad_0x0e` and the three bytes after its last field.
+6 of the 7 screenshots are byte-identical. Without the hook the owner's runs
+differed in the server time, the event order and the frames of the events in
+space (section 8, "Owner run").
 
 What the runner needs, found over runs 1 to 3:
 

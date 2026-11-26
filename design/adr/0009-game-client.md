@@ -91,8 +91,8 @@ line per call into the client event interface, logged where
 `GetClientInterface` hands it out) and screenshots. On the owner's machine
 `menu_walk.txt` repeats byte for byte; `single_player.txt` repeats in its
 session, trees, layouts and key map, but not in its IClient log or its
-space screenshots, because the in-process server is not on the fixed step
-and one payload carries a per-run double and uninitialised costume bytes.
+space screenshots: the in-process server's time and seed come from the real
+clock (question 3), and two payloads carry bytes the sender never sets.
 Gate G5 asks that interface-tree dumps equal the oracle for every screen.
 
 ## Decision
@@ -223,12 +223,23 @@ Gate G5 asks that interface-tree dumps equal the oracle for every screen.
    `ServerHost<LoopbackTransport>`. Recommended.
 2. The Rust `+oracle` mode always compiled and switched on by the command
    line (point 6). Recommended.
-3. The C++ in-process server on the oracle's fixed step: oracle
-   instrumentation in `TickLocalServer`'s caller (allowed by P0.5) so that
-   `single_player.txt`'s IClient log repeats, with the per-run double of
-   `SendServerCharSelectVerified` and the costume's unset bytes masked in
-   the comparison. Recommended, as P5.3's first step; without it the IClient
-   log of a session is compared as a sequence of slots only.
+3. The C++ in-process server on the oracle's fixed step. The cause is in
+   `Server.dll`, not in the step: single player runs the server on the
+   client's thread with the client's fixed `dt`, but
+   `IServerImpl::ElapseTime` adds the real clock's delta
+   (`g_TimingDelta.read_dt()`) to the server time, and `IServerImpl::Startup`
+   seeds `rand()` from `timeGetTime()`. The scenario oracle's hooks in
+   Common.dll (`GOracleSimHooks.bFixedClock`, `include/oracle_sim_hooks.h`)
+   already replace both; the proposed oracle instrumentation sets them from
+   the client's `+oracle` mode (`OutpostFrontier/Client/oracle_mode.cpp`,
+   commit `2c37d7b1`, on this branch, not merged). With it two runs of
+   `single_player.txt` on a hosted runner have equal session, trees, key map
+   and layouts and the same 225 IClient calls in the same frames; seven
+   payloads differ only in bytes the sender never sets (the costume's
+   accessory slots beyond `AccessoryCount`, `FServerBurnFuseInfo`'s padding),
+   which the comparison masks by those rules; one screenshot of seven
+   differs ([reference-build.md](../reference-build.md) section 8, "Hosted
+   runner"). Recommended: accept the hook and the two masks.
 4. The comparison rules of point 6 (`rtti` left out, `flags` bits 0 to 3
    as the dump already writes). Recommended.
 5. Where Gate G5's comparisons run. The trial job
@@ -237,8 +248,8 @@ Gate G5 asks that interface-tree dumps equal the oracle for every screen.
    2026-11-26 with the owner run's figures and two runs equal in their
    session, trees, key map, layouts and screenshots; the IClient log
    differed by one call between them (a second `SendServerLoginResponse` in
-   the first run on a fresh runner, repeated by a fifth run, most likely
-   from the per-user state a first start creates), and the runner has no
+   the first run on a fresh runner, which a sixth run traced to the missing
+   single-player user folder), and the runner has no
    sound device
    (the client's sound warning is answered Yes). Recommended: the C++
    oracle's menu scripts run in CI and the Rust client's comparison with
