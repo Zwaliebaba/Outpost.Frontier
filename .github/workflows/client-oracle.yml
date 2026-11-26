@@ -283,6 +283,53 @@ jobs:
           cargo test --locked -p outpost-frontier --test local_server -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Run the port's client
+        # The Rust OutpostFrontier.exe in its +oracle mode (decision O53 (2)) on menu_walk.txt
+        # from the same run folder and user folder as run a. Its start-up is ported (the
+        # forced display, the seed, the single-player login, the IDR_ALWAYS_PRESENT key map);
+        # the screens are not, so the script's waits time out and its dumps have no tree.
+        if: ${{ always() }}
+        timeout-minutes: 30
+        shell: pwsh
+        run: |
+          cargo build --locked --release -p outpost-frontier
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $run = "$env:RUNNER_TEMP\run"
+          Copy-Item target\release\OutpostFrontier.exe "$run\OutpostFrontierPort.exe"
+          $out = "$env:RUNNER_TEMP\oracle-out\port"
+          $script = "$PWD\CppSource\OutpostFrontier\oracle\menu_walk.txt"
+          $user = "$env:USERPROFILE\Documents\My Games\OutpostFrontier"
+          "[PerfVersion]`nversion=5`nSkipMachineWarnings=TRUE`n" | Set-Content -NoNewline "$user\PerfOptions.ini"
+          $start = Get-Date
+          $p = Start-Process -FilePath "$run\OutpostFrontierPort.exe" -ArgumentList '+oracle', "`"$script`"", "`"$out`"" -WorkingDirectory $run -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\port-stdout.txt" -RedirectStandardError "$env:RUNNER_TEMP\port-stderr.txt"
+          if (-not $p.WaitForExit(900000)) { taskkill /T /F /PID $p.Id | Out-Null; $code = 'timeout' } else { $code = $p.ExitCode }
+          Write-Host "The port's client: exit $code after $([int]((Get-Date) - $start).TotalSeconds) s"
+          Get-Content "$env:RUNNER_TEMP\port-stdout.txt", "$env:RUNNER_TEMP\port-stderr.txt" -ErrorAction SilentlyContinue | Write-Host
+
+      - name: Compare the port's client with the C++ client
+        # Run port against run a: keymap.jsonl whole, the IClient lines of frame 0 (the
+        # single-player login), and session.jsonl's display and seed records.
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $root = "$env:RUNNER_TEMP\oracle-out"
+          function Lines($path) { if (Test-Path $path) { @(Get-Content $path) } else { @() } }
+          $fail = $false
+          $a = Lines "$root\a\keymap.jsonl"; $b = Lines "$root\port\keymap.jsonl"
+          if ($a.Count -gt 0 -and (Compare-Object $a $b -SyncWindow 0).Count -eq 0) { Write-Host "keymap.jsonl: $($a.Count) lines equal" }
+          else { Write-Host "keymap.jsonl differs ($($a.Count) and $($b.Count) lines)"; $fail = $true }
+          $a = @(Lines "$root\a\iclient.jsonl" | Where-Object { $_ -match '^\{"frame":0,' })
+          $b = @(Lines "$root\port\iclient.jsonl" | Where-Object { $_ -match '^\{"frame":0,' })
+          if ($a.Count -gt 0 -and (Compare-Object $a $b -SyncWindow 0).Count -eq 0) { Write-Host "iclient.jsonl, frame 0: $($a.Count) lines equal" }
+          else { Write-Host "iclient.jsonl, frame 0, differs:"; $a | Write-Host; Write-Host '--- port:'; $b | Write-Host; $fail = $true }
+          foreach ($rec in 'display', 'seed') {
+            $a = @(Lines "$root\a\session.jsonl" | Where-Object { $_ -match "`"rec`":`"$rec`"" })
+            $b = @(Lines "$root\port\session.jsonl" | Where-Object { $_ -match "`"rec`":`"$rec`"" })
+            if ($a.Count -eq 1 -and $b.Count -eq 1 -and $a[0] -eq $b[0]) { Write-Host "session.jsonl $rec`: equal" }
+            else { Write-Host "session.jsonl $rec differs: $a | $b"; $fail = $true }
+          }
+          if ($fail) { exit 1 }
+
       - name: Compare the runs
         if: ${{ always() }}
         # The figures of every run, a against the owner run's (section 8, "Owner run"); then

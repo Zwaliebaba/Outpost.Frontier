@@ -27,7 +27,7 @@ pub mod timing;
 
 /// Start the client application: off Windows, only the banner.
 #[cfg(not(windows))]
-pub fn run() -> io::Result<()> {
+pub fn run(_start_server: session::StartLocalServer<'_>) -> io::Result<()> {
     writeln!(
         io::stdout().lock(),
         "Outpost:Frontier client (Neuron {})",
@@ -48,8 +48,16 @@ pub fn run() -> io::Result<()> {
 /// GameApp's input router, then runs the engine's frame with the window's
 /// mouse. The close command quits at once until the exit dialog exists
 /// (P5).
+///
+/// With `+oracle <script> <out>` the oracle mode runs (decision O53 (2)):
+/// the display is forced, the in-process server starts on the oracle's
+/// clock, the single-player login and the `IDR_ALWAYS_PRESENT` group's key
+/// map load at frame 0 as the C++ intro and `WinMain` do, and the script runs
+/// each frame on the fixed step until it ends; its files are written then.
+/// The screens are not ported yet: their trees, screenshots and inputs
+/// answer "not ported yet".
 #[cfg(windows)]
-pub fn run() -> io::Result<()> {
+pub fn run(start_server: session::StartLocalServer<'_>) -> io::Result<()> {
     use neuron_client::engine::{EngineConfig, FrameInput, windows::create_engine};
     use neuron_client::platform::window::{Pump, Window, pump};
     use neuron_client::platform::{dpapi::Dpapi, known_folder, machine, registry};
@@ -87,6 +95,26 @@ pub fn run() -> io::Result<()> {
         .map(|a| a.to_string_lossy().into_owned().into_bytes())
         .collect();
     let args: Vec<&[u8]> = args.iter().map(Vec::as_slice).collect();
+    // OracleParseCommandLine: a missing path or an unreadable script ends the
+    // process with exit code 3.
+    let tokens: Vec<String> = args
+        .iter()
+        .map(|a| String::from_utf8_lossy(a).into_owned())
+        .collect();
+    let mut oracle = match oracle::script::parse_command_line(&tokens) {
+        None => None,
+        Some(Err(())) => {
+            eprintln!("OutpostFrontier +oracle: usage: +oracle <script> <output folder>");
+            std::process::exit(3);
+        }
+        Some(Ok((script, out_dir))) => match oracle::OracleRun::open(&script, &out_dir) {
+            Ok(run) => Some(run),
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(3);
+            }
+        },
+    };
     let ini = std::fs::read(String::from_utf8_lossy(startup_config::INI_NAME).as_ref()).ok();
     let config = startup_config::StartupConfig::load(ini.clone(), &args);
 
@@ -103,6 +131,9 @@ pub fn run() -> io::Result<()> {
         return Ok(());
     }
     startup_config::apply_display_overrides(&mut block, &args);
+    if let Some(run) = oracle.as_mut() {
+        run.force_display(&mut block);
+    }
     let desktop = machine::desktop_size();
     let taken =
         render_mode::select_initial(&block, &render_mode::AdapterFacts::direct3d12(desktop))
@@ -156,15 +187,136 @@ pub fn run() -> io::Result<()> {
         return Ok(());
     }
 
+    // OracleSeedRandom: the client's seed and the server's clock (O53 (3)).
+    if let Some(run) = oracle.as_mut() {
+        run.script.note_seed(oracle::script::RAND_SEED, 1000.0);
+    }
+
+    // EnterClientState(ComputeInitialEnvironment()): the intro starts the
+    // single-player server and logs in (MenuNavStartSinglePlayer's
+    // ConnectAndLogin and RequestCharacterInfo, P5.3).
+    let request = session::LocalServerRequest {
+        install_dir: std::env::current_dir().unwrap_or_default(),
+        user_data: paths.root().to_path_buf(),
+        seed: oracle::script::RAND_SEED,
+        oracle: oracle.is_some(),
+    };
+    let mut server: Option<Box<dyn session::Session>> = None;
+    let mut link = None;
+    if let Some((mut s, client)) = start_server(&request) {
+        let started = std::time::Instant::now();
+        let mut now = || started.elapsed().as_secs_f64();
+        let mut l =
+            receiver::ClientLink::new(client, receiver::ClientReceiver::new(oracle.is_some()));
+        // IServerImpl::Startup ends with g_pClientInterface->Startup(1, 0x36d9).
+        l.receiver.startup(1, 0x36d9);
+        let settings = login::LoginSettings::single_player(1.0);
+        let connected = login::connect(&mut l, Some(s.as_mut()), &mut now) == 1;
+        let logged_in =
+            connected && login::login_to_server(&mut l, Some(s.as_mut()), &settings, &mut now);
+        if logged_in {
+            login::request_character_info(&mut l, Some(s.as_mut()), &mut now);
+        }
+        writeln!(
+            out,
+            "single player: connected {connected}, logged in {logged_in} (status {})",
+            l.receiver.login.login_status
+        )?;
+        server = Some(s);
+        link = Some(l);
+    } else {
+        writeln!(out, "the in-process server did not start")?;
+    }
+
+    // RegisterAcceleratorGroup("IDR_ALWAYS_PRESENT"), which loads the key map.
+    let mut keymap = keymap::KeyMap::new();
+    {
+        struct Files<'a> {
+            data: &'a std::path::Path,
+            user: std::path::PathBuf,
+        }
+        impl keymap::KeyMapFiles for Files<'_> {
+            fn base(&mut self) -> (Option<Vec<u8>>, String) {
+                let path = neuron_core::vfs::Host::new(self.data)
+                    .locate(keymap::KEY_MAP_PATH.as_bytes())
+                    .ok()
+                    .flatten()
+                    .map(|e| e.path);
+                let shown = path.as_ref().map_or_else(
+                    || keymap::KEY_MAP_PATH.to_string(),
+                    |p| p.display().to_string(),
+                );
+                (path.and_then(|p| std::fs::read(p).ok()), shown)
+            }
+            fn user(&mut self) -> Option<Vec<u8>> {
+                std::fs::read(&self.user).ok()
+            }
+        }
+        let data =
+            std::path::PathBuf::from(String::from_utf8_lossy(&config.data_path).replace('\\', "/"));
+        let mut files = Files {
+            data: &data,
+            user: paths.file(keymap::USER_KEY_MAP_FILE),
+        };
+        let frame = oracle.as_ref().map_or(0, |r| r.script.frame());
+        let lines = &mut oracle.as_mut().map(|r| &mut r.keymap);
+        let mut note = |m: &keymap::KeyMap, phase: &str, result: i32| {
+            if let Some(lines) = lines.as_mut() {
+                lines.extend(oracle::keymap::phase_lines(m, frame, phase, result));
+            }
+        };
+        if keymap.register_group(b"IDR_ALWAYS_PRESENT", &mut files, &mut note)
+            == keymap::GroupResult::Invalid
+        {
+            writeln!(out, "Invalid accelerator: IDR_ALWAYS_PRESENT")?;
+        }
+    }
+
     let mut clock = timing::ClientTiming::new(InstantClock::new());
     let mut camera = cameras::StillCamera::new(mode.back_buffer());
     let mut window = Some(window);
+    let mut host = oracle::StartupHost::default();
     loop {
         clock.update(true, 0, || {
             std::thread::sleep(std::time::Duration::from_millis(1))
         });
+        // The oracle's step: 1/30 s paced in real time, reported exactly.
+        let mut dt = clock.frame_time_capped();
+        if let Some(run) = oracle.as_mut() {
+            std::thread::sleep(std::time::Duration::from_secs_f64(
+                oracle::script::FRAME_SECONDS,
+            ));
+            dt = oracle::script::FRAME_SECONDS;
+            // TickClientFrame's OracleFrameTick, then the local server.
+            run.script.frame_tick(&mut host);
+            if let Some(log) = link.as_mut().and_then(|l| l.receiver.log.as_mut()) {
+                log.set_frame(run.script.frame());
+            }
+        }
+        if let (Some(s), Some(l)) = (server.as_mut(), link.as_mut()) {
+            #[allow(clippy::cast_possible_truncation)]
+            let dt32 = dt as f32;
+            session::tick_local_server(Some(s.as_mut()), false, dt32, |_| l.deliver_all());
+        }
+        if host.pending_state == Some(1) {
+            // EnterClientState(1): the server shuts down (its Shutdown calls
+            // the client's) and the client quits.
+            if let Some(l) = link.as_mut() {
+                l.receiver.shutdown();
+            }
+            if let Some(run) = oracle.as_ref() {
+                let iclient = link
+                    .as_ref()
+                    .and_then(|l| l.receiver.log.as_ref())
+                    .map(|log| log.lines().to_vec())
+                    .unwrap_or_default();
+                run.write(&iclient)?;
+                writeln!(out, "oracle: {} written", run.out.display())?;
+            }
+            return Ok(());
+        }
         let input = FrameInput {
-            delta_seconds: clock.frame_time_capped(),
+            delta_seconds: dt,
             frame_ms: clock.frame_timestamp_ms(),
             mouse: None,
             ui_input: Vec::new(),

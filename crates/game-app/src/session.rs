@@ -120,3 +120,31 @@ mod tests {
         assert_eq!(s.calls, ["deliver", "update"]);
     }
 }
+
+/// What the client asks the executable for when it starts the in-process
+/// server (`StartServer` in single player): the executable owns
+/// `game-logic`, so it makes the server (record 0002 point 4, record 0009
+/// point 3).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LocalServerRequest {
+    /// The client's folder, with `OutpostFrontier.ini`.
+    pub install_dir: std::path::PathBuf,
+    /// The user folder (`Documents\My Games\OutpostFrontier`).
+    pub user_data: std::path::PathBuf,
+    /// The CRT generator's seed for `IServerImpl::Startup`.
+    pub seed: u32,
+    /// The oracle mode is on: the server's frame takes the fixed clock
+    /// (decision O53 (3)).
+    pub oracle: bool,
+}
+
+/// The single-player transport's client end.
+pub type LocalClientEnd = neuron_core::net::transport::LoopbackTransport<
+    game_sim::protocol::ToServer,
+    game_sim::protocol::ToClient,
+>;
+
+/// How the executable starts the in-process server: the session and the
+/// client's end of its loopback, `None` when it does not start.
+pub type StartLocalServer<'a> =
+    &'a mut dyn FnMut(&LocalServerRequest) -> Option<(Box<dyn Session>, LocalClientEnd)>;
