@@ -161,6 +161,9 @@ pub struct Objective {
     /// `FRmObjectiveType3::Ids`: the objects the objective marks (the
     /// runtime machine's `SetTargets`, P3.7b); empty until then.
     pub targets: Vec<u32>,
+    /// `Text`: what `Build` made the first time (mad lib 0 for none; run
+    /// time, P3.5c5), cleared by `SetTargets`.
+    pub built: FmtStr,
 }
 
 /// One line of a comm sequence conversation (`FRmLine`).

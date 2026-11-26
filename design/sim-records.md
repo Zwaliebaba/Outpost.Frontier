@@ -1115,7 +1115,11 @@ scenario's system although the player has no client
 was tick 2: with P3.5c2 at `Act_SetVibe` (18 records), with P3.5c3 at
 `Act_CallSceneScript` (30 records), a P3.5c4 action. With P3.5c4 no action
 without effect runs in the 900 ticks (the first P3.5c5 or P3.6d action of
-`Mission_01a` comes later), so the whole session is judged: the 1051 trace
+`Mission_01a` comes later), so the whole session is judged; with P3.5c5
+only `Act_EnableEnc` (P3.6d) is left without effect, and the objectives,
+NN path and nags the session's `SpaceEnter` renumbers and sends go to
+the player's client, which the harness's player does not have, so the
+records stay as they were: the 1051 trace
 records, every delivery and every object over the 900 ticks. The port
 clamps Content's comm system for the scenario's `comms off` before the
 system's load, as the oracle's `OracleSimSetGcsClamp`. The comms and

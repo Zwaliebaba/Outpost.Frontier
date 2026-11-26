@@ -43,11 +43,15 @@
 //! `Act_SetOffer` and `Act_SetTitle`, over the script's cut scenes and
 //! scenes ([`super::scenes`]).
 //!
-//! The other 10 classes run without an effect until their increment
-//! (D970): P3.5c5 the objectives, nags and the NN path (and the
-//! objectives' renumber `Act_SetOffer` and `Act_SetTitle` end with), P3.6d
-//! `Act_EnableEnc`'s populator reset. The trace records each of them as it
-//! runs, as the C++'s does.
+//! P3.5c5 ports the 9 classes of the objectives, the NN path and the nags
+//! ([`objectives_nags`]): `Act_GiveNNObjs`, `Act_SetNNObj`,
+//! `Act_SetNNState`, `Act_SetNNHidden`, `Act_NNPath`, `Act_NagGreet`,
+//! `Act_NagOff`, `Act_NagDistLeaving` and `Act_NagDistTowards`, and the
+//! objectives' renumber `Act_SetOffer` and `Act_SetTitle` end with.
+//!
+//! `Act_EnableEnc` alone runs without an effect until its increment
+//! (D970): its populator reset is the random encounters' (P3.6d). The
+//! trace records it as it runs, as the C++'s does.
 //!
 //! An action is cloned out of its trigger before it runs and written back
 //! after it (the engine, [`super::engine`]): `Act_StartDialog` keeps its
@@ -67,12 +71,13 @@ use crate::server::Cx;
 
 mod ai_rep;
 mod comms_scenes;
+mod objectives_nags;
 mod objects;
 
 pub use ai_rep::set_object_vibe;
 
-/// The actions P3.5c1 to P3.5c4 run with their effect; the rest run
-/// without one until their increment (D970).
+/// The actions P3.5c1 to P3.5c5 run with their effect; `Act_EnableEnc`
+/// runs without one until P3.6d (D970).
 #[must_use]
 pub fn is_ported(action: &Action) -> bool {
     matches!(
@@ -155,6 +160,16 @@ pub fn is_ported(action: &Action) -> bool {
             | Action::PopUpDialog(_)
             | Action::SetOffer(_)
             | Action::SetTitle(_)
+            // P3.5c5.
+            | Action::GiveNnObjs(_)
+            | Action::SetNnObj(_)
+            | Action::SetNnState(_)
+            | Action::SetNnHidden(_)
+            | Action::NnPath(_)
+            | Action::NagGreet(_)
+            | Action::NagOff(_)
+            | Action::NagDistLeaving(_)
+            | Action::NagDistTowards(_)
     )
 }
 
@@ -403,6 +418,15 @@ pub fn execute(
         | Action::PopUpDialog(_)
         | Action::SetOffer(_)
         | Action::SetTitle(_) => comms_scenes::execute(cx, id, action),
+        Action::GiveNnObjs(_)
+        | Action::SetNnObj(_)
+        | Action::SetNnState(_)
+        | Action::SetNnHidden(_)
+        | Action::NnPath(_)
+        | Action::NagGreet(_)
+        | Action::NagOff(_)
+        | Action::NagDistLeaving(_)
+        | Action::NagDistTowards(_) => objectives_nags::execute(cx, id, action),
         _ => objects::execute(cx, id, action),
     }
 }

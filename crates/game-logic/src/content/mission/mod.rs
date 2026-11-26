@@ -34,11 +34,14 @@ pub mod engine;
 pub mod execute;
 pub mod field;
 pub mod meta_behavior;
+pub mod nags;
+pub mod nn_path;
 pub mod obj_list;
 pub mod obj_list_execute;
 pub mod object;
 pub mod object_save;
 pub mod objective;
+pub mod objectives;
 pub mod rand_enc;
 pub mod runtime;
 pub mod save;
@@ -299,6 +302,8 @@ pub struct MissionScript {
     /// `Timers` (+0x1f8): the delayed actions, each by its trigger and its
     /// place there, with the seconds left (P3.5c1).
     pub timers: Vec<engine::MissionTimer>,
+    /// `Nags` (+0x204): the nags by id (P3.5c5, [`nags`]).
+    pub nags: BTreeMap<u32, nags::Nag>,
     /// `NagClamp` (+0x218).
     pub nag_clamp: bool,
     /// `Field_0x2c8` (+0x2c8): a static camera is up.
@@ -497,13 +502,7 @@ pub fn construct_script(
     if let Some(state) = state
         && (single_player || state.system.is_some())
     {
-        object.players.insert(
-            player,
-            MissionPlayer {
-                player,
-                objectives: Vec::new(),
-            },
-        );
+        object.players.insert(player, MissionPlayer::new(player));
     }
     let mut script = MissionScript {
         kind,
@@ -534,6 +533,7 @@ pub fn construct_script(
         friendly_fire_excused: Vec::new(),
         ambient_scenes: Vec::new(),
         timers: Vec::new(),
+        nags: BTreeMap::new(),
         nag_clamp: false,
         field_0x2c8: false,
         rep_pop_up_shown: false,

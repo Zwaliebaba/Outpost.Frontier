@@ -13,11 +13,13 @@
 //!
 //! **The objectives** ([`Vignette::active`], `ActiveObjectives`) are the
 //! offer components' objectives (by component and map key) and the
-//! countdown the machine makes. The machine keeps their keys, markers and
-//! targets exactly; the mission objectives built from them for the
-//! players (`CreateMissionObjective`, `FMissionPlayer`'s list and its
-//! sends) are P3.5c5's (D1021). The refreshes draw `rand()` where the C++
-//! draws it ([`refresh_objectives`]).
+//! countdown the machine makes. Each is built into a mission objective of
+//! type 7 as it is added ([`Vignette::objectives`],
+//! `FRmObjective::CreateMissionObjective`, `RandomMissionMachine.cpp:60-73`,
+//! with its text cached as `Build` caches it), and the refreshes lay the
+//! machine's objectives into each player's record, with the path to the
+//! first one, and send the record when it changed
+//! ([`refresh_objectives`], P3.5c5).
 
 #![allow(clippy::too_many_lines, clippy::neg_cmp_op_on_partial_ord)]
 
@@ -77,6 +79,8 @@ pub struct Countdown {
     pub marker_position: Vector,
     /// `Seconds`.
     pub seconds: i32,
+    /// `Text`: what `Build` made, kept until `SetCountdown` clears it.
+    pub built: FmtStr,
 }
 
 /// Where an active objective lives.
@@ -119,6 +123,9 @@ pub struct Vignette {
     pub objectives_changed: bool,
     /// `ActiveObjectives`.
     pub active: Vec<ActiveObjective>,
+    /// `Objectives`: the mission objectives built from
+    /// [`Vignette::active`], in the same order.
+    pub objectives: Vec<crate::content::mission::objective::Objective>,
     /// The offer: its place in the mission data's offers.
     pub offer: usize,
     /// `Position`: the centre of the mission area.
@@ -349,6 +356,7 @@ pub(super) fn build(host: &mut Host<'_, '_>, offer_index: usize) -> Option<u32> 
         loot: 0,
         objectives_changed: false,
         active: Vec::new(),
+        objectives: Vec::new(),
         offer: offer_index,
         position: Vector::ZERO,
         area_radius: 3500.0,
@@ -473,25 +481,127 @@ fn has_objective(host: &Host<'_, '_>, key: u32, objective: i32) -> bool {
     find_objective(host, key, objective).is_some()
 }
 
-/// `AddObjective` (`:2014-2023`).
-fn add_objective(host: &mut Host<'_, '_>, key: u32, objective: i32, source: ObjectiveSource) {
+/// `FRmParamText::Build` with `FRmObjectiveType2::Build`'s marker
+/// (`RandomMissionMachine.cpp:105-122`, `RandomMissionRuntime.cpp:177-188`)
+/// and `FRmObjectiveType4::Build`'s (`:268-289`): the cached text, else the
+/// mad lib with the offer's text parameters (`GetTextParam`) and the
+/// marker (the countdown's only away from the origin, then its seconds),
+/// kept. A text of mad lib 0 is made again every time.
+fn build_text(host: &mut Host<'_, '_>, key: u32, source: &mut ObjectiveSource) -> FmtStr {
+    let Some(offer) = offer(host, key).cloned() else {
+        return FmtStr::new(0);
+    };
+    match source {
+        ObjectiveSource::Offer(component, k) => {
+            let mut working = offer.clone();
+            let Some(ob) = component_objective(&mut working, *component, *k).cloned() else {
+                return FmtStr::new(0);
+            };
+            if ob.built.mad_lib_id != 0 {
+                return ob.built;
+            }
+            let mut text = FmtStr::new(ob.text.str_id as u32);
+            for &param in &ob.text.params {
+                super::super::offer::text_param(host.cx, &offer, param, &mut text);
+            }
+            let p = ob.marker_position;
+            text.append_nav_marker([
+                ob.marker_system,
+                ob.marker_value as u32,
+                p.x.to_bits(),
+                p.y.to_bits(),
+                p.z.to_bits(),
+            ]);
+            if let Some(o) = offer_mut(host, key)
+                && let Some(ob) = component_objective(o, *component, *k)
+            {
+                ob.built = text.clone();
+            }
+            text
+        }
+        ObjectiveSource::Countdown(c) => {
+            if c.built.mad_lib_id != 0 {
+                return c.built.clone();
+            }
+            let mut text = FmtStr::new(c.str_id as u32);
+            if away_from_origin(c.marker_position) {
+                let p = c.marker_position;
+                text.append_nav_marker([
+                    c.marker_system,
+                    c.marker_value as u32,
+                    p.x.to_bits(),
+                    p.y.to_bits(),
+                    p.z.to_bits(),
+                ]);
+            }
+            text.append_int(c.seconds as u32);
+            c.built = text.clone();
+            text
+        }
+    }
+}
+
+/// `FRmObjective::CreateMissionObjective(Mission, Machine)`
+/// (`RandomMissionMachine.cpp:60-73`) and its `BuildDescription`: a type 7
+/// objective of the mission's player state, its state the objective's type
+/// (0x3a for an offer's, the countdown's own), its text built, shown.
+fn mission_objective(
+    host: &mut Host<'_, '_>,
+    key: u32,
+    source: &mut ObjectiveSource,
+) -> crate::content::mission::objective::Objective {
+    let state = match source {
+        ObjectiveSource::Offer(..) => 0x3a,
+        ObjectiveSource::Countdown(c) => c.objective_type as u32,
+    };
+    let owner = super::records::owner(host);
+    let mut built = crate::content::mission::objective::Objective::of(7, owner);
+    built.state = state;
+    built.text = build_text(host, key, source);
+    built.hidden = false;
+    built.description = built.text.clone();
+    built
+}
+
+/// `ObjectiveListPosition(Where)` (`:2024-2045`): the built objective at
+/// active place `at`, one further when the machine's list holds a type 5
+/// objective (it holds type 7 objectives only).
+fn objective_list_position(host: &Host<'_, '_>, key: u32, at: usize) -> usize {
+    let Some(v) = vig(host, key) else { return 0 };
+    let offset = usize::from(v.objectives.iter().any(|o| o.kind == 5));
+    (at + offset).min(v.objectives.len())
+}
+
+/// `AddObjective` (`:2009-2018`).
+fn add_objective(host: &mut Host<'_, '_>, key: u32, objective: i32, mut source: ObjectiveSource) {
+    if vig(host, key).is_none() {
+        return;
+    }
+    let built = mission_objective(host, key, &mut source);
     let Some(v) = vig_mut(host, key) else { return };
     v.active.push(ActiveObjective {
         key: objective,
         source,
     });
+    v.objectives.push(built);
     v.objectives_changed = true;
     refresh_objectives(host, key);
 }
 
-/// `InsertObjective` before `at` (`:2049-2061`).
+/// `InsertObjective` before `at` (`:2049-2061`): the list position taken
+/// before the objective is built.
 fn insert_objective(
     host: &mut Host<'_, '_>,
     key: u32,
     objective: i32,
-    source: ObjectiveSource,
+    mut source: ObjectiveSource,
     at: usize,
 ) {
+    if vig(host, key).is_none() {
+        return;
+    }
+    let node = objective_list_position(host, key, at);
+    let built = mission_objective(host, key, &mut source);
     let Some(v) = vig_mut(host, key) else { return };
     let at = at.min(v.active.len());
     v.active.insert(
@@ -501,6 +611,8 @@ fn insert_objective(
             source,
         },
     );
+    let node = node.min(v.objectives.len());
+    v.objectives.insert(node, built);
     v.objectives_changed = true;
     refresh_objectives(host, key);
 }
@@ -510,10 +622,14 @@ fn rebuild_objective(host: &mut Host<'_, '_>, key: u32, objective: i32) -> bool 
     let Some(at) = find_objective(host, key, objective) else {
         return false;
     };
+    let node = objective_list_position(host, key, at);
     let Some(v) = vig_mut(host, key) else {
         return false;
     };
     let entry = v.active.remove(at);
+    if node < v.objectives.len() {
+        v.objectives.remove(node);
+    }
     insert_objective(host, key, entry.key, entry.source, at);
     true
 }
@@ -521,8 +637,12 @@ fn rebuild_objective(host: &mut Host<'_, '_>, key: u32, objective: i32) -> bool 
 /// `RemoveObjective` (`:2081-2094`).
 fn remove_objective(host: &mut Host<'_, '_>, key: u32, objective: i32) -> Option<ActiveObjective> {
     let at = find_objective(host, key, objective)?;
+    let node = objective_list_position(host, key, at);
     let v = vig_mut(host, key)?;
     let entry = v.active.remove(at);
+    if node < v.objectives.len() {
+        v.objectives.remove(node);
+    }
     v.objectives_changed = true;
     refresh_objectives(host, key);
     Some(entry)
@@ -569,6 +689,7 @@ fn set_targets(
         ob.marker_position = at;
         ob.marker_system = system;
         ob.marker_value = 0;
+        ob.built = FmtStr::new(0);
         std::mem::replace(&mut ob.targets, ids.clone())
     };
     for id in old {
@@ -633,13 +754,55 @@ pub(super) fn refresh_objectives(host: &mut Host<'_, '_>, key: u32) {
     }
 }
 
-/// `UpdatePlayerObjectives` (slot 18, `:1314-1406`) as far as it changes
-/// the server: the player's mission record, then, for a player in this
-/// machine's system, the path objectives' `rand()` unless the ship travels
-/// a lane. The objective list itself and its send are P3.5c5's (D1021).
+/// `UpdatePlayerObjectives` (slot 18, `:1294-1406`): the player's record,
+/// whose run of the machine's objectives (after the first objective of a
+/// player without a ship and the leading path objectives, up to a type 8 or
+/// 5 one) is replaced by clones of the machine's list unless it matches it
+/// one by one (`IsSame`). Only a player in this machine's system then gets
+/// anything: on a lane, once per launch, a reached first path objective
+/// (within 1000) goes; otherwise the path to the first objective is laid
+/// out ([`update_path_objectives`]), a single path objective marking the
+/// objective after it with flags 0x50. Outside single player the player
+/// count follows. Any change sends the record.
 fn update_player_objectives(host: &mut Host<'_, '_>, key: u32, player: u32) {
+    use super::records;
     if !super::mission::get_or_create_record(host, player) {
         return;
+    }
+    let has_ship = host
+        .cx
+        .logic
+        .content
+        .state
+        .players
+        .get(&player)
+        .is_some_and(|s| s.ship.is_some());
+    let mine = vig(host, key)
+        .map(|v| v.objectives.clone())
+        .unwrap_or_default();
+    let mut replaced = false;
+    if let Some(rec) = host.rm_mut().and_then(|r| r.records.get_mut(&player)) {
+        let list = &mut rec.objectives;
+        let mut first = 0;
+        if !has_ship && !list.is_empty() {
+            first = 1;
+        }
+        while first < list.len() && list[first].kind == 5 {
+            first += 1;
+        }
+        let mut last = first;
+        while last < list.len() && list[last].kind != 8 && list[last].kind != 5 {
+            last += 1;
+        }
+        let same = last - first == mine.len()
+            && list[first..last]
+                .iter()
+                .zip(&mine)
+                .all(|(t, m)| t.is_same(m));
+        if !same {
+            list.splice(first..last, mine.iter().cloned());
+            replaced = true;
+        }
     }
     let Some(state) = host.cx.logic.content.state.players.get(&player) else {
         return;
@@ -648,36 +811,146 @@ fn update_player_objectives(host: &mut Host<'_, '_>, key: u32, player: u32) {
         return;
     }
     let on_lane = state.ship.as_ref().is_some_and(|s| s.lane_entry != 0);
-    if !on_lane {
-        update_path_objectives(host, key, player);
+    let mut path_changed = false;
+    if on_lane {
+        let checked = host
+            .rm()
+            .and_then(|r| r.records.get(&player))
+            .is_none_or(|rec| rec.path_checked);
+        if !checked {
+            if let Some(rec) = host.rm_mut().and_then(|r| r.records.get_mut(&player)) {
+                rec.path_checked = true;
+            }
+            let front = host
+                .rm()
+                .and_then(|r| r.records.get(&player))
+                .and_then(|rec| rec.objectives.first())
+                .filter(|o| o.kind == 5)
+                .map(|o| o.marker);
+            if let Some(leg) = front {
+                let now = player_position(host.cx, player);
+                let delta = |n: f32, m: u32| (f64::from(n) - f64::from(f32::from_bits(m))) as f32;
+                let (dx, dy, dz) = (
+                    delta(now.x, leg[2]),
+                    delta(now.y, leg[3]),
+                    delta(now.z, leg[4]),
+                );
+                let distance_sq = f64::from(dz) * f64::from(dz)
+                    + f64::from(dy) * f64::from(dy)
+                    + f64::from(dx) * f64::from(dx);
+                if distance_sq < 1_000_000.0
+                    && let Some(rec) = host.rm_mut().and_then(|r| r.records.get_mut(&player))
+                {
+                    rec.objectives.remove(0);
+                    path_changed = true;
+                }
+            }
+        }
+    } else {
+        if let Some(rec) = host.rm_mut().and_then(|r| r.records.get_mut(&player)) {
+            rec.path_checked = false;
+        }
+        path_changed = update_path_objectives(host, key, player);
+        if path_changed && let Some(rec) = host.rm_mut().and_then(|r| r.records.get_mut(&player)) {
+            let count = rec.objectives.iter().take_while(|o| o.kind == 5).count();
+            if count == 1
+                && let Some(next) = rec.objectives.get_mut(count)
+            {
+                next.state |= 0x50;
+            }
+        }
+    }
+    let mut count_changed = false;
+    if !api::misc::single_player(host.cx) {
+        count_changed = records::update_player_count(host, player, false);
+    }
+    if replaced || path_changed || count_changed {
+        records::send(host, player);
     }
 }
 
 /// `UpdatePathObjectives` (slot 19, `:1409-1475`): with a first objective
-/// that has a position and a player away from the origin, the path's text
-/// id is drawn (`rand() * 3 >> 15` over the machine type's three).
-fn update_path_objectives(host: &mut Host<'_, '_>, key: u32, player: u32) {
-    let Some(first) = vig(host, key).and_then(|v| v.active.first().cloned()) else {
-        return;
+/// that has a position and a player away from the origin, the legs to it
+/// (within 0.1) and the path objectives laid out at the record's front
+/// (the text id drawn over the machine type's three, `rand() * 3 >> 15`;
+/// ids 1 after it; the target of key 0xc the first object at the
+/// position; types 0x5a with a ship or 0xa, then 9 and 0xa). Without a
+/// position the leading path objectives go. Whether the list changed.
+fn update_path_objectives(host: &mut Host<'_, '_>, key: u32, player: u32) -> bool {
+    use super::records;
+    let first = vig(host, key).and_then(|v| v.active.first().cloned());
+    let target = first
+        .as_ref()
+        .and_then(|first| objective_position(host, key, first));
+    let (Some(first), Some(target)) = (first, target) else {
+        let Some(rec) = host.rm_mut().and_then(|r| r.records.get_mut(&player)) else {
+            return false;
+        };
+        let lead = rec.objectives.iter().take_while(|o| o.kind == 5).count();
+        rec.objectives.drain(..lead);
+        return lead != 0;
     };
-    if objective_position(host, key, &first).is_none() {
-        return;
-    }
     let at = player_position(host.cx, player);
     if !away_from_origin(at) {
-        return;
+        return false;
     }
+    let system = system_id(host, key);
+    let legs = host
+        .cx
+        .logic
+        .content
+        .state
+        .systems
+        .get(&system)
+        .map(|record| crate::content::space_paths::build_nn_path(record, at, target, 0.1).1)
+        .unwrap_or_default();
     let machine_type = offer(host, key).map_or(0, |o| o.machine_type);
-    if (1..=3).contains(&machine_type) {
-        let _ = host.cx.world.rng().rand();
+    let ids = records::machine_path_ids(host, machine_type);
+    let has_ship = host
+        .cx
+        .logic
+        .content
+        .state
+        .players
+        .get(&player)
+        .is_some_and(|s| s.ship.is_some());
+    let target_object = if first.key == 0xc {
+        records::scan_first(host.cx, system, target)
+    } else {
+        0
+    };
+    let first_type = if has_ship { 0x5a } else { 0x0a };
+    let owner = records::owner(host);
+    let Some(mut list) = host
+        .rm_mut()
+        .and_then(|r| r.records.get_mut(&player))
+        .map(|rec| std::mem::take(&mut rec.objectives))
+    else {
+        return false;
+    };
+    let changed = crate::content::mission::objectives::build_path_objectives(
+        host.cx,
+        system,
+        &legs,
+        &mut list,
+        [ids, 1, 1],
+        target_object,
+        [first_type, 9, 0xa],
+        owner,
+    );
+    if let Some(rec) = host.rm_mut().and_then(|r| r.records.get_mut(&player)) {
+        rec.objectives = list;
     }
+    changed
 }
 
-/// `SendPlaceholderObjectives` (slot 17): every mission player's record
-/// (its placeholder objective is P3.5c5's).
+/// `SendPlaceholderObjectives` (slot 17, `:1283-1290`): every mission
+/// player's record sends its placeholder objective.
 fn send_placeholder_objectives(host: &mut Host<'_, '_>) {
     for player in host.players() {
-        super::mission::get_or_create_record(host, player);
+        if super::mission::get_or_create_record(host, player) {
+            super::records::send_placeholder(host, player);
+        }
     }
 }
 
@@ -1164,6 +1437,7 @@ fn any_state(host: &mut Host<'_, '_>, key: u32, event: &Event<'_>) -> bool {
             marker_value: 0,
             marker_position: Vector::ZERO,
             seconds: 0,
+            built: FmtStr::new(0),
         };
         set_countdown(
             &mut countdown,
@@ -1279,6 +1553,7 @@ fn sub_vectors(a: Vector, b: Vector) -> Vector {
 /// `FRmObjectiveType4::SetCountdown`: the marker only for a position away
 /// from the origin; the seconds always.
 fn set_countdown(c: &mut Countdown, seconds: i32, system: u32, at: Vector) {
+    c.built = FmtStr::new(0);
     if away_from_origin(at) {
         c.marker_system = system;
         c.marker_value = 0x44d;

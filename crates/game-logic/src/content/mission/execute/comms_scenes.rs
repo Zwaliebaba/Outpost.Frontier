@@ -161,8 +161,7 @@ pub fn execute(cx: &mut Cx<'_>, id: ControllerId, action: &mut Action) -> bool {
         }
         Action::SetOffer(a) => {
             // `MissionAct.cpp:574-582`: the offer's mad lib, shown (type 8)
-            // unless it is 0 or 1; the objectives' renumber is P3.5c5's
-            // (D970).
+            // unless it is 0 or 1, then the objectives renumbered.
             let offer = a.offer_id;
             if let Some(s) = super::super::runtime::script_mut(cx, id) {
                 s.object.offer = offer;
@@ -171,14 +170,16 @@ pub fn execute(cx: &mut Cx<'_>, id: ControllerId, action: &mut Action) -> bool {
                 let _ =
                     api::player::display_mission_message(cx, player, &FmtStr::new(offer), 8, true);
             }
+            super::super::objectives::renumber_all(cx, id);
             true
         }
         Action::SetTitle(a) => {
-            // `MissionAct.cpp:598-603`: the title's mad lib; the renumber
-            // is P3.5c5's (D970).
+            // `MissionAct.cpp:598-603`: the title's mad lib, then the
+            // objectives renumbered.
             if let Some(s) = super::super::runtime::script_mut(cx, id) {
                 s.object.title = a.title_id;
             }
+            super::super::objectives::renumber_all(cx, id);
             true
         }
         _ => true,

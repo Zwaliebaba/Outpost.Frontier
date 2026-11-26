@@ -29,15 +29,17 @@
 //! prepared on the offer's lines and spoken by the comm system
 //! ([`crate::content::gcs::add`], player-list lines).
 //!
-//! What waits for later packages (D1021 and D1024): the mission objectives
-//! the players see (`FMissionPlayer`'s lists and their sends, P3.5c5; the
-//! `rand()` draws of their path objectives are made where the C++ makes
-//! them) and the mission object's body beyond what a random mission's
-//! players reach (D973).
+//! **The objectives** the players see are their mission records'
+//! ([`records`], P3.5c5): the machines' objectives laid into them with the
+//! paths, the docked marker and the player count, sent when they change.
+//! What waits for later packages (D1024): the mission object's
+//! single-player saves, load, respawns and jumpers, and the random
+//! encounters' notices (P3.6d).
 
 mod machine;
 pub mod message;
 mod mission;
+mod records;
 mod sub;
 #[cfg(test)]
 mod tests;
@@ -190,14 +192,16 @@ pub struct RandomMission {
     pub data: Option<RmDataKey>,
     /// TU38 `PlayerId`.
     pub player: u32,
-    /// TU38 `Players`: the players with a mission record, by id.
-    pub records: BTreeSet<u32>,
+    /// TU38 `Players`: the players' mission records, by id.
+    pub records: BTreeMap<u32, crate::content::mission::object::MissionPlayer>,
     /// TU38 `DeadPlayerIds`.
     pub dead_players: Vec<u32>,
     /// TU38 `Reward` (`+0x10`).
     pub reward: u32,
     /// TU38 `HeartbeatInterval`.
     pub heartbeat_interval: f32,
+    /// TU38 `Field_0x84`: the objective timer's seconds.
+    pub objective_timer: f32,
     /// TU38 `Field_0x80`: 7, then the first offer's type.
     pub kind: u8,
     /// TU38 `Field_0x50`: the mission's title.
@@ -251,10 +255,11 @@ impl RandomMission {
         Self {
             data,
             player: 0,
-            records: BTreeSet::new(),
+            records: BTreeMap::new(),
             dead_players: Vec::new(),
             reward: 0,
             heartbeat_interval: crate::content::mission::object::HEARTBEAT,
+            objective_timer: 0.0,
             kind: 7,
             title: FmtStr::new(0),
             description: FmtStr::new(0),
@@ -711,6 +716,7 @@ fn controller_event(message: &ControllerMessage<'_>) -> ControllerEvent {
             system: *system,
             player: *player,
         },
+        M::BaseExit { player, .. } => Controller::BaseExit(*player),
         M::GroupMemberJoined { player } => Controller::GroupMemberJoined(*player),
         M::GroupMemberLeft { player } => Controller::GroupMemberLeft(*player),
         M::PlayerLoad { player, .. } => Controller::PlayerLoad(*player),
