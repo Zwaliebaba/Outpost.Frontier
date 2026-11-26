@@ -240,6 +240,48 @@ impl FmtStr {
         });
     }
 
+    /// `FmtStr::operator==` as the C++ compares (`common_fmtstr.cpp:156-222`,
+    /// `:471-493`): the mad-lib IDs, then the values in order by tag and
+    /// payload, their flag bytes not compared. A marker's two IDs compare
+    /// exactly and each of its three position floats within 0.01 of the
+    /// other's (the squared difference in `f64` against `0.01f`; a NaN is
+    /// unequal); a nested string compares the same way.
+    #[must_use]
+    pub fn equals_as_cpp(&self, other: &Self) -> bool {
+        fn value(a: &FmtValue, b: &FmtValue) -> bool {
+            match (a, b) {
+                (
+                    FmtValue::Value {
+                        tag: ta, value: va, ..
+                    },
+                    FmtValue::Value {
+                        tag: tb, value: vb, ..
+                    },
+                ) => ta == tb && va == vb,
+                (FmtValue::NavMarker { data: a, .. }, FmtValue::NavMarker { data: b, .. }) => {
+                    a[0] == b[0]
+                        && a[1] == b[1]
+                        && (2..5).all(|i| {
+                            let delta =
+                                f64::from(f32::from_bits(a[i])) - f64::from(f32::from_bits(b[i]));
+                            delta * delta <= f64::from(0.01_f32)
+                        })
+                }
+                (FmtValue::Nested { fmt: a, .. }, FmtValue::Nested { fmt: b, .. }) => {
+                    a.equals_as_cpp(b)
+                }
+                _ => false,
+            }
+        }
+        self.mad_lib_id == other.mad_lib_id
+            && self.values.len() == other.values.len()
+            && self
+                .values
+                .iter()
+                .zip(&other.values)
+                .all(|(a, b)| value(a, b))
+    }
+
     /// The bytes [`FmtStr::flatten`] writes (`RpcGetFlattenedFmtStrSize`).
     #[must_use]
     pub fn flattened_size(&self) -> usize {
@@ -348,6 +390,33 @@ impl FmtStr {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_cpp_equality_takes_markers_within_a_tenth() {
+        let marker = |x: f32| {
+            let mut f = FmtStr::new(7);
+            f.append_nav_marker([1, 2, x.to_bits(), 0, 0]);
+            f
+        };
+        assert!(marker(10.0).equals_as_cpp(&marker(10.09)));
+        assert!(!marker(10.0).equals_as_cpp(&marker(10.2)));
+        assert!(!marker(f32::NAN).equals_as_cpp(&marker(f32::NAN)));
+        // The flag bytes do not count; the mad lib and the tags do.
+        let mut a = FmtStr::new(7);
+        a.append_int(3);
+        a.append_int(4);
+        let mut b = FmtStr::new(7);
+        b.append_int(4);
+        assert!(!a.equals_as_cpp(&b));
+        b.values[0] = FmtValue::Value {
+            tag: TAG_INT,
+            flags: 9,
+            value: 3,
+        };
+        b.append_int(4);
+        assert!(a.equals_as_cpp(&b));
+        assert!(!a.equals_as_cpp(&FmtStr::new(8)));
+    }
 
     #[test]
     fn flatten_layout() {

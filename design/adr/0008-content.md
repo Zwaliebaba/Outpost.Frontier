@@ -902,7 +902,10 @@ and 5 to 10 as recommended on 2026-11-22, and 4 as recommended on 2026-11-24:
    2026-11-25: to the first action without an effect) ended at tick 2
    with P3.5c2 and P3.5c3; with P3.5c4's comms, dialogs and scene scripts
    no action of a later increment runs in the session's 900 ticks on
-   `outdir/`, so the whole session is judged.
+   `outdir/`, so the whole session is judged. P3.5c5 ports the objectives,
+   the NN path and the nags (D970 narrowed to `Act_EnableEnc`, D973 to
+   P3.5d's and P3.6d's calls, D1021 removed); their sends go to the
+   player's client only, so the session's records do not change.
 10. **Order of the packages.** P3.4, then P3.5 and P3.6 interleaved as in
     point 10, then P3.7, each increment a pull request merged on green
     under O41. *Recommended as written.*
