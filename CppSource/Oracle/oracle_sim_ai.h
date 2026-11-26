@@ -18,4 +18,12 @@ namespace oracle
     // wrapper replaces the `rand` import of every game DLL. Tick points at the run's
     // tick counter. Returns false (and records nothing) when the file cannot be written.
     bool OracleSimAiStart(std::string const& OutDir, unsigned int const* Tick, FSimNameFn NameOf);
+
+    // P3.6d: from here on every directive a behaviour manager hears through
+    // pub::AI::SubmitDirective (GOracleAiHooks.OnDirective) is recorded as an `ai_answer` of
+    // kind `directive`; those before OracleSimAiStart are written right after `ai_start`.
+    void OracleSimAiDirectivesBegin();
+    // Brackets the harness's own scenario directives, which are not recorded (the replay
+    // takes them from the scenario file).
+    void OracleSimAiHarnessDirective(bool bBegin);
 }

@@ -1,0 +1,19 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): free flight in he01 with
+# SpacePop running (P3.6d, decision record 0008 points 7 and 10). A fighter beside Station
+# he01_11 (whose zone is populated, density 12) becomes player 1's ship and SpacePop hears its
+# launch (`population`, Content.dll's OracleSimPopulate): the arrival population spawns the
+# zones' encounters around it, and SpacePop's 3 s heartbeat (run by the server's ElapseTime)
+# keeps populating. The fighter has no behaviour; it flies straight at full throttle. Comms are
+# off, so Content's comm system draws no rand(). Multiplayer stepping.
+
+# rust: server SpacePop's population (population)
+
+system he01
+ticks 900
+stepping mp
+comms off
+
+ship pilot he_fighter li_p_he_fighter_loadout01 5541 0 -49500 psi
+population pilot
+
+at 1 pilot throttle 1

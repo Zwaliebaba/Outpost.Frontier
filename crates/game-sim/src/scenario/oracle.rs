@@ -354,7 +354,14 @@ pub fn oracle_ticks(file: &Path) -> BTreeMap<String, Vec<State>> {
             },
         );
     }
+    // An object first recorded after tick 0 (P3.6d: a ship the population
+    // spawned during the run) is not alive before it.
     out.into_iter()
-        .map(|(k, m)| (k, m.into_values().collect()))
+        .map(|(k, m)| {
+            let first = m.keys().next().copied().unwrap_or(0) as usize;
+            let mut states = vec![State::default(); first];
+            states.extend(m.into_values());
+            (k, states)
+        })
         .collect()
 }

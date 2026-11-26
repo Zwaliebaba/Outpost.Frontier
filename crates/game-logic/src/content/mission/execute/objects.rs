@@ -33,7 +33,7 @@ fn label_object(cx: &Cx<'_>, id: ControllerId, label: &[u8]) -> u32 {
 }
 
 /// The actions of P3.5c2; true (the C++'s result, unused) for the others,
-/// which [`super::execute`] runs itself or leaves without effect (D970).
+/// which [`super::execute`] runs itself.
 #[allow(clippy::too_many_lines)]
 pub fn execute(cx: &mut Cx<'_>, id: ControllerId, action: &mut Action) -> bool {
     let Some(player) = script(cx, id).map(|s| s.object.player) else {

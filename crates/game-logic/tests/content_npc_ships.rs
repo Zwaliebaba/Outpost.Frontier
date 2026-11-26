@@ -642,6 +642,9 @@ fn a_patrol_that_announces_its_scan_scans_once_the_line_ends() {
         space_support(cx, &mut ControllerMessage::Heartbeat { elapsed: 1.0 });
     };
     // The scanner picks the ship at its 0.3 chance, closes in and announces.
+    // A ship whose roll fails stays scanned, so the roll is made from a
+    // fixed seed (since P3.6d the load draws the zones' validation first).
+    cx.world.rng().seed(1);
     let mut beats = 0;
     while scanner(&cx).0 != 5 {
         heartbeat(&mut cx);

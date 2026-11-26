@@ -310,7 +310,9 @@ seeding point: the harness calls `srand(seed)` again once the system and
 Content's population of it have loaded, and the Rust world seeds there;
 the `rand()` draws of the population (4,837 in he01, from Content's
 `SystemLoaded` handler; [sim-records.md](sim-records.md), `load_rand.jsonl`)
-are P3.6's and are checked at Gate G3 (owner, 2026-11-18). Replay tests of
+are P3.6's (owner, 2026-11-18); P3.6d brings them after Gate G3 (owner,
+2026-11-25, decision O48), and the data job compares them with the
+oracle's (`content_population.rs`). Replay tests of
 the integrator, AI and damage code equal the oracle within Tier B bounds,
 and scenario trajectories, times and damage fall inside the envelopes
 approved in P2.0 (decision O20). All protocol codecs round-trip and match
