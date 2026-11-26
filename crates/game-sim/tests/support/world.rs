@@ -34,3 +34,14 @@ pub fn world(config: WorldConfig) -> Option<World> {
     let data = game_data()?;
     Some(World::new(data, config).with_assets(Assets::new(outdir().join("data"))))
 }
+
+/// A world over `outdir/` with its assets and the faction feelings of
+/// `InitialWorld.ini`, which the oracle's harness loads before every
+/// scenario (`Server_LoadWorldState`; `game_sim::scenario::
+/// load_initial_feelings`).
+pub fn scenario_world(config: WorldConfig) -> Option<World> {
+    let mut world = world(config)?;
+    let text = std::fs::read(outdir().join("data/initialworld.ini")).unwrap_or_default();
+    game_sim::scenario::load_initial_feelings(&mut world, &text);
+    Some(world)
+}

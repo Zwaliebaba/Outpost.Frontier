@@ -349,8 +349,6 @@ pub struct Logic {
     pub space_obj: crate::api::space_obj::SpaceObjState,
     /// The server's phantoms and the pump's latch (`pub::Phantom`).
     pub phantoms: crate::api::phantom::Phantoms,
-    /// The loaded systems' solar BSPs (`StarSystem::Spatial`).
-    pub solar_trees: crate::api::system::SolarTrees,
     /// The save storage: the accounts folder, the local clock and the last
     /// file written ([`crate::saves`]).
     pub saves: crate::saves::Saves,
@@ -454,7 +452,6 @@ impl Logic {
             fuses: None,
             space_obj: crate::api::space_obj::SpaceObjState::default(),
             phantoms: crate::api::phantom::Phantoms::default(),
-            solar_trees: crate::api::system::SolarTrees::default(),
             saves: crate::saves::Saves::default(),
             content: crate::content::Content::new(),
             motd: Vec::new(),

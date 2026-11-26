@@ -43,7 +43,7 @@ mod oracle;
 
 pub use driver::{
     Contact, GuidedState, Hit, Run, ScenarioServer, ShieldState, State, TurretProbe, UNIT_PSIS,
-    Unit, gun_text, run, run_with, world_config,
+    Unit, gun_text, load_initial_feelings, run, run_with, world_config,
 };
 pub use file::{
     Cmd, ObjDesc, Scenario, needs_ai, needs_server, parse, scenario_files, scenarios_dir,
@@ -51,8 +51,9 @@ pub use file::{
 };
 pub use judge::{
     EXACT_SCENARIOS, GROSS_POSITION, dist, first_event, first_event_of, first_judged, fmt_contact,
-    fmt_state_bits, judge, judge_contact, judge_exact, judge_fight, report_first_divergence,
-    report_first_divergence_from, report_guided, report_object_errors, same_state,
+    fmt_state_bits, judge, judge_contact, judge_exact, judge_fight, report_attitudes,
+    report_first_divergence, report_first_divergence_from, report_guided, report_object_errors,
+    same_state,
 };
 pub use oracle::{
     AiInputs, oracle_ai_inputs, oracle_guided, oracle_guided_cores, oracle_hits, oracle_run,

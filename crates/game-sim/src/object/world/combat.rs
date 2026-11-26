@@ -13,6 +13,7 @@ use crate::equip::launcher::{FireResult, LaunchContext, ProjLaunchInfo, Projecti
 use crate::equip::{EquipKind, Fate, SUBOBJ_ID_POWER, SUBOBJ_ID_ROOT, SubObjId, types};
 use crate::object::damage::{self, CAUSE_GUN, DamageList, DamageTarget, GroupState};
 use crate::object::{KindData, ObjHandle, ObjectKind, class};
+use neuron_core::scene::InstanceId;
 
 use super::spawn::ProjectileSpawn;
 use super::{DamageState, Hit, HitRule, NoServerHooks, ServerHooks, TickList, World, WorldEvent};
@@ -932,9 +933,12 @@ impl World {
 
     /// [`World::apply_damage_list`] with the server's hooks: the server
     /// sees the list first and may keep it (`is_damage_blocked`, the
-    /// damage-callback latch), then the entries are written, then the
-    /// server's part runs (its dispatches), then a destroyed object is
-    /// destroyed (`destroy(1, inflictor)`).
+    /// damage-callback latch), then the entries are written, then outside
+    /// single player the destroyed sub-objects go at once
+    /// (`World::destroy_sub_objs`), then the server's part runs (its
+    /// dispatches), then a destroyed object is destroyed (`destroy(1,
+    /// inflictor)`). In single player an item or group whose entry
+    /// destroys it is marked destroyed as its entry is written.
     pub fn apply_damage_list_hooked(
         &mut self,
         h: ObjHandle,
@@ -953,6 +957,7 @@ impl World {
         if self.objects.get(h).is_none_or(|o| o.dead) {
             return;
         }
+        let single_player = self.config.single_player;
         for index in 0..owned.entries.len() {
             // The server's part of the entry (`EqObj::apply_*_entry`'s
             // event, behaviour notice and fuses) before it is written.
@@ -974,7 +979,7 @@ impl World {
             } else if neuron_core::id::sub_object::is_arch_group_id(id) {
                 if let Some(g) = eq.arch_groups.iter_mut().find(|g| g.id == id) {
                     g.hit_pts = entry.hit_pts;
-                    if entry.fate != Fate::None || entry.hit_pts <= 0.0 {
+                    if single_player && (entry.fate != Fate::None || entry.hit_pts <= 0.0) {
                         g.state = GroupState::Destroyed;
                         g.fate = entry.fate;
                     }
@@ -1004,13 +1009,16 @@ impl World {
                 } else {
                     equip.set_hit_points(entry.hit_pts);
                 }
-                if entry.hit_pts <= 0.0 && entry.fate != Fate::None {
+                if single_player && entry.hit_pts <= 0.0 && entry.fate != Fate::None {
                     if let Some(a) = &mut equip.attached {
                         a.fate = entry.fate;
                     }
                     equip.destroy();
                 }
             }
+        }
+        if !single_player && !owned.entries.is_empty() {
+            self.destroy_sub_objs(h, &owned);
         }
         let weapons_offline = self
             .objects
@@ -1023,6 +1031,274 @@ impl World {
             self.kill(h, owned.inflictor_id, hooks);
         }
         hooks.damage_list_done(self, h);
+    }
+
+    /// `CEqObj::destroy_sub_objs(List, false)`, then `CEquipManager::
+    /// CleanUp` (`Common/common_ceqobj.cpp:1508-1566`,
+    /// `common_carchgroup.cpp:836-920`), which a multiplayer server's
+    /// `EqObj::apply_damage_list` runs once the entries are written
+    /// (`Server/server_gameobject.cpp:1433-1441`). Each entry with a fate,
+    /// in the list's order: an item is destroyed (`CEquip::Destroy`), an
+    /// attached one first taking the entry's fate, a separated one the
+    /// health proxy's (it vanishes: no debris on a server), and disconnected
+    /// ([`World::disconnect_destroyed`]); a group's entry tells every engine
+    /// (`NotifyArchGroupDestroyed`: the nozzles on it go). Then
+    /// `DestroyGroups`: each group an entry gives a fate is killed with it,
+    /// and every killed group destroys its lower groups and itself
+    /// ([`World::destroy_group_state`]). Then the destroyed items leave the
+    /// lists (not on a solar). The owner's `notify` events (3 to 8) have no
+    /// listener on a server.
+    pub(crate) fn destroy_sub_objs(&mut self, h: ObjHandle, list: &DamageList) {
+        for entry in &list.entries {
+            if entry.fate == Fate::None {
+                continue;
+            }
+            let id = entry.sub_obj_id;
+            if neuron_core::id::sub_object::is_equip_id(id) {
+                let Some(equip) = self
+                    .objects
+                    .get_mut(h)
+                    .and_then(|o| o.equipped.as_deref_mut())
+                    .and_then(|eq| eq.equipment.by_id_mut(id))
+                else {
+                    continue;
+                };
+                if let Some(a) = &mut equip.attached {
+                    a.fate = if entry.fate == Fate::Separated {
+                        Fate::HealthProxy
+                    } else {
+                        entry.fate
+                    };
+                }
+                // `IsConnected`: mounted, with an attachment on a live root.
+                let connected = equip.mount.as_ref().is_some_and(|m| m.connected)
+                    && equip
+                        .attached
+                        .as_ref()
+                        .and_then(|a| a.attachment)
+                        .is_some_and(|a| a.root_instance().is_some());
+                let fate = equip.attached.as_ref().map(|a| a.fate);
+                let attachment = if connected {
+                    equip.attached.as_mut().and_then(|a| a.attachment.take())
+                } else {
+                    None
+                };
+                equip.destroy();
+                if let (Some(fate), Some(attachment)) = (fate, attachment) {
+                    self.disconnect_destroyed(h, attachment, fate);
+                }
+            } else if neuron_core::id::sub_object::is_arch_group_id(id)
+                && let Some(eq) = self
+                    .objects
+                    .get_mut(h)
+                    .and_then(|o| o.equipped.as_deref_mut())
+            {
+                for e in eq.equipment.iter_mut() {
+                    let crate::equip::Equip { kind, events, .. } = e;
+                    if let EquipKind::Engine(engine) = kind {
+                        engine.arch_group_destroyed(id, events);
+                    }
+                }
+            }
+        }
+        // `DestroyGroups`: kill, then the `DestroyDeadGroups` sweep.
+        if let Some(eq) = self
+            .objects
+            .get_mut(h)
+            .and_then(|o| o.equipped.as_deref_mut())
+        {
+            for entry in &list.entries {
+                if !neuron_core::id::sub_object::is_arch_group_id(entry.sub_obj_id)
+                    || entry.fate == Fate::None
+                {
+                    continue;
+                }
+                if let Some(g) = eq
+                    .arch_groups
+                    .iter_mut()
+                    .find(|g| g.id == entry.sub_obj_id)
+                    .filter(|g| !g.is_dead())
+                {
+                    g.state = GroupState::Killed;
+                    g.fate = entry.fate;
+                }
+            }
+        }
+        for id in self.group_ids(h) {
+            let killed = self
+                .group(h, id)
+                .is_some_and(|g| g.state == GroupState::Killed);
+            if killed {
+                self.destroy_lower_groups(h, id);
+                self.destroy_group_state(h, id);
+            }
+        }
+        let solar = self
+            .objects
+            .get(h)
+            .is_some_and(|o| o.kind == ObjectKind::Solar);
+        if let Some(eq) = self
+            .objects
+            .get_mut(h)
+            .and_then(|o| o.equipped.as_deref_mut())
+        {
+            eq.equipment.clean_up(solar);
+        }
+    }
+
+    /// The object's collision groups' ids in the group map's order (by id).
+    fn group_ids(&self, h: ObjHandle) -> Vec<SubObjId> {
+        let mut ids: Vec<SubObjId> = self
+            .objects
+            .get(h)
+            .and_then(|o| o.equipped.as_deref())
+            .map(|eq| eq.arch_groups.iter().map(|g| g.id).collect())
+            .unwrap_or_default();
+        ids.sort_unstable();
+        ids
+    }
+
+    fn group(&self, h: ObjHandle, id: SubObjId) -> Option<&damage::ArchGroup> {
+        self.objects
+            .get(h)?
+            .equipped
+            .as_deref()?
+            .arch_groups
+            .iter()
+            .find(|g| g.id == id)
+    }
+
+    /// `CArchGroupManager::DestroyLowerGroups(Dead)` (`common_carchgroup.cpp:
+    /// 881-930`): every other group whose root instance is in the dead
+    /// group's, in id order, destroys its own lower groups and itself when
+    /// it is killed or destroyed; a living one is deleted (the C++ warns).
+    /// When the deleted group was the first, the walk resumes at the last
+    /// one, as the C++ port's iterator does.
+    fn destroy_lower_groups(&mut self, h: ObjHandle, dead: SubObjId) {
+        let Some(dead_group) = self.group(h, dead).cloned() else {
+            return;
+        };
+        let ids = self.group_ids(h);
+        let mut index = 0;
+        while index < ids.len() {
+            let id = ids[index];
+            index += 1;
+            let Some(g) = self.group(h, id) else {
+                continue;
+            };
+            if id == dead || !dead_group.is_inst_in_group(g.root_instance) {
+                continue;
+            }
+            if g.is_dead() {
+                self.destroy_lower_groups(h, id);
+                self.destroy_group_state(h, id);
+            } else {
+                let first = self.group_ids(h).first() == Some(&id);
+                if let Some(eq) = self
+                    .objects
+                    .get_mut(h)
+                    .and_then(|o| o.equipped.as_deref_mut())
+                {
+                    eq.arch_groups.retain(|x| x.id != id);
+                }
+                if first {
+                    index = ids.len().saturating_sub(1).max(index);
+                }
+            }
+        }
+    }
+
+    /// `CArchGroup::Destroy` (`common_carchgroup.cpp:186-256`): a separable
+    /// group on a live root instance leaves the object's body: with the
+    /// health proxy's or a loot fate in place (`DetachInstanceInPlace`, its
+    /// parts gone); separated (fate 2), the C++ splits it off into a debris
+    /// object with the explosive impulses, which the world does not (D1083:
+    /// its parts are gone in place too). The group is destroyed (state 3).
+    pub(crate) fn destroy_group_state(&mut self, h: ObjHandle, id: SubObjId) {
+        let Some(g) = self
+            .objects
+            .get_mut(h)
+            .and_then(|o| o.equipped.as_deref_mut())
+            .and_then(|eq| eq.arch_groups.iter_mut().find(|g| g.id == id))
+        else {
+            return;
+        };
+        let root = if g.separable {
+            g.root_instance.take()
+        } else {
+            None
+        };
+        let fate = g.fate;
+        g.state = GroupState::Destroyed;
+        if let Some(root) = root
+            && matches!(
+                fate,
+                Fate::Separated | Fate::HealthProxy | Fate::Loot | Fate::LootSilent
+            )
+        {
+            self.detach_instance_in_place(h, root);
+        }
+    }
+
+    /// `CAttachedEquip::Disconnect` for a destroyed item on a server
+    /// (`Common/common_cattachedequip.cpp:160-205`): with a fate other than
+    /// `FATE_STAY` (1) the attachment disconnects without debris
+    /// (`DetachInstanceInPlace`: a non-physical item's parts leave its
+    /// owner's part map and its instances go; a physical item's equipment
+    /// object is released); with `FATE_STAY` the item stays on its owner,
+    /// but a physical attachment's deletion releases its object all the
+    /// same (`~CPhysAttachment`). The attachment is gone either way.
+    pub(crate) fn disconnect_destroyed(
+        &mut self,
+        h: ObjHandle,
+        attachment: crate::equip::Attachment,
+        fate: Fate,
+    ) {
+        match attachment {
+            crate::equip::Attachment::Physical { object, .. } => {
+                // `Release` of the equipment object: off its joint and out of
+                // the physics now, out of the world's lists and the instance
+                // tree with the reap.
+                if let Some(instance) = self.objects.get(object).and_then(|o| o.engine.instance) {
+                    self.scene.destroy_joint(Some(instance));
+                }
+                if let Some(o) = self.objects.get_mut(object) {
+                    o.dead = true;
+                    let system = o.physical.system;
+                    if let (Some(body), Some(world)) =
+                        (o.physical.body.take(), self.physics.world_mut(system))
+                    {
+                        world.destroy_body(body);
+                    }
+                }
+            }
+            crate::equip::Attachment::NonPhysical { instance, .. } => {
+                if fate != Fate::Destroyed
+                    && let Some(instance) = instance
+                {
+                    self.detach_instance_in_place(h, instance);
+                }
+            }
+        }
+    }
+
+    /// `DetachInstanceInPlace(instance)` on a part of `h`
+    /// (`Common/common_physys_build.cpp:1110-1131`): the joint to its
+    /// parent goes, every part-map entry of its subtree is erased and the
+    /// subtree is destroyed.
+    fn detach_instance_in_place(&mut self, h: ObjHandle, instance: InstanceId) {
+        let tree = self.instance_tree(Some(instance));
+        if let Some(o) = self.objects.get_mut(h) {
+            o.physical
+                .part_map
+                .retain(|p| p.instance.is_none_or(|i| !tree.contains(&i)));
+        }
+        self.scene.destroy_joint(Some(instance));
+        for i in &tree {
+            self.instances.remove(i);
+        }
+        self.scene.destroy_instance(instance);
+        self.refresh_parts(h);
     }
 
     /// The sphere of an object's body (centre of mass and the core's
