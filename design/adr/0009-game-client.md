@@ -236,7 +236,10 @@ Gate G5 asks that interface-tree dumps equal the oracle for every screen.
    section 8, "Hosted runner") ran `menu_walk.txt` on a hosted runner on
    2026-11-26 with the owner run's figures and two runs equal in their
    session, trees, key map, layouts and screenshots; the IClient log
-   differed by one call between them, and the runner has no sound device
+   differed by one call between them (a second `SendServerLoginResponse` in
+   the first run on a fresh runner, repeated by a fifth run, most likely
+   from the per-user state a first start creates), and the runner has no
+   sound device
    (the client's sound warning is answered Yes). Recommended: the C++
    oracle's menu scripts run in CI and the Rust client's comparison with
    them is a CI job; the owner compares one CI artifact with a local run

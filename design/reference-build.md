@@ -447,7 +447,17 @@ toolset:
 
 The two CI runs have equal `session.jsonl` (44 lines without the `start`
 record), `tree.jsonl` (1,029), `keymap.jsonl` (258) and `layout.jsonl`
-(176), and byte-identical screenshots; their IClient logs differ by one call.
+(176), and byte-identical screenshots. Their IClient logs differ by one call:
+the first run on a fresh runner has a second `SendServerLoginResponse` at
+frame 0 (`Startup`, `OnConnect`, `SendServerLoginResponse` twice,
+`SendServerCharacterInfo` at frames 0 and 118, `Shutdown` at 398); the
+second run has one, as the owner's run did. Run 5
+([45785643369](https://github.com/Zwaliebaba/Outpost.Frontier/actions/runs/45785643369))
+repeated this exactly. The likely cause is the per-user state the first start
+creates (the login manager's registry values and user files), which the
+owner's machine and the second run already have; it is not yet confirmed. A
+comparison job therefore starts the compared runs from the same per-user
+state, after one warm-up run.
 The CI files have not been compared with the owner's files, which stay
 outside the repository; the job keeps them as a 7-day artifact for that.
 
