@@ -558,6 +558,25 @@ impl World {
             if a == b {
                 continue;
             }
+            // IVP reports a contact's sides in its mindist's synapse order:
+            // first the object whose OV element found the other when it was
+            // re-filed (`IVP_Mindist_Manager::RecheckOvElement`,
+            // `delegate_collisions_for_object(Object, NewObj)`). A guided
+            // munition, small and fast, re-files far more often than what
+            // it closes on and is the first side; the port's contact pass
+            // has no OV tree (decision O19) and puts it first (D1085), so
+            // its hit (`Guided::on_collision`) comes before the other
+            // side's collision damage destroys and detonates it.
+            let guided = |w: &Self, h: ObjHandle| {
+                w.objects
+                    .get(h)
+                    .is_some_and(|o| o.kind == ObjectKind::Guided)
+            };
+            let ((a, sub_a), (b, sub_b)) = if guided(self, b) && !guided(self, a) {
+                ((b, sub_b), (a, sub_a))
+            } else {
+                ((a, sub_a), (b, sub_b))
+            };
             self.on_collision(a, sub_a, b, sub_b, ev.point, hooks);
             self.on_collision(b, sub_b, a, sub_a, ev.point, hooks);
         }

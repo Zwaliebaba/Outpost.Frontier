@@ -51,6 +51,22 @@ pub struct ScenarioHooks<'l> {
     /// With `Some`, each frame's heartbeats: tick, controller, elapsed time
     /// (bits). [`heartbeat_hook`] must be the logic's delivery hook.
     pub beats: Option<Vec<(u32, u32, u32)>>,
+    /// With `Some`, the damage lists and destructions in the order the
+    /// world makes them, with the frame length to number the ticks
+    /// (`scenario_hooks`' `guided_impact_order`, P3.11c).
+    pub trace: Option<(f64, Vec<Note>)>,
+}
+
+/// A damage list or a destruction the world made (tick numbered from 1).
+#[derive(Debug)]
+#[allow(dead_code)]
+pub struct Note {
+    pub tick: u64,
+    /// The object's id and kind.
+    pub object: (u32, Option<game_sim::object::ObjectKind>),
+    /// A damage list's cause and entries (sub-object, hit points after);
+    /// `None` for a destruction.
+    pub damage: Option<(i32, Vec<(u16, f32)>)>,
 }
 
 impl<'l> ScenarioHooks<'l> {
@@ -64,6 +80,27 @@ impl<'l> ScenarioHooks<'l> {
             population_ships: Vec::new(),
             start_listing: Vec::new(),
             beats: None,
+            trace: None,
+        }
+    }
+
+    fn note(&mut self, world: &World, object: ObjHandle, list: Option<&DamageList>) {
+        if let Some((frame, notes)) = &mut self.trace {
+            let tick = (world.time() / *frame).round() as u64 + 1;
+            let o = world.get(object);
+            notes.push(Note {
+                tick,
+                object: (o.map_or(0, |o| o.simple.id), o.map(|o| o.kind)),
+                damage: list.map(|l| {
+                    (
+                        l.cause,
+                        l.entries
+                            .iter()
+                            .map(|e| (e.sub_obj_id, e.hit_pts))
+                            .collect(),
+                    )
+                }),
+            });
         }
     }
 }
@@ -115,6 +152,7 @@ impl ServerHooks for ScenarioHooks<'_> {
         object: ObjHandle,
         list: &mut DamageList,
     ) -> bool {
+        self.note(world, object, Some(list));
         self.server.before_damage_list(world, object, list)
     }
 
@@ -137,6 +175,7 @@ impl ServerHooks for ScenarioHooks<'_> {
     }
 
     fn destroy(&mut self, world: &mut World, object: ObjHandle, kind: i32, killer: u32) -> bool {
+        self.note(world, object, None);
         self.server.destroy(world, object, kind, killer)
     }
 
