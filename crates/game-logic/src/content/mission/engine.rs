@@ -491,9 +491,9 @@ pub fn handle_mission_message(
             // The restore's calls out, in its order: the started cut
             // scenes' bar scenes, the group's join (Story's event after it
             // is P3.5d's, D973) and the emptied objectives' send. They come
-            // after the restore, where the C++ makes them during it; the
-            // join's `PlayerMissionChanged` to this mission changes nothing
-            // either way (its own id skips `OnMessage100b`, the read
+            // after the restore, where the C++ makes them during it (D1045);
+            // the join's `PlayerMissionChanged` to this mission changes
+            // nothing either way (its own id skips `OnMessage100b`, the read
             // `[MissionState]` the NN path, and a new mission has no nags).
             for step in steps {
                 match step {
