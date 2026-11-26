@@ -53,8 +53,9 @@ pub struct RtcScript {
     pub path: Vec<u8>,
     /// `Field_0x8c`: the bar scene's handle, -1 for none (run time).
     pub handle: i32,
-    /// `Field_0x90`: the script was started (run time).
-    pub started: bool,
+    /// `Field_0x90`: the started RTC script, its sequence id `Cnd_RTCDone`'s
+    /// (run time, P3.5c4).
+    pub script: Option<Box<crate::content::bar::CharacterEncounter>>,
     /// `Field_0x94`: finished; the save skips it.
     pub finished: bool,
     /// `Field_0x95`: the `rtc` line's second value.
@@ -502,7 +503,7 @@ pub fn player_save(
 /// `ReleaseRtcScripts`: every cut scene dropped, a started one as a step.
 fn release_rtc_scripts(script: &mut MissionScript, steps: &mut Vec<RestoreStep>) {
     for rtc in &script.rtc_scripts {
-        if rtc.started {
+        if rtc.script.is_some() {
             steps.push(RestoreStep::ReleaseRtcScript { handle: rtc.handle });
         }
     }
@@ -546,7 +547,7 @@ fn load_state_value(
         script.rtc_scripts.push(RtcScript {
             path,
             handle: -1,
-            started: false,
+            script: None,
             finished: false,
             field_0x95,
         });

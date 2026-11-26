@@ -1765,6 +1765,15 @@ namespace
                 J.Uint("p1", Words[0]);
                 J.Uint("p2", Words[1]);
             }
+            else if (MsgId == (int)pub::Controller::EMessage::CombatState)
+            {
+                // P3.5c4 (reporting only): FSpaceObjCombatStateMsg (Content/NpcBase.h), the CSNType
+                // and the two ids of the combat_state_notification that sent it.
+                unsigned int const* const Words = static_cast<unsigned int const*>(MsgData);
+                J.Uint("csn", Words[0]);
+                J.Uint("p1", Words[1]);
+                J.Uint("p2", Words[2]);
+            }
         }
         Write(FileDispatch, J);
         // P3.5c2: a delivery to the session's mission is its trace's `message` record. Every delivery

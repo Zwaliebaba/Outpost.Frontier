@@ -121,6 +121,10 @@ pub struct PlayerShip {
     /// [`NpcShip::directives`](super::npc_ships::NpcShip::directives) and
     /// leaves its base's empty.
     pub directives: super::directives::ShipDirectives,
+    /// `PendingComms` (TU20 `+0x108`): the mission dialog lines the ship
+    /// says when the line before ends (P3.5c4,
+    /// [`super::systems::send_pending_comms`]).
+    pub pending_comms: Vec<super::systems::PendingComm>,
 }
 
 impl PlayerShip {
@@ -148,6 +152,7 @@ impl PlayerShip {
             hostile_contacts: Vec::new(),
             attackers: [super::combat_reputation::Attacker::default(); 8],
             directives: super::directives::ShipDirectives::default(),
+            pending_comms: Vec::new(),
         }
     }
 }

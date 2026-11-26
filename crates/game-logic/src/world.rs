@@ -107,6 +107,13 @@ pub struct ServerWorld {
     /// ([`crate::munitions::pvp_blocked`]). False (PvP allowed) until the
     /// startup sets it, as the C++'s initial 1.
     pub forbid_pvp: bool,
+    /// A test seam, the oracle harness's `GOracleSimHooks.StepSystemId`
+    /// (`Server/IServerImpl.cpp`, P2.3 instrumentation): 0 on a server;
+    /// otherwise [`step_systems`] steps this system alone, whether or not
+    /// an active player is in it, and every system's physics runs without
+    /// players. `Oracle.exe sim` sets it to its scenario's system, whose
+    /// players have no client (`OracleSimAddPlayer`).
+    pub step_system: u32,
     initialized: bool,
 }
 
@@ -649,12 +656,13 @@ impl ServerHooks for Hooks<'_> {
 
     fn steps_physics(&mut self, world: &World, system: u32) -> bool {
         !world.config().single_player
-            && self
+            && (self
                 .logic
                 .server_world
                 .systems
                 .get(&system)
                 .is_some_and(|s| !s.observers.is_empty())
+                || self.logic.server_world.step_system != 0)
     }
 }
 
@@ -836,9 +844,18 @@ pub fn step_system(cx: &mut Cx<'_>, system: u32, dt: f32) -> u32 {
 /// session order, once; a system id with no entry is skipped. A
 /// multiplayer server's `AnimDB::Update` runs inside the world's step. The
 /// frame loop advances the global time (`Timing::UpdateGlobalTime`,
-/// `World::update_global_time`), not this.
+/// `World::update_global_time`), not this. With the harness's
+/// [`ServerWorld::step_system`] set, that system alone is stepped.
 pub fn step_systems(cx: &mut Cx<'_>, dt: f32) {
     initialize(cx);
+    // The harness's system alone (`GOracleSimHooks.StepSystemId`).
+    let forced = cx.logic.server_world.step_system;
+    if forced != 0 {
+        if cx.logic.server_world.systems.contains_key(&forced) {
+            step_system(cx, forced, dt);
+        }
+        return;
+    }
     let mut stepped: Vec<u32> = Vec::new();
     let mut after = None;
     while let Some(session) = cx.logic.players.next_active(after) {

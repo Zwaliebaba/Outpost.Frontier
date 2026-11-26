@@ -152,6 +152,10 @@ pub struct SolarNpc {
     /// The content callback's handle (`+0x160`, record 0008 point 4),
     /// given when the NPC submits its state; 0 until then.
     pub callback: u32,
+    /// `PendingComms` (TU20 `+0x108`): the mission dialog lines the NPC
+    /// says when the line before ends (P3.5c4,
+    /// [`super::systems::send_pending_comms`]).
+    pub pending_comms: Vec<super::systems::PendingComm>,
 }
 
 impl SolarNpc {
@@ -185,6 +189,7 @@ impl SolarNpc {
             reputation,
             field_0x164: false,
             callback: 0,
+            pending_comms: Vec::new(),
         }
     }
 }
