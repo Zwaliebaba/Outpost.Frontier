@@ -275,7 +275,13 @@ pub fn run(start_server: session::StartLocalServer<'_>) -> io::Result<()> {
     let mut clock = timing::ClientTiming::new(InstantClock::new());
     let mut camera = cameras::StillCamera::new(mode.back_buffer());
     let mut window = Some(window);
-    let mut host = oracle::StartupHost::default();
+    // The client's interface: the Win3D registry, on the window's surface.
+    let mut host = oracle::StartupHost::new(neuron_client::ui::tree::Ui::new(
+        neuron_client::ui::widescreen::Surface::new(
+            mode.width.cast_signed(),
+            mode.height.cast_signed(),
+        ),
+    ));
     loop {
         clock.update(true, 0, || {
             std::thread::sleep(std::time::Duration::from_millis(1))
