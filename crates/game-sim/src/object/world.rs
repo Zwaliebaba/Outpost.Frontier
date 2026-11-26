@@ -371,10 +371,6 @@ pub struct World {
     /// `GAvoidIndexTableShuffled`: the first obstacle probe of the process
     /// has drawn its 50 `rand()` values.
     pub(crate) avoid_table_shuffled: bool,
-    /// The attitudes the AI reads (`get_attitude_towards`), by object
-    /// ids: the reputation groups are not ported, so a harness sets them
-    /// ([`World::set_attitude`]).
-    pub(crate) attitudes: BTreeMap<(u32, u32), f32>,
     /// The vibe store (`Reputation::Vibe`, P3.2): the static records of
     /// the universe load and the run-time ones. Single player shares it
     /// between the server and the client side, as Common's globals are.
@@ -504,7 +500,6 @@ impl World {
             content_answer: None,
             behavior_managers: BTreeMap::new(),
             avoid_table_shuffled: false,
-            attitudes: BTreeMap::new(),
             vibes,
             strings,
             reputation,

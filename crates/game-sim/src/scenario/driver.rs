@@ -139,6 +139,9 @@ pub struct Run {
     pub managers: Vec<String>,
     /// The first manager's pathfinder phases (its first three draws).
     pub pathfind_phases: Option<[f32; 3]>,
+    /// Each ship's attitude towards each other scenario ship once they are
+    /// spawned, from their vibes (by scenario names).
+    pub attitudes: BTreeMap<(String, String), f32>,
     /// The first behaviour the port does not have that an AI ship ran, and
     /// the tick (the state graph can pick one without a directive).
     pub unported: Option<(i32, u32)>,
@@ -299,6 +302,21 @@ pub fn world_config(s: &Scenario) -> WorldConfig {
     }
 }
 
+/// The faction feelings of `InitialWorld.ini` (`initial_world`, its text)
+/// in the world's reputation groups, as the oracle's start-up loads them
+/// (`Server_LoadWorldState`: `Reputation::FreeFeelings`, then
+/// `LoadFeelings`). A run through the server's hooks has them from the
+/// server's own start-up; a world without a server takes them here, so
+/// that its ships' vibes answer the oracle's attitudes.
+pub fn load_initial_feelings(world: &mut World, initial_world: &[u8]) {
+    let mut reader = neuron_core::ini::IniReader::new();
+    reader.open_memory(initial_world);
+    let mut reports = crate::data::Reports::default();
+    let reputation = world.reputation_mut();
+    reputation.free_feelings();
+    reputation.load_feelings(&mut reader, &mut reports);
+}
+
 /// A server around a scenario run (P3.3's replication comparison, record
 /// 0007 point 11): the hooks of each frame, and what the server does at
 /// three points of the run, each a no-op by default.
@@ -316,8 +334,31 @@ pub trait ScenarioServer {
         false
     }
 
-    /// After the objects are spawned and the attitudes set, before tick 0
-    /// is recorded: the oracle's players join here (`player`).
+    /// The vibe of a ship's `faction` option, made before the ship as the
+    /// oracle's harness makes it (`AllocFactionVibe`, `oracle_sim.cpp:
+    /// 2079-2098`): `pub::Reputation::GetReputationGroup` of the name, then
+    /// `Alloc` with empty names and `SetAffiliation` to the group. `None`
+    /// for an unknown group (the harness then makes no ship). The default,
+    /// without a server, gives the lowest positive key that has no vibe
+    /// (the server's id map, `Server_VibeID_Alloc`, starts there too).
+    fn faction_vibe(&mut self, world: &mut World, faction: &str) -> Option<i32> {
+        let group = world.reputation().get_id(faction.as_bytes());
+        if group == crate::data::reputation::MISSING_GROUP {
+            return None;
+        }
+        let (vibes, rep) = world.vibes();
+        let mut key = 1;
+        while vibes.verify(key) {
+            key += 1;
+        }
+        if vibes.alloc(key) != 0 || vibes.set_affiliation(key, group, false, rep) != 0 {
+            return None;
+        }
+        Some(key)
+    }
+
+    /// After the objects are spawned, before tick 0 is recorded: the
+    /// oracle's players join here (`player`).
     fn spawned(
         &mut self,
         world: &mut World,
@@ -329,16 +370,19 @@ pub trait ScenarioServer {
 
     /// A `content` ship (P3.6c): the server makes it as Content's NPC ship
     /// (`FSystemInfo::CreateNpcShip`, which submits its state graph,
-    /// personality and callbacks) and answers its handle; `None` (the
-    /// default, without a server) makes it as any other ship.
+    /// personality and callbacks) with a reputation handle of `vibe` (its
+    /// `faction`'s, [`ScenarioServer::faction_vibe`]) and answers its
+    /// handle; `None` (the default, without a server) makes it as any
+    /// other ship.
     fn spawn_content_ship(
         &mut self,
         world: &mut World,
         system: u32,
         object: &super::file::ObjDesc,
         personality: Option<crate::ai::personality::Personality>,
+        vibe: i32,
     ) -> Option<Option<ObjHandle>> {
-        let _ = (world, system, object, personality);
+        let _ = (world, system, object, personality, vibe);
         None
     }
 
@@ -371,8 +415,8 @@ impl ScenarioServer for HooksOnly<'_> {
 
 /// Runs a scenario in `world` (made with [`world_config`] over the game
 /// data): loads the system and the solars it needs, spawns the objects
-/// (the AI ships with their state graphs, personalities and attitudes from
-/// `ai`), and for each tick applies the tick's commands, steps the system
+/// (the AI ships with their state graphs and personalities from `ai`, each
+/// ship of a `faction` with that group's vibe), and for each tick applies the tick's commands, steps the system
 /// through `hooks` (`World::step_with`, then the global time) and records
 /// what [`Run`] holds. With [`NoServerHooks`](crate::object::world::NoServerHooks)
 /// each tick is [`World::step`].
@@ -448,8 +492,17 @@ pub fn run_with(
                 .as_ref()
                 .and_then(|_| ai.personalities.get(&o.name).copied())
         };
+        // The `faction` option's vibe, made before the ship (the harness's
+        // `AllocFactionVibe`); -1 without one.
+        let vibe = match (&o.faction, o.ship) {
+            (Some(f), true) => server.faction_vibe(&mut world, f).unwrap_or_else(|| {
+                println!("{}: {}: faction {f} is no reputation group", s.name, o.name);
+                -1
+            }),
+            _ => -1,
+        };
         let content = if o.ship && o.content {
-            server.spawn_content_ship(&mut world, system, o, personality_of(o))
+            server.spawn_content_ship(&mut world, system, o, personality_of(o), vibe)
         } else {
             None
         };
@@ -475,6 +528,7 @@ pub fn run_with(
             spawn.velocity = o.vel;
             spawn.angular_velocity = o.angvel;
             spawn.hit_pts = o.hp;
+            spawn.vibe = vibe;
             let h = world.spawn_ship(system, &spawn).ok();
             if let (Some(h), Some(graph)) = (h, &o.ai) {
                 let kind = if o.escort {
@@ -508,9 +562,20 @@ pub fn run_with(
         };
         handles.insert(o.name.clone(), h);
     }
-    for ((from, to), value) in &ai.attitudes {
-        if let (Some(Some(a)), Some(Some(b))) = (handles.get(from), handles.get(to)) {
-            world.set_attitude(*a, *b, *value);
+    // Each pair of scenario ships' attitude as the world answers it from
+    // their vibes (`get_attitude_towards`), for the judges to set beside
+    // the oracle's first answers.
+    let mut attitudes = BTreeMap::new();
+    for (a, ha) in &handles {
+        for (b, hb) in &handles {
+            if let (Some(ha), Some(hb)) = (*ha, *hb)
+                && a != b
+                && world.get(ha).is_some_and(|o| o.kind == ObjectKind::Ship)
+                && world.get(hb).is_some_and(|o| o.kind == ObjectKind::Ship)
+                && let Some(value) = crate::ai::world::AiWorld::attitude(&world, ha, hb)
+            {
+                attitudes.insert((a.clone(), b.clone()), value);
+            }
         }
     }
     server.spawned(&mut world, system, &handles);
@@ -526,6 +591,7 @@ pub fn run_with(
     let mut out = Run {
         managers,
         pathfind_phases,
+        attitudes,
         ..Run::default()
     };
     let record = |world: &World,
