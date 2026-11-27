@@ -4,7 +4,8 @@
 //! Ported so far: the main menu (state 1, the column of
 //! [`super::type_select`]), states 2 and 3 of the single-player Load Game
 //! path (3 → 2 → 18), state 18's entry as a hook of the host (the Load Game
-//! page comes with P5.2), state 1's poll of the column, and the first
+//! page of [`super::char_select_single`]), state 1's poll of the column,
+//! state 18's poll of the page, and the first
 //! settled frame's loading-screen step. The other states (the multiplayer
 //! server, account and character pages, options, the new game's 16 and 12,
 //! the return from the game) come with their screens; until then their
@@ -15,6 +16,7 @@
 
 use neuron_client::ui::tree::{NodeId, Ui};
 
+use super::char_select_single::PageCharacterSelectSingle;
 use super::type_select::{TypeSelect, build_column, make_column};
 
 /// What the menu needs from the client around it.
@@ -31,8 +33,17 @@ pub trait MenuHost {
     /// D1400).
     fn single_precision(&self) -> bool;
     /// State 18: the Load Game page (`PAGE_CharSelectSingle`) made and
-    /// shown; its node, `None` when the page did not load.
+    /// shown; its node, `None` when the page did not load. A host keeps one
+    /// page node ([`super::char_select_single::make_page`]) and calls
+    /// [`super::char_select_single::enter_load_game_page`] with the roster.
     fn enter_load_game(&mut self, ui: &mut Ui) -> Option<NodeId>;
+    /// The Load Game page asked to load: the intro base left when the
+    /// intro draws its scripts (`GetIntroConfigState()->bDrawScripts`,
+    /// `LeaveIntroBase`).
+    fn leave_intro_base(&mut self);
+    /// The load's loading screen (`LoadingScreenSetClear(1)`,
+    /// `LoadingScreenStart`).
+    fn start_loading_screen(&mut self);
     /// The first settled frame: the loading screen's progress bar made, its
     /// startup image dropped, its clearing stopped
     /// (`LoadingScreenCreateProgressBar`, `LoadingScreenReleaseImage`,
@@ -57,6 +68,11 @@ pub struct MenuNav {
     pub flag_22d: bool,
     /// The column (`G_TypeSelect`), made on first use.
     pub column: Option<NodeId>,
+    /// `+0xc`: the character the game starts with (the Load Game page's
+    /// row data word).
+    pub character: i32,
+    /// `+0x20c`.
+    pub flag_20c: bool,
 }
 
 impl MenuNav {
@@ -129,11 +145,37 @@ impl MenuNav {
                 host.refresh_loading_progress();
             }
         }
+        if self.current == 18 {
+            self.poll_load_game(ui, host);
+        }
         if !self.flag_22c {
             host.first_settled_frame(ui);
             self.flag_22c = true;
         }
         0
+    }
+
+    /// Poll index 8 (state 18): the page's load request leaves the intro
+    /// base and tells the page; its result becomes the state, with its
+    /// character (the result is not cleared: the page's next `Create`
+    /// clears it).
+    fn poll_load_game(&mut self, ui: &mut Ui, host: &mut dyn MenuHost) {
+        let Some(page) = self.active_page else { return };
+        let Some(p) = ui.widget_mut::<PageCharacterSelectSingle>(page) else {
+            return;
+        };
+        if std::mem::take(&mut p.loading_screen_requested) {
+            host.start_loading_screen();
+        }
+        if p.load_requested {
+            host.leave_intro_base();
+            p.intro_base_left = true;
+        }
+        if p.result != 0 {
+            self.current = p.result;
+            self.character = p.selected_character;
+            self.flag_20c = true;
+        }
     }
 }
 

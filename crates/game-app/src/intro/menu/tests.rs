@@ -8,6 +8,8 @@ struct Host {
     screens: Vec<i32>,
     settled: u32,
     page: bool,
+    left_base: u32,
+    loading_screens: u32,
 }
 
 impl MenuHost for Host {
@@ -24,6 +26,12 @@ impl MenuHost for Host {
     }
     fn enter_load_game(&mut self, ui: &mut Ui) -> Option<NodeId> {
         self.page.then(|| ui.create_plain(None))
+    }
+    fn leave_intro_base(&mut self) {
+        self.left_base += 1;
+    }
+    fn start_loading_screen(&mut self) {
+        self.loading_screens += 1;
     }
     fn first_settled_frame(&mut self, _: &mut Ui) {
         self.settled += 1;
@@ -84,4 +92,30 @@ fn a_page_that_does_not_load_returns_to_the_main_menu() {
     nav.driver_update(&mut ui, &mut host);
     assert_eq!(host.screens, [1, 3, 2, 18, 1]);
     assert_eq!(nav.current, 1);
+}
+
+#[test]
+fn the_load_game_pages_result_and_load_request_are_polled() {
+    use crate::intro::char_select_single::{PageCharacterSelectSingle, make_page};
+    let (mut ui, mut nav, mut host) = start();
+    nav.driver_update(&mut ui, &mut host);
+    let page = make_page(&mut ui);
+    nav.current = 18;
+    nav.prev = 18;
+    nav.active_page = Some(page);
+    ui.widget_mut::<PageCharacterSelectSingle>(page)
+        .unwrap()
+        .load_requested = true;
+    nav.driver_update(&mut ui, &mut host);
+    assert_eq!(host.left_base, 1);
+    let p = ui.widget_mut::<PageCharacterSelectSingle>(page).unwrap();
+    assert!(p.intro_base_left);
+    assert_eq!(nav.current, 18);
+    p.result = 0xc;
+    p.selected_character = 7;
+    p.loading_screen_requested = true;
+    nav.driver_update(&mut ui, &mut host);
+    assert_eq!(host.loading_screens, 1);
+    assert_eq!((nav.character, nav.flag_20c), (7, true));
+    assert_eq!(nav.current, 0xc);
 }
