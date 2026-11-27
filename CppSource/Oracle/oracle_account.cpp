@@ -335,6 +335,7 @@ void RunGameAppSuites()
 {
     RunAccountSuite();
     RunPerfOptionsSuite();
+    RunEffectArchSuite();
 }
 
 void RunAccountSuite()
