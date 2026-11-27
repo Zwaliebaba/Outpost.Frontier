@@ -21,6 +21,7 @@ pub mod login_history;
 pub mod machine_warning;
 #[cfg(windows)]
 pub mod movies;
+pub mod neuronet;
 pub mod nn_preferences;
 pub mod objects;
 pub mod oracle;
