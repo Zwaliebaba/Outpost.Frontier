@@ -11,6 +11,7 @@ pub mod chat;
 pub mod client_state;
 pub mod frame;
 pub mod input_router;
+pub mod intro;
 pub mod keymap;
 pub mod loading_screen;
 pub mod login;
@@ -18,6 +19,7 @@ pub mod login_history;
 pub mod machine_warning;
 #[cfg(windows)]
 pub mod movies;
+pub mod nn_preferences;
 pub mod objects;
 pub mod oracle;
 pub mod perf_options;
