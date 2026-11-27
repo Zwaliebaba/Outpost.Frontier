@@ -10,7 +10,7 @@
 //! maneuver requests (`OnEvent`, `RequestManeuver`, `ActivateManeuver`,
 //! `OnResult`) and the auto-hiding `Draw` come with the HUD's update, which
 //! reads the player's ship and its behaviour manager (P5.7). Until then
-//! [`HudManeuvers::player_present`] stays false and the bar hides (D1131).
+//! the services' `player_ship` answers false and the bar hides (D1131).
 
 use neuron_client::ui::children::{
     ButtonInit, StaticInit, create_button_control, create_static_control,
@@ -173,8 +173,6 @@ pub struct HudManeuvers {
     pub tab_half_extents: Vector,
     /// +0x3e8: the throttle ramp of the commands 0x43 and 0x44.
     pub throttle_rate: f32,
-    /// `GetPlayerObjRW() != nullptr`, which the HUD's update sets (P5.7).
-    pub player_present: bool,
 }
 
 /// The children `Create` makes, in its order.
@@ -309,8 +307,8 @@ impl HudManeuvers {
     /// `Update`'s and `UpdateInactive`'s test: the cursor drawn and the
     /// player there without the letterbox (`Update` also asks for the
     /// interface and HUD options).
-    fn shown(ui: &mut Ui, player_present: bool) -> bool {
-        ui.cursor_drawn && player_present && !ui.services.letterbox_visible()
+    fn shown(ui: &mut Ui) -> bool {
+        ui.cursor_drawn && ui.services.player_ship() && !ui.services.letterbox_visible()
     }
 }
 
@@ -383,12 +381,11 @@ impl Widget for HudManeuvers {
     /// HUD options and the player and without the letterbox, else hidden
     /// with its children; then `Win3D::Update`. The throttle ramp and the
     /// shown bar's layout (`UpdateButtons`) wait for the player's ship;
-    /// the options are the reference's defaults (D1131).
+    /// the options come from the services (D1116, D1131).
     fn update(&mut self, ui: &mut Ui, id: NodeId) {
-        let options = neuron_client::engine::options::GameOptions::default();
-        let shown = options.get(OPT_INTERFACE_GROUP) != 0
-            && options.get(OPT_HUD) != 0
-            && Self::shown(ui, self.player_present);
+        let shown = ui.services.game_option(OPT_INTERFACE_GROUP) != 0
+            && ui.services.game_option(OPT_HUD) != 0
+            && Self::shown(ui);
         if !shown {
             base::set_hidden_with_children(ui, id, true);
         }
@@ -397,7 +394,7 @@ impl Widget for HudManeuvers {
     /// `HUD_Maneuvers::UpdateInactive`: shown again with the cursor and
     /// the player and without the letterbox, then `Win3D::UpdateInactive`.
     fn update_inactive(&mut self, ui: &mut Ui, id: NodeId) {
-        if Self::shown(ui, self.player_present) {
+        if Self::shown(ui) {
             base::set_hidden_with_children(ui, id, false);
         }
         ui.base_update_inactive(id);
@@ -488,6 +485,14 @@ mod tests {
         maneuver = Dock, 993, 3104, c.3db, d.3db\n\
         maneuver = Formation, 995, 3117, e.3db, f.3db\n";
 
+    /// A client with a player ship.
+    struct Player;
+    impl neuron_client::ui::services::UiServices for Player {
+        fn player_ship(&mut self) -> bool {
+            true
+        }
+    }
+
     fn load() -> (Ui, NodeId) {
         let mut ui = Ui::new(Surface::new(1024, 768));
         let mut reader = IniReader::new();
@@ -573,7 +578,7 @@ mod tests {
         // Inactive now: `UpdateInactive` shows it once there is a player.
         ui.update_node(id);
         assert!(!ui.node(id).unwrap().is(VISIBLE));
-        ui.widget_mut::<HudManeuvers>(id).unwrap().player_present = true;
+        ui.services = Box::new(Player);
         ui.update_node(id);
         assert!(ui.node(id).unwrap().is(VISIBLE));
         assert!(ui.node(frame).unwrap().is(VISIBLE));
