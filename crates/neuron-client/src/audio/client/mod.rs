@@ -42,7 +42,7 @@ use std::sync::Arc;
 use neuron_core::rng::CrtRand;
 
 use self::arch::{SoundArchTable, WavFactory, WavRequest};
-use self::config::{SoundConfig, SoundOptions, db_blend, linear_to_option_db};
+use self::config::{AudioFade, SoundConfig, SoundOptions, db_blend, linear_to_option_db};
 use self::source::{ArchRef, ClientSource, NO_SCORE, category, source_flags};
 use self::streamed::ClientStreamer;
 use self::voice::VoiceTable;
@@ -166,6 +166,8 @@ pub struct ClientSound {
     pub voices: VoiceTable,
     /// `audio\SoundCFG.ini` and the audio mode.
     pub config: SoundConfig,
+    /// The master fade (`GAudioFade`).
+    pub fade: AudioFade,
     /// The C runtime's `rand` the random pitch draws from (divergence D523).
     pub rand: CrtRand,
     slots: Slots,
@@ -295,6 +297,7 @@ impl ClientSound {
             sounds: SoundArchTable::new(),
             voices: VoiceTable::new(),
             config: SoundConfig::default(),
+            fade: AudioFade::default(),
             rand: CrtRand::default(),
             slots: Slots::default(),
             free: Vec::new(),

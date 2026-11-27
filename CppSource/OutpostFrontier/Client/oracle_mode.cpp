@@ -118,7 +118,7 @@ namespace
 
     char const* const kStreamFiles[kOracleStreamCount] = {
         "session.jsonl", "tree.jsonl", "keymap.jsonl", "layout.jsonl", "iclient.jsonl",
-        "server.jsonl"};
+        "server.jsonl", "audio.jsonl"};
 
     struct FOracleState
     {
@@ -1250,6 +1250,45 @@ void OracleWriteRecord(EOracleStream Stream, std::string const& Line)
 unsigned OracleFrameNumber()
 {
     return G.Frame;
+}
+
+namespace
+{
+    // The `snd` records' numbers, from 1 (the sound calls are the main thread's).
+    unsigned GOracleSoundSeq = 0;
+}
+
+void OracleOnSoundCall(char const* Method, unsigned const* Uints, unsigned UintCount,
+                       float const* Floats, unsigned FloatCount, int Result)
+{
+    if (!G.bActive)
+        return;
+    FOracleJson J;
+    Head(J, "snd");
+    J.Uint("seq", ++GOracleSoundSeq);
+    J.Str("m", Method);
+    J.BeginArray("a");
+    for (unsigned Index = 0; Index < UintCount; ++Index)
+        J.Uint(nullptr, Uints[Index]);
+    for (unsigned Index = 0; Index < FloatCount; ++Index)
+        J.Float(nullptr, Floats[Index]);
+    J.EndArray();
+    if (Result < 0)
+        J.Null("r");
+    else
+        J.Bool("r", Result != 0);
+    OracleWriteRecord(kOracleAudio, J.Finish());
+}
+
+void OracleOnLocationAudio(unsigned LocationId, bool bKeepAudio)
+{
+    if (!G.bActive)
+        return;
+    FOracleJson J;
+    Head(J, "locaudio");
+    J.Uint("loc", LocationId);
+    J.Bool("keep", bKeepAudio);
+    OracleWriteRecord(kOracleAudio, J.Finish());
 }
 
 unsigned OracleNextIClientSeq()

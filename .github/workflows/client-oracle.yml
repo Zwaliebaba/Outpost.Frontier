@@ -310,10 +310,15 @@ jobs:
           # LoadLocationBase loads in the two scripts.
           cargo test --locked -p game-app --test room_data -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # A room's audio on entry (P5.5), from audio.jsonl's locaudio records.
+          cargo test --locked -p game-app --test location_audio -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:OUTPOST_CLIENT_ORACLE_DIR = "${{ runner.temp }}\oracle-out\s1"
           cargo test --locked -p game-app --test navbar_data -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p game-app --test room_data -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p game-app --test location_audio -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:OUTPOST_CLIENT_ORACLE_DIR = "${{ runner.temp }}\oracle-out\a"
           cargo test --locked -p outpost-frontier --test local_server -- --nocapture
@@ -396,7 +401,7 @@ jobs:
           Get-Content "$root\exit.csv" | ForEach-Object { $f = $_ -split ','; $summary += "| $($f[0]) | $($f[1]) | $($f[2]) | $($f[3]) | $($f[4]) | $(Figures "$root\$($f[0])") |" }
           function Pair($x, $y) {
             $out = @('', "### $y against $x", '')
-            foreach ($file in 'session.jsonl', 'tree.jsonl', 'keymap.jsonl', 'layout.jsonl', 'iclient.jsonl') {
+            foreach ($file in 'session.jsonl', 'tree.jsonl', 'keymap.jsonl', 'layout.jsonl', 'iclient.jsonl', 'audio.jsonl') {
               $a = @(Lines "$root\$x\$file" | Where-Object { $_ -notmatch '"rec":"start"' })
               $b = @(Lines "$root\$y\$file" | Where-Object { $_ -notmatch '"rec":"start"' })
               if ($a.Count -eq 0 -and $b.Count -eq 0) { $out += "- ``$file``: missing in both"; continue }

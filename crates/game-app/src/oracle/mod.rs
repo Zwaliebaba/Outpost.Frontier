@@ -3,6 +3,7 @@
 //! ([reference-build.md](../../../design/reference-build.md) section 8),
 //! written at the same hooks so that CI compares the two clients' files.
 
+pub mod audio;
 pub mod iclient;
 pub mod json;
 pub mod keymap;
