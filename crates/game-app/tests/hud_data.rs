@@ -115,8 +115,8 @@ fn hud() -> Option<(Ui, hud::HudElements, Vec<String>)> {
     let elements = hud::load_hud_elements(&mut ui, HUD_INI, ini, FACTORIES, &mut |w| {
         warnings.push(w);
     });
-    // The frames in space before the dump: an interface update
-    // (`Win3DUpdateAll`), without a player (the HUD's update is not wired).
+    // A frame of the interface (`Win3DUpdateAll`), as the frames between the
+    // load and the dump run: the elements' `Update` with no player ship.
     ui.update_all(0.0);
     Some((ui, elements, warnings))
 }

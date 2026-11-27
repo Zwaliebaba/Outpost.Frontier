@@ -19,8 +19,13 @@
 //! HUD's draw, which reads them, comes with the elements' draws.
 
 pub mod core;
+pub mod cruise_progress;
+pub mod damage_indicator;
 pub mod maneuvers;
+pub mod receiver;
+pub mod steer;
 pub mod targetable_objects;
+pub mod waypoint;
 
 use neuron_client::ui::tree::{NodeId, Ui};
 use neuron_core::ini::IniReader;
@@ -82,6 +87,26 @@ pub const FACTORIES: &[HudFactory] = &[
     HudFactory {
         section: targetable_objects::SECTION,
         create: targetable_objects::create,
+    },
+    HudFactory {
+        section: receiver::SECTION,
+        create: receiver::create,
+    },
+    HudFactory {
+        section: waypoint::SECTION,
+        create: waypoint::create,
+    },
+    HudFactory {
+        section: steer::SECTION,
+        create: steer::create,
+    },
+    HudFactory {
+        section: damage_indicator::SECTION,
+        create: damage_indicator::create,
+    },
+    HudFactory {
+        section: cruise_progress::SECTION,
+        create: cruise_progress::create,
     },
 ];
 

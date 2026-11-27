@@ -198,6 +198,14 @@ pub trait UiServices {
     fn intro_environment(&mut self) -> bool {
         false
     }
+    /// `GetPlayerObjRW() != nullptr`: the client has the player's ship.
+    fn player_ship(&mut self) -> bool {
+        false
+    }
+    /// `GetGameOption(index)`: the startup defaults without an engine.
+    fn game_option(&mut self, index: u32) -> i32 {
+        crate::engine::options::GameOptions::default().get(index)
+    }
     /// `KnowledgeMapReveal`.
     fn knowledge_map_reveal(&mut self, ids: u32) {}
     /// A file of the data tree (`GetFileSysPath` and `INI_Reader::open`).
