@@ -195,6 +195,77 @@ pub fn linear_to_option_db(linear: f32) -> f32 {
     (f64::from(linear).ln() * 14.426_950_454_711_914) as f32
 }
 
+/// The client's master fade (`GAudioFade`): the scene scripts' sounds and
+/// the fade a room's entry snaps and raises (`SnapClientAudioFade`,
+/// `SetClientAudioFade`, `TickClientAudioFade`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct AudioFade {
+    /// `+0x10`.
+    pub current: f32,
+    /// The last reported (`+0x14`).
+    pub last: f32,
+    /// `+0x18`.
+    pub target: f32,
+    /// Decibels per second (`+0x1c`).
+    pub rate: f32,
+    /// `+0x20`.
+    pub dirty: bool,
+}
+
+impl AudioFade {
+    /// `SnapClientAudioFade`: at `value` at once; the last reported value
+    /// is left.
+    pub fn snap(&mut self, value: f32) {
+        self.current = value;
+        self.target = value;
+        self.rate = 0.0;
+        self.dirty = true;
+    }
+
+    /// `SetClientAudioFade`: to `target` over `seconds` (below 0, the
+    /// mode's ducking down-time `down_time`); not above 0, at once (a rate
+    /// of 1e6).
+    pub fn set(&mut self, target: f32, seconds: f32, down_time: f32) {
+        let seconds = if seconds < 0.0 { down_time } else { seconds };
+        self.target = target;
+        self.rate = if !(seconds > 0.0) {
+            1_000_000.0
+        } else {
+            ((f64::from(target) - f64::from(self.current)).abs() / f64::from(seconds)) as f32
+        };
+    }
+
+    /// `SetClientAudioFadeTargetRate`.
+    pub fn set_target_rate(&mut self, target: f32, rate: f32) {
+        self.target = target;
+        self.rate = rate;
+    }
+
+    /// `TickClientAudioFade`: a step of `dt` toward the target, clamped at
+    /// it. Whether the value changed since the last tick or was snapped.
+    pub fn tick(&mut self, dt: f32) -> bool {
+        if self.current != self.target && self.rate != 0.0 {
+            let step = f64::from(dt) * f64::from(self.rate);
+            if self.target < self.current {
+                self.current = (f64::from(self.current) - step) as f32;
+                if self.current < self.target {
+                    self.current = self.target;
+                }
+            } else if self.target > self.current {
+                self.current = (step + f64::from(self.current)) as f32;
+                if self.target < self.current {
+                    self.current = self.target;
+                }
+            }
+        }
+        let changed = self.current != self.last;
+        let was_dirty = self.dirty;
+        self.last = self.current;
+        self.dirty = false;
+        changed || was_dirty
+    }
+}
+
 /// The power-ratio fade step of the ducking fade and the streamed fade
 /// (`DbBlend`): both ends as power ratios, moved `dt / (remaining + dt)` of
 /// the way, back to decibels; -96 at or below `10^-9.6`. The result stays
@@ -228,6 +299,24 @@ mod tests {
         assert_eq!(c.cockpit_attenuation, -2.0);
         assert_eq!(c.music_fade_time, 3.0);
         assert_eq!(c.ducking(), (-9.0, 0.2));
+    }
+
+    #[test]
+    fn the_master_fade() {
+        let mut f = AudioFade::default();
+        f.snap(-96.0);
+        f.set(0.0, 3.0, 0.5);
+        assert_eq!(f.rate, 32.0);
+        assert!(f.tick(1.0));
+        assert_eq!(f.current, -64.0);
+        assert!(f.tick(3.0));
+        assert_eq!(f.current, 0.0);
+        assert!(!f.tick(1.0));
+        // Below 0 s the down-time; not above 0 at once.
+        f.set(-10.0, -1.0, 0.5);
+        assert_eq!(f.rate, 20.0);
+        f.set(-10.0, 0.0, 0.5);
+        assert_eq!(f.rate, 1e6);
     }
 
     #[test]

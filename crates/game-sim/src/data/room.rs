@@ -21,30 +21,52 @@ const ROOM_DATA: &str = "Common\\RoomData.cpp";
 const SETPOINT: &str = "Common\\SetpointProperties.cpp";
 const SCENE_PROGRAM: &str = "Common\\SceneProgram.cpp";
 
-/// The properties a setpoint's name encodes (`SetpointProperties`).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// `SetpointProperties`: what a setpoint's name encodes, with the
+/// constructor's defaults (-1 for the character type, zone and posture)
+/// for what it does not.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SetpointProps {
     /// The name has the `zs` or `zg` prefix.
     pub valid: bool,
     /// `zs` (a zone script) rather than `zg`.
     pub zone_script: bool,
-    /// `pc` 1, `npc` 0, `none` -1, `rpc` 2.
+    /// `pc` 1, `npc` 0, `none` -1, `rpc` 2; -1 by default and for another
+    /// token.
     pub char_type: i32,
-    /// The third token.
+    /// The third token (the reference's is null for an invalid name).
     pub segment: Vec<u8>,
-    /// The fourth token, `strtol` base 10.
+    /// The fourth token, `strtol` base 10; -1 by default.
     pub zone: i32,
-    /// The fifth token.
+    /// The fifth token, lowered.
     pub name: Vec<u8>,
-    /// `stand` 0, `sitlow` 1, `sithigh` 2, anything else 3.
+    /// `NameBuffer` (`set_segment`): the fifth token upper-cased, at most
+    /// the 16 bytes of the reference's buffer.
+    pub name_buffer: Vec<u8>,
+    /// `stand` 0, `sitlow` 1, `sithigh` 2, anything else 3; -1 by default.
     pub posture: i32,
+}
+
+impl Default for SetpointProps {
+    /// The constructor's values.
+    fn default() -> Self {
+        Self {
+            valid: false,
+            zone_script: false,
+            char_type: -1,
+            segment: Vec::new(),
+            zone: -1,
+            name: Vec::new(),
+            name_buffer: Vec::new(),
+            posture: -1,
+        }
+    }
 }
 
 /// `strtol(text, &end, 10)`: the value and whether the whole text was read.
 fn strtol(text: &[u8]) -> (i32, bool) {
     let mut at = text
         .iter()
-        .position(|b| !b.is_ascii_whitespace())
+        .position(|b| !matches!(b, b' ' | b'\t'..=b'\r'))
         .unwrap_or(text.len());
     let negative = text.get(at) == Some(&b'-');
     if matches!(text.get(at), Some(b'-' | b'+')) {
@@ -112,7 +134,8 @@ impl SetpointProps {
                         lossy(other)
                     ),
                 );
-                0
+                // The constructor's -1 stays.
+                props.char_type
             }
         };
         props.segment = segment.unwrap_or_default();
@@ -130,6 +153,9 @@ impl SetpointProps {
             );
         }
         props.name = name.unwrap_or_default();
+        // `set_segment`: `strcpy` into the 16-byte buffer, then upper-cased.
+        props.name_buffer = props.name.to_ascii_uppercase();
+        props.name_buffer.truncate(16);
         props.posture = match posture.as_slice() {
             b"stand" => 0,
             b"sitlow" => 1,
@@ -333,5 +359,27 @@ mod tests {
         let p = SetpointProps::from_name(b"zg/npc/x/1a/y/stand", &mut reports);
         assert_eq!(p.zone, 1);
         assert_eq!(reports.0.len(), 1, "zone number report");
+    }
+
+    #[test]
+    fn setpoint_defaults_are_the_constructors() {
+        let mut reports = Reports::default();
+        // An invalid name keeps every default.
+        let p = SetpointProps::from_name(b"Camera01", &mut reports);
+        assert_eq!(p, SetpointProps::default());
+        assert_eq!((p.char_type, p.zone, p.posture), (-1, -1, -1));
+        // An unknown character type is reported and stays -1.
+        let p = SetpointProps::from_name(b"Zg/Robot/Bar/2/Barkeep/Stand", &mut reports);
+        assert!(p.valid);
+        assert_eq!((p.char_type, p.zone, p.posture), (-1, 2, 0));
+        assert_eq!(reports.0.len(), 1, "character type report");
+        assert_eq!(
+            (p.name.as_slice(), p.name_buffer.as_slice()),
+            (&b"barkeep"[..], &b"BARKEEP"[..])
+        );
+        // The buffer holds 16 bytes; `\v` is space to `strtol`.
+        let p = SetpointProps::from_name(b"zs/pc/x/\x0b7/a_very_long_name_x", &mut reports);
+        assert_eq!(p.name_buffer, b"A_VERY_LONG_NAME");
+        assert_eq!(p.zone, 7);
     }
 }

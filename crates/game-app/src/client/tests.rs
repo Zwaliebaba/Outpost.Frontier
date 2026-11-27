@@ -92,6 +92,7 @@ fn oracle(script: &str) -> OracleRun {
         out: "o".into(),
         keymap: Vec::new(),
         layout: Vec::new(),
+        audio: Vec::new(),
     }
 }
 
