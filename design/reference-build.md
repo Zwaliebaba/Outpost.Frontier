@@ -540,6 +540,37 @@ What the runner needs, found over runs 1 to 3:
 | No `PerfOptions.ini` | Starts from one holding only `[PerfVersion]` with `SkipMachineWarnings=TRUE`, so a weak adapter's low-machine warning cannot stop the run; every option has its default, unlike an owner's folder with local settings |
 | Another window in front | The client's window is brought to the foreground once visible, because windowed single player runs no frame while the application is inactive (`window.cpp`, `OnActivateApp`) |
 
+### Owner check (decision O53 (5))
+
+On 2026-11-26 the owner's machine repeated run 6's seven runs (w, a, b, c, d
+of `menu_walk.txt`, s1 and s2 of `single_player.txt`). The reference solution
+was built locally at run 6's commit `ca8856e3`, and the run folder, resets and
+`PerfOptions.ini` were the job's. The owner's machine differs in three ways:
+its user folder is the real Documents folder (redirected to OneDrive), the exe
+has the `HIGHDPIAWARE` layer for the 125 % display, and it has a sound device.
+Every run exits 0 with no dialog. The comparison follows O53 (4) and Tier C.
+Run 6's own pairs, compared the same way, give the figures above. Findings:
+[#183, comment 7204467140](https://github.com/Zwaliebaba/Outpost.Frontier/pull/183#issuecomment-7204467140).
+
+The runner's files do not equal the owner's. Every difference comes from the
+machine:
+
+| Files | Owner's machine against run 6 | Cause |
+| --- | --- | --- |
+| `session.jsonl`, `keymap.jsonl`; `iclient.jsonl` of `menu_walk.txt` | Equal in all seven runs; the owner's `menu_walk.txt` runs are byte-identical to each other, screenshots included | |
+| `tree.jsonl`: `tw.h` and `tc.h` | `3d3c6a80` against `3d54fdf4` in 48 of 1,029 records (`menu_walk.txt`) and 12 of 504 (`single_player.txt`); 7 of 9 menu screenshots fail Tier C (up to 3.6 % unmatched, mean error 8.8) | `Agency FB` and `Arial Unicode MS` are installed on the owner's machine and not on the runner, where GDI substitutes (decision O29) |
+| `tree.jsonl`: key names | "UP" against "Up" | `KeyMapFormatBindingName` (`menu_keymap.cpp`) takes them from `GetKeyNameTextW`, whose text depends on the Windows build |
+| `layout.jsonl` | 16 records | Their `path` holds the run folder's absolute path; O53 (4) leaves out only the `start` record's paths |
+| `iclient.jsonl` of `single_player.txt` | From the second comm on: comm frames 270, 417, 617, 954, 1255, 1408 against 270, 392, 604, 816, 1117, 1270; s1 and s2 also differ from each other (224 and 227 calls) | `FCommChannel` ends a voice line when its source reports `IsFinished()` (`hud_comm.cpp`) and only then sends `CommComplete`, which moves the mission on. Where DirectSound starts, that follows real playback. On the runner DirectSound fails ("Couldn't create DSound device"), and the line ends on its timer |
+
+With both output endpoints disabled, DirectSound still starts with software
+buffers, and the comm frames and the variation between runs stay the same.
+A session script therefore repeats only where DirectSound cannot start. Open
+for the owner: the fonts on the runner (installed by the job, or the runner
+taken as its own reference), where session scripts are compared (CI only, the
+Windows Audio service stopped, or an oracle switch that skips the sound
+manager), and leaving out `layout.jsonl`'s `path` in O53 (4).
+
 ### Hooks in existing files
 
 Each is one or two lines marked `Oracle instrumentation (P0.5)`: `main.cpp`
