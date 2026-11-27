@@ -39,6 +39,20 @@
 // that order {"case","walk","beam","v"} (+0x08, +0x70, +0x78, +0x7c, the translation, the count)
 // and {"case","walk","nv","ni"}. G_BeamEffectTexture is set, the perf level is 1. At a case's
 // end every bucket is killed and emptied (EffectTypeListKillAll).
+//
+// Not judged against the reference: OracleBucketWalk below re-implements EffectTypeBucketWalk
+// (space_scene_obj_draw.cpp), so a misreading of it would sit in both the harness and the port
+// and pass. The steps it re-implements are:
+//   - the head-to-tail order, with the next node read before the effect is handled;
+//   - the unlink of an effect already dead;
+//   - the free effect's move by its velocity (x and y on the FPU, z stored first);
+//   - the off-screen rule (EXIST_OFFSCREEN clear and not visible: link, freeze, dead);
+//   - slot +0x18 then +0x1c only when both answers are non-zero;
+//   - the final unlink of a dead or finished effect.
+// What runs as the C++ is the beams' own slots (Start is not called), the buckets'
+// link, unlink, release and kill-all, the effect base's freeze and kill, and the builders. The
+// walk is judged when the effects draw is wired: the render trace of SpaceEffectsDrawFrame
+// against the C++ client (P5.6, open).
 
 #include <windows.h>
 
