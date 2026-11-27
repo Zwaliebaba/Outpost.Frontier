@@ -19,6 +19,8 @@
 //! HUD's draw, which reads them, comes with the elements' draws.
 
 pub mod core;
+pub mod maneuvers;
+pub mod targetable_objects;
 
 use neuron_client::ui::tree::{NodeId, Ui};
 use neuron_core::ini::IniReader;
@@ -68,10 +70,20 @@ impl std::fmt::Debug for HudFactory {
 /// different, so only the elements a section names are made, whatever the
 /// order. The elements not ported yet are missing: their sections answer
 /// "unknown INI entry".
-pub const FACTORIES: &[HudFactory] = &[HudFactory {
-    section: core::SECTION,
-    create: core::create,
-}];
+pub const FACTORIES: &[HudFactory] = &[
+    HudFactory {
+        section: core::SECTION,
+        create: core::create,
+    },
+    HudFactory {
+        section: maneuvers::SECTION,
+        create: maneuvers::create,
+    },
+    HudFactory {
+        section: targetable_objects::SECTION,
+        create: targetable_objects::create,
+    },
+];
 
 /// `[HUD]`: what the section gave.
 #[derive(Clone, Debug, PartialEq, Eq)]

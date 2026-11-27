@@ -10,6 +10,7 @@
 //! which only the Windows font backend gives.
 
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use game_app::hud::{self, FACTORIES};
 use game_app::oracle::tree::dump_nodes;
@@ -18,6 +19,7 @@ use neuron_client::ui::services::UiServices;
 use neuron_client::ui::shape::FixedTextures;
 use neuron_client::ui::tree::Ui;
 use neuron_client::ui::widescreen::Surface;
+use neuron_core::catalog::{CLIENT_MODULES, TextCatalog, TextCatalogs};
 use neuron_core::vfs::Host;
 
 /// `hud.ini`'s path as `SetHudIniPath` stores it on the reference run
@@ -44,6 +46,50 @@ impl UiServices for DataFiles {
     }
 }
 
+/// The byte-order mark the catalog build puts before a card.
+const CARD_BOM: [u8; 2] = [0xFF, 0xFE];
+
+/// A module's catalog built from its TOML source as `cargo xtask catalog`
+/// builds it.
+fn catalog(text: &str) -> TextCatalog {
+    let module: toml::Table = text.parse().expect("the module's TOML");
+    let mut catalog = TextCatalog::new();
+    let table = |name: &str| {
+        module
+            .get(name)
+            .and_then(toml::Value::as_table)
+            .cloned()
+            .unwrap_or_default()
+    };
+    for (id, value) in table("strings") {
+        let units = value.as_str().unwrap_or_default().encode_utf16().collect();
+        catalog.add_string(id.parse().unwrap(), units).unwrap();
+    }
+    for (id, value) in table("cards") {
+        let mut bytes = CARD_BOM.to_vec();
+        bytes.extend(
+            value
+                .as_str()
+                .unwrap_or_default()
+                .encode_utf16()
+                .flat_map(u16::to_le_bytes),
+        );
+        catalog.add_card(id.parse().unwrap(), bytes).unwrap();
+    }
+    catalog
+}
+
+/// The client's modules from `outdir/data/text`, in the client's order.
+fn catalogs() -> TextCatalogs {
+    let dir = data_dir().join("text");
+    let mut catalogs = TextCatalogs::new();
+    for module in CLIENT_MODULES {
+        let text = std::fs::read_to_string(dir.join(format!("{module}.toml"))).ok();
+        catalogs.register(text.as_deref().map(catalog));
+    }
+    catalogs
+}
+
 /// The interface and the HUD's elements, `None` without the data.
 fn hud() -> Option<(Ui, hud::HudElements, Vec<String>)> {
     if !data_dir().join("INTERFACE").is_dir() {
@@ -51,6 +97,7 @@ fn hud() -> Option<(Ui, hud::HudElements, Vec<String>)> {
         return None;
     }
     let mut ui = Ui::new(Surface::new(1024, 768));
+    ui.catalogs = Some(Rc::new(catalogs()));
     let mut files = DataFiles(data_dir());
     let textures = files.data_file(montage::BUTTON_TEXTURES_INI);
     let tiles = files.data_file(montage::BUTTON_MONTAGE_INI);
@@ -68,6 +115,9 @@ fn hud() -> Option<(Ui, hud::HudElements, Vec<String>)> {
     let elements = hud::load_hud_elements(&mut ui, HUD_INI, ini, FACTORIES, &mut |w| {
         warnings.push(w);
     });
+    // The frames in space before the dump: an interface update
+    // (`Win3DUpdateAll`), without a player (the HUD's update is not wired).
+    ui.update_all(0.0);
     Some((ui, elements, warnings))
 }
 
