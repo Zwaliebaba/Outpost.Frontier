@@ -565,8 +565,12 @@ jobs:
       - name: Save the oracle's outputs
         # The key is the one the restore step computed on the clean checkout: hashing
         # CppSource/ again here would take in the build's intermediate files (CppSource/obj/)
-        # and save under a key no later run asks for.
-        if: ${{ success() && steps.oracle-cache.outputs.cache-hit != 'true' }}
+        # and save under a key no later run asks for. Only main and the nightly run save
+        # (owner, 2026-11-27): a pull request's own save would shadow main's entry for the
+        # same key in that pull request's later runs, and the C++ leaves some recorded fields
+        # as the heap held them (D178), so two fresh runs can disagree. Every pull request
+        # then compares with the outputs main saved.
+        if: ${{ success() && github.event_name != 'pull_request' && steps.oracle-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           key: ${{ steps.oracle-cache.outputs.cache-primary-key }}
@@ -579,8 +583,9 @@ jobs:
             ${{ runner.temp }}/oracle-dump.log
       - name: Save the seed ensemble's outputs
         # The key step's key, computed on the clean checkout before the build. The nightly run,
-        # which skipped the restore, saves only a key no run saved before.
-        if: ${{ success() && steps.ensemble-cache.outputs.cache-hit != 'true' }}
+        # which skipped the restore, saves only a key no run saved before. As the oracle's
+        # outputs, only main and the nightly run save (owner, 2026-11-27).
+        if: ${{ success() && github.event_name != 'pull_request' && steps.ensemble-cache.outputs.cache-hit != 'true' }}
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
