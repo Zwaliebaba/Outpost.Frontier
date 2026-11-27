@@ -18,7 +18,8 @@
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
-use game_sim::data::base::BaseDataList;
+use game_sim::data::base::{BaseDataList, MarketGood};
+use game_sim::data::goods::GoodList;
 use game_sim::protocol::to_server::{
     ClientMessage, EnterBase, EnterLocation, ExitBase, ExitLocation, RequestBaseInfo,
     RequestLocationInfo,
@@ -28,6 +29,7 @@ use game_sim::protocol::{ToClient, ToServer};
 use neuron_core::net::transport::Transport;
 
 use super::location::apply_location_audio;
+use super::market::{self, ClientMarket, ListGood};
 use super::room_data::RoomData;
 use neuron_core::diag::{self, DumpFlags};
 
@@ -70,8 +72,8 @@ pub trait LocationHost {
     fn sound(&mut self) -> &mut dyn SoundCalls;
     /// The C runtime's `rand` (the base's news item).
     fn rand(&mut self) -> i32;
-    /// After a base's rooms and mirrors: the market (`ClientMarketFill`), the
-    /// base's solar and its visit flags, `StoryStarForgetLastObjective`.
+    /// After a base's rooms, mirrors and market: the base's solar and its
+    /// visit flags, `StoryStarForgetLastObjective`.
     fn base_loaded(&mut self, base: u32);
     /// A synchronisation failed: single player quits, multiplayer is
     /// disconnected.
@@ -133,6 +135,9 @@ where
 #[derive(Clone, Debug, Default)]
 struct BaseEntry {
     start_room: u32,
+    price_variance: f32,
+    base_market: BTreeMap<u32, MarketGood>,
+    market: ClientMarket,
     rooms: Vec<u32>,
     ref_count: i32,
     loaded: bool,
@@ -152,6 +157,7 @@ struct RoomEntry {
 #[derive(Clone, Debug, Default)]
 pub struct LocationController {
     bases: BTreeMap<u32, BaseEntry>,
+    goods: Vec<ListGood>,
     rooms: BTreeMap<u32, RoomEntry>,
     /// `+0x34`.
     pub current_base: u32,
@@ -179,11 +185,22 @@ impl LocationController {
     /// `BuildClientLocationMaps`: every base of the list and every room of
     /// each, in list order, into the maps and the receiver's mirrors (an
     /// existing key is kept).
-    pub fn build_maps(&mut self, list: &BaseDataList, db: &mut LocationDb) {
+    pub fn build_maps(&mut self, list: &BaseDataList, goods: &GoodList, db: &mut LocationDb) {
+        self.goods = goods
+            .goods()
+            .iter()
+            .map(|g| ListGood {
+                id: g.id,
+                price: g.price,
+            })
+            .collect();
         for base in &list.bases {
             let rooms: Vec<u32> = base.rooms.iter().flatten().map(|r| r.room_id).collect();
             self.bases.entry(base.base_id).or_insert(BaseEntry {
                 start_room: base.start_room,
+                price_variance: base.price_variance,
+                base_market: base.market.clone(),
+                market: ClientMarket::new(),
                 rooms,
                 ref_count: 0,
                 loaded: false,
@@ -218,6 +235,15 @@ impl LocationController {
     #[must_use]
     pub fn room(&self, location: u32) -> Option<&RoomData> {
         self.rooms.get(&location).and_then(|r| r.data.as_ref())
+    }
+
+    /// A loaded base's market (`GetClientLocationBaseMarket`).
+    #[must_use]
+    pub fn market(&self, base: u32) -> Option<&ClientMarket> {
+        self.bases
+            .get(&base)
+            .filter(|b| b.loaded)
+            .map(|b| &b.market)
     }
 
     /// A loaded base's news item (`+0x44`), `u32::MAX` for none.
@@ -336,8 +362,20 @@ impl LocationController {
             let pick = (host.rand() * i32::try_from(keys.len()).unwrap_or(i32::MAX)) / 32768;
             keys[usize::try_from(pick).unwrap_or(0).min(keys.len() - 1)]
         };
+        // `ClientMarketFill(&runtime->Market, PriceVariance, nullptr)`: the
+        // current base's market, which is the base being loaded.
+        let goods = &self.goods;
         if let Some(entry) = self.bases.get_mut(&base) {
             entry.news_id = news_id;
+            let BaseEntry {
+                market,
+                price_variance,
+                base_market,
+                ..
+            } = entry;
+            market::fill(market, *price_variance, base_market, goods, &mut || {
+                host.rand()
+            });
         }
         host.base_loaded(base);
     }
@@ -805,7 +843,7 @@ mod tests {
             answer,
             ..Server::default()
         };
-        c.build_maps(&list(), &mut server.db);
+        c.build_maps(&list(), &GoodList::default(), &mut server.db);
         let host = Host {
             events: Vec::new(),
             sound: Quiet,
