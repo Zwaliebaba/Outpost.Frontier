@@ -117,6 +117,13 @@ fn run(info: &LocalStartupInfo) -> Vec<String> {
         space_update(&mut app, &mut link, Some(&mut session), &flight, true, 0.0),
         0
     );
+    // The camera had no target, so the frame put `player` back on the ship.
+    let ship = link
+        .receiver
+        .objects
+        .find(11, 1)
+        .and_then(|(_, o)| o.handle);
+    assert_eq!(app.cameras.active_camera().and_then(|c| c.watched), ship);
     frame(&mut link, &mut session, SPACE_FRAME + 1);
     frame(&mut link, &mut session, SPACE_FRAME + 2);
     link.receiver

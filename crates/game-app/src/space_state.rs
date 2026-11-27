@@ -19,6 +19,7 @@ use crate::login::wait_for_server_response;
 use crate::objects::{ClientObject, ClientObjectKind};
 use crate::receiver::ClientLink;
 use crate::session::{Session, tick_modal_server};
+use crate::space_camera::GameCamera;
 
 /// How the entry ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -226,6 +227,9 @@ pub struct SpaceApp {
     pub leave_requested: bool,
     /// `bPlayerLostHandled`.
     pub player_lost_handled: bool,
+    /// Raised once by [`update`] when the player's ship is gone: the caller
+    /// posts `NnExitPostShipLostMessage` and clears it.
+    pub post_ship_lost: bool,
     /// `star_sys.cpp`'s music state, made from the system file's `[Music]`
     /// on the first frame with a world (`StarSysEnter` reads the same file).
     pub music: Option<crate::star_system::SystemMusicState>,
@@ -247,6 +251,7 @@ impl SpaceApp {
             system,
             leave_requested: false,
             player_lost_handled: false,
+            post_ship_lost: false,
             music: None,
             background_music_finished: false,
             music_change: None,
@@ -297,6 +302,10 @@ where
         .find(link.receiver.player.character_id, 1)
         .and_then(|(_, o)| o.handle);
     if !skip_local_server_tick {
+        // The active camera's update (slot 0x6c).
+        if let Some(camera) = app.cameras.active_camera_mut() {
+            camera.update(dt);
+        }
         // StarSysUpdate's music part (its dust, nebulae, panels and
         // asteroids are the environment's, P5.8).
         star_sys_music(app, world, ship, dt);
@@ -304,5 +313,29 @@ where
     let mut player_ship = crate::player_behavior::PlayerShip { world, ship };
     app.flight
         .update_mouse_flight(&mut player_ship, flight_frame);
+    // A finished camera (slot 0x60, no object watched): without a player
+    // ship the ship-lost message once (`NnExitPostShipLostMessage`: the
+    // caller posts it on `post_ship_lost`); otherwise back to `player`,
+    // attached to the ship.
+    if app
+        .cameras
+        .active_camera()
+        .is_some_and(GameCamera::has_no_target)
+    {
+        match ship {
+            None => {
+                if !app.player_lost_handled {
+                    app.post_ship_lost = true;
+                    app.player_lost_handled = true;
+                }
+            }
+            Some(h) => {
+                app.cameras.switch_mode(b"player");
+                if let Some(camera) = app.cameras.active_camera_mut() {
+                    camera.attach(Some(h));
+                }
+            }
+        }
+    }
     if app.leave_requested { 6 } else { 0 }
 }
