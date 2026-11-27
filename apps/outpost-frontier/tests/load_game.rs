@@ -158,6 +158,12 @@ fn a_saved_game_loads_as_the_cpp_client_loads_it() {
                 .is_some_and(|f| f <= SELECT_FRAME)
         })
         .collect();
+    // A comparison that judges nothing fails (the conductor's rule, after
+    // #209).
+    assert!(
+        !cpp.is_empty(),
+        "l1/iclient.jsonl has no line up to frame {SELECT_FRAME}"
+    );
     for (i, (port, cpp)) in lines.iter().zip(&cpp).enumerate() {
         assert_eq!(port, cpp, "IClient line {}", i + 1);
     }

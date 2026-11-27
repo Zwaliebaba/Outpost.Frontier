@@ -507,6 +507,7 @@ namespace
         GuardedDataDump("thn", RunSceneScriptDataDump, AllFiles);
         GuardedDataDump("thn_build", RunSceneScriptBuildDataDump, AllFiles);
         GuardedDataDump("thn_save", RunSceneScriptSaveDataDump, AllFiles);
+        GuardedDataDump("effect_arch", RunEffectArchDataDump, AllFiles);
     }
 }
 

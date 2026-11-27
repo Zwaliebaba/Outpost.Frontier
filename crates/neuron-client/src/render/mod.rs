@@ -6,11 +6,12 @@
 //! kinds ([`mesh`]); `FLAppearance`'s override materials, backdrop,
 //! starsphere and blob shadows ([`appearance`]); particle effects
 //! ([`particles`]); programmable passes for the volumetric nebula
-//! ([`pass`]).
+//! ([`pass`]); the space effects' vertex batch and beams ([`effects`]).
 
 pub mod appearance;
 pub mod compare;
 pub mod deformable;
+pub mod effects;
 pub mod ff;
 pub mod material;
 pub mod mesh;

@@ -306,6 +306,13 @@ void RunPerfOptionsSuite();
 // P5.6, oracle_effect_arch.cpp: the client's effect archetypes (EffectArchLoadIni).
 void RunEffectArchSuite();
 
+// P5.6: the beam's geometry in the effect vertex batch (oracle_beam.cpp); beam.jsonl.
+void RunBeamSuite();
+
+// P5.6: the shipped effect archetypes (the [Data] effects files) through EffectArchLoadIni; kind
+// "effect_arch" (oracle_effect_arch.cpp).
+void RunEffectArchDataDump(const std::vector<std::string>& Files);
+
 // P4.14 (oracle_scene_script_save.cpp): the script engine of SceneScript.cpp (compiled in) with
 // its COM context, its file-system paths and SaveToFileSystem through the default save parser,
 // over crates/neuron-client/tests/fixtures/oracle/scene_script_save.list; called from
