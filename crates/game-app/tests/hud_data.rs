@@ -372,10 +372,12 @@ fn the_elements_equal_the_cpp_clients_first_dump_in_space() {
         .collect();
     let port = dump_nodes(&ui, 3).nodes;
     let mut compared = 0;
+    let mut windows = 0;
     for item in &elements.items {
         let Some(window) = item.window() else {
             continue;
         };
+        windows += 1;
         let name = String::from_utf8_lossy(ui.node(window).unwrap().name()).into_owned();
         let ours = subtree(&port, &name);
         let theirs = subtree(&cpp, &name);
@@ -386,6 +388,9 @@ fn the_elements_equal_the_cpp_clients_first_dump_in_space() {
         assert_eq!(ours.len(), theirs.len(), "{name}'s nodes");
         compared += ours.len();
     }
+    // A comparison that judges nothing fails (the conductor's rule): the
+    // ten elements with a window (all but `HUD_Steer`) are compared.
+    assert_eq!(windows, 10, "the HUD's windows compared");
     println!("tree.jsonl dump 3: {compared} nodes of the HUD's windows are equal");
 
     // `OracleOnHudElementsLoaded`: the `hud` head and every element's
