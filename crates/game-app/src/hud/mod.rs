@@ -170,6 +170,48 @@ impl std::fmt::Debug for HudElements {
     }
 }
 
+/// The HUD's file (`G_HudIniPath`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HudIni {
+    /// The path as `GetFileSysPath` made it under the data path
+    /// (`.\data\interface\hud.ini`), at most 0x103 bytes as
+    /// `SetHudIniPath` keeps it, for the warnings and the oracle's `hud`
+    /// record.
+    pub path: Vec<u8>,
+    /// The file relative to the data root, which the interface's services
+    /// read.
+    pub file: Vec<u8>,
+}
+
+/// `LoadClientDataValue`'s `HUD` key (`dataconfig_progress.cpp`): every
+/// `HUD` of the engine INI's `[Data]` sections stores its path
+/// (`GetFileSysPath`, then `SetHudIniPath`), so the last one counts;
+/// `None` without one. The other `[Data]` keys load their own subsystems.
+#[must_use]
+pub fn hud_ini(engine_ini: &[u8], data_path: &[u8]) -> Option<HudIni> {
+    let mut reader = IniReader::new();
+    if !reader.open_memory(engine_ini) {
+        return None;
+    }
+    let mut found = None;
+    while reader.read_header() {
+        if !reader.is_header(b"Data") {
+            continue;
+        }
+        while reader.read_value() {
+            if reader.is_value(b"HUD") {
+                let file = reader.value_string();
+                let mut path = data_path.to_vec();
+                path.push(b'\\');
+                path.extend_from_slice(&file);
+                path.truncate(0x103);
+                found = Some(HudIni { path, file });
+            }
+        }
+    }
+    found
+}
+
 /// `kHudCpp`, the warnings' file name.
 const HUD_CPP: &str = r"Client\space\HUD.cpp";
 

@@ -359,3 +359,20 @@ fn space_without_a_controller_leaves_at_once() {
 fn the_inverse_mouse_option_defaults_to_off() {
     assert_eq!(plain_ui().game_option(OPT_INVERSE_MOUSE), 0);
 }
+
+#[test]
+fn the_space_entry_makes_the_neuronet_bar_before_the_servers_part() {
+    let calls = Calls::default();
+    let mut start = starter(&calls);
+    let mut ui = plain_ui();
+    crate::neuronet::register(&mut ui.factory);
+    run_with(ui, "quit\n", &calls, &mut start, |_, cx| {
+        let mut space = SpaceEnvironment::default();
+        // No answer to the ship request: the entry fails after the bar.
+        assert!(!space.init(cx, 0));
+        let bar = cx.core.nn_main_button.expect("the NeuroNet bar");
+        assert_eq!(cx.interface.node(bar).unwrap().name(), b"NN_MainButton");
+        assert!(space.hud.is_none(), "no HUD without a launch");
+        assert!(cx.core.nn_arrival_text.is_none());
+    });
+}

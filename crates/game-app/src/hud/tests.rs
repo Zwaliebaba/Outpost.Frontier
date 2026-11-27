@@ -61,3 +61,16 @@ fn a_missing_file_makes_nothing_and_warns() {
         ["Client\\space\\HUD.cpp(317) : *** WARNING: hud file not found 'x.ini'\n"]
     );
 }
+
+#[test]
+fn the_data_sections_hud_key_gives_the_file_under_the_data_path() {
+    let ini = b"[Data]\nfonts = fonts\\fonts.ini\nHUD = interface\\hud.ini\n[Other]\nHUD = x.ini\n";
+    assert_eq!(
+        hud_ini(ini, b".\\data"),
+        Some(HudIni {
+            path: b".\\data\\interface\\hud.ini".to_vec(),
+            file: b"interface\\hud.ini".to_vec(),
+        })
+    );
+    assert_eq!(hud_ini(b"[Data]\nfonts = f.ini\n", b".\\data"), None);
+}

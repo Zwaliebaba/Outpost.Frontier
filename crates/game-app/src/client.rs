@@ -143,6 +143,13 @@ pub struct ClientCore<'a, C: Clock> {
     pub nn_screen_up: bool,
     /// `SetClientMouseCursorDrawFlag(1)` was called.
     pub cursor_drawn: bool,
+    /// `SetHudIniPath`: the `HUD` file of `[Data]`, which `run` sets at
+    /// start-up; the space entry loads the HUD from it.
+    pub hud_ini: Option<crate::hud::HudIni>,
+    /// `G_NnMainButton`.
+    pub nn_main_button: Option<NodeId>,
+    /// `G_NnArrivalText`.
+    pub nn_arrival_text: Option<NodeId>,
     /// `Win3DFindByName("NN_Preferences") != nullptr` as the last interface
     /// update left it (the state machine asks without the interface).
     preferences_window: bool,
@@ -206,6 +213,9 @@ impl<'a, I: Interface, C: Clock> ClientContext<'a, I, C> {
                 multiplayer: false,
                 nn_screen_up: false,
                 cursor_drawn: false,
+                hud_ini: None,
+                nn_main_button: None,
+                nn_arrival_text: None,
                 preferences_window: false,
                 menu_column: None,
                 load_game_page: None,
@@ -671,6 +681,38 @@ impl<I: Interface, C: Clock> Environment<ClientContext<'_, I, C>> for IntroFocus
 pub struct SpaceEnvironment {
     /// The controller, made when the ship has launched.
     pub app: Option<space_state::SpaceApp>,
+    /// The HUD's elements (`G_HudItemHead`), loaded with the cockpit.
+    pub hud: Option<crate::hud::HudElements>,
+}
+
+/// `LoadHudElementsFromIni` from the client's HUD file, with the oracle's
+/// `hud` and `huditem` records (`OracleOnHudElementsLoaded`).
+fn load_hud<C: Clock>(ui: &mut Ui, core: &mut ClientCore<'_, C>) -> crate::hud::HudElements {
+    let (path, contents) = match &core.hud_ini {
+        Some(ini) => (ini.path.clone(), ui.services.data_file(&ini.file)),
+        None => (Vec::new(), None),
+    };
+    let hud = crate::hud::load_hud_elements(ui, &path, contents, crate::hud::FACTORIES, &mut |w| {
+        neuron_core::diag::dump(neuron_core::diag::DumpFlags::WARNING, &w);
+    });
+    if let Some(run) = core.oracle.as_mut() {
+        run.layout
+            .extend(crate::hud::oracle_lines(core.frame, &path, &hud));
+    }
+    hud
+}
+
+/// `PlayerSystemStridName`: the player's system's `strid_name`, 0 without
+/// the system.
+fn player_system_strid(session: Option<&mut (dyn Session + '_)>, system: u32) -> i32 {
+    session.map_or(0, |s| {
+        s.world()
+            .data()
+            .universe
+            .systems
+            .get(&system)
+            .map_or(0, |sys| sys.strid_name)
+    })
 }
 
 /// The controller once the ship launched: in `system`, for the surface,
@@ -720,6 +762,16 @@ impl<I: Interface, C: Clock> Environment<ClientContext<'_, I, C>> for SpaceEnvir
     /// the controller for the player's system with the "player" camera
     /// installed, as `InitSpaceState` installs it when none is.
     fn init(&mut self, cx: &mut ClientContext<'_, I, C>, _param: i32) -> bool {
+        let single_player = !cx.core.multiplayer;
+        // `NnSystemInit(true)`: the NeuroNet bar, before the server's part.
+        if let Some(ui) = cx.interface.ui() {
+            crate::neuronet::main_button::system_init(
+                ui,
+                &mut cx.core.nn_main_button,
+                true,
+                single_player,
+            );
+        }
         let core = &mut cx.core;
         let Some(link) = core.link.as_mut() else {
             return false;
@@ -736,7 +788,17 @@ impl<I: Interface, C: Clock> Environment<ClientContext<'_, I, C>> for SpaceEnvir
             .interface
             .ui()
             .map_or_else(Surface::default, |ui| ui.camera.surface);
-        self.app = Some(launched_app(surface, system));
+        let mut app = launched_app(surface, system);
+        // The cockpit's load (`InitPlayerCockpitSlice`): the HUD, then
+        // `ResetMouseFlightState`.
+        if let Some(ui) = cx.interface.ui() {
+            self.hud = Some(load_hud(ui, &mut cx.core));
+            app.flight.reset_mouse_flight();
+            // `NnArrivalTextShowSystemNow`.
+            let strid = player_system_strid(cx.core.session.as_deref_mut(), system);
+            crate::neuronet::arrival_text::show_system_now(ui, &mut cx.core.nn_arrival_text, strid);
+        }
+        self.app = Some(app);
         true
     }
     fn destroy(&mut self, _cx: &mut ClientContext<'_, I, C>) {
