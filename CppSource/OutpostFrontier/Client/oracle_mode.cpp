@@ -1342,6 +1342,10 @@ void OracleOnAsteroidFieldRead(char const* Path, FCliAsteroid const* Field, int 
     }
     J.EndArray();
     OracleWriteRecord(kOracleLayout, J.Finish());
+}
+
+namespace
+{
     // The `snd` records' numbers, from 1 (the sound calls are the main thread's).
     unsigned GOracleSoundSeq = 0;
 }
