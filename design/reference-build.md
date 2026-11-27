@@ -348,6 +348,7 @@ hex after `0x`.
 | `command <USER_NICKNAME>` | dispatch the key-map command as a matching key press does: the event record filled from the command's first active binding (else its first binding), `HudDispatchCommand(id, 1)` on key down if its state has `keydown`, again on key up if it has `keyup`. The raw-key dispatch that precedes a real key and the held-key list are skipped |
 | `key <vk>` | post `WM_KEYDOWN` and `WM_KEYUP` to the window; the pump routes them as real keys. Shift, Ctrl and Alt come from the real keyboard |
 | `click <target>` | left press `{-1, 2}` then release `{-1, 1}` straight to the target's `MouseEvent` (Win3D slot 19). Target: a widget name, `#<n>` (node n of a tree dump taken now) or `text:<caption>` (first TextWin or TextControl showing that text, ASCII case ignored, visible nodes first) |
+| `row <target> <index>` | a list box's row clicked (P5.3): `<target>` as for `click`, which must be a `ListBox`; its hovered row becomes `<index>` and it gets the press `{-1, 2}`, so `ListBox::MouseEvent` selects the row and tells its parent (slot 23, `0xf001`) as a click on the row does. The note gives the press result and the selected index |
 | `state <id>` | `G_PendingClientStateId = id`; the frame enters that client state (6 is the main menu) |
 | `log <text>` | a marker in `session.jsonl` |
 | `quit` | client state 1, the client's own quit path |
@@ -370,8 +371,10 @@ within those 30 frames replaces the pending dump. Screen changes are
 (kind `menu`, states 1 to 19 of `menu_enter_state.cpp`) and
 `ChangeClientLocation` (kind `room`, the location id).
 
-Examples: `menu_walk.txt` (main menu, Load Game, back, Options) and
-`single_player.txt` (New Game, space, then the first base).
+Examples: `menu_walk.txt` (main menu, Load Game, back, Options),
+`single_player.txt` (New Game, space, then the first base) and `load_game.txt`
+(Load Game, the newest save selected with `row` and loaded; run after
+`single_player.txt`, from the user folder it left).
 
 ### Output
 
@@ -504,6 +507,18 @@ game's `SendServerCharSelectVerified` carries that clock. With it the port's new
 (`apps/outpost-frontier/tests/new_game.rs`, `OUTPOST_CLIENT_ORACLE_SP_DIR` set to run s1)
 equals the C++ client's 61 IClient lines up to frame 120, D857's moved running lights
 included.
+
+Run 27 ([45930826111](https://github.com/Zwaliebaba/Outpost.Frontier/actions/runs/45930826111),
+commit `4aefd105`) ran `load_game.txt` twice after `single_player.txt` (l1, l2): both
+exit 0 after 492 frames; Load Game opens the character page (menu state 18) at frame
+118, `row CharSelDesc 0` selects `AutoSave.fl`, the page's state 12 selects it at frame
+191 and the client enters the first base (client state 3, room `2695128518`). The two
+IClient logs (34 calls) differ only in `SendServerCharSelectVerified`'s server time: l1's
+quit in the base saved again, so l2 loads l1's save. Each run's user folder is kept in
+its `user` folder. The port's load (`apps/outpost-frontier/tests/load_game.rs`,
+`OUTPOST_CLIENT_ORACLE_ROOT` set to the output folder) starts from s2's `user` copy and
+equals l1's 14 IClient lines up to the selection; the base entry of frame 192 is the
+bases' (P5.9).
 
 A session compares locally (decision O54 (3)): download a run's
 `client-oracle-trial` artifact through the GitHub tools into a scratch folder,
