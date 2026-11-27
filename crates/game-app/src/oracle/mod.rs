@@ -3,6 +3,7 @@
 //! ([reference-build.md](../../../design/reference-build.md) section 8),
 //! written at the same hooks so that CI compares the two clients' files.
 
+pub mod audio;
 pub mod iclient;
 pub mod json;
 pub mod keymap;
@@ -21,13 +22,15 @@ use crate::startup_config::DisplayMode;
 /// `kOracleWidth`, `kOracleHeight`, `kOracleColorBits`.
 pub const DISPLAY: (u32, u32, i32) = (0x400, 0x300, 0x20);
 
-/// The files of one run (`kStreamFiles`), in stream order.
-pub const FILES: [&str; 5] = [
+/// The files of one run (`kStreamFiles`), in stream order, without the
+/// C++'s `server.jsonl`.
+pub const FILES: [&str; 6] = [
     "session.jsonl",
     "tree.jsonl",
     "keymap.jsonl",
     "layout.jsonl",
     "iclient.jsonl",
+    "audio.jsonl",
 ];
 
 /// One oracle run of the port's client: the script, the output folder and
@@ -43,6 +46,8 @@ pub struct OracleRun {
     pub keymap: Vec<String>,
     /// `layout.jsonl`.
     pub layout: Vec<String>,
+    /// `audio.jsonl` (`oracle::audio::AudioLog`'s lines).
+    pub audio: Vec<String>,
 }
 
 impl OracleRun {
@@ -72,6 +77,7 @@ impl OracleRun {
             out: PathBuf::from(out.trim_end_matches(['\\', '/'])),
             keymap: Vec::new(),
             layout: Vec::new(),
+            audio: Vec::new(),
         })
     }
 
@@ -96,12 +102,13 @@ impl OracleRun {
     ///
     /// When a file cannot be written.
     pub fn write(&self, iclient: &[String]) -> std::io::Result<()> {
-        let streams: [&[String]; 5] = [
+        let streams: [&[String]; 6] = [
             self.script.session(),
             self.script.tree(),
             &self.keymap,
             &self.layout,
             iclient,
+            &self.audio,
         ];
         for (name, lines) in FILES.iter().zip(streams) {
             let mut file = std::fs::File::create(self.out.join(name))?;

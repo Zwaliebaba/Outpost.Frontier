@@ -76,6 +76,15 @@ void OracleOnHudElementsLoaded(char const* Path, HUDItem* Head, int StaticBlend)
 // menu_universe_base.cpp LoadLocationBase, after RoomData::load: the room's file as read.
 void OracleOnRoomLoaded(RoomData const* Room);
 
+// audio.jsonl (P5.5): a `snd` record for each call the game makes into the client's sound
+// layer (menu_sound_arch.cpp, sound_config.cpp), written as the call returns: the method's
+// name, its unsigned then its float arguments, and its result (Result < 0: none).
+void OracleOnSoundCall(char const* Method, unsigned const* Uints, unsigned UintCount,
+                       float const* Floats, unsigned FloatCount, int Result);
+// ApplyLocationAudio (menu_universe_base.cpp): a `locaudio` record with the location whose
+// room's music and ambience the calls that follow set, and the keep-audio flag.
+void OracleOnLocationAudio(unsigned LocationId, bool bKeepAudio);
+
 // GetClientInterface / GetChatClientInterface: the logging proxy when the oracle is on,
 // otherwise Real unchanged.
 IClient* OracleWrapClientInterface(IClient* Real);
@@ -91,6 +100,7 @@ enum EOracleStream
     kOracleLayout,
     kOracleIClient,
     kOracleServer,
+    kOracleAudio,
     kOracleStreamCount
 };
 
