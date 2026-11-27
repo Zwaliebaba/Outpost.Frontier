@@ -2373,10 +2373,12 @@ pub fn set_invincible2(
 }
 
 /// `pub::SpaceObj::RequestSpaceScript`: `REQUESTSPACESCRIPT` to the client
-/// `client` with the object and the script's name (`safe_strcpy` into
-/// 0x104 bytes; with its terminator, nothing for an empty name). The
-/// position and the priority are in the C++'s record but rpclocal's
-/// encoder does not send them. Neither the client nor the name is tested.
+/// `client` with the object, the script's name (`safe_strcpy` into 0x104
+/// bytes; with its terminator, nothing for an empty name), the position's
+/// float bits and the priority as the mode byte (1, 2 or anything else;
+/// rpclocal's sender maps 2 to 0 and every other value to 1). A multiplayer
+/// encoder sends neither, as the C++'s packet keeps them off the wire.
+/// Neither the client nor the name is tested.
 ///
 /// # Errors
 ///
@@ -2389,7 +2391,6 @@ pub fn request_space_script(
     client: u32,
     name: &[u8],
 ) -> Result<(), PubError> {
-    let _ = (position, priority);
     if no_id(object) {
         return Err(PubError::BAD_ARGUMENT);
     }
@@ -2403,6 +2404,12 @@ pub fn request_space_script(
     let message = RequestSpaceScript {
         field_00: object,
         name: wire,
+        position: [
+            position.x.to_bits(),
+            position.y.to_bits(),
+            position.z.to_bits(),
+        ],
+        mode: RequestSpaceScript::mode_byte(u32::from_ne_bytes(priority.to_ne_bytes())),
     };
     cx.logic
         .client

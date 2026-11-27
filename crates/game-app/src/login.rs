@@ -14,7 +14,10 @@ use game_sim::protocol::{ClientMessage, ToClient, ToServer};
 use neuron_core::diag::{self, DumpFlags};
 use neuron_core::net::transport::Transport;
 
-use crate::receiver::{ClientLink, LoginState};
+use game_sim::protocol::to_client::CharacterRecord;
+use game_sim::protocol::to_server::SelectCharacter;
+
+use crate::receiver::{ClientLink, ClientReceiver};
 use crate::session::{Session, tick_modal_server};
 
 /// The single-player wait's limit in seconds (`WaitForServerResponse`'s
@@ -57,7 +60,7 @@ impl LoginSettings {
 pub fn wait_for_server_response<T, S>(
     link: &mut ClientLink<T>,
     mut session: Option<&mut S>,
-    done: impl Fn(&LoginState) -> bool,
+    done: impl Fn(&ClientReceiver) -> bool,
     now: &mut dyn FnMut() -> f64,
 ) -> i32
 where
@@ -65,11 +68,11 @@ where
     S: Session + ?Sized,
 {
     let start = now();
-    while !done(&link.receiver.login) && !link.receiver.login.server_disconnected {
+    while !done(&link.receiver) && !link.receiver.login.server_disconnected {
         let Some(s) = session.as_deref_mut() else {
             break;
         };
-        tick_modal_server(Some(s), true, |_| link.deliver_all());
+        tick_modal_server(Some(s), true, |s| link.deliver_all(Some(s.world())));
         if SP_TIMEOUT < now() - start {
             break;
         }
@@ -95,7 +98,7 @@ where
         DumpFlags::NOTICE,
         "Client\\LoginMgr.cpp(351) : NOTICE:General:Starting single player game.\n",
     );
-    wait_for_server_response(link, session, |l| l.connected, now)
+    wait_for_server_response(link, session, |r| r.login.connected, now)
 }
 
 /// `CLoginMgr::Login`: nothing without a connection; otherwise the login
@@ -124,7 +127,12 @@ where
         second: bounded(&settings.password, 0x0f),
     };
     link.send(ToServer::Client(ClientMessage::Login(message)));
-    let result = wait_for_server_response(link, session.as_deref_mut(), |l| l.login_response, now);
+    let result = wait_for_server_response(
+        link,
+        session.as_deref_mut(),
+        |r| r.login.login_response,
+        now,
+    );
     if result != 1 || link.receiver.login.login_status != 3 {
         return 0;
     }
@@ -182,7 +190,78 @@ where
     link.send(ToServer::Client(ClientMessage::RequestCharInfo(
         RequestCharInfo {},
     )));
-    wait_for_server_response(link, session, |l| l.character_info_arrived, now)
+    wait_for_server_response(link, session, |r| r.login.character_info_arrived, now)
+}
+
+/// `CLoginMgr::FindRestartCharacter`: the first listed character with
+/// `bIsRestart` set (the new game's `Restart.fl`).
+#[must_use]
+pub fn find_restart_character(receiver: &ClientReceiver) -> Option<&CharacterRecord> {
+    listed(receiver).find(|r| r.is_restart != 0)
+}
+
+/// `CLoginMgr::FindAutoSaveCharacter`: the first with `bIsAutoSave` set.
+#[must_use]
+pub fn find_auto_save_character(receiver: &ClientReceiver) -> Option<&CharacterRecord> {
+    listed(receiver).find(|r| r.is_auto_save != 0)
+}
+
+fn listed(receiver: &ClientReceiver) -> impl Iterator<Item = &CharacterRecord> {
+    receiver
+        .login
+        .characters
+        .iter()
+        .flat_map(|c| c.records.iter())
+}
+
+/// `CLoginMgr::SelectCharacterById`: the listed character with the id
+/// selected; false when none has it.
+pub fn select_character_by_id<T, S>(
+    link: &mut ClientLink<T>,
+    session: Option<&mut S>,
+    id: &[u8],
+    now: &mut dyn FnMut() -> f64,
+) -> bool
+where
+    T: Transport<Outgoing = ToServer, Incoming = ToClient>,
+    S: Session + ?Sized,
+{
+    let record = listed(&link.receiver)
+        .find(|r| r.character_id == id)
+        .cloned();
+    select_character(link, session, record.as_ref(), now)
+}
+
+/// `CLoginMgr::SelectCharacter`: false without a record; otherwise
+/// `Field_0x21c` cleared, `CharacterSelect` sent and waited for; false
+/// unless the server verified it, else the record becomes the player's
+/// (`ApplyCharacterSelectEquipFields`; its equipment and costume fields are
+/// P5.4's) and the answer is true.
+pub fn select_character<T, S>(
+    link: &mut ClientLink<T>,
+    session: Option<&mut S>,
+    record: Option<&CharacterRecord>,
+    now: &mut dyn FnMut() -> f64,
+) -> bool
+where
+    T: Transport<Outgoing = ToServer, Incoming = ToClient>,
+    S: Session + ?Sized,
+{
+    let Some(record) = record else {
+        return false;
+    };
+    link.receiver.login.char_select_verified = false;
+    link.send(ToServer::Client(ClientMessage::SelectCharacter(
+        SelectCharacter {
+            character_id: record.character_id.clone(),
+        },
+    )));
+    wait_for_server_response(link, session, |r| r.login.char_select_verified, now);
+    if !link.receiver.login.char_select_verified {
+        return false;
+    }
+    link.receiver.login.selected = Some(record.clone());
+    true
 }
 
 /// `wcsncpy(dst, src, n + 1)` then `dst[n] = 0`: at most `n` units, up to
