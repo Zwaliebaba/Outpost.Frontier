@@ -500,8 +500,10 @@ impl World {
         }
     }
 
-    /// The multiplayer step's beam pass: `CBeam::move` on every bullet.
-    pub(crate) fn move_beams(&mut self, system: u32, step: f32) {
+    /// The beam pass: `CBeam::move` on every bullet, after the physics step
+    /// (the multiplayer server's step; in single player the client's space
+    /// frame, `ClientObjDb_MoveBeams`).
+    pub fn move_beams(&mut self, system: u32, step: f32) {
         for h in self.list(system, TickList::Beams) {
             if let Some(o) = self.objects.get_mut(h)
                 && let KindData::Beam(b) = &mut o.data
