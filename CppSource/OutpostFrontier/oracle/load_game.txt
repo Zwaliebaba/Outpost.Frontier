@@ -1,0 +1,26 @@
+# Oracle script (P0.5, P5.3): load the newest single-player save from the main menu.
+# Run after single_player.txt, from the user folder it left (its save of the first base).
+# Run: bin\OutpostFrontier.exe +oracle <repo>\CppSource\OutpostFrontier\oracle\load_game.txt <out>
+# Format: CppSource/OutpostFrontier/Client/oracle_mode.cpp, design/reference-build.md section 8.
+
+waitscreen menu 1 900
+wait 90
+dump main-menu
+
+# Load Game: the single-player character page (menu state 18) lists the saves without the
+# restart file. Row 0 of the CharSelDesc list is selected as a click on it selects it, then
+# LoadCharacter slides the page out; the page answers state 12, which selects the save
+# (CharacterSelect), and the client enters the save's base (client state 3) or space (2).
+click text:LOAD GAME
+waitscreen menu 18 300
+wait 60
+dump load-page
+row CharSelDesc 0
+click LoadCharacter
+waitscreen client 3 900
+wait 150
+dump loaded
+wait 150
+dump loaded-later
+
+quit

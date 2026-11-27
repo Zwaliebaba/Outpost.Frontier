@@ -175,6 +175,7 @@ namespace
 
     void ApplyLocationAudio(unsigned LocationId)
     {
+        OracleOnLocationAudio(LocationId, G_bLocationKeepAudio); // Oracle instrumentation (P0.5)
         // (thiscall on the field, RET 4).
         // the room map (this+0x0c, the routine) -- the routine's
         // lookup inlined: a miss FDUMPs ("Could not find location id", line 0x110) and the

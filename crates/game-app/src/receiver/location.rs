@@ -20,10 +20,12 @@
 use std::collections::BTreeMap;
 
 use game_sim::ai::script::ScriptBehavior;
+use game_sim::protocol::ServerMessage;
 use game_sim::protocol::base_props::{
     AmbientScriptProperties, CharacterProperties, MissionVendorAcceptance, MissionVendorProperties,
     NewsBroadcastProperties,
 };
+use game_sim::protocol::marshal::MarshalReader;
 use neuron_core::diag::{self, DumpFlags};
 
 /// The source the controller's reports name.
@@ -328,268 +330,61 @@ impl LocationDb {
     }
 }
 
-/// `IClient` slot 28.
-pub const SLOT_SET_START_ROOM: i32 = 28;
-/// `IClient` slot 29.
-pub const SLOT_GF_DESTROY_CHARACTER: i32 = 29;
-/// `IClient` slot 30.
-pub const SLOT_GF_UPDATE_CHAR: i32 = 30;
-/// `IClient` slot 31.
-pub const SLOT_GF_COMPLETE_CHAR_LIST: i32 = 31;
-/// `IClient` slot 32.
-pub const SLOT_GF_SCRIPT_BEHAVIOR: i32 = 32;
-/// `IClient` slot 33.
-pub const SLOT_GF_DESTROY_SCRIPT_BEHAVIOR: i32 = 33;
-/// `IClient` slot 34.
-pub const SLOT_GF_COMPLETE_SCRIPT_BEHAVIOR_LIST: i32 = 34;
-/// `IClient` slot 35.
-pub const SLOT_GF_UPDATE_AMBIENT_SCRIPT: i32 = 35;
-/// `IClient` slot 36.
-pub const SLOT_GF_DESTROY_AMBIENT_SCRIPT: i32 = 36;
-/// `IClient` slot 37.
-pub const SLOT_GF_COMPLETE_AMBIENT_SCRIPT_LIST: i32 = 37;
-/// `IClient` slot 38.
-pub const SLOT_GF_DESTROY_MISSION_COMPUTER: i32 = 38;
-/// `IClient` slot 39.
-pub const SLOT_GF_UPDATE_MISSION_COMPUTER: i32 = 39;
-/// `IClient` slot 40.
-pub const SLOT_GF_COMPLETE_MISSION_COMPUTER_LIST: i32 = 40;
-/// `IClient` slot 41.
-pub const SLOT_GF_MISSION_VENDOR_ACCEPTANCE: i32 = 41;
-/// `IClient` slot 42.
-pub const SLOT_GF_MISSION_VENDOR_WHY_EMPTY: i32 = 42;
-/// `IClient` slot 43.
-pub const SLOT_GF_DESTROY_NEWS_BROADCAST: i32 = 43;
-/// `IClient` slot 44.
-pub const SLOT_GF_UPDATE_NEWS_BROADCAST: i32 = 44;
-/// `IClient` slot 45.
-pub const SLOT_GF_COMPLETE_NEWS_BROADCAST_LIST: i32 = 45;
-
-/// A `GF` message the receiver takes, with what it carries.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum GfPair {
-    /// `SETSTARTROOM` (base, room).
-    StartRoom,
-    /// `GFDESTROYCHARACTER` (room, key): the shared `RET 8` stub.
-    DestroyCharacter,
-    /// `GFDESTROYSCRIPTBEHAVIOR` (room, id).
-    DestroyScriptBehavior,
-    /// `GFDESTROYAMBIENTSCRIPT` (room, key).
-    DestroyAmbientScript,
-    /// `GFDESTROYMISSIONCOMPUTER` (base, key).
-    DestroyMissionComputer,
-    /// `GFDESTROYNEWSBROADCAST` (base, key).
-    DestroyNewsBroadcast,
-}
-
-/// A `GFCOMPLETE…LIST` message (one id).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum GfComplete {
-    /// The room's characters.
-    Chars,
-    /// The room's script behaviours.
-    ScriptBehaviors,
-    /// The room's ambient scripts.
-    AmbientScripts,
-    /// The base's mission offers.
-    MissionComputers,
-    /// The base's news.
-    News,
-}
-
-/// A `GF` message with a `MarshalBuffer` record.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum GfRecord {
-    /// `GFUPDATECHAR`: `CharacterProperties`.
-    Char,
-    /// `GFSCRIPTBEHAVIOR`: `ScriptBehavior`.
-    ScriptBehavior,
-    /// `GFUPDATEAMBIENTSCRIPT`: `AmbientScriptProperties`.
-    AmbientScript,
-    /// `GFUPDATEMISSIONCOMPUTER`: `MissionVendorProperties`.
-    MissionComputer,
-    /// `GFMISSIONVENDORACCEPTANCE`: `MissionVendorAcceptance`.
-    VendorAcceptance,
-    /// `GFUPDATENEWSBROADCAST`: `NewsBroadcastProperties`.
-    News,
-}
-
 impl super::ClientReceiver {
-    /// The two-dword `GF` slots (28, 29, 33, 36, 38, 43).
-    pub(super) fn gf_pair(&mut self, client_id: u32, kind: GfPair, a: u32, b: u32) {
-        let (slot, method, first, second) = match kind {
-            GfPair::StartRoom => (
-                SLOT_SET_START_ROOM,
-                "SendServerSetStartRoom",
-                "BaseId",
-                "RoomId",
-            ),
-            GfPair::DestroyCharacter => (
-                SLOT_GF_DESTROY_CHARACTER,
-                "SendServerGFDestroyCharacter",
-                "RoomId",
-                "Key",
-            ),
-            GfPair::DestroyScriptBehavior => (
-                SLOT_GF_DESTROY_SCRIPT_BEHAVIOR,
-                "SendServerGFDestroyScriptBehavior",
-                "RoomId",
-                "BehaviorId",
-            ),
-            GfPair::DestroyAmbientScript => (
-                SLOT_GF_DESTROY_AMBIENT_SCRIPT,
-                "SendServerGFDestroyAmbientScript",
-                "RoomId",
-                "Key",
-            ),
-            GfPair::DestroyMissionComputer => (
-                SLOT_GF_DESTROY_MISSION_COMPUTER,
-                "SendServerGFDestroyMissionComputer",
-                "BaseId",
-                "Key",
-            ),
-            GfPair::DestroyNewsBroadcast => (
-                SLOT_GF_DESTROY_NEWS_BROADCAST,
-                "SendServerGFDestroyNewsBroadcast",
-                "BaseId",
-                "Key",
-            ),
-        };
-        self.call(slot, method, |j| {
-            j.uint("ClientId", client_id).uint(first, a).uint(second, b);
-        });
+    /// The forwards of the `GF` slots 29 to 45 into the mirrors, after the
+    /// slot's oracle line (`gameflow`). A record that does not decode is
+    /// dropped (D101: the reference reads past the buffer).
+    pub(super) fn location_forward(&mut self, m: &ServerMessage) {
+        use ServerMessage as M;
         let db = &mut self.location;
-        match kind {
-            GfPair::StartRoom => db.set_base_start_location(a, b),
-            GfPair::DestroyCharacter => {}
-            GfPair::DestroyScriptBehavior => db.erase_room_script_behavior(a, b),
-            GfPair::DestroyAmbientScript => db.erase_room_ambient_script(a, b),
-            GfPair::DestroyMissionComputer => db.erase_mission_offer(a, b),
-            GfPair::DestroyNewsBroadcast => db.erase_news(a, b),
+        match m {
+            M::GfDestroyCharacter(_) => {}
+            M::GfDestroyScriptBehavior(p) => db.erase_room_script_behavior(p.field_00, p.field_04),
+            M::GfDestroyAmbientScript(p) => db.erase_room_ambient_script(p.field_00, p.field_04),
+            M::GfDestroyMissionComputer(p) => db.erase_mission_offer(p.field_00, p.field_04),
+            M::GfDestroyNewsBroadcast(p) => db.erase_news(p.field_00, p.field_04),
+            M::GfCompleteCharList(p) => db.set_room_characters_complete(p.value),
+            M::GfCompleteScriptBehaviorList(p) => db.set_room_script_behaviors_complete(p.value),
+            M::GfCompleteAmbientScriptList(p) => db.set_room_ambient_scripts_complete(p.value),
+            M::GfCompleteMissionComputerList(p) => db.set_mission_offers_complete(p.value),
+            M::GfCompleteNewsBroadcastList(p) => db.set_news_complete(p.value),
+            M::GfUpdateChar(p) => {
+                if let Ok(r) = CharacterProperties::unmarshal(&mut MarshalReader::new(&p.data)) {
+                    db.upsert_room_character(r);
+                }
+            }
+            M::GfScriptBehavior(p) => {
+                if let Ok(r) = ScriptBehavior::unmarshal(&mut MarshalReader::new(&p.data)) {
+                    db.upsert_room_script_behavior(r);
+                }
+            }
+            M::GfUpdateAmbientScript(p) => {
+                if let Ok(r) = AmbientScriptProperties::unmarshal(&mut MarshalReader::new(&p.data))
+                {
+                    db.upsert_room_ambient_script(r);
+                }
+            }
+            M::GfUpdateMissionComputer(p) => {
+                if let Ok(r) = MissionVendorProperties::unmarshal(&mut MarshalReader::new(&p.data))
+                {
+                    db.upsert_mission_offer(r);
+                }
+            }
+            M::GfMissionVendorAcceptance(p) => {
+                if let Ok(r) = MissionVendorAcceptance::unmarshal(&mut MarshalReader::new(&p.data))
+                {
+                    db.vendor_acceptance = Some(r);
+                }
+            }
+            M::GfUpdateNewsBroadcast(p) => {
+                if let Ok(r) = NewsBroadcastProperties::unmarshal(&mut MarshalReader::new(&p.data))
+                {
+                    db.upsert_news(r);
+                }
+            }
+            M::GfMissionVendorWhyEmpty(p) => db.vendor_why_empty = i32::from(p.value),
+            _ => {}
         }
-    }
-
-    /// The `GFCOMPLETE…LIST` slots (31, 34, 37, 40, 45).
-    pub(super) fn gf_complete(&mut self, client_id: u32, kind: GfComplete, id: u32) {
-        let (slot, method, name) = match kind {
-            GfComplete::Chars => (
-                SLOT_GF_COMPLETE_CHAR_LIST,
-                "SendServerGFCompleteCharList",
-                "RoomId",
-            ),
-            GfComplete::ScriptBehaviors => (
-                SLOT_GF_COMPLETE_SCRIPT_BEHAVIOR_LIST,
-                "SendServerGFCompleteScriptBehaviorList",
-                "RoomId",
-            ),
-            GfComplete::AmbientScripts => (
-                SLOT_GF_COMPLETE_AMBIENT_SCRIPT_LIST,
-                "SendServerGFCompleteAmbientScriptList",
-                "RoomId",
-            ),
-            GfComplete::MissionComputers => (
-                SLOT_GF_COMPLETE_MISSION_COMPUTER_LIST,
-                "SendServerGFCompleteMissionComputerList",
-                "BaseId",
-            ),
-            GfComplete::News => (
-                SLOT_GF_COMPLETE_NEWS_BROADCAST_LIST,
-                "SendServerGFCompleteNewsBroadcastList",
-                "BaseId",
-            ),
-        };
-        self.call(slot, method, |j| {
-            j.uint("ClientId", client_id).uint(name, id);
-        });
-        let db = &mut self.location;
-        match kind {
-            GfComplete::Chars => db.set_room_characters_complete(id),
-            GfComplete::ScriptBehaviors => db.set_room_script_behaviors_complete(id),
-            GfComplete::AmbientScripts => db.set_room_ambient_scripts_complete(id),
-            GfComplete::MissionComputers => db.set_mission_offers_complete(id),
-            GfComplete::News => db.set_news_complete(id),
-        }
-    }
-
-    /// The record slots (30, 32, 35, 39, 41, 44): the `MarshalBuffer`
-    /// record unmarshalled from the bytes and forwarded. A record that does
-    /// not decode is dropped (D101: the reference reads past the buffer).
-    pub(super) fn gf_record(&mut self, client_id: u32, kind: GfRecord, data: &[u8]) {
-        use game_sim::protocol::marshal::MarshalReader;
-        let (slot, method) = match kind {
-            GfRecord::Char => (SLOT_GF_UPDATE_CHAR, "SendServerGFUpdateChar"),
-            GfRecord::ScriptBehavior => (SLOT_GF_SCRIPT_BEHAVIOR, "SendServerGFScriptBehavior"),
-            GfRecord::AmbientScript => (
-                SLOT_GF_UPDATE_AMBIENT_SCRIPT,
-                "SendServerGFUpdateAmbientScript",
-            ),
-            GfRecord::MissionComputer => (
-                SLOT_GF_UPDATE_MISSION_COMPUTER,
-                "SendServerGFUpdateMissionComputer",
-            ),
-            GfRecord::VendorAcceptance => (
-                SLOT_GF_MISSION_VENDOR_ACCEPTANCE,
-                "SendServerGFMissionVendorAcceptance",
-            ),
-            GfRecord::News => (
-                SLOT_GF_UPDATE_NEWS_BROADCAST,
-                "SendServerGFUpdateNewsBroadcast",
-            ),
-        };
-        let size = u32::try_from(data.len()).unwrap_or(u32::MAX);
-        self.call(slot, method, |j| {
-            j.uint("ClientId", client_id)
-                .bytes("Data", data)
-                .uint("Size", size);
-        });
-        let mut r = MarshalReader::new(data);
-        let db = &mut self.location;
-        match kind {
-            GfRecord::Char => {
-                if let Ok(p) = CharacterProperties::unmarshal(&mut r) {
-                    db.upsert_room_character(p);
-                }
-            }
-            GfRecord::ScriptBehavior => {
-                if let Ok(p) = ScriptBehavior::unmarshal(&mut r) {
-                    db.upsert_room_script_behavior(p);
-                }
-            }
-            GfRecord::AmbientScript => {
-                if let Ok(p) = AmbientScriptProperties::unmarshal(&mut r) {
-                    db.upsert_room_ambient_script(p);
-                }
-            }
-            GfRecord::MissionComputer => {
-                if let Ok(p) = MissionVendorProperties::unmarshal(&mut r) {
-                    db.upsert_mission_offer(p);
-                }
-            }
-            GfRecord::VendorAcceptance => {
-                if let Ok(p) = MissionVendorAcceptance::unmarshal(&mut r) {
-                    db.vendor_acceptance = Some(p);
-                }
-            }
-            GfRecord::News => {
-                if let Ok(p) = NewsBroadcastProperties::unmarshal(&mut r) {
-                    db.upsert_news(p);
-                }
-            }
-        }
-    }
-
-    /// `IClientImpl::SendServerGFMissionVendorWhyEmpty` (slot 42):
-    /// `G_MissionVendorNoMissionsReason`.
-    pub(super) fn gf_why_empty(&mut self, client_id: u32, reason: u8) {
-        self.call(
-            SLOT_GF_MISSION_VENDOR_WHY_EMPTY,
-            "SendServerGFMissionVendorWhyEmpty",
-            |j| {
-                j.uint("ClientId", client_id)
-                    .uint("Reason", u32::from(reason));
-            },
-        );
-        self.location.vendor_why_empty = i32::from(reason);
     }
 }
 

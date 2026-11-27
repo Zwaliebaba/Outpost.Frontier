@@ -184,6 +184,8 @@ pub struct ClientSource {
     pub(super) playing: bool,
     /// The positioned block, for a `Sound::Source3D`.
     pub spatial: Option<Spatial3d>,
+    /// The streamed block, for a `Sound::StreamedSource`.
+    pub streamed: Option<super::streamed::Streamed>,
     /// The answers of this manager call.
     pub view: SourceView,
 }
@@ -204,6 +206,7 @@ impl ClientSource {
             mixer_score: NO_SCORE,
             playing: false,
             spatial: spatial.then(Spatial3d::default),
+            streamed: None,
             view: SourceView::default(),
         }
     }

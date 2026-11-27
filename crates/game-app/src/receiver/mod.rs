@@ -16,7 +16,8 @@
 //! (72), `SendServerLoadHint` (81), the common blocks (1, 91, 92, 97, 98),
 //! the seven `MISCOBJUPDATE` slots (113 to 120), `SendServerSetMusic` (122)
 //! and `SendServerPlaySoundEffect` (124), and the location controller's
-//! `SETSTARTROOM` and `GF` slots (28 to 45) into [`location::LocationDb`].
+//! `SETSTARTROOM` and `GF` slots (28 to 45), which also write into
+//! [`location::LocationDb`].
 //! A slot whose effect belongs to a
 //! sub-system not ported yet (the reputation vibes, the HUD's comm
 //! costumes, the story star, the best path, the space-script camera, the
@@ -33,10 +34,11 @@ use game_sim::object::World;
 use game_sim::protocol::common::{
     ActivateEquip, SetInterfaceState, SetMissionLog, SetVisitedState, SetWeaponGroup,
 };
-use game_sim::protocol::records::CreateObject;
+use game_sim::protocol::records::{CreateObject, EquipRecord};
 use game_sim::protocol::to_client::{
-    CharSelectVerified, CharacterInfo, CharacterRecord, Launch, LoadHint, MiscObjUpdate,
-    RequestCreateShipResp, RequestSpaceScript, SetMissionObjectives, SetMusic, SetReputation,
+    CharSelectVerified, CharacterInfo, CharacterRecord, Land, Launch, LoadHint, MiscObjUpdate,
+    RequestCreateShipResp, RequestSpaceScript, SetMissionMessage, SetMissionObjectives, SetMusic,
+    SetReputation,
 };
 use game_sim::protocol::{CommonMessage, ServerMessage, ToClient, ToServer};
 use neuron_core::diag::{self, DumpFlags};
@@ -45,7 +47,6 @@ use neuron_core::net::transport::{ConnectionId, Transport, TransportEvent};
 use crate::objects::{ClientObject, ClientObjectKind, ClientObjects};
 use crate::oracle::iclient::IClientLog;
 use crate::oracle::json::OracleJson;
-use location::{GfComplete, GfPair, GfRecord};
 
 /// `IClient` slot 1.
 pub const SLOT_ACTIVATE_EQUIP: i32 = 1;
@@ -150,6 +151,16 @@ pub struct PlayerState {
     /// The sound effects asked for, in order (`PlayClientSoundArch`; the
     /// sounds are P5.5's).
     pub sound_effects: Vec<u32>,
+    /// The player's ship archetype (`SendServerSetShipArch`).
+    pub ship_arch: u32,
+    /// The player's equipment (`SendServerSetEquipment`).
+    pub equipment: Vec<EquipRecord>,
+    /// The base and room the player starts in (`SendServerSetStartRoom`).
+    pub start_room: Option<(u32, u32)>,
+    /// The base's gameflow messages (characters, script behaviours,
+    /// ambient scripts, mission computers, the mission vendor, news), in
+    /// order, for the bases (P5.9) to take.
+    pub gameflow: Vec<ServerMessage>,
 }
 
 /// `IClientImpl`: the client's handlers of the server's calls.
@@ -246,56 +257,28 @@ impl ClientReceiver {
                 ServerMessage::MiscObjUpdate(m) => self.misc_obj_update(c, &m),
                 ServerMessage::SetMusic(m) => self.set_music(c, m),
                 ServerMessage::PlaySoundEffect(m) => self.play_sound_effect(c, m.value),
-                ServerMessage::SetStartRoom(m) => {
-                    self.gf_pair(c, GfPair::StartRoom, m.field_00, m.field_04);
-                }
-                ServerMessage::GfDestroyCharacter(m) => {
-                    self.gf_pair(c, GfPair::DestroyCharacter, m.field_00, m.field_04);
-                }
-                ServerMessage::GfDestroyScriptBehavior(m) => {
-                    self.gf_pair(c, GfPair::DestroyScriptBehavior, m.field_00, m.field_04);
-                }
-                ServerMessage::GfDestroyAmbientScript(m) => {
-                    self.gf_pair(c, GfPair::DestroyAmbientScript, m.field_00, m.field_04);
-                }
-                ServerMessage::GfDestroyMissionComputer(m) => {
-                    self.gf_pair(c, GfPair::DestroyMissionComputer, m.field_00, m.field_04);
-                }
-                ServerMessage::GfDestroyNewsBroadcast(m) => {
-                    self.gf_pair(c, GfPair::DestroyNewsBroadcast, m.field_00, m.field_04);
-                }
-                ServerMessage::GfCompleteCharList(m) => {
-                    self.gf_complete(c, GfComplete::Chars, m.value);
-                }
-                ServerMessage::GfCompleteScriptBehaviorList(m) => {
-                    self.gf_complete(c, GfComplete::ScriptBehaviors, m.value);
-                }
-                ServerMessage::GfCompleteAmbientScriptList(m) => {
-                    self.gf_complete(c, GfComplete::AmbientScripts, m.value);
-                }
-                ServerMessage::GfCompleteMissionComputerList(m) => {
-                    self.gf_complete(c, GfComplete::MissionComputers, m.value);
-                }
-                ServerMessage::GfCompleteNewsBroadcastList(m) => {
-                    self.gf_complete(c, GfComplete::News, m.value);
-                }
-                ServerMessage::GfUpdateChar(m) => self.gf_record(c, GfRecord::Char, &m.data),
-                ServerMessage::GfScriptBehavior(m) => {
-                    self.gf_record(c, GfRecord::ScriptBehavior, &m.data);
-                }
-                ServerMessage::GfUpdateAmbientScript(m) => {
-                    self.gf_record(c, GfRecord::AmbientScript, &m.data);
-                }
-                ServerMessage::GfUpdateMissionComputer(m) => {
-                    self.gf_record(c, GfRecord::MissionComputer, &m.data);
-                }
-                ServerMessage::GfMissionVendorAcceptance(m) => {
-                    self.gf_record(c, GfRecord::VendorAcceptance, &m.data);
-                }
-                ServerMessage::GfUpdateNewsBroadcast(m) => {
-                    self.gf_record(c, GfRecord::News, &m.data);
-                }
-                ServerMessage::GfMissionVendorWhyEmpty(m) => self.gf_why_empty(c, m.value),
+                ServerMessage::Land(m) => self.land(c, &m),
+                ServerMessage::SetMissionMessage(m) => self.set_mission_message(c, &m),
+                ServerMessage::SetShipArch(m) => self.set_ship_arch(c, m.value),
+                ServerMessage::SetEquipment(m) => self.set_equipment(c, m.records),
+                ServerMessage::SetStartRoom(m) => self.set_start_room(c, m.field_00, m.field_04),
+                m @ (ServerMessage::GfDestroyCharacter(_)
+                | ServerMessage::GfUpdateChar(_)
+                | ServerMessage::GfCompleteCharList(_)
+                | ServerMessage::GfScriptBehavior(_)
+                | ServerMessage::GfDestroyScriptBehavior(_)
+                | ServerMessage::GfCompleteScriptBehaviorList(_)
+                | ServerMessage::GfUpdateAmbientScript(_)
+                | ServerMessage::GfDestroyAmbientScript(_)
+                | ServerMessage::GfCompleteAmbientScriptList(_)
+                | ServerMessage::GfDestroyMissionComputer(_)
+                | ServerMessage::GfUpdateMissionComputer(_)
+                | ServerMessage::GfCompleteMissionComputerList(_)
+                | ServerMessage::GfMissionVendorAcceptance(_)
+                | ServerMessage::GfMissionVendorWhyEmpty(_)
+                | ServerMessage::GfDestroyNewsBroadcast(_)
+                | ServerMessage::GfUpdateNewsBroadcast(_)
+                | ServerMessage::GfCompleteNewsBroadcastList(_)) => self.gameflow(c, m),
                 m => *self.unported.entry(m.name()).or_default() += 1,
             },
             ToClient::Common(m) => match m {
@@ -604,6 +587,170 @@ impl ClientReceiver {
         }
     }
 
+    /// `IClientImpl::SendServerLand` (slot 59): the ship docks with the
+    /// base (`FServerLandInfo`: ship, base, the third dword); the client's
+    /// landing is P5.4's.
+    fn land(&mut self, client_id: u32, info: &Land) {
+        let mut bytes = Vec::with_capacity(12);
+        for word in [info.field_00, info.field_04, info.field_08] {
+            bytes.extend_from_slice(&word.to_le_bytes());
+        }
+        self.call(59, "SendServerLand", |a| {
+            a.uint("ClientId", client_id).bytes("Info", &bytes);
+        });
+        self.unported_effect("SendServerLand");
+    }
+
+    /// `IClientImpl::SendServerSetMissionMessage` (slot 70):
+    /// `StoryStarOnMissionMessage` (P5.7).
+    fn set_mission_message(&mut self, client_id: u32, m: &SetMissionMessage) {
+        self.call(70, "SendServerSetMissionMessage", |a| {
+            a.uint("ClientId", client_id)
+                .begin_object("Message")
+                .str("Text", "present")
+                .uint("Type", m.kind)
+                .end_object();
+        });
+        self.unported_effect("SendServerSetMissionMessage");
+    }
+
+    /// `IClientImpl::SendServerSetShipArch` (slot 21): the player's ship
+    /// archetype.
+    fn set_ship_arch(&mut self, client_id: u32, arch: u32) {
+        self.call(21, "SendServerSetShipArch", |a| {
+            a.uint("ClientId", client_id).uint("ShipArchId", arch);
+        });
+        self.player.ship_arch = arch;
+    }
+
+    /// `IClientImpl::SendServerSetEquipment` (slot 24): the player's
+    /// equipment, rebuilt as rpclocal's receiver rebuilds the
+    /// `EquipDescVector` (`RpcEquipVectorFromHandle`).
+    fn set_equipment(&mut self, client_id: u32, records: Vec<EquipRecord>) {
+        self.call(24, "SendServerSetEquipment", |a| {
+            a.uint("ClientId", client_id);
+            args::equip_desc_vector(a, "Equipment", &records);
+        });
+        self.player.equipment = records;
+    }
+
+    /// `IClientImpl::SendServerSetStartRoom` (slot 28).
+    fn set_start_room(&mut self, client_id: u32, base: u32, room: u32) {
+        self.call(28, "SendServerSetStartRoom", |a| {
+            a.uint("ClientId", client_id)
+                .uint("BaseId", base)
+                .uint("RoomId", room);
+        });
+        self.player.start_room = Some((base, room));
+        self.location.set_base_start_location(base, room);
+    }
+
+    /// The gameflow slots 29 to 45: each logged with the C++ proxy's
+    /// arguments and kept for the bases (P5.9) in delivery order.
+    fn gameflow(&mut self, c: u32, m: ServerMessage) {
+        use ServerMessage as M;
+        match &m {
+            M::GfDestroyCharacter(p) => self.call(29, "SendServerGFDestroyCharacter", |a| {
+                a.uint("ClientId", c)
+                    .uint("RoomId", p.field_00)
+                    .uint("Key", p.field_04);
+            }),
+            M::GfUpdateChar(p) => self.call(30, "SendServerGFUpdateChar", |a| {
+                a.uint("ClientId", c)
+                    .bytes("Data", &p.data)
+                    .uint("Size", block_size(&p.data));
+            }),
+            M::GfCompleteCharList(p) => self.call(31, "SendServerGFCompleteCharList", |a| {
+                a.uint("ClientId", c).uint("RoomId", p.value);
+            }),
+            M::GfScriptBehavior(p) => self.call(32, "SendServerGFScriptBehavior", |a| {
+                a.uint("ClientId", c)
+                    .bytes("Data", &p.data)
+                    .uint("Size", block_size(&p.data));
+            }),
+            M::GfDestroyScriptBehavior(p) => {
+                self.call(33, "SendServerGFDestroyScriptBehavior", |a| {
+                    a.uint("ClientId", c)
+                        .uint("RoomId", p.field_00)
+                        .uint("BehaviorId", p.field_04);
+                });
+            }
+            M::GfCompleteScriptBehaviorList(p) => {
+                self.call(34, "SendServerGFCompleteScriptBehaviorList", |a| {
+                    a.uint("ClientId", c).uint("RoomId", p.value);
+                });
+            }
+            M::GfUpdateAmbientScript(p) => self.call(35, "SendServerGFUpdateAmbientScript", |a| {
+                a.uint("ClientId", c)
+                    .bytes("Data", &p.data)
+                    .uint("Size", block_size(&p.data));
+            }),
+            M::GfDestroyAmbientScript(p) => {
+                self.call(36, "SendServerGFDestroyAmbientScript", |a| {
+                    a.uint("ClientId", c)
+                        .uint("RoomId", p.field_00)
+                        .uint("Key", p.field_04);
+                });
+            }
+            M::GfCompleteAmbientScriptList(p) => {
+                self.call(37, "SendServerGFCompleteAmbientScriptList", |a| {
+                    a.uint("ClientId", c).uint("RoomId", p.value);
+                });
+            }
+            M::GfDestroyMissionComputer(p) => {
+                self.call(38, "SendServerGFDestroyMissionComputer", |a| {
+                    a.uint("ClientId", c)
+                        .uint("BaseId", p.field_00)
+                        .uint("Key", p.field_04);
+                });
+            }
+            M::GfUpdateMissionComputer(p) => {
+                self.call(39, "SendServerGFUpdateMissionComputer", |a| {
+                    a.uint("ClientId", c)
+                        .bytes("Data", &p.data)
+                        .uint("Size", block_size(&p.data));
+                });
+            }
+            M::GfCompleteMissionComputerList(p) => {
+                self.call(40, "SendServerGFCompleteMissionComputerList", |a| {
+                    a.uint("ClientId", c).uint("BaseId", p.value);
+                });
+            }
+            M::GfMissionVendorAcceptance(p) => {
+                self.call(41, "SendServerGFMissionVendorAcceptance", |a| {
+                    a.uint("ClientId", c)
+                        .bytes("Data", &p.data)
+                        .uint("Size", block_size(&p.data));
+                });
+            }
+            M::GfMissionVendorWhyEmpty(p) => {
+                self.call(42, "SendServerGFMissionVendorWhyEmpty", |a| {
+                    a.uint("ClientId", c).uint("Reason", u32::from(p.value));
+                });
+            }
+            M::GfDestroyNewsBroadcast(p) => {
+                self.call(43, "SendServerGFDestroyNewsBroadcast", |a| {
+                    a.uint("ClientId", c)
+                        .uint("BaseId", p.field_00)
+                        .uint("Key", p.field_04);
+                });
+            }
+            M::GfUpdateNewsBroadcast(p) => self.call(44, "SendServerGFUpdateNewsBroadcast", |a| {
+                a.uint("ClientId", c)
+                    .bytes("Data", &p.data)
+                    .uint("Size", block_size(&p.data));
+            }),
+            M::GfCompleteNewsBroadcastList(p) => {
+                self.call(45, "SendServerGFCompleteNewsBroadcastList", |a| {
+                    a.uint("ClientId", c).uint("BaseId", p.value);
+                });
+            }
+            _ => {}
+        }
+        self.location_forward(&m);
+        self.player.gameflow.push(m);
+    }
+
     /// `IClientImpl::SendServerSetMusic` (slot 122): the system's music
     /// override, kept for the music (P5.5).
     fn set_music(&mut self, client_id: u32, m: SetMusic) {
@@ -770,6 +917,55 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_base_entry_slots_read_as_the_cpp_log() {
+        use game_sim::protocol::to_client::{
+            GfCompleteNewsBroadcastList, GfDestroyScriptBehavior, SetEquipment, SetShipArch,
+            SetStartRoom,
+        };
+        let mut r = ClientReceiver::new(true);
+        let land = Land {
+            field_00: 11,
+            field_04: 0,
+            field_08: 0xabd2_2f43,
+        };
+        for m in [
+            ServerMessage::from(land),
+            SetShipArch { value: 0 }.into(),
+            SetEquipment::default().into(),
+            SetStartRoom {
+                field_00: 2_882_678_595,
+                field_04: 2_695_128_518,
+            }
+            .into(),
+            GfCompleteNewsBroadcastList {
+                value: 2_882_678_595,
+            }
+            .into(),
+            GfDestroyScriptBehavior {
+                field_00: 2_695_128_518,
+                field_04: 2,
+            }
+            .into(),
+        ] {
+            r.deliver(None, 1, ToClient::Server(m));
+        }
+        assert_eq!(r.player.start_room, Some((2_882_678_595, 2_695_128_518)));
+        assert_eq!(r.player.gameflow.len(), 2);
+        // single_player.txt's lines at frames 2175 to 2178 (seq renumbered).
+        assert_eq!(
+            r.log.as_ref().map(IClientLog::lines).unwrap_or_default(),
+            [
+                r#"{"frame":0,"seq":1,"slot":59,"m":"SendServerLand","a":{"ClientId":1,"Info":"0b00000000000000432fd2ab"}}"#,
+                r#"{"frame":0,"seq":2,"slot":21,"m":"SendServerSetShipArch","a":{"ClientId":1,"ShipArchId":0}}"#,
+                r#"{"frame":0,"seq":3,"slot":24,"m":"SendServerSetEquipment","a":{"ClientId":1,"Equipment":[]}}"#,
+                r#"{"frame":0,"seq":4,"slot":28,"m":"SendServerSetStartRoom","a":{"ClientId":1,"BaseId":2882678595,"RoomId":2695128518}}"#,
+                r#"{"frame":0,"seq":5,"slot":45,"m":"SendServerGFCompleteNewsBroadcastList","a":{"ClientId":1,"BaseId":2882678595}}"#,
+                r#"{"frame":0,"seq":6,"slot":33,"m":"SendServerGFDestroyScriptBehavior","a":{"ClientId":1,"RoomId":2695128518,"BehaviorId":2}}"#,
+            ]
+        );
+    }
     use game_sim::protocol::to_client::{ConnectResponse, LoginResponse};
 
     #[test]
