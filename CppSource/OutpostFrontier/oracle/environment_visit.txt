@@ -1,0 +1,28 @@
+# Oracle script (P0.5, P5.8): load a save that starts in space in a system with asteroid fields
+# and nebulae, so the client reads their files (asteroidfield and nebula records).
+# Run after load_game.txt, from a user folder whose newest save the client-oracle job edited:
+# the AutoSave.fl that single_player.txt left, with no base, system he01 and a point in it
+# (.github/workflows/client-oracle.yml, step "Run the oracle scripts"). No such save is
+# committed: it is made from the game data (AGENTS.md, decision O15).
+# Run: bin\OutpostFrontier.exe +oracle <repo>\CppSource\OutpostFrontier\oracle\environment_visit.txt <out>
+# Format: CppSource/OutpostFrontier/Client/oracle_mode.cpp, design/reference-build.md section 8.
+
+waitscreen menu 1 900
+wait 90
+dump main-menu
+
+# Load Game as load_game.txt does; the save has no base, so the client enters space (client
+# state 2) and loads the system's fields and nebulae there.
+click text:LOAD GAME
+waitscreen menu 18 300
+wait 60
+dump load-page
+row CharSelDesc 0
+click LoadCharacter
+waitscreen client 2 900
+wait 300
+dump space
+wait 150
+dump space-later
+
+quit

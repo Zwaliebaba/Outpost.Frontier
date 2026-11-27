@@ -90,7 +90,10 @@ fn uint_field(line: &str, key: &str) -> Option<u32> {
 /// `asteroid_field_records_equal_the_cpp_client`
 /// (`OUTPOST_CLIENT_ORACLE_DIR`): each `asteroidfield` record of the C++
 /// run's `layout.jsonl` equals the port's reading of that path at that
-/// frame. Without the variable it prints a notice.
+/// frame, and so does each `nebula` record. The client-oracle job points it
+/// at run e1 of `environment_visit.txt`, a load of a save in `he01`'s space;
+/// a run with no record of either kind fails. Without the variable it prints
+/// a notice.
 #[test]
 fn asteroid_field_records_equal_the_cpp_client() {
     use game_app::oracle::environment::{asteroid_field_line, nebula_line};

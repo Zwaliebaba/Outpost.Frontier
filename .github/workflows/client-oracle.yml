@@ -138,6 +138,8 @@ jobs:
         #   d      menu_walk.txt after removing the user folder only
         #   s1, s2 single_player.txt twice, with the in-process server on the oracle clock
         #   l1, l2 load_game.txt twice: the newest save, the first base s2 left (P5.3)
+        #   e1, e2 environment_visit.txt twice, after SpaceSave has rewritten the newest save
+        #          to start in space in he01, a system with asteroid fields and nebulae (P5.8)
         # Each run's user folder afterwards is copied to its out\user (the saves, for the port's
         # load-game comparison, since a cache hit skips the runs).
         # c and d tell which per-user state makes the first run's extra login response.
@@ -271,6 +273,29 @@ jobs:
           $result += RunOracle 's2' 'single_player.txt' 'none'
           $result += RunOracle 'l1' 'load_game.txt' 'none'
           $result += RunOracle 'l2' 'load_game.txt' 'none'
+          # The newest save (AutoSave.fl, the first base) moved to space in he01: no base or
+          # location, the system, and a point 2.5 km past Dock_Ring_he01_01 from its planet.
+          # Only the runner's user folder changes; no save is committed (decision O15).
+          function SpaceSave {
+            $save = Get-ChildItem $user -Recurse -Filter 'AutoSave.fl' | Select-Object -First 1
+            if (-not $save) { Write-Host 'SpaceSave: no AutoSave.fl'; return }
+            # Only the [Player] section's keys; other sections keep theirs.
+            $section = ''
+            $lines = foreach ($l in Get-Content $save.FullName) {
+              if ($l -match '^\s*\[(.+)\]') { $section = $Matches[1] }
+              if ($section -ne 'Player') { $l; continue }
+              if ($l -match '^\s*(base|location|pos|rotate)\s*=') { continue }
+              if ($l -match '^\s*system\s*=') { 'system = he01'; 'pos = -33267,0,-26300'; 'rotate = 0,0,0'; continue }
+              $l
+            }
+            $lines | Set-Content -Encoding ascii $save.FullName
+            $save.LastWriteTime = Get-Date
+            Write-Host "SpaceSave: $($save.FullName)"
+            Get-Content $save.FullName | Where-Object { $_ -match '^\s*(system|base|last_base|location|pos|rotate)\s*=' } | Write-Host
+          }
+          SpaceSave
+          $result += RunOracle 'e1' 'environment_visit.txt' 'none'
+          $result += RunOracle 'e2' 'environment_visit.txt' 'none'
           Get-ChildItem "$env:LOCALAPPDATA\CrashDumps", "$env:ProgramData\Microsoft\Windows\WER\ReportArchive" -Recurse -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -like '*OutpostFrontier*' } | ForEach-Object { Write-Host "WER: $($_.FullName)" }
           $result | Where-Object { $_ -match ',' } | Set-Content "$env:RUNNER_TEMP\oracle-out\exit.csv"
@@ -331,7 +356,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p game-app --test location_audio -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # The asteroid fields' files as the client reads them (P5.8), in space.
+          # The asteroid fields' and nebulae's files as the client reads them (P5.8), in
+          # he01's space (run e1 of environment_visit.txt).
+          $env:OUTPOST_CLIENT_ORACLE_DIR = "${{ runner.temp }}\oracle-out\e1"
           cargo test --locked -p game-app --test environment_data -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:OUTPOST_CLIENT_ORACLE_DIR = "${{ runner.temp }}\oracle-out\a"
@@ -445,6 +472,7 @@ jobs:
           $summary += Pair 'w' 'a'
           $summary += Pair 's1' 's2'
           $summary += Pair 'l1' 'l2'
+          $summary += Pair 'e1' 'e2'
           $summary += @('', '### Login responses per run', '')
           foreach ($n in 'w', 'a', 'c', 'd') {
             $calls = Lines "$root\$n\iclient.jsonl" | Where-Object { $_ -match 'SendServerLoginResponse|"m":"Startup"|OnConnect' -and $_ -notmatch '"r":' }

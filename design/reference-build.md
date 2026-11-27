@@ -374,7 +374,10 @@ within those 30 frames replaces the pending dump. Screen changes are
 Examples: `menu_walk.txt` (main menu, Load Game, back, Options),
 `single_player.txt` (New Game, space, then the first base) and `load_game.txt`
 (Load Game, the newest save selected with `row` and loaded; run after
-`single_player.txt`, from the user folder it left).
+`single_player.txt`, from the user folder it left) and `environment_visit.txt`
+(the same load, of a save the client-oracle job has moved to space in `he01`,
+whose asteroid fields and nebulae the client then reads; the job edits the
+runner's `AutoSave.fl` and commits no save, decision O15).
 
 ### Output
 
