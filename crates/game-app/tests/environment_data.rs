@@ -8,6 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use game_app::environment::asteroid_field::AsteroidFieldFile;
+use game_app::environment::nebula::NebulaFile;
 use game_app::star_system::StarSystemFile;
 use neuron_core::vfs::Host;
 
@@ -118,4 +119,73 @@ fn asteroid_field_records_equal_the_cpp_client() {
         count += 1;
     }
     println!("layout.jsonl: {count} asteroid field records equal");
+}
+
+/// Whether a `[section]` of the text (any case) has a `key =` line.
+fn has_key(text: &[u8], section: &str, key: &str) -> bool {
+    let mut current = String::new();
+    for line in String::from_utf8_lossy(text).lines() {
+        let line = line
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            current = name.to_owned();
+        } else if current == section && line.split('=').next().is_some_and(|k| k.trim() == key) {
+            return true;
+        }
+    }
+    false
+}
+
+/// `every_nebula_reads`: each `[Nebula]` `file` of every system file opens
+/// and sets the values the nebula's constructor leaves unset (D1700).
+#[test]
+fn every_nebula_reads() {
+    let root = data_dir();
+    let systems = system_files(&root);
+    if systems.is_empty() {
+        println!("notice: outdir/ has no system files; nothing was read");
+        return;
+    }
+    let source = Host::new(root);
+    let (mut nebulae, mut clouds, mut exclusions) = (0, 0, 0);
+    for rel in &systems {
+        let system = StarSystemFile::load(&source, rel).expect("the system file");
+        for zone_file in &system.nebulae {
+            let n = NebulaFile::load(&source, &zone_file.file);
+            let name = String::from_utf8_lossy(&zone_file.file);
+            assert!(n.opened, "{name}");
+            let text = std::fs::read(
+                source
+                    .locate(
+                        &zone_file
+                            .file
+                            .iter()
+                            .map(|&b| if b == b'\\' { b'/' } else { b })
+                            .collect::<Vec<u8>>(),
+                    )
+                    .ok()
+                    .flatten()
+                    .expect("located")
+                    .path,
+            )
+            .expect("reads");
+            for (section, key) in [
+                ("exterior", "bit_radius"),
+                ("exterior", "color"),
+                ("fog", "near"),
+                ("fog", "color"),
+            ] {
+                assert!(has_key(&text, section, key), "{name}: [{section}] {key}");
+            }
+            nebulae += 1;
+            clouds += n.clouds.len();
+            exclusions += n.exclusions.len();
+        }
+    }
+    println!("{nebulae} nebulae: {clouds} cloud sets, {exclusions} exclusion zones");
+    assert!(nebulae > 20 && clouds > 0);
 }

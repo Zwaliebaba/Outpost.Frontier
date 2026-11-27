@@ -2,3 +2,4 @@
 //! trade lanes, the jump tunnel and the dust.
 
 pub mod asteroid_field;
+pub mod nebula;
