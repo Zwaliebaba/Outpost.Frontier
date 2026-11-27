@@ -8,6 +8,7 @@
 //! sets are written as zeros where rpclocal zeroes them.
 
 use game_sim::protocol::common::ActivateEquip;
+use game_sim::protocol::records::EquipRecord;
 use game_sim::protocol::to_client::{
     CharSelectVerified, Launch, RequestSpaceScript, SetMissionObjectives, SetReputation,
 };
@@ -130,6 +131,33 @@ pub fn set_mission_objectives(j: &mut OracleJson, name: &str, info: &SetMissionO
         .str("TextB", "present")
         .uint("Field_0x3c", info.state)
         .end_object();
+}
+
+/// `OracleArg(EquipDescVector)` for a list rpclocal's receiver rebuilt
+/// (`RpcEquipVectorFromHandle`): each record onto a default `EquipDesc`
+/// (`Cached` 0, `bMission` false, `Owner` 0), its hardpoint `BAY` when the
+/// record has none (`make_internal`).
+pub fn equip_desc_vector(j: &mut OracleJson, name: &str, records: &[EquipRecord]) {
+    j.begin_array(name);
+    for r in records {
+        let hardpoint: &[u8] = if r.hardpoint.is_empty() {
+            b"BAY"
+        } else {
+            &r.hardpoint
+        };
+        j.begin_object_item()
+            .uint("Cached", 0)
+            .uint("Id", u32::from(r.id))
+            .uint("ArchId", r.arch_id)
+            .str_bytes("Hardpoint", hardpoint)
+            .uint("bEquipped", u32::from(r.equipped))
+            .float("Health", r.health)
+            .int("Count", r.count)
+            .bool("bMission", false)
+            .uint("Owner", 0)
+            .end_object();
+    }
+    j.end_array();
 }
 
 #[cfg(test)]
