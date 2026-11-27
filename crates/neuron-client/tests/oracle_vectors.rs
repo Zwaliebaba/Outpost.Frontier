@@ -8,8 +8,8 @@
 //! `oracle_material_kinds.cpp`, `oracle_material_surface.cpp`,
 //! `oracle_material_appearance.cpp`, `oracle_mesh_render.cpp`, `oracle_deformable.cpp`,
 //! `oracle_deformable_parts.cpp`, `oracle_deformable_anim.cpp`,
-//! `oracle_particles.cpp`, `oracle_ui.cpp`, `oracle_ui_immediate.cpp` and
-//! `oracle_ime_ui.cpp`).
+//! `oracle_particles.cpp`, `oracle_ui.cpp`, `oracle_ui_immediate.cpp`,
+//! `oracle_ime_ui.cpp` and `oracle_beam.cpp`).
 
 mod support;
 
@@ -18,10 +18,10 @@ use neuron_client::text::rdl::markup;
 
 use support::audio::{self, check_suite_within};
 use support::{
-    check_suite, deformable, deformable_anim, ime, input_lines, material, material_appearance,
-    material_kinds, material_surface, mesh_render, particles, rich_text, scene_script,
-    scene_script_build, scene_script_runtime, scene_script_save, text, texture, ui, ui_immediate,
-    unhex,
+    beam, check_suite, deformable, deformable_anim, ime, input_lines, material,
+    material_appearance, material_kinds, material_surface, mesh_render, particles, rich_text,
+    scene_script, scene_script_build, scene_script_runtime, scene_script_save, text, texture, ui,
+    ui_immediate, unhex,
 };
 
 /// P4.12: `LayoutRichText`, the laid list executed, its dimensions and the
@@ -485,4 +485,12 @@ fn deformable_parts() {
 #[test]
 fn deformable_anim() {
     check_suite("deformable_anim.jsonl", &deformable_anim::lines());
+}
+
+/// P5.6: the beam's geometry, `FBeamEffect::BuildGeometry` and its single-
+/// and multi-segment builders, in the effect vertex batch
+/// (`tests/fixtures/oracle/beam.list`).
+#[test]
+fn beam() {
+    check_suite("beam.jsonl", &beam::lines(&input_lines("beam.list")));
 }

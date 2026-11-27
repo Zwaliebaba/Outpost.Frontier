@@ -5,6 +5,7 @@
 #![allow(dead_code)]
 
 pub mod audio;
+pub mod beam;
 pub mod data;
 pub mod deformable;
 pub mod deformable_anim;
