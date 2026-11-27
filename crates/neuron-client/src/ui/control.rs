@@ -49,6 +49,12 @@ pub trait ControlMesh {
     fn radius(&self, _flags: u32) -> f32 {
         0.0
     }
+    /// `ClientMeshQueryAabb`: the archetype's six-float box from the
+    /// renderer's `GetBounds(archetype, 1.0)` (x max, x min, y max, y min,
+    /// z max, z min), `None` when the renderer writes none.
+    fn aabb(&self) -> Option<[f32; 6]> {
+        None
+    }
     /// `SetInstanceOrientation` without `UpdateInstance`.
     fn put_orientation(&mut self, orientation: Matrix) {
         self.set_orientation(orientation);
@@ -706,6 +712,20 @@ impl WinControl {
     /// `WinControl::GetHardpointTransform`: the hardpoint of the mesh with
     /// the offset added, or identity at the offset (false).
     #[must_use]
+    /// `WinControlHalfExtentsFromMesh`: the half extents from the mesh's box
+    /// (`{box[0], box[2], 0}`); false, and the extents kept, without a mesh.
+    ///
+    /// The reference answers true for any instance and reads whatever the
+    /// renderer left in its uncleared box; the port keeps the extents when
+    /// the renderer writes no box (divergence D1101).
+    pub fn half_extents_from_mesh(&mut self) -> bool {
+        let Some(b) = self.mesh.as_ref().and_then(|m| m.aabb()) else {
+            return false;
+        };
+        self.half_extents = Vector::new(b[0], b[2], 0.0);
+        true
+    }
+
     pub fn hardpoint_transform(&self, name: &[u8]) -> (bool, Transform) {
         if let Some(found) = self.mesh.as_ref().and_then(|m| m.hardpoint(name)) {
             let mut t = found;
