@@ -169,12 +169,116 @@ pub const PORT_RUN: &[NodeMask] = &[
     },
 ];
 
+/// A bounded tolerance on an exact field (decision O53 (4)): a permanent
+/// divergence row may let `field` of the object `object` of the nodes
+/// selected in `dumps` differ by at most `bound`, never more than the row
+/// describes; the lines must be equal apart from it.
+#[derive(Clone, Copy, Debug)]
+pub struct NodeTolerance {
+    pub row: &'static str,
+    pub dumps: &'static [u32],
+    /// The nodes, by a `"key":"value"` of their line (`name` or `text`).
+    pub select: &'static [(&'static str, &'static str)],
+    /// The object holding the field (`"tw"`, `"tc"`).
+    pub object: &'static str,
+    pub field: &'static str,
+    /// The largest difference allowed, in the field's unit.
+    pub bound: f32,
+}
+
+impl NodeTolerance {
+    fn applies(&self, line: &str) -> bool {
+        self.dumps
+            .iter()
+            .any(|d| line.starts_with(&format!("{{\"dump\":{d},")))
+            && self
+                .select
+                .iter()
+                .any(|(k, v)| line.contains(&format!("\"{k}\":\"{v}\",")))
+    }
+}
+
+/// The port's own client's tolerances on `menu_walk.txt`. D290: the hosted
+/// runner has no `Agency FB`, GDI substitutes Arial and the port O29's
+/// Bahnschrift SemiCondensed, and the main menu column's "Normal" style
+/// autoscales one pixel apart (27 against 26); the column's five captions
+/// and its version text take that line height times 0.002 as their `h`
+/// (`FONT_LINE_SCALE`), so one pixel is 0.002. Owner, 2026-11-27: exactly
+/// one pixel on those six nodes, counted.
+pub const PORT_RUN_TOLERANCES: &[NodeTolerance] = &[
+    NodeTolerance {
+        row: "D290",
+        dumps: &[1, 2, 5, 6],
+        select: &[
+            ("text", "NEW GAME"),
+            ("text", "LOAD GAME"),
+            ("text", "MULTIPLAYER"),
+            ("text", "OPTIONS"),
+            ("text", "EXIT"),
+        ],
+        object: "tw",
+        field: "h",
+        bound: 0.002,
+    },
+    NodeTolerance {
+        row: "D290",
+        dumps: &[1, 2, 5, 6],
+        select: &[("name", "Version")],
+        object: "tc",
+        field: "h",
+        bound: 0.002,
+    },
+];
+
+/// The hex `float` value of `field` in `object` of `line`, with its span.
+fn object_field(line: &str, object: &str, field: &str) -> Option<(f32, std::ops::Range<usize>)> {
+    let at = line.find(&format!("\"{object}\":{{"))?;
+    let key = format!("\"{field}\":\"");
+    let start = at + line[at..].find(&key)? + key.len();
+    let end = start + line[start..].find('"')?;
+    let bits = u32::from_str_radix(&line[start..end], 16).ok()?;
+    Some((f32::from_bits(bits), start..end))
+}
+
+/// `port`'s lines that differ from `cpp`'s at the same place only in a
+/// tolerated field, and by at most its bound, take `cpp`'s line; each is
+/// counted under its row in `port`'s `tolerated`.
+pub fn tolerate(port: &mut Masked, cpp: &Masked, tolerances: &[NodeTolerance]) {
+    for (ours, theirs) in port.lines.iter_mut().zip(&cpp.lines) {
+        if ours == theirs {
+            continue;
+        }
+        for t in tolerances
+            .iter()
+            .filter(|t| t.applies(ours) && t.applies(theirs))
+        {
+            let (Some((a, ours_span)), Some((b, theirs_span))) = (
+                object_field(ours, t.object, t.field),
+                object_field(theirs, t.object, t.field),
+            ) else {
+                continue;
+            };
+            let mut replaced = ours.clone();
+            replaced.replace_range(ours_span, &theirs[theirs_span]);
+            // The bound in double, with a margin for its own rounding.
+            let within = (f64::from(a) - f64::from(b)).abs() <= f64::from(t.bound) + 1e-6;
+            if replaced == *theirs && within {
+                *ours = replaced;
+                *port.tolerated.entry(t.row).or_default() += 1;
+                break;
+            }
+        }
+    }
+}
+
 /// Comparable lines and the fields each mask hid, by its divergence row
 /// (`rtti` under "O53 (4)", the heights under "fonts").
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Masked {
     pub lines: Vec<String>,
     pub hidden: BTreeMap<&'static str, usize>,
+    /// The lines a bounded tolerance took, by its row ([`tolerate`]).
+    pub tolerated: BTreeMap<&'static str, usize>,
 }
 
 impl Masked {
@@ -187,12 +291,17 @@ impl Masked {
     /// `"D1107 1, D1114 9"`: the counts, for the comparison's summary.
     #[must_use]
     pub fn summary(&self) -> String {
-        if self.hidden.is_empty() {
+        if self.hidden.is_empty() && self.tolerated.is_empty() {
             return "none".into();
         }
         self.hidden
             .iter()
             .map(|(row, n)| format!("{row} {n}"))
+            .chain(
+                self.tolerated
+                    .iter()
+                    .map(|(row, n)| format!("{row} within tolerance {n}")),
+            )
             .collect::<Vec<_>>()
             .join(", ")
     }
@@ -329,5 +438,49 @@ mod tests {
             ]
         );
         assert_eq!(m.summary(), "D1111 4, O53 (4) 4");
+    }
+
+    #[test]
+    fn the_d290_tolerance_takes_one_pixel_on_its_nodes_only() {
+        let line = |dump: u32, text: &str, h: &str, x: &str| {
+            format!(
+                r#"{{"dump":{dump},"i":19,"p":13,"d":1,"class":null,"rtti":"*","name":"","flags":11,"pos":["{x}"],"text":"{text}","tw":{{"scale":"3f800000","w":"3e800000","h":"{h}"}}}}"#
+            )
+        };
+        // The CI run's pair: 27 px * 0.002 against 26 px * 0.002.
+        let cpp = Masked {
+            lines: vec![
+                line(1, "NEW GAME", "3d54fdf4", "bee8f5c3"),
+                line(1, "NEW GAME", "3d54fdf4", "bee8f5c3"),
+                line(1, "NEW GAME", "3d54fdf4", "bee8f5c3"),
+                line(3, "NEW GAME", "3d54fdf4", "bee8f5c3"),
+                line(1, "OTHER", "3d54fdf4", "bee8f5c3"),
+            ],
+            ..Masked::default()
+        };
+        let mut port = Masked {
+            lines: vec![
+                line(1, "NEW GAME", "3d5d2f1b", "bee8f5c3"),
+                // Two pixels (0.056).
+                line(1, "NEW GAME", "3d656042", "bee8f5c3"),
+                // One pixel, but another field differs too.
+                line(1, "NEW GAME", "3d5d2f1b", "00000000"),
+                // A dump the tolerance does not name.
+                line(3, "NEW GAME", "3d5d2f1b", "bee8f5c3"),
+                // A node it does not name.
+                line(1, "OTHER", "3d5d2f1b", "bee8f5c3"),
+            ],
+            ..Masked::default()
+        };
+        tolerate(&mut port, &cpp, PORT_RUN_TOLERANCES);
+        let equal: Vec<bool> = port
+            .lines
+            .iter()
+            .zip(&cpp.lines)
+            .map(|(a, b)| a == b)
+            .collect();
+        assert_eq!(equal, [true, false, false, false, false]);
+        assert_eq!(port.tolerated.get("D290"), Some(&1));
+        assert_eq!(port.summary(), "D290 within tolerance 1");
     }
 }

@@ -85,11 +85,12 @@ fn the_ports_run_equals_the_cpp_clients() {
         &compare::session_records(&lines(&port, "session.jsonl")),
         &compare::session_records(&lines(&cpp, "session.jsonl")),
     );
-    let tree = compared(
-        "tree.jsonl",
-        &compare::tree_records(&lines(&port, "tree.jsonl"), heights, compare::PORT_RUN),
-        &compare::tree_records(&lines(&cpp, "tree.jsonl"), heights, compare::PORT_RUN),
-    );
+    let cpp_tree = compare::tree_records(&lines(&cpp, "tree.jsonl"), heights, compare::PORT_RUN);
+    let mut port_tree =
+        compare::tree_records(&lines(&port, "tree.jsonl"), heights, compare::PORT_RUN);
+    // D290's one pixel on the column's heights (decision O53 (4)).
+    compare::tolerate(&mut port_tree, &cpp_tree, compare::PORT_RUN_TOLERANCES);
+    let tree = compared("tree.jsonl", &port_tree, &cpp_tree);
     assert!(
         session && tree,
         "the port's run differs from the C++ client's"
