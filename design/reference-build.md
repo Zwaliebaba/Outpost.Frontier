@@ -348,6 +348,7 @@ hex after `0x`.
 | `command <USER_NICKNAME>` | dispatch the key-map command as a matching key press does: the event record filled from the command's first active binding (else its first binding), `HudDispatchCommand(id, 1)` on key down if its state has `keydown`, again on key up if it has `keyup`. The raw-key dispatch that precedes a real key and the held-key list are skipped |
 | `key <vk>` | post `WM_KEYDOWN` and `WM_KEYUP` to the window; the pump routes them as real keys. Shift, Ctrl and Alt come from the real keyboard |
 | `click <target>` | left press `{-1, 2}` then release `{-1, 1}` straight to the target's `MouseEvent` (Win3D slot 19). Target: a widget name, `#<n>` (node n of a tree dump taken now) or `text:<caption>` (first TextWin or TextControl showing that text, ASCII case ignored, visible nodes first) |
+| `row <target> <index>` | a list box's row clicked (P5.3): `<target>` as for `click`, which must be a `ListBox`; its hovered row becomes `<index>` and it gets the press `{-1, 2}`, so `ListBox::MouseEvent` selects the row and tells its parent (slot 23, `0xf001`) as a click on the row does. The note gives the press result and the selected index |
 | `state <id>` | `G_PendingClientStateId = id`; the frame enters that client state (6 is the main menu) |
 | `log <text>` | a marker in `session.jsonl` |
 | `quit` | client state 1, the client's own quit path |
@@ -370,8 +371,10 @@ within those 30 frames replaces the pending dump. Screen changes are
 (kind `menu`, states 1 to 19 of `menu_enter_state.cpp`) and
 `ChangeClientLocation` (kind `room`, the location id).
 
-Examples: `menu_walk.txt` (main menu, Load Game, back, Options) and
-`single_player.txt` (New Game, space, then the first base).
+Examples: `menu_walk.txt` (main menu, Load Game, back, Options),
+`single_player.txt` (New Game, space, then the first base) and `load_game.txt`
+(Load Game, the newest save selected with `row` and loaded; run after
+`single_player.txt`, from the user folder it left).
 
 ### Output
 
