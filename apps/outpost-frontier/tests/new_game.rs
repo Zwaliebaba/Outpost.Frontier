@@ -96,6 +96,12 @@ fn run(info: &LocalStartupInfo) -> Vec<String> {
         SpaceEntry::Entered
     );
     assert!(link.receiver.objects.find(11, 1).is_some());
+    // StarSysEnter made the system's solars (the server's load_solars wraps
+    // them) and the spatial set.
+    let solars = link.receiver.objects.solar_count();
+    println!("{solars} solars");
+    assert!(solars > 0, "the system's solars are registered");
+    assert!(link.receiver.objects.spatial().is_some());
     assert_eq!(link.receiver.player.session_flags, 3);
     frame(&mut link, &mut session, SPACE_FRAME + 1);
     frame(&mut link, &mut session, SPACE_FRAME + 2);

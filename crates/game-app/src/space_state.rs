@@ -61,8 +61,16 @@ where
         return no_answer(link);
     }
 
-    // StarSysEnter: the system's physics is active, so creates are taken.
-    link.receiver.objects.physics_active = true;
+    // StarSysEnter(GetPlayerStarSystemIdbaseline()): the system's physics
+    // and its solars. Without a world (multiplayer, P5.10) only the
+    // physics flag is raised.
+    let system = player_system(link);
+    match session.as_deref_mut() {
+        Some(s) => {
+            let _ = crate::star_system::enter_system(s.world(), &mut link.receiver.objects, system);
+        }
+        None => link.receiver.objects.physics_active = true,
+    }
 
     spawn_player_ship(link, session.as_deref_mut());
 
@@ -114,6 +122,18 @@ where
     link.send(ToServer::Client(ClientMessage::RequestLaunch(
         RequestLaunch { value: id },
     )));
+}
+
+/// `GetPlayerStarSystemIdbaseline`: the selected character's system, 0
+/// when it is in a base (`ApplyCharacterSelectEquipFields`).
+fn player_system<T>(link: &ClientLink<T>) -> u32 {
+    link.receiver.login.selected.as_ref().map_or(0, |r| {
+        if r.base_id & 0x3fff_ffff != 0 {
+            0
+        } else {
+            r.system_id
+        }
+    })
 }
 
 fn no_answer<T>(link: &mut ClientLink<T>) -> SpaceEntry {
