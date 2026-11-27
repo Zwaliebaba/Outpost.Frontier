@@ -89,6 +89,10 @@ fn gf_over_the_bases() {
     let formed = gf::form_character_placement_name(&mut cx, &props).expect("formed");
     let back = game_sim::data::room::SetpointProps::from_name(&formed, &mut cx.logic.reports);
     assert_eq!(back, props, "{}", String::from_utf8_lossy(&formed));
+    // The name part is `NameBuffer`, upper-cased, as `combine_to_name` writes it.
+    let part = formed.split(|&b| b == b'/').nth(4).expect("the name part");
+    assert_eq!(part, props.name_buffer.as_slice());
+    assert!(!part.iter().any(u8::is_ascii_lowercase));
 
     // The destroy wrappers clear the handle.
     let news = NewsBroadcastProperties {
