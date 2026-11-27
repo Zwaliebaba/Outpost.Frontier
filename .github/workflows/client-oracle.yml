@@ -273,8 +273,9 @@ jobs:
           $result += RunOracle 's2' 'single_player.txt' 'none'
           $result += RunOracle 'l1' 'load_game.txt' 'none'
           $result += RunOracle 'l2' 'load_game.txt' 'none'
-          # The newest save (AutoSave.fl, the first base) moved to space in he01: no base or
-          # location, the system, and a point 2.5 km past Dock_Ring_he01_01 from its planet.
+          # The newest save (AutoSave.fl, the first base) moved to space in he01: no base, last
+          # base (the server falls back to it for a missing base) or location, the system, and a
+          # point 2.5 km past Dock_Ring_he01_01 from its planet.
           # Only the runner's user folder changes; no save is committed (decision O15).
           function SpaceSave {
             $save = Get-ChildItem $user -Recurse -Filter 'AutoSave.fl' | Select-Object -First 1
@@ -284,7 +285,7 @@ jobs:
             $lines = foreach ($l in Get-Content $save.FullName) {
               if ($l -match '^\s*\[(.+)\]') { $section = $Matches[1] }
               if ($section -ne 'Player') { $l; continue }
-              if ($l -match '^\s*(base|location|pos|rotate)\s*=') { continue }
+              if ($l -match '^\s*(base|last_base|location|pos|rotate)\s*=') { continue }
               if ($l -match '^\s*system\s*=') { 'system = he01'; 'pos = -33267,0,-26300'; 'rotate = 0,0,0'; continue }
               $l
             }
