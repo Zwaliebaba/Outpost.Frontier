@@ -2,5 +2,6 @@
 //! hosts and characters, and the navigation bar.
 
 pub mod location;
+pub mod location_controller;
 pub mod nav_bar;
 pub mod room_data;
