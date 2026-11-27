@@ -152,5 +152,6 @@ fn location_audio_equals_the_cpp_client() {
         }
         rooms += 1;
     }
+    assert!(rooms > 0, "the run applied no room's audio");
     println!("audio.jsonl: {rooms} rooms' audio equal");
 }

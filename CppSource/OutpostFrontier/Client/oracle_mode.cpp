@@ -75,6 +75,8 @@
 
 #include "globals.h"
 #include "oracle_mode.h"
+#include "cli_asteroid.h"
+#include "cli_nebula.h"
 #include "oracle_json.h"
 
 #include "client_state.h"          // G_PendingClientStateId
@@ -1292,6 +1294,96 @@ unsigned OracleFrameNumber()
 
 namespace
 {
+    // A band blob's values (InitBandBlob, BandParseIni) as an object.
+    void OracleAsteroidBand(FOracleJson& J, char const* Name, unsigned char const* Blob)
+    {
+        float const* const F = reinterpret_cast<float const*>(Blob);
+        unsigned const* const U = reinterpret_cast<unsigned const*>(Blob);
+        J.BeginObject(Name);
+        J.Float("texture_aspect", F[0x10]);
+        J.Float("height", F[0x12]);
+        J.Bool("offset_percent", Blob[0x74] != 0);
+        J.Float("offset", F[0x1e]);
+        J.FloatArray("color_shift", F + 9, 3);
+        J.FloatArray("fade", F + 0x19, 4);
+        J.Uint("vert_increase", U[0x13]);
+        J.Uint("render_parts", U[0x16]);
+        J.Uint("cull_mode", U[0x14]);
+        J.Float("ambient_intensity", F[2]);
+        J.EndObject();
+    }
+}
+
+void OracleOnAsteroidFieldRead(char const* Path, FCliAsteroid const* Field, int Lod, bool bOpened)
+{
+    if (!G.bActive || Field == nullptr)
+        return;
+    FOracleJson J;
+    Head(J, "asteroidfield");
+    J.Str("path", Path);
+    J.Bool("opened", bOpened);
+    J.Int("cube_size", Field->CubeSize);
+    J.Int("fill_dist", Field->FillDistAt24);
+    J.Int("lod", Lod);
+    float const Diffuse[3] = {Field->TintB4, Field->TintB8, Field->TintBC};
+    float const Ambient[3] = {Field->TintC0, Field->TintC4, Field->TintC8};
+    J.FloatArray("diffuse", Diffuse, 3);
+    J.FloatArray("ambient", Ambient, 3);
+    J.BeginArray("ambient_increase");
+    J.Uint(nullptr, Field->FlagD0);
+    J.Uint(nullptr, Field->FlagD1);
+    J.Uint(nullptr, Field->FlagD2);
+    J.EndArray();
+    J.Float("empty_cube_frequency", Field->EmptyCubeFreq);
+    J.Float("max_alpha", Field->ScaleCC);
+    J.Bool("test_placement", Field->Flag00 != 0);
+    J.Bool("fog_zone", Field->FlagD3 != 0);
+    if (Field->FlagF8 != 0)
+        OracleAsteroidBand(J, "band", Field->BandBlob);
+    else
+        J.Null("band");
+    J.BeginArray("exclusion_bands");
+    for (unsigned char* const* It = Field->BandBegin; It != nullptr && It != Field->BandEnd; ++It)
+        OracleAsteroidBand(J, nullptr, *It);
+    J.EndArray();
+    if (Field->Flag198 != 0)
+    {
+        FAsteroidBillboardBlock const& B = Field->Billboard;
+        J.BeginObject("billboards");
+        J.Int("count", B.Count);
+        float const Size[2] = {B.SizeMin, B.SizeMax};
+        J.FloatArray("size", Size, 2);
+        J.Float("start_dist", B.StartDist);
+        J.Float("fade_dist_percent", B.FadeDistPercent);
+        J.Float("ambient_intensity", B.AmbientIntensity);
+        float const Shift[3] = {B.ColorShift0, B.ColorShift1, B.ColorShift2};
+        J.FloatArray("color_shift", Shift, 3);
+        J.EndObject();
+    }
+    else
+    {
+        J.Null("billboards");
+    }
+    J.BeginArray("dynamic");
+    for (void* const* It = Field->DynBegin; It != nullptr && It != Field->DynEnd; ++It)
+    {
+        FCliDynamicAsteroid const* const D = static_cast<FCliDynamicAsteroid const*>(*It);
+        J.BeginObject(nullptr);
+        J.Int("count", D->CountIni);
+        J.Float("placement_radius", D->PlacementRadius);
+        J.Float("placement_radius_inner", D->PlacementRadiusInner);
+        J.Float("max_velocity", D->MaxVelocity);
+        J.Float("max_angular_velocity", D->MaxAngularVelocity);
+        float const Shift[3] = {D->ColorShift0, D->ColorShift1, D->ColorShift2};
+        J.FloatArray("color_shift", Shift, 3);
+        J.EndObject();
+    }
+    J.EndArray();
+    OracleWriteRecord(kOracleLayout, J.Finish());
+}
+
+namespace
+{
     // The `snd` records' numbers, from 1 (the sound calls are the main thread's).
     unsigned GOracleSoundSeq = 0;
 }
@@ -1327,6 +1419,96 @@ void OracleOnLocationAudio(unsigned LocationId, bool bKeepAudio)
     J.Uint("loc", LocationId);
     J.Bool("keep", bKeepAudio);
     OracleWriteRecord(kOracleAudio, J.Finish());
+}
+
+void OracleOnNebulaRead(char const* Path, FNebulaEffect const* Nebula, bool bOpened)
+{
+    if (!G.bActive || Nebula == nullptr)
+        return;
+    unsigned char const* const B = reinterpret_cast<unsigned char const*>(Nebula);
+    float const* const F = reinterpret_cast<float const*>(B);
+    int const* const I = reinterpret_cast<int const*>(B);
+    FOracleJson J;
+    Head(J, "nebula");
+    J.Str("path", Path);
+    J.Bool("opened", bOpened);
+    J.BeginObject("exterior");
+    J.Float("bit_radius", F[0xa4 / 4]);
+    J.FloatArray("color", F + 0xa8 / 4, 3);
+    J.Int("shapes", I[0xa0 / 4]);
+    J.FloatArray("shape_weights", F + 0x80 / 4, 8);
+    J.Int("plane_slices", I[0xbc / 4]);
+    J.Int("min_bits", I[0xc0 / 4]);
+    J.Int("max_bits", I[0xc4 / 4]);
+    J.FloatArray("bit_radius_range", F + 0xc8 / 4, 2);
+    J.Float("equator_bias", F[0xd0 / 4]);
+    J.Float("move_bit_percent", F[0xd4 / 4]);
+    J.Float("opacity", F[0xb4 / 4]);
+    J.EndObject();
+    J.BeginObject("fog");
+    J.Float("distance", Nebula->FogDistance);
+    J.Float("near", Nebula->FogNear);
+    J.FloatArray("color", F + 0x2a0 / 4, 3);
+    J.EndObject();
+    J.BeginObject("background_lightning");
+    J.Float("gap", F[0x250 / 4]);
+    J.Float("duration", F[0x254 / 4]);
+    J.FloatArray("color", F + 0x25c / 4, 3);
+    J.Float("intensity", F[0x268 / 4]);
+    J.EndObject();
+    J.BeginObject("dynamic_lightning");
+    J.Float("gap", F[0x274 / 4]);
+    J.Float("duration", F[0x278 / 4]);
+    J.FloatArray("color", F + 0x280 / 4, 3);
+    J.Float("ambient_intensity", F[0x28c / 4]);
+    J.Float("intensity_increase", F[0x290 / 4]);
+    J.EndObject();
+    J.BeginObject("light");
+    if (B[0x2cc] != 0)
+    {
+        J.BeginArray("ambient");
+        J.Uint(nullptr, B[0x2cd]);
+        J.Uint(nullptr, B[0x2ce]);
+        J.Uint(nullptr, B[0x2cf]);
+        J.EndArray();
+    }
+    else
+    {
+        J.Null("ambient");
+    }
+    J.Float("sun_burnthrough_intensity", F[0x2c4 / 4]);
+    J.Float("sun_burnthrough_scaler", F[0x2c8 / 4]);
+    J.EndObject();
+    J.BeginArray("clouds");
+    FNebulaCloudsListNode const* const Sentinel = Nebula->Clouds.Sentinel;
+    for (FNebulaCloudsListNode const* Node = Sentinel != nullptr ? Sentinel->Next : nullptr;
+         Node != nullptr && Node != Sentinel; Node = Node->Next)
+    {
+        unsigned char const* const R = Node->Clouds->Raw;
+        float const* const CF = reinterpret_cast<float const*>(R);
+        int const* const CI = reinterpret_cast<int const*>(R);
+        J.BeginObject(nullptr);
+        J.Int("puff_count", CI[4 / 4]);
+        J.Float("puff_radius", CF[0xa8 / 4]);
+        J.Int("puff_shapes", CI[0x68 / 4]);
+        J.FloatArray("puff_weights", CF + 0x48 / 4, 8);
+        J.Float("puff_max_alpha", CF[0xb4 / 4]);
+        J.Float("puff_drift", CF[0xb0 / 4]);
+        J.Float("lightning_duration", CF[0xa0 / 4]);
+        J.Float("lightning_size", CF[0xa4 / 4]);
+        J.Float("lightning_intensity", CF[0xdc / 4]);
+        J.Float("llight_range", CF[0xc8 / 4]);
+        J.Float("max_distance", CF[0xc0 / 4]);
+        J.FloatArray("near_fade", CF + 0xe4 / 4, 2);
+        J.Int("no_cloud_blend", CI[0x110 / 4]);
+        J.Int("zwrite_clouds", CI[0x114 / 4]);
+        J.Int("disable_clouds", CI[0x118 / 4]);
+        J.Int("disable_lightning_flash", CI[0x124 / 4]);
+        J.Int("disable_lightning_bolts", CI[0x120 / 4]);
+        J.EndObject();
+    }
+    J.EndArray();
+    OracleWriteRecord(kOracleLayout, J.Finish());
 }
 
 unsigned OracleNextIClientSeq()

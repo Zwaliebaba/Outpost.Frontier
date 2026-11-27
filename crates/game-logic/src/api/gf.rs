@@ -330,7 +330,8 @@ pub fn character_placement_properties(
 }
 
 /// `FormCharacterPlacementName` (`SetpointProperties::combine_to_name`):
-/// `Zs|Zg / pc|rpc|npc / segment / zone (two digits) / name / posture`;
+/// `Zs|Zg / pc|rpc|npc / segment / zone (two digits) / NAME / posture`, the
+/// name upper-cased as the reference's `NameBuffer` holds it;
 /// `None` for invalid properties. An unknown occupancy or posture is
 /// reported and leaves its part out.
 pub fn form_character_placement_name(cx: &mut Cx<'_>, props: &SetpointProps) -> Option<Vec<u8>> {
@@ -351,7 +352,8 @@ pub fn form_character_placement_name(cx: &mut Cx<'_>, props: &SetpointProps) -> 
     out.extend_from_slice(&props.segment);
     out.push(b'/');
     out.extend_from_slice(format!("{:02}/", props.zone).as_bytes());
-    out.extend_from_slice(&props.name);
+    // `NameBuffer`: the upper-cased name `set_segment` stored.
+    out.extend_from_slice(&props.name_buffer);
     out.push(b'/');
     match props.posture {
         0 => out.extend_from_slice(b"stand"),

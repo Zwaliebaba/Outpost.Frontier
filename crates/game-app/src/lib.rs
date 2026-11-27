@@ -12,6 +12,7 @@ pub mod chat;
 pub mod client;
 pub mod client_state;
 pub mod effect_arch;
+pub mod environment;
 pub mod frame;
 pub mod input_router;
 pub mod intro;

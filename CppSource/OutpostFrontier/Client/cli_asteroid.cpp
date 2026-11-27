@@ -1,6 +1,7 @@
 // Author: Giperion.
 
 #include "cli_asteroid.h"
+#include "oracle_mode.h" // Oracle instrumentation (P0.5)
 
 #include "asteroid_billboard.h"
 #include "cli_asteroid_dynamic.h"
@@ -911,6 +912,7 @@ void CliAsteroidLoadFieldIni(FCliAsteroid* This, char const* FieldIniRel)
     {
         FDUMP(0x100001, "%s(%d) : *** ERROR: asteroid field ini file (%s) could not be opened",
               "Client\\Space\\CliAsteroid.cpp", 0x247, FieldIniRel);
+        OracleOnAsteroidFieldRead(FieldIniRel, This, Lod, false); // Oracle instrumentation (P0.5)
     }
     else
     {
@@ -1069,6 +1071,8 @@ void CliAsteroidLoadFieldIni(FCliAsteroid* This, char const* FieldIniRel)
                 CliDynamicAsteroidApplyParentTints(Dyn, This);
             }
         }
+
+        OracleOnAsteroidFieldRead(FieldIniRel, This, Lod, true); // Oracle instrumentation (P0.5)
 
         // the common field (+4) loads from the saved state, then gets
         // its fill distance (+0x48 = ftol(fill * +0x230), x87 product) and empty frequency

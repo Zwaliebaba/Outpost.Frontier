@@ -4,6 +4,7 @@
 //! written at the same hooks so that CI compares the two clients' files.
 
 pub mod audio;
+pub mod environment;
 pub mod iclient;
 pub mod json;
 pub mod keymap;
