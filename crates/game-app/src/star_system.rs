@@ -350,6 +350,207 @@ pub fn enter_system(
     file
 }
 
+/// What [`SystemMusicState::update`] reads of the frame (`StarSysUpdate`'s
+/// music part).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MusicFrame {
+    /// The frame's `dt`.
+    pub dt: f32,
+    /// The background music source has finished (`ISoundSource::IsFinished`
+    /// of `BindClientBackgroundMusic`); false without one.
+    pub background_finished: bool,
+    /// The music of the smallest zone with property 0x400000 at the
+    /// player's position, when it names one (`GetSmallestZoneWithPropertiesAt`,
+    /// `IZone::GetMusic`); read only without a space override.
+    pub zone_music: Option<u32>,
+    /// The player's game object's +0x158 word is set (its jump or dock
+    /// state).
+    pub player_jumping: bool,
+    /// `MUSIC_CROSS_FADE_DELAY` (`constants.ini`, 30 by default).
+    pub cross_fade_delay: f32,
+}
+
+/// A music change `StarSysUpdate` asks of the sound layer
+/// (`SetClientBackgroundMusic(track, no_fade, fade)`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MusicChange {
+    /// The track (0 is silence).
+    pub track: u32,
+    /// `G_MusicOverrideNoFade`.
+    pub no_fade: bool,
+    /// `G_MusicOverrideFade`.
+    pub fade: f32,
+}
+
+/// `star_sys.cpp`'s music state: the system's tracks, the override, and
+/// the space / danger / battle / override machine with its cross fade.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SystemMusicState {
+    /// The system's tracks (`[Music]`).
+    pub system: SystemMusic,
+    /// `G_MusicSystemOverride`.
+    pub system_override: u32,
+    /// `G_MusicOverrideSpace`, `Danger`, `Battle`, `Track`.
+    pub override_music: SystemMusic,
+    /// `G_MusicOverrideTrack`.
+    pub override_track: u32,
+    /// `G_MusicOverrideNoFade`.
+    pub override_no_fade: bool,
+    /// `G_MusicOverrideFade`.
+    pub override_fade: f32,
+    /// `G_MusicState`: 0 space, 1 danger, 2 battle, 3 override, 4 silence.
+    pub state: i32,
+    /// `G_MusicTrack`: the track last asked for.
+    pub track: u32,
+    /// `G_bMusicCrossFading`.
+    pub cross_fading: bool,
+    /// `G_MusicCrossFadeTime`.
+    pub cross_fade_time: f32,
+    /// `G_bMusicBattleHit`: a hostile hit or target since the last frame.
+    pub battle_hit: bool,
+    /// `G_MusicDangerScanTime`.
+    pub danger_scan_time: f32,
+    /// `G_bMusicDanger`.
+    pub danger: bool,
+}
+
+impl SystemMusicState {
+    /// `StarSysEnter`'s music reset, with the system's tracks from its file.
+    #[must_use]
+    pub fn enter(system: SystemMusic) -> Self {
+        Self {
+            system,
+            system_override: 0,
+            override_music: SystemMusic::default(),
+            override_track: 0,
+            override_no_fade: true,
+            override_fade: -1.0,
+            state: 0,
+            track: 0,
+            cross_fading: false,
+            cross_fade_time: 0.0,
+            battle_hit: false,
+            danger_scan_time: 1000.0,
+            danger: false,
+        }
+    }
+
+    /// `StarSysSetMusicOverride`.
+    pub fn set_override(&mut self, music: SystemMusic, track: u32, fade: f32, no_fade_flag: bool) {
+        self.override_music = music;
+        self.override_track = track;
+        self.override_fade = fade;
+        self.override_no_fade = !no_fade_flag;
+    }
+
+    /// `StarSysClearMusicOverride`.
+    pub fn clear_override(&mut self) {
+        self.override_music = SystemMusic::default();
+        self.override_track = 0;
+        self.override_fade = -1.0;
+        self.override_no_fade = true;
+    }
+
+    /// `StarSysNoteDamage` and `StarSysNoteTargetChange`'s outcome: a
+    /// hostile hit or target this frame.
+    pub fn note_battle(&mut self) {
+        self.battle_hit = true;
+    }
+
+    /// `StarSysUpdate`'s music part. `scanner_sees_hostile` is asked only
+    /// when the two-second danger scan is due (`ScannerSeesHostile`). The
+    /// change to play, if the track differs from the last one.
+    pub fn update(
+        &mut self,
+        frame: &MusicFrame,
+        scanner_sees_hostile: impl FnOnce() -> bool,
+    ) -> Option<MusicChange> {
+        let pick = |o: u32, s: u32| if o != 0 { o } else { s };
+        if frame.background_finished {
+            self.clear_override();
+        }
+        let mut space = pick(self.override_music.space, self.system.space);
+        let danger = pick(self.override_music.danger, self.system.danger);
+        let battle = pick(self.override_music.battle, self.system.battle);
+        let override_track = pick(self.override_track, self.system_override);
+        if self.override_music.space == 0
+            && let Some(zone) = frame.zone_music
+        {
+            space = zone;
+        }
+        let was_battle = self.state == 2;
+        let battle_hit = self.battle_hit;
+        self.battle_hit = false;
+
+        // The sum is compared unrounded and stored as a float.
+        let cross = if was_battle && battle_hit {
+            self.cross_fading = true;
+            Some(0.0 + f64::from(frame.dt))
+        } else if self.cross_fading {
+            Some(f64::from(self.cross_fade_time) + f64::from(frame.dt))
+        } else {
+            None
+        };
+        if let Some(sum) = cross {
+            #[allow(clippy::cast_possible_truncation)]
+            let stored = sum as f32;
+            self.cross_fade_time = stored;
+            if sum >= f64::from(frame.cross_fade_delay) {
+                self.cross_fading = false;
+                self.cross_fade_time = 0.0;
+                self.danger_scan_time = 1000.0;
+            }
+        }
+        if override_track != 0 {
+            self.cross_fading = false;
+        } else if self.cross_fading {
+            return None;
+        }
+
+        let scan = f64::from(self.danger_scan_time) + f64::from(frame.dt);
+        #[allow(clippy::cast_possible_truncation)]
+        let scan_stored = scan as f32;
+        self.danger_scan_time = scan_stored;
+        if scan >= 2.0 {
+            self.danger = scanner_sees_hostile();
+            self.danger_scan_time = 0.0;
+        }
+
+        let mut state = if battle_hit {
+            2
+        } else if self.danger {
+            1
+        } else if frame.player_jumping {
+            4
+        } else {
+            0
+        };
+        if override_track != 0 {
+            state = 3;
+        }
+        if state != self.state {
+            self.state = state;
+            self.cross_fading = true;
+            self.cross_fade_time = 0.0;
+        }
+        let track = match self.state {
+            0 => space,
+            1 => danger,
+            2 => battle,
+            3 => override_track,
+            _ => 0,
+        };
+        (self.track != track).then(|| {
+            self.track = track;
+            MusicChange {
+                track,
+                no_fade: self.override_no_fade,
+                fade: self.override_fade,
+            }
+        })
+    }
+}
+
 /// `get_value_float(index)` stored to a `float`.
 fn float(reader: &mut IniReader, index: u32) -> f32 {
     #[allow(clippy::cast_possible_truncation)]
@@ -448,6 +649,60 @@ file = n2\nzone = z3\n";
         reader.seek(f.objects[1]);
         assert!(reader.read_value());
         assert_eq!(reader.value_string(), b"o2");
+    }
+
+    fn frame(dt: f32) -> MusicFrame {
+        MusicFrame {
+            dt,
+            background_finished: false,
+            zone_music: None,
+            player_jumping: false,
+            cross_fade_delay: 30.0,
+        }
+    }
+
+    #[test]
+    fn the_music_machine_switches_as_star_sys_update() {
+        let tracks = SystemMusic {
+            space: 1,
+            danger: 2,
+            battle: 3,
+        };
+        let mut m = SystemMusicState::enter(tracks);
+        // First frame: the scan is due (1000 s), nothing hostile: space.
+        let c = m.update(&frame(0.1), || false).expect("a change");
+        assert_eq!((c.track, c.no_fade, c.fade), (1, true, -1.0));
+        assert_eq!(m.update(&frame(0.1), || unreachable!()), None);
+
+        // A hostile hit: battle at once, then the cross fade holds 30 s.
+        m.note_battle();
+        assert_eq!(m.update(&frame(0.1), || false).map(|c| c.track), Some(3));
+        assert!(m.cross_fading);
+        for _ in 0..299 {
+            assert_eq!(m.update(&frame(0.1), || true), None);
+        }
+        // The fade ends, the scan is due again and sees a hostile: danger.
+        assert_eq!(m.update(&frame(0.2), || true).map(|c| c.track), Some(2));
+
+        // An override wins over the fade; the background ending clears it.
+        m.set_override(SystemMusic::default(), 9, 2.5, true);
+        let c = m.update(&frame(0.1), || true).expect("override");
+        assert_eq!((c.track, c.no_fade, c.fade), (9, false, 2.5));
+        let mut f = frame(0.1);
+        f.background_finished = true;
+        m.update(&f, || false);
+        assert_eq!(m.override_track, 0);
+    }
+
+    #[test]
+    fn zone_music_replaces_the_space_track() {
+        let mut m = SystemMusicState::enter(SystemMusic {
+            space: 1,
+            ..SystemMusic::default()
+        });
+        let mut f = frame(0.1);
+        f.zone_music = Some(7);
+        assert_eq!(m.update(&f, || false).map(|c| c.track), Some(7));
     }
 
     #[test]

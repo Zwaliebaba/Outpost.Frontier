@@ -20,9 +20,11 @@
 //! view, death, script, static, docking), its activation with the window's
 //! rectangle and its attach to the player are P5.4b's.
 
+use game_sim::object::ObjHandle;
 use neuron_client::ui::camera::Camera;
 use neuron_client::ui::widescreen::Surface;
 use neuron_core::ini::IniReader;
+use neuron_core::math::Vector;
 
 /// `kGameCameraDefaultHalfFovXDeg`.
 pub const DEFAULT_HALF_FOV_X: f32 = 35.0;
@@ -123,6 +125,12 @@ pub struct GameCamera {
     pub base_half_fov_x: f32,
     /// +0xbc raised when the view jumps (a hard cut).
     pub cut: bool,
+    /// +0xc0 the watched object (`BaseWatcher`); `None` when unbound.
+    pub watched: Option<ObjHandle>,
+    /// +0xd0 the position at the last update.
+    pub last_position: Vector,
+    /// +0xdc the velocity (`GetVelocity`, slot 0x48).
+    pub velocity: Vector,
 }
 
 impl GameCamera {
@@ -135,7 +143,66 @@ impl GameCamera {
             camera,
             base_half_fov_x: DEFAULT_HALF_FOV_X,
             cut: false,
+            watched: None,
+            last_position: Vector::ZERO,
+            velocity: Vector::ZERO,
         }
+    }
+
+    /// `GameCameraAttach` (slot 0x58): the object watched; false when it is
+    /// the one already watched (nothing changes).
+    pub fn attach(&mut self, object: Option<ObjHandle>) -> bool {
+        if object == self.watched {
+            return false;
+        }
+        self.watched = object;
+        true
+    }
+
+    /// `GameCameraHasNoTarget` (slot 0x60).
+    #[must_use]
+    pub fn has_no_target(&self) -> bool {
+        self.watched.is_none()
+    }
+
+    /// `GameCameraActivate` (slot 0x64): the viewport set, then applied
+    /// (`GameCameraApplyViewport`, the letterbox's camera forgotten by its
+    /// owner). Always true, as the reference's.
+    pub fn activate(&mut self, rect: [i32; 4]) -> bool {
+        self.camera.set_viewport(rect);
+        self.camera.set_viewport(rect);
+        true
+    }
+
+    /// `GameCameraUpdate` (slot 0x6c): the velocity from the position's
+    /// change (skipped for a `dt` of exactly zero), then the position kept.
+    pub fn update(&mut self, dt: f32) {
+        let p = self.camera.world_pos;
+        if dt != 0.0 {
+            let d = |a: f32, b: f32| {
+                #[allow(clippy::cast_possible_truncation)]
+                let v = (f64::from(a) - f64::from(b)) as f32;
+                v
+            };
+            let (dx, dy, dz) = (
+                d(p.x, self.last_position.x),
+                d(p.y, self.last_position.y),
+                d(p.z, self.last_position.z),
+            );
+            #[allow(clippy::cast_possible_truncation)]
+            let inv = (1.0 / f64::from(dt)) as f32;
+            let m = |a: f32| {
+                #[allow(clippy::cast_possible_truncation)]
+                let v = (f64::from(inv) * f64::from(a)) as f32;
+                v
+            };
+            self.velocity = Vector {
+                x: m(dx),
+                y: m(dy),
+                z: m(dz),
+            };
+        }
+        self.last_position = p;
     }
 
     /// `GameCameraSetProperty`: the base's property; a field-of-view key
@@ -400,6 +467,35 @@ mod tests {
         cams.player_preference = 2;
         let s = cams.switch_mode(b"player").unwrap();
         assert_eq!((s.selected, s.cursor), (None, CursorChange::Cross));
+    }
+
+    #[test]
+    fn the_game_camera_keeps_velocity_and_its_target() {
+        let mut cam = GameCamera::new(Surface::default());
+        cam.camera.world_pos = Vector {
+            x: 3.0,
+            y: 0.0,
+            z: -6.0,
+        };
+        cam.update(0.5);
+        assert_eq!(
+            cam.velocity,
+            Vector {
+                x: 6.0,
+                y: 0.0,
+                z: -12.0
+            }
+        );
+        // A zero dt keeps the velocity and takes the position.
+        cam.camera.world_pos = Vector {
+            x: 4.0,
+            y: 0.0,
+            z: -6.0,
+        };
+        cam.update(0.0);
+        assert_eq!(cam.velocity.x, 6.0);
+        assert_eq!(cam.last_position.x, 4.0);
+        assert!(cam.has_no_target());
     }
 
     #[test]

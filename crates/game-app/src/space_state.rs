@@ -19,6 +19,10 @@ use crate::login::wait_for_server_response;
 use crate::objects::{ClientObject, ClientObjectKind};
 use crate::receiver::ClientLink;
 use crate::session::{Session, tick_modal_server};
+use crate::space_camera::{GameCamera, SpaceCameraMode};
+use crate::space_camera_third::{
+    CameraShake, ChaseCx, ChaseWarning, ShakeHits, ShipCameraTable, ThirdPersonCamera,
+};
 
 /// How the entry ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,7 +83,15 @@ where
         link.deliver_all(Some(s.world()));
     });
 
-    wait_for_server_response(link, session, |r| r.player.launch_acknowledged, now);
+    wait_for_server_response(
+        link,
+        session.as_deref_mut(),
+        |r| r.player.launch_acknowledged,
+        now,
+    );
+    if let Some(s) = session {
+        apply_launch_placement(link, s.world());
+    }
     if link.receiver.player.launch_acknowledged {
         SpaceEntry::Entered
     } else {
@@ -87,13 +99,40 @@ where
     }
 }
 
-/// `SpawnPlayerShip`'s registration and launch request: the player's ship
-/// under the id the create answer gave (`G_PlayerCharacterId`), with the
-/// selected character's ship archetype, registered in the object database
-/// (in single player beside the shared world's ship of that id), the launch
-/// acknowledgement cleared and `PlayerLaunch(ship, connection)` sent. The
-/// game object's archetype, equipment and costume set-up is the rest of
-/// P5.4.
+/// `SendServerLaunch`'s beam (`beam_object(Position, Orient, false)`),
+/// recorded by the receiver: the ship of that id in the world moved to the
+/// pose. Nothing without one.
+pub fn apply_launch_placement<T>(link: &mut ClientLink<T>, world: &mut World) {
+    let Some((id, position, orientation)) = link.receiver.player.launch_placement.take() else {
+        return;
+    };
+    let handle = link
+        .receiver
+        .objects
+        .find(id, 1)
+        .and_then(|(_, o)| o.handle);
+    if let Some(h) = handle {
+        world.beam_object(h, position, orientation);
+    }
+}
+
+/// `SpawnPlayerShip`: the player's ship made from the selected character
+/// (in single player in the shared world, record 0002, `CShip::init` with
+/// the fields `ApplyCharacterSelectEquipFields` and
+/// `NotifyCharacterSelectComplete` kept), registered in the object
+/// database, the launch acknowledgement cleared and
+/// `PlayerLaunch(ship, connection)` sent.
+///
+/// The parameters: the id `G_PlayerCharacterId`, the owner the connection,
+/// the reputation group the select answer's (`GetPlayerSpawnSystemId`, -1
+/// before one), the comm costume, the voice, the hit points the hull
+/// status times the archetype's, the record's equipment (each on the
+/// hardpoint it names, `StringAlloc`, or in the cargo bay) and collision
+/// groups, and the group's rank; at the origin with the identity, as
+/// `CSimple::CreateParms` leaves them, until the launch beams it. Without
+/// a world (multiplayer, P5.10) only the object is registered. The game
+/// object's render set-up (the companions' `Load`, the instance tree's
+/// materials, slot 92) is the renderer's.
 pub fn spawn_player_ship<T, S>(link: &mut ClientLink<T>, session: Option<&mut S>)
 where
     T: Transport<Outgoing = ToServer, Incoming = ToClient>,
@@ -106,22 +145,168 @@ where
         .selected
         .as_ref()
         .map_or(0, |r| r.ship_archetype);
-    let world: Option<&World> = session.map(|s| &*s.world());
+    let world: Option<&mut World> = session.map(|s| s.world());
+    let handle = world.map(|w| {
+        let spawned = player_ship_spawn(link, w, id, archetype)
+            .and_then(|(system, spawn)| w.spawn_ship(system, &spawn).ok());
+        (spawned, &*w)
+    });
     let object = ClientObject {
         id,
         kind: ClientObjectKind::Ship,
         archetype,
-        handle: world.and_then(|w| w.find(id)),
-        remote_physics: false,
+        handle: handle.as_ref().and_then(|(h, _)| *h),
+        remote_physics: true,
     };
-    match world {
-        Some(world) => link.receiver.objects.register(object, world),
+    match handle {
+        Some((_, world)) => link.receiver.objects.register(object, world),
         None => link.receiver.objects.register(object, &()),
     };
     link.receiver.player.launch_acknowledged = false;
     link.send(ToServer::Client(ClientMessage::RequestLaunch(
         RequestLaunch { value: id },
     )));
+}
+
+/// The system and `CShip::CreateParms` of [`spawn_player_ship`]; `None`
+/// without a selected character or for an unknown ship archetype (the
+/// reference tests neither).
+fn player_ship_spawn<T>(
+    link: &ClientLink<T>,
+    world: &mut World,
+    id: u32,
+    archetype: u32,
+) -> Option<(u32, game_sim::object::world::ShipSpawn)> {
+    let record = link.receiver.login.selected.as_ref()?;
+    let arch_hit_pts = world
+        .data()
+        .archetypes
+        .ships
+        .get(&archetype)?
+        .eq_obj
+        .root
+        .hit_pts;
+    let mut spawn = game_sim::object::world::ShipSpawn::new(
+        archetype,
+        0,
+        neuron_core::math::Vector::ZERO,
+        neuron_core::math::Matrix::IDENTITY,
+    );
+    spawn.id = Some(id);
+    spawn.owner_player = link.receiver.login.connection_id;
+    #[allow(clippy::cast_possible_wrap)]
+    let vibe = link
+        .receiver
+        .login
+        .char_select
+        .as_ref()
+        .map_or(-1, |c| c.rep_instance as i32);
+    spawn.vibe = vibe;
+    if let Some(c) = &record.com_costume {
+        spawn.costume = game_sim::data::costume::Costume {
+            part_ids: c.parts,
+            accessory_ids: c.accessories.clone(),
+        };
+    }
+    spawn.voice = record.voice_id;
+    #[allow(clippy::cast_possible_truncation)]
+    {
+        spawn.hit_pts = (f64::from(record.hull_status) * f64::from(arch_hit_pts)) as f32;
+    }
+    spawn.equipment = record
+        .equipment
+        .iter()
+        .map(|e| {
+            let mut desc = game_sim::data::equip_desc::EquipDesc::new(world.strings());
+            desc.arch_id = e.arch_id;
+            desc.count = e.count;
+            desc.health = e.health;
+            desc.id = e.id;
+            desc.equipped = e.equipped;
+            let name = e.hardpoint.strip_suffix(&[0]).unwrap_or(&e.hardpoint);
+            if name.is_empty() {
+                desc.make_internal(world.strings());
+            } else {
+                desc.hardpoint = world.strings_mut().alloc(name, false);
+            }
+            desc
+        })
+        .collect();
+    spawn.collision_groups = Some(
+        record
+            .collision_groups
+            .iter()
+            .map(|g| (g.id, g.health))
+            .collect(),
+    );
+    spawn.rank = world.vibes().0.rank(vibe).1;
+    Some((player_system(link), spawn))
+}
+
+/// `StarSysUpdate`'s music: the zone music at the player's ship, the
+/// danger scan over the ship's scanner list, and the machine's change left
+/// in [`SpaceApp::music_change`].
+fn star_sys_music(
+    app: &mut SpaceApp,
+    world: &World,
+    ship: Option<game_sim::object::ObjHandle>,
+    dt: f32,
+) {
+    use game_sim::ai::world::AiWorld;
+    use game_sim::equip::{EquipKind, types};
+
+    let system = app.system;
+    let music = app.music.get_or_insert_with(|| {
+        let tracks = crate::star_system::system_file_path(world, system)
+            .and_then(|path| crate::star_system::StarSystemFile::load(world.data_source()?, &path))
+            .map(|f| f.music)
+            .unwrap_or_default();
+        crate::star_system::SystemMusicState::enter(tracks)
+    });
+    let data = world.data();
+    let position = ship.and_then(|h| world.get(h)).map(|o| o.engine.position);
+    let zone_music = position
+        .filter(|_| music.override_music.space == 0)
+        .and_then(|p| {
+            data.universe
+                .smallest_zone_with_properties_at(system, p, 0x40_0000)
+        })
+        .and_then(|z| data.universe.zones.get(&z))
+        .map(|z| z.music)
+        .filter(|&m| m != 0);
+    let frame = crate::star_system::MusicFrame {
+        dt,
+        background_finished: std::mem::take(&mut app.background_music_finished),
+        zone_music,
+        // The player's game object's jump state comes with its game object.
+        player_jumping: false,
+        cross_fade_delay: data.constants.general.music_cross_fade_delay,
+    };
+    // ScannerSeesHostile: a scanned object whose attitude to the player is
+    // at most -0.6 (GetAttitudeClass -1).
+    let hostile = || {
+        let Some(h) = ship.filter(|&h| {
+            world
+                .get(h)
+                .is_some_and(|o| o.kind == game_sim::object::ObjectKind::Ship)
+        }) else {
+            return false;
+        };
+        let Some(scanner) = world
+            .get(h)
+            .and_then(|o| o.as_equipped())
+            .and_then(|e| e.equipment.first(types::SCANNER))
+        else {
+            return false;
+        };
+        let EquipKind::Scanner(s) = &scanner.kind else {
+            return false;
+        };
+        s.scans
+            .iter()
+            .any(|&t| world.attitude(t, h).is_some_and(|a| a <= -0.6))
+    };
+    app.music_change = music.update(&frame, hostile);
 }
 
 /// `GetPlayerStarSystemIdbaseline`: the selected character's system, 0
@@ -160,6 +345,38 @@ pub struct SpaceApp {
     pub leave_requested: bool,
     /// `bPlayerLostHandled`.
     pub player_lost_handled: bool,
+    /// Raised once by [`update`] when the player's ship is gone: the caller
+    /// posts `NnExitPostShipLostMessage` and clears it.
+    pub post_ship_lost: bool,
+    /// `star_sys.cpp`'s music state, made from the system file's `[Music]`
+    /// on the first frame with a world (`StarSysEnter` reads the same file).
+    pub music: Option<crate::star_system::SystemMusicState>,
+    /// Set by the sound layer before [`update`]: the background music
+    /// source has finished (`BindClientBackgroundMusic`, `IsFinished`).
+    pub background_music_finished: bool,
+    /// Left by [`update`] for the sound layer to play
+    /// (`SetClientBackgroundMusic`); `None` when the track is unchanged.
+    pub music_change: Option<crate::star_system::MusicChange>,
+    /// The cockpit camera's own state (`FFirstPersonCamera` +0x100 ..).
+    pub first_person: crate::space_camera_first::FirstPersonCamera,
+    /// The `cockpit` performance option's applied value
+    /// (`FindPerfOption("cockpit")->Applied`; -1 until applied), set by the
+    /// owner from `PerfOptions::applied`.
+    pub cockpit_option: f32,
+    /// The chase camera's own state (`FThirdPersonCamera` +0x100 ..).
+    pub third_person: ThirdPersonCamera,
+    /// `G_CameraShakeAmount`, shared by the HUD cameras.
+    pub shake: CameraShake,
+    /// The ship companions' camera blocks; the owner fills them from the
+    /// data configuration ([`ShipCameraTable::from_config`]). Empty, the
+    /// chase camera keeps its constructor's values.
+    pub ship_cameras: ShipCameraTable,
+    /// The client's `rand` for the camera shake (the caller's generator,
+    /// as D513).
+    pub rand: neuron_core::rng::CrtRand,
+    /// The last frame's camera report (the reference's `FDUMP`), for the
+    /// caller to log.
+    pub camera_warning: Option<ChaseWarning>,
 }
 
 impl SpaceApp {
@@ -172,6 +389,77 @@ impl SpaceApp {
             system,
             leave_requested: false,
             player_lost_handled: false,
+            post_ship_lost: false,
+            music: None,
+            background_music_finished: false,
+            music_change: None,
+            first_person: crate::space_camera_first::FirstPersonCamera::default(),
+            cockpit_option: -1.0,
+            third_person: ThirdPersonCamera::default(),
+            shake: CameraShake::default(),
+            ship_cameras: ShipCameraTable::default(),
+            rand: neuron_core::rng::CrtRand::default(),
+            camera_warning: None,
+        }
+    }
+
+    /// The active camera's update (slot 0x6c): the chase camera's own, or
+    /// the base's.
+    fn update_camera(&mut self, world: &mut World, dt: f32) {
+        let Some(mode) = self.cameras.active() else {
+            return;
+        };
+        if mode == SpaceCameraMode::ThirdPerson {
+            let mut cx = ChaseCx {
+                world,
+                ships: &self.ship_cameras,
+                shake: &mut self.shake,
+                rand: &mut self.rand,
+                hits: ShakeHits::default(),
+            };
+            let cam = self.cameras.camera_mut(mode);
+            self.camera_warning = self.third_person.update(cam, &mut cx, dt).err();
+        } else if mode == SpaceCameraMode::FirstPerson {
+            let mut cx = ChaseCx {
+                world,
+                ships: &self.ship_cameras,
+                shake: &mut self.shake,
+                rand: &mut self.rand,
+                hits: ShakeHits::default(),
+            };
+            let cam = self.cameras.camera_mut(mode);
+            self.first_person
+                .update(cam, &mut cx, dt, self.cockpit_option);
+        } else {
+            self.cameras.camera_mut(mode).update(dt);
+        }
+    }
+
+    /// The active camera's attach (slot 0x58): the chase camera's own, or
+    /// the base's.
+    pub fn attach_camera(
+        &mut self,
+        world: &mut World,
+        object: Option<game_sim::object::ObjHandle>,
+    ) {
+        let Some(mode) = self.cameras.active() else {
+            return;
+        };
+        if mode == SpaceCameraMode::ThirdPerson {
+            let mut cx = ChaseCx {
+                world,
+                ships: &self.ship_cameras,
+                shake: &mut self.shake,
+                rand: &mut self.rand,
+                hits: ShakeHits::default(),
+            };
+            let cam = self.cameras.camera_mut(mode);
+            self.camera_warning = self.third_person.attach(cam, &mut cx, object).err();
+        } else if mode == SpaceCameraMode::FirstPerson {
+            let cam = self.cameras.camera_mut(mode);
+            self.first_person.attach(cam, world, object);
+        } else {
+            self.cameras.camera_mut(mode).attach(object);
         }
     }
 }
@@ -186,10 +474,11 @@ impl SpaceApp {
 ///   ship with `flight_frame`.
 /// - A requested leave: 6.
 ///
-/// Not here yet (P5.4b): the cameras' own update and draw, `StarSysUpdate`,
-/// the docking and lights passes, the sound mixer, the fade, the reap, the
-/// pending system switch, the player's last position and the finished
-/// camera's return to `player`.
+/// The active camera's update is the chase camera's own solve when it is
+/// `third_person`, the cockpit camera's when it is `first_person`; the other cameras' motion, and every camera's draw,
+/// are not here yet (P5.4b), nor the docking and lights passes, the sound
+/// mixer, the fade, the reap, the pending system switch and the player's
+/// last position.
 pub fn update<T, S>(
     app: &mut SpaceApp,
     link: &mut ClientLink<T>,
@@ -218,8 +507,40 @@ where
         .objects
         .find(link.receiver.player.character_id, 1)
         .and_then(|(_, o)| o.handle);
-    let mut player_ship = crate::player_behavior::PlayerShip { world, ship };
+    if !skip_local_server_tick {
+        // The active camera's update (slot 0x6c).
+        app.update_camera(world, dt);
+        // StarSysUpdate's music part (its dust, nebulae, panels and
+        // asteroids are the environment's, P5.8).
+        star_sys_music(app, world, ship, dt);
+    }
+    let mut player_ship = crate::player_behavior::PlayerShip {
+        world: &mut *world,
+        ship,
+    };
     app.flight
         .update_mouse_flight(&mut player_ship, flight_frame);
+    // A finished camera (slot 0x60, no object watched): without a player
+    // ship the ship-lost message once (`NnExitPostShipLostMessage`: the
+    // caller posts it on `post_ship_lost`); otherwise back to `player`,
+    // attached to the ship.
+    if app
+        .cameras
+        .active_camera()
+        .is_some_and(GameCamera::has_no_target)
+    {
+        match ship {
+            None => {
+                if !app.player_lost_handled {
+                    app.post_ship_lost = true;
+                    app.player_lost_handled = true;
+                }
+            }
+            Some(h) => {
+                app.cameras.switch_mode(b"player");
+                app.attach_camera(world, Some(h));
+            }
+        }
+    }
     if app.leave_requested { 6 } else { 0 }
 }
