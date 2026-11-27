@@ -303,6 +303,8 @@ void RunSceneScriptBuildDataDump(const std::vector<std::string>& Files);
 void RunGameAppSuites();
 void RunAccountSuite();
 void RunPerfOptionsSuite();
+// P5.6, oracle_effect_arch.cpp: the client's effect archetypes (EffectArchLoadIni).
+void RunEffectArchSuite();
 
 // P4.14 (oracle_scene_script_save.cpp): the script engine of SceneScript.cpp (compiled in) with
 // its COM context, its file-system paths and SaveToFileSystem through the default save parser,
