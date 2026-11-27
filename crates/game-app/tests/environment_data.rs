@@ -203,3 +203,95 @@ fn every_nebula_reads() {
     println!("{nebulae} nebulae: {clouds} cloud sets, {exclusions} exclusion zones");
     assert!(nebulae > 20 && clouds > 0);
 }
+
+/// A texture library that has every texture: the shapes load whatever the
+/// archives hold.
+struct AnyTextures;
+
+impl neuron_client::ui::shape::ShapeTextures for AnyTextures {
+    fn find(&mut self, _: &[u8]) -> Option<u32> {
+        Some(1)
+    }
+    fn add_ref(&mut self, _: u32) {}
+    fn release(&mut self, _: u32) {}
+    fn load_group(&mut self, _: &[u8]) -> Option<i32> {
+        Some(1)
+    }
+    fn garbage_collect(&mut self, _: i32) {}
+    fn generic_slot_4(&mut self) -> u32 {
+        0
+    }
+    fn set_generic_slot_4(&mut self, _: u32) {}
+    fn frame_handle(&mut self, _: u32, _: i32) -> u32 {
+        1
+    }
+    fn texture_dim(&mut self, _: u32) -> (u32, u32) {
+        (256, 256)
+    }
+}
+
+/// A shape database of the given panel files (each through `FShapeDB::Load`).
+fn shapes(source: &Host, panels: &[Vec<u8>]) -> neuron_client::ui::shape::ShapeDb {
+    let mut db = neuron_client::ui::shape::ShapeDb::new();
+    for panel in panels {
+        let rel: Vec<u8> = panel
+            .iter()
+            .map(|&b| if b == b'\\' { b'/' } else { b })
+            .collect();
+        let found = source.locate(&rel).ok().flatten().expect("a panel file");
+        db.load(&std::fs::read(found.path).expect("reads"), &mut AnyTextures);
+    }
+    db
+}
+
+/// `every_named_shape_is_in_its_panels`: each shape a field's band,
+/// exclusion bands and billboards name, and each shape a nebula's exterior
+/// and clouds name, is in the shape database its own texture panels make
+/// (the reference warns and stores no shape otherwise). The misses are
+/// listed; there are none.
+#[test]
+fn every_named_shape_is_in_its_panels() {
+    let root = data_dir();
+    let systems = system_files(&root);
+    if systems.is_empty() {
+        println!("notice: outdir/ has no system files; nothing was read");
+        return;
+    }
+    let source = Host::new(root);
+    let mut misses = Vec::new();
+    let mut named = 0;
+    let mut check = |db: &neuron_client::ui::shape::ShapeDb, owner: &[u8], name: &[u8]| {
+        named += 1;
+        if db.find(name).is_none() {
+            misses.push(format!(
+                "{}: {}",
+                String::from_utf8_lossy(owner),
+                String::from_utf8_lossy(name)
+            ));
+        }
+    };
+    for rel in &systems {
+        let system = StarSystemFile::load(&source, rel).expect("the system file");
+        for z in &system.asteroids {
+            let f = AsteroidFieldFile::load(&source, &z.file);
+            let db = shapes(&source, &f.texture_panels);
+            let bands = f.band.iter().chain(&f.exclusion_bands);
+            for name in bands
+                .filter_map(|b| b.shape.as_deref())
+                .chain(f.billboards.iter().filter_map(|b| b.shape.as_deref()))
+            {
+                check(&db, &z.file, name);
+            }
+        }
+        for z in &system.nebulae {
+            let n = NebulaFile::load(&source, &z.file);
+            let db = shapes(&source, &n.texture_panels);
+            let exterior = n.exterior.shapes.iter().chain(&n.exterior.fill_shape);
+            for name in exterior.chain(n.clouds.iter().flat_map(|c| &c.puff_shapes)) {
+                check(&db, &z.file, name);
+            }
+        }
+    }
+    println!("{named} shapes named; misses: {misses:?}");
+    assert!(misses.is_empty(), "{misses:?}");
+}
