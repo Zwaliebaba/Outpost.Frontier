@@ -116,6 +116,10 @@ pub struct LocationDb {
     /// The `RoomControlUpdateCharacter` calls, (room, key), in order, for
     /// the room control to take.
     pub updated_characters: Vec<(u32, u32)>,
+    /// The forwards skipped because the controller does not know the base
+    /// or room (each also reported; D1401, and D1402 while the controller
+    /// registers nothing).
+    pub skipped: u32,
 }
 
 fn miss(line: u32, what: &str, id: u32) {
@@ -194,6 +198,7 @@ impl LocationDb {
             Some(runtime) => runtime.as_mut(),
             None => {
                 miss(0x100, "base", base);
+                self.skipped += 1;
                 None
             }
         }
@@ -206,6 +211,7 @@ impl LocationDb {
             Some(entry) => entry.state.as_mut(),
             None => {
                 miss(0x110, "location", room);
+                self.skipped += 1;
                 None
             }
         }
@@ -273,7 +279,10 @@ impl LocationDb {
                     self.updated_characters.push((room, key));
                 }
             }
-            None => miss(0x110, "location", room),
+            None => {
+                miss(0x110, "location", room);
+                self.skipped += 1;
+            }
         }
     }
 
@@ -500,6 +509,7 @@ mod tests {
             }),
         );
         assert!(!r.location.bases.contains_key(&8));
+        assert_eq!(r.location.skipped, 1);
         deliver(
             &mut r,
             ServerMessage::GfMissionVendorWhyEmpty(GfMissionVendorWhyEmpty { value: 2 }),
