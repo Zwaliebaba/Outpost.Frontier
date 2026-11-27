@@ -978,6 +978,20 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
         );
     }
 
+    /// `update_current_behavior_auto_avoidance`: the thrust manager's
+    /// avoidance flag (`ThrustManager::SetAutoAvoidance`), with no behaviour
+    /// involved.
+    pub fn update_current_behavior_auto_avoidance(&mut self, on: bool) {
+        self.state.thrust.auto_avoidance = on;
+    }
+
+    /// `update_current_behavior_auto_level`: the thrust manager's auto-level
+    /// flag (`SetSteeringFallbackFlag`), then a zero direction.
+    pub fn update_current_behavior_auto_level(&mut self, world: &mut W, ship: W::Handle, on: bool) {
+        self.state.thrust.auto_level = on;
+        self.update_current_behavior_direction(world, ship, Vector::ZERO);
+    }
+
     /// `reset_current_behavior_direction`.
     pub fn reset_current_behavior_direction(&mut self, world: &mut W, ship: W::Handle) {
         self.state.dirty = true;

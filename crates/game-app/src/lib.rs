@@ -18,6 +18,7 @@ pub mod movies;
 pub mod objects;
 pub mod oracle;
 pub mod perf_options;
+pub mod player_behavior;
 pub mod preferences;
 pub mod profile;
 pub mod receiver;
