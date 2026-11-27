@@ -126,7 +126,7 @@ where
 
 /// `GetPlayerStarSystemIdbaseline`: the selected character's system, 0
 /// when it is in a base (`ApplyCharacterSelectEquipFields`).
-fn player_system<T>(link: &ClientLink<T>) -> u32 {
+pub(crate) fn player_system<T>(link: &ClientLink<T>) -> u32 {
     link.receiver.login.selected.as_ref().map_or(0, |r| {
         if r.base_id & 0x3fff_ffff != 0 {
             0

@@ -20,10 +20,11 @@
 //!   scripts, with its audio mode, fade and script events; D1107), the logo
 //!   image (`Nav.LogoImage`) and the fade (D1108); the mission-offer reset
 //!   and the login manager's server lists have no state yet.
-//! - [`SpaceEnvironment`] (client state 2, `SpaceApp`): a stub over
-//!   [`crate::space_state::enter_space`]; the rest of space is P5.4's.
-//!   Once stream B's `space_state::SpaceApp` lands (pull request 198) it
-//!   owns that value and its update calls `space_state::update`.
+//! - [`SpaceEnvironment`] (client state 2, `SpaceApp`):
+//!   [`crate::space_state::enter_space`], then stream B's
+//!   [`crate::space_state::SpaceApp`] with the "player" camera, updated by
+//!   [`crate::space_state::update`]; its flight frame's HUD, letterbox and
+//!   panel flags stay false for now (D1112).
 //! - [`Gameflow`] (client state 3, a base) and [`MissionBriefing`]: stubs
 //!   that do not start (P5.9 and P5.10 bring them).
 //!
@@ -36,6 +37,7 @@ use neuron_client::engine::Engine;
 use neuron_client::render::ff::device::Backend;
 use neuron_client::ui::page::PageDesc;
 use neuron_client::ui::tree::{NodeId, Ui};
+use neuron_client::ui::widescreen::Surface;
 use neuron_core::time::Clock;
 
 use game_sim::protocol::to_server::SkipAutosave;
@@ -75,6 +77,10 @@ const PREFERENCES_NAME: &[u8] = b"NN_Preferences";
 pub trait Interface {
     /// The UI manager, when the interface has one.
     fn ui(&mut self) -> Option<&mut Ui>;
+    /// `GetGameOption(index)`: the reference's default without an engine.
+    fn game_option(&self, index: u32) -> i32 {
+        neuron_client::engine::options::GameOptions::default().get(index)
+    }
 }
 
 impl Interface for Ui {
@@ -87,7 +93,13 @@ impl<B: Backend + 'static> Interface for Engine<B> {
     fn ui(&mut self) -> Option<&mut Ui> {
         self.ui_mut()
     }
+    fn game_option(&self, index: u32) -> i32 {
+        self.options.get(index)
+    }
 }
+
+/// `kGameOptInverseMouse`.
+const OPT_INVERSE_MOUSE: u32 = 0x17;
 
 /// Everything of the client but its interface.
 pub struct ClientCore<'a, C: Clock> {
@@ -119,6 +131,12 @@ pub struct ClientCore<'a, C: Clock> {
     pub pending_state: Option<u32>,
     /// `TickClientFrame` calls so far (the oracle's frame number).
     pub frame: u32,
+    /// The frame's time (`TickClientFrame`'s `DeltaSeconds`, which is
+    /// `GetClientFrameTimeCapped()`, the oracle's fixed step included).
+    pub frame_dt: f64,
+    /// `GetClientMouseButtons` (bit n for button n held), as the frame's
+    /// mouse update left it.
+    pub mouse_buttons: u32,
     /// `!SinglePlayer()`.
     pub multiplayer: bool,
     /// `G_bNnScreenUp`.
@@ -183,6 +201,8 @@ impl<'a, I: Interface, C: Clock> ClientContext<'a, I, C> {
                 quit_posted: false,
                 pending_state: None,
                 frame: 0,
+                frame_dt: 0.0,
+                mouse_buttons: 0,
                 multiplayer: false,
                 nn_screen_up: false,
                 cursor_drawn: false,
@@ -503,6 +523,7 @@ impl<I: Interface, C: Clock> FrameHost for ClientContext<'_, I, C> {
             .skip_local_server_tick(!self.core.multiplayer)
     }
     fn update_global_time(&mut self, dt: f64) {
+        self.core.frame_dt = dt;
         self.core.clock.update_global_time(dt);
     }
     fn single_player(&self) -> bool {
@@ -643,19 +664,61 @@ impl<I: Interface, C: Clock> Environment<ClientContext<'_, I, C>> for IntroFocus
     }
 }
 
-/// Client state 2 (`SpaceApp`): only the server's part of the entry so far.
-/// It will own stream B's `space_state::SpaceApp` and call
-/// `space_state::update` from its update (P5.4).
-#[derive(Debug, Default)]
-pub struct SpaceEnvironment;
+/// Client state 2 (`SpaceApp`): `InitSpaceState`'s dialogue with the server,
+/// then the space controller (`space_state::SpaceApp`, stream B's) and its
+/// frame (`space_state::update`, `UpdateSpaceState`).
+#[derive(Default)]
+pub struct SpaceEnvironment {
+    /// The controller, made when the ship has launched.
+    pub app: Option<space_state::SpaceApp>,
+}
+
+/// The controller once the ship launched: in `system`, for the surface,
+/// with the "player" camera installed (`InitSpaceState` switches to it when
+/// no camera is active, which a new controller never has).
+fn launched_app(surface: Surface, system: u32) -> space_state::SpaceApp {
+    let mut app = space_state::SpaceApp::new(surface, system);
+    let _ = app.cameras.switch_mode(b"player");
+    app
+}
+
+/// The frame's values the player's mouse flight reads (`FlightFrame`):
+/// the interface's hover, cursor and surface, the mouse buttons, the capped
+/// frame time (zero while paused; the caller adds the inverse-mouse
+/// option). The HUD's turret and rear views (P5.7), the letterbox (P5.4)
+/// and the NeuroNet main button's panel (P5.10) stay false until those
+/// packages (D1112).
+fn flight_frame<C: Clock>(
+    ui: Option<&mut Ui>,
+    core: &ClientCore<'_, C>,
+) -> crate::player_behavior::FlightFrame {
+    let mut frame = crate::player_behavior::FlightFrame {
+        mouse_buttons: core.mouse_buttons,
+        frame_time: if core.clock.paused() {
+            0.0
+        } else {
+            core.frame_dt
+        },
+        ..crate::player_behavior::FlightFrame::default()
+    };
+    if let Some(ui) = ui {
+        frame.win3d_hover = ui.hover().is_some();
+        frame.cursor = ui.cursor;
+        let s = ui.camera.surface;
+        frame.surface = (s.width, s.height);
+    }
+    frame
+}
 
 impl<I: Interface, C: Clock> Environment<ClientContext<'_, I, C>> for SpaceEnvironment {
     fn kind(&self) -> EnvironmentKind {
         EnvironmentKind::Space
     }
 
-    /// `InitSpaceState`'s dialogue with the server: true once the ship
-    /// launched; no answer in single player asks the client to quit.
+    /// `InitSpaceState`: the dialogue with the server, true once the ship
+    /// launched (no answer in single player asks the client to quit); then
+    /// the controller for the player's system with the "player" camera
+    /// installed, as `InitSpaceState` installs it when none is.
     fn init(&mut self, cx: &mut ClientContext<'_, I, C>, _param: i32) -> bool {
         let core = &mut cx.core;
         let Some(link) = core.link.as_mut() else {
@@ -665,12 +728,32 @@ impl<I: Interface, C: Clock> Environment<ClientContext<'_, I, C>> for SpaceEnvir
         if entry == SpaceEntry::Quit {
             core.quit_requested = true;
         }
-        entry == SpaceEntry::Entered
+        if entry != SpaceEntry::Entered {
+            return false;
+        }
+        let system = space_state::player_system(link);
+        let surface = cx
+            .interface
+            .ui()
+            .map_or_else(Surface::default, |ui| ui.camera.surface);
+        self.app = Some(launched_app(surface, system));
+        true
     }
-    fn destroy(&mut self, _cx: &mut ClientContext<'_, I, C>) {}
+    fn destroy(&mut self, _cx: &mut ClientContext<'_, I, C>) {
+        self.app = None;
+    }
     fn resume(&mut self, _cx: &mut ClientContext<'_, I, C>) {}
-    fn update(&mut self, _cx: &mut ClientContext<'_, I, C>, _dt: f32) -> i32 {
-        0
+    /// `UpdateSpaceState`: 0 to stay, 6 to leave space.
+    fn update(&mut self, cx: &mut ClientContext<'_, I, C>, dt: f32) -> i32 {
+        let skip = cx.core.clock.skip_local_server_tick(!cx.core.multiplayer);
+        let inverse_mouse = cx.interface.game_option(OPT_INVERSE_MOUSE) != 0;
+        let mut frame = flight_frame(cx.interface.ui(), &cx.core);
+        frame.inverse_mouse = inverse_mouse;
+        let core = &mut cx.core;
+        let (Some(app), Some(link)) = (self.app.as_mut(), core.link.as_mut()) else {
+            return 6;
+        };
+        space_state::update(app, link, core.session.as_deref_mut(), &frame, skip, dt)
     }
 }
 
@@ -717,7 +800,7 @@ impl<I: Interface, C: Clock> Environment<ClientContext<'_, I, C>> for MissionBri
 pub fn client_states<'a, I: Interface + 'a, C: Clock + 'a>() -> ClientStates<ClientContext<'a, I, C>>
 {
     ClientStates::new(
-        Box::new(SpaceEnvironment),
+        Box::new(SpaceEnvironment::default()),
         Box::new(Gameflow),
         Box::new(IntroFocus::default()),
         Box::new(MissionBriefing),
