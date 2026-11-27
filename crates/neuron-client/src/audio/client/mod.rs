@@ -19,9 +19,11 @@
 //! ([`Mixer::replace_attached`]) and runs the mixer's tick
 //! ([`Mixer::tick`]), then retires the sources that finished.
 //!
-//! Not ported here (the game's, P5.5): the streamed sources and the
-//! background music and ambience over the streamer, the thruster sound and
-//! the equipment's emitters, and the single-player pause of every source.
+//! - [`streamed`]: the streamed sources over the streamer, and the
+//!   background music and ambience with their fades (P5.5).
+//!
+//! Not ported here (the game's, P5.5): the thruster sound and the
+//! equipment's emitters, and the single-player pause of every source.
 
 // The reference's x87 comparisons send unordered operands (NaN) to one side;
 // the port spells each outcome as the comparison that is true exactly when
@@ -32,6 +34,7 @@ pub mod arch;
 pub mod config;
 pub mod rank;
 pub mod source;
+pub mod streamed;
 pub mod voice;
 
 use std::sync::Arc;
@@ -41,6 +44,7 @@ use neuron_core::rng::CrtRand;
 use self::arch::{SoundArchTable, WavFactory, WavRequest};
 use self::config::{SoundConfig, SoundOptions, db_blend, linear_to_option_db};
 use self::source::{ArchRef, ClientSource, NO_SCORE, category, source_flags};
+use self::streamed::ClientStreamer;
 use self::voice::VoiceTable;
 use super::decode::decode_archetype;
 use super::mixer::{Archetype, ArchetypeId, Mixer, SourceTable, VoiceBackend};
@@ -52,6 +56,11 @@ pub trait SoundDevice: VoiceBackend {
     fn set_samples(&mut self, archetype: ArchetypeId, samples: Arc<[u8]>);
     /// The archetype is gone.
     fn remove_samples(&mut self, archetype: ArchetypeId);
+    /// The streamer (`NeuronRuntime::Streamer`); none without one, as on a
+    /// client without sound.
+    fn streamer(&mut self) -> Option<&mut dyn ClientStreamer> {
+        None
+    }
 }
 
 /// Where wavs come from: a file of the data, or a leaf of an archive of the
@@ -100,7 +109,7 @@ pub mod key_flags {
     pub const LOOP: u8 = 0x01;
     /// A positioned source (`Sound::Source3D`).
     pub const SPATIAL: u8 = 0x02;
-    /// A streamed source (not ported here: P5.5).
+    /// A streamed source (`Sound::StreamedSource`).
     pub const STREAMED: u8 = 0x04;
     /// The cockpit mix.
     pub const COCKPIT: u8 = 0x08;
@@ -172,6 +181,8 @@ pub struct ClientSound {
     duck_refs: i32,
     duck_timer: f32,
     listener: [f32; 3],
+    background_music: Option<SourceKey>,
+    background_ambient: Option<SourceKey>,
 }
 
 /// The `audio_*` masters in decibels.
@@ -296,6 +307,8 @@ impl ClientSound {
             duck_refs: 0,
             duck_timer: -1.0,
             listener: [0.0; 3],
+            background_music: None,
+            background_ambient: None,
         }
     }
 
@@ -522,7 +535,10 @@ impl ClientSound {
             f64::from(master)
         };
         if let Some(arch) = source.arch {
-            view.sm_arch = self.sm_arch_id(env, arch);
+            // A streamed source plays no mixer archetype.
+            if source.streamed.is_none() {
+                view.sm_arch = self.sm_arch_id(env, arch);
+            }
             let (atten, bendable, min, max) = match arch {
                 ArchRef::Sound(id) => self.sounds.get(id).map_or((0, false, 0.0, 0.0), |a| {
                     (
@@ -608,16 +624,23 @@ impl ClientSound {
     }
 
     /// Slot 24 (`Stop`): a playing source is stopped; an idle one is left.
+    /// A streamed source also loses its stream, playing or not.
     pub fn stop(&mut self, env: &mut SoundEnv<'_>, key: SourceKey) {
-        if self.source(key).is_some_and(ClientSource::is_playing) {
+        if self.source(key).is_some_and(|s| s.streamed.is_some()) {
+            self.stop_streamed(env, key.0);
+        } else if self.source(key).is_some_and(ClientSource::is_playing) {
             self.stop_linked(env, key.0);
         }
     }
 
-    /// Slot 25 at the manager's clock.
+    /// Slot 25 at the manager's clock. A streamed source cannot be moved
+    /// (the reference's "Tried to restart streaming sound").
     pub fn set_start_offset(&mut self, env: &SoundEnv<'_>, key: SourceKey, offset: i32) {
         let now = env.now;
-        self.slot(key.0).set_start_offset(offset, now);
+        let source = self.slot(key.0);
+        if source.streamed.is_none() {
+            source.set_start_offset(offset, now);
+        }
     }
 
     /// Slot 22 (`SourceStart`): a playing source of the same archetype
@@ -635,8 +658,7 @@ impl ClientSound {
         let source = self.slot(key.0);
         if source.playing {
             if source.arch.map(ArchRef::identity) == Some(arch.identity()) {
-                let now = env.now;
-                self.slot(key.0).set_start_offset(extra, now);
+                self.set_start_offset(env, key, extra);
                 return true;
             }
             self.stop(env, key);
@@ -678,7 +700,7 @@ impl ClientSound {
     /// position, the archetype's random pitch, then [`Self::start`] with the
     /// key's offset. With `want_handle` the caller gets a reference on the
     /// source. A streamer archetype or a streamed key makes a streamed
-    /// source, which is not ported here (P5.5, divergence D528): false.
+    /// source ([`streamed`]), which starts only with a stream.
     pub fn play(
         &mut self,
         env: &mut SoundEnv<'_>,
@@ -694,10 +716,12 @@ impl ClientSound {
             ArchRef::Voice { .. } => false,
         };
         let flags = key.map_or(0, |k| k.flags);
-        if streamer || flags & key_flags::STREAMED != 0 {
-            return (false, None);
-        }
-        let mut source = ClientSource::new(flags & key_flags::SPATIAL != 0);
+        let streamed = streamer || flags & key_flags::STREAMED != 0;
+        let mut source = if streamed {
+            ClientSource::new_streamed()
+        } else {
+            ClientSource::new(flags & key_flags::SPATIAL != 0)
+        };
         if let Some(k) = key {
             let mut bits = source.flags;
             bits = (((k.flags >> 2) ^ bits) & 2) ^ bits;
@@ -720,7 +744,11 @@ impl ClientSound {
         };
         let id = SourceKey(self.alloc(source));
         let extra = key.map_or(0, |k| k.start.cast_signed());
-        let ok = self.start(env, id, arch, extra);
+        let ok = if streamed {
+            self.start_streamed(env, id.0, arch, extra)
+        } else {
+            self.start(env, id, arch, extra)
+        };
         let handle = if ok && want_handle {
             self.add_ref(id);
             Some(id)
@@ -764,10 +792,11 @@ impl ClientSound {
         }
     }
 
-    /// `StopAllClientSoundsExceptArch` without the background sources:
-    /// every playing source not of `keep` stopped, the mixer ticked, the
-    /// ducking reset.
+    /// `StopAllClientSoundsExceptArch`: the background music and ambience
+    /// stopped and let go, every playing source not of `keep` stopped, the
+    /// mixer ticked, the ducking reset.
     pub fn stop_all_except(&mut self, env: &mut SoundEnv<'_>, keep: Option<ArchRef>) {
+        self.stop_backgrounds(env);
         for key in self.playing.clone() {
             if self.slots.0[key as usize].as_ref().and_then(|s| s.arch) != keep {
                 self.stop(env, SourceKey(key));
@@ -877,6 +906,11 @@ impl ClientSound {
             let full = self.ranked.len() >= MAX_RANKED;
             let source = self.slot(key);
             source.compute_score(listener);
+            if source.streamed.is_some() {
+                // Unmanaged: never ranked.
+                self.update_streamed(env, key, dt);
+                continue;
+            }
             if source.is_finished() {
                 continue;
             }
@@ -917,10 +951,12 @@ impl ClientSound {
         self.ranked = ranked;
         // (6) Retire what finished, from the front.
         for key in self.playing.clone() {
-            if self.slots.0[key as usize]
-                .as_ref()
-                .is_some_and(ClientSource::is_finished)
-            {
+            let finished = match self.slots.0[key as usize].as_ref() {
+                None => false,
+                Some(s) if s.streamed.is_some() => self.streamed_finished(env, key),
+                Some(s) => s.is_finished(),
+            };
+            if finished {
                 self.stop(env, SourceKey(key));
             }
         }
