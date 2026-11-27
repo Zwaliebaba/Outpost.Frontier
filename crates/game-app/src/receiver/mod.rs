@@ -15,7 +15,10 @@
 //! (62), `SendServerSetReputation` (66), `SendServerSetMissionObjectives`
 //! (72), `SendServerLoadHint` (81), the common blocks (1, 91, 92, 97, 98),
 //! the seven `MISCOBJUPDATE` slots (113 to 120), `SendServerSetMusic` (122)
-//! and `SendServerPlaySoundEffect` (124). A slot whose effect belongs to a
+//! and `SendServerPlaySoundEffect` (124), and the location controller's
+//! `SETSTARTROOM` and `GF` slots (28 to 45), which also write into
+//! [`location::LocationDb`].
+//! A slot whose effect belongs to a
 //! sub-system not ported yet (the reputation vibes, the HUD's comm
 //! costumes, the story star, the best path, the space-script camera, the
 //! game objects' equipment) logs the call, does what is ported and counts
@@ -23,6 +26,7 @@
 //! counted in [`ClientReceiver::unported`] until their packages port them.
 
 pub mod args;
+pub mod location;
 
 use std::collections::BTreeMap;
 
@@ -183,6 +187,8 @@ pub struct ClientReceiver {
     /// Slots that ran but whose effect on a sub-system not ported yet was
     /// left out, by method, with their count.
     pub unported_effects: BTreeMap<&'static str, u32>,
+    /// The location controller's mirrors the `GF` slots write.
+    pub location: location::LocationDb,
 }
 
 impl Default for ClientReceiver {
@@ -203,6 +209,7 @@ impl ClientReceiver {
             log: oracle.then(IClientLog::new),
             unported: BTreeMap::new(),
             unported_effects: BTreeMap::new(),
+            location: location::LocationDb::default(),
         }
     }
 
@@ -661,6 +668,7 @@ impl ClientReceiver {
                 .uint("RoomId", room);
         });
         self.player.start_room = Some((base, room));
+        self.location.set_base_start_location(base, room);
     }
 
     /// The gameflow slots 29 to 45: each logged with the C++ proxy's
@@ -765,6 +773,7 @@ impl ClientReceiver {
             }
             _ => {}
         }
+        self.location_forward(&m);
         self.player.gameflow.push(m);
     }
 
