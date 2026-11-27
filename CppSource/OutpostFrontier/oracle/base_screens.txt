@@ -1,0 +1,47 @@
+# Oracle script (P0.5, P5.10): the first base's dealer screens, from the save of the first base.
+# Run after single_player.txt, from the user folder it left, as load_game.txt is.
+# Run: bin\OutpostFrontier.exe +oracle <repo>\CppSource\OutpostFrontier\oracle\base_screens.txt <out>
+# Format: CppSource/OutpostFrontier/Client/oracle_mode.cpp, design/reference-build.md section 8.
+
+waitscreen menu 1 900
+wait 90
+
+# Load Game, as load_game.txt: the newest save, the first base.
+click text:LOAD GAME
+waitscreen menu 18 300
+wait 60
+row CharSelDesc 0
+click LoadCharacter
+waitscreen client 3 900
+wait 300
+dump base
+
+# The navigation bar's dealers (their meshes: commod_trader, equipment_dealer, ship_dealer),
+# each opened, dumped and cancelled.
+click ButtonControl3
+wait 90
+dump commodity-trader
+command USER_CANCEL
+wait 60
+dump commodity-trader-closed
+
+click ButtonControl4
+wait 90
+dump equipment-dealer
+command USER_CANCEL
+wait 60
+dump equipment-dealer-closed
+
+click ButtonControl5
+wait 90
+dump ship-dealer
+command USER_CANCEL
+wait 60
+dump ship-dealer-closed
+
+# The repair room (RoomControl1, repair.3db).
+click RoomControl1
+wait 120
+dump repair
+
+quit

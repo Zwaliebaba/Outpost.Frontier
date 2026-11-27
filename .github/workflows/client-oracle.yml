@@ -138,6 +138,8 @@ jobs:
         #   d      menu_walk.txt after removing the user folder only
         #   s1, s2 single_player.txt twice, with the in-process server on the oracle clock
         #   l1, l2 load_game.txt twice: the newest save, the first base s2 left (P5.3)
+        #   r1     base_screens.txt: the same save, then the first base's dealer screens and
+        #          repair room opened and dumped (P5.10)
         # Each run's user folder afterwards is copied to its out\user (the saves, for the port's
         # load-game comparison, since a cache hit skips the runs).
         # c and d tell which per-user state makes the first run's extra login response.
@@ -271,6 +273,7 @@ jobs:
           $result += RunOracle 's2' 'single_player.txt' 'none'
           $result += RunOracle 'l1' 'load_game.txt' 'none'
           $result += RunOracle 'l2' 'load_game.txt' 'none'
+          $result += RunOracle 'r1' 'base_screens.txt' 'none'
           Get-ChildItem "$env:LOCALAPPDATA\CrashDumps", "$env:ProgramData\Microsoft\Windows\WER\ReportArchive" -Recurse -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -like '*OutpostFrontier*' } | ForEach-Object { Write-Host "WER: $($_.FullName)" }
           $result | Where-Object { $_ -match ',' } | Set-Content "$env:RUNNER_TEMP\oracle-out\exit.csv"
