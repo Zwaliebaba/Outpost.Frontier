@@ -11,6 +11,7 @@ pub mod chat;
 pub mod client_state;
 pub mod frame;
 pub mod input_router;
+pub mod intro;
 pub mod keymap;
 pub mod loading_screen;
 pub mod login;

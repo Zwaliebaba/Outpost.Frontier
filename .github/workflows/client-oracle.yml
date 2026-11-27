@@ -299,9 +299,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p game-app --test page_data -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # The interface windows of the start-up and the loading screen's bar (P5.1) against
+          # The interface windows of the start-up, the loading screen's bar and the main menu's column (P5.1) against
           # the first tree dump.
-          cargo test --locked -p game-app --test boot_interface_data --test loading_screen_data -- --nocapture
+          cargo test --locked -p game-app --test boot_interface_data --test loading_screen_data --test intro_menu_data -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The navigation bar's window tree (P5.9): menu_walk.txt's load at frame 0 (run a),
           # then single_player.txt's two loads, the second in the first base (run s1).
