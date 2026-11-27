@@ -15,7 +15,9 @@
 //! (62), `SendServerSetReputation` (66), `SendServerSetMissionObjectives`
 //! (72), `SendServerLoadHint` (81), the common blocks (1, 91, 92, 97, 98),
 //! the seven `MISCOBJUPDATE` slots (113 to 120), `SendServerSetMusic` (122)
-//! and `SendServerPlaySoundEffect` (124). A slot whose effect belongs to a
+//! and `SendServerPlaySoundEffect` (124), and the location controller's
+//! `SETSTARTROOM` and `GF` slots (28 to 45) into [`location::LocationDb`].
+//! A slot whose effect belongs to a
 //! sub-system not ported yet (the reputation vibes, the HUD's comm
 //! costumes, the story star, the best path, the space-script camera, the
 //! game objects' equipment) logs the call, does what is ported and counts
@@ -23,6 +25,7 @@
 //! counted in [`ClientReceiver::unported`] until their packages port them.
 
 pub mod args;
+pub mod location;
 
 use std::collections::BTreeMap;
 
@@ -42,6 +45,7 @@ use neuron_core::net::transport::{ConnectionId, Transport, TransportEvent};
 use crate::objects::{ClientObject, ClientObjectKind, ClientObjects};
 use crate::oracle::iclient::IClientLog;
 use crate::oracle::json::OracleJson;
+use location::{GfComplete, GfPair, GfRecord};
 
 /// `IClient` slot 1.
 pub const SLOT_ACTIVATE_EQUIP: i32 = 1;
@@ -166,6 +170,8 @@ pub struct ClientReceiver {
     /// Slots that ran but whose effect on a sub-system not ported yet was
     /// left out, by method, with their count.
     pub unported_effects: BTreeMap<&'static str, u32>,
+    /// The location controller's mirrors the `GF` slots write.
+    pub location: location::LocationDb,
 }
 
 impl Default for ClientReceiver {
@@ -186,6 +192,7 @@ impl ClientReceiver {
             log: oracle.then(IClientLog::new),
             unported: BTreeMap::new(),
             unported_effects: BTreeMap::new(),
+            location: location::LocationDb::default(),
         }
     }
 
@@ -239,6 +246,56 @@ impl ClientReceiver {
                 ServerMessage::MiscObjUpdate(m) => self.misc_obj_update(c, &m),
                 ServerMessage::SetMusic(m) => self.set_music(c, m),
                 ServerMessage::PlaySoundEffect(m) => self.play_sound_effect(c, m.value),
+                ServerMessage::SetStartRoom(m) => {
+                    self.gf_pair(c, GfPair::StartRoom, m.field_00, m.field_04);
+                }
+                ServerMessage::GfDestroyCharacter(m) => {
+                    self.gf_pair(c, GfPair::DestroyCharacter, m.field_00, m.field_04);
+                }
+                ServerMessage::GfDestroyScriptBehavior(m) => {
+                    self.gf_pair(c, GfPair::DestroyScriptBehavior, m.field_00, m.field_04);
+                }
+                ServerMessage::GfDestroyAmbientScript(m) => {
+                    self.gf_pair(c, GfPair::DestroyAmbientScript, m.field_00, m.field_04);
+                }
+                ServerMessage::GfDestroyMissionComputer(m) => {
+                    self.gf_pair(c, GfPair::DestroyMissionComputer, m.field_00, m.field_04);
+                }
+                ServerMessage::GfDestroyNewsBroadcast(m) => {
+                    self.gf_pair(c, GfPair::DestroyNewsBroadcast, m.field_00, m.field_04);
+                }
+                ServerMessage::GfCompleteCharList(m) => {
+                    self.gf_complete(c, GfComplete::Chars, m.value);
+                }
+                ServerMessage::GfCompleteScriptBehaviorList(m) => {
+                    self.gf_complete(c, GfComplete::ScriptBehaviors, m.value);
+                }
+                ServerMessage::GfCompleteAmbientScriptList(m) => {
+                    self.gf_complete(c, GfComplete::AmbientScripts, m.value);
+                }
+                ServerMessage::GfCompleteMissionComputerList(m) => {
+                    self.gf_complete(c, GfComplete::MissionComputers, m.value);
+                }
+                ServerMessage::GfCompleteNewsBroadcastList(m) => {
+                    self.gf_complete(c, GfComplete::News, m.value);
+                }
+                ServerMessage::GfUpdateChar(m) => self.gf_record(c, GfRecord::Char, &m.data),
+                ServerMessage::GfScriptBehavior(m) => {
+                    self.gf_record(c, GfRecord::ScriptBehavior, &m.data);
+                }
+                ServerMessage::GfUpdateAmbientScript(m) => {
+                    self.gf_record(c, GfRecord::AmbientScript, &m.data);
+                }
+                ServerMessage::GfUpdateMissionComputer(m) => {
+                    self.gf_record(c, GfRecord::MissionComputer, &m.data);
+                }
+                ServerMessage::GfMissionVendorAcceptance(m) => {
+                    self.gf_record(c, GfRecord::VendorAcceptance, &m.data);
+                }
+                ServerMessage::GfUpdateNewsBroadcast(m) => {
+                    self.gf_record(c, GfRecord::News, &m.data);
+                }
+                ServerMessage::GfMissionVendorWhyEmpty(m) => self.gf_why_empty(c, m.value),
                 m => *self.unported.entry(m.name()).or_default() += 1,
             },
             ToClient::Common(m) => match m {
