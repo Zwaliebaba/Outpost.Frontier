@@ -467,6 +467,7 @@ namespace
              It != Entry->Rooms.end(); ++It)
         {
             It->Room->load();
+            OracleOnRoomLoaded(It->Room); // Oracle instrumentation (P0.5)
         }
 
         // +0x5a set -> return (nothing below runs).

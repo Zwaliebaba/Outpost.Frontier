@@ -36,8 +36,49 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    # Decision O57 (owner, 2026-11-27): on a pull request the data run runs only when the
+    # pull request changes what it tests, namely the crates its tests build (neuron-core,
+    # game-sim, game-logic, neuron-server, neuron-client and lua32-compiler, which
+    # neuron-client's tests use), the C++, the data, the build's settings or this
+    # workflow. None of those crates depends on game-app or the executables
+    # (xtask/src/graph.rs), so a change confined to them cannot change this job's result.
+    # Pushes to main, the nightly run and manual runs always run it.
+    name: Changes
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      data: ${{ steps.filter.outputs.data }}
+    steps:
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            data:
+              - "crates/neuron-core/**"
+              - "crates/game-sim/**"
+              - "crates/game-logic/**"
+              - "crates/neuron-server/**"
+              - "crates/neuron-client/**"
+              - "crates/lua32-compiler/**"
+              - "CppSource/**"
+              - "outdir/**"
+              - "Cargo.toml"
+              - "Cargo.lock"
+              - "rust-toolchain.toml"
+              - ".cargo/**"
+              - ".github/workflows/data.yml"
+              - ".github/scripts/**"
+              - ".github/msvc-toolset.txt"
+
   data:
     name: Original data against the oracle
+    # A skipped job counts as passed (O57).
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.data == 'true') }}
     runs-on: windows-2025-vs2026
     timeout-minutes: 120
     steps:

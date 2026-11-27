@@ -1,0 +1,9 @@
+# cargo-nextest settings (decision O57). CI runs `cargo nextest run --profile ci`:
+# every test binary of the workspace in parallel, each test in its own process.
+
+[profile.ci]
+# Report every failing test, not only the first.
+fail-fast = false
+# Name the tests that run longer than a minute, so the slow suites can be seen
+# in the job log.
+slow-timeout = { period = "60s" }

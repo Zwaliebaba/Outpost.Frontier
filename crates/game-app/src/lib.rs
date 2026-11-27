@@ -31,6 +31,7 @@ pub mod receiver;
 pub mod render_mode;
 pub mod session;
 pub mod space_camera;
+pub mod space_frame;
 pub mod space_state;
 pub mod star_system;
 pub mod startup_config;

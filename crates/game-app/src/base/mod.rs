@@ -2,3 +2,4 @@
 //! hosts and characters, and the navigation bar.
 
 pub mod nav_bar;
+pub mod room_data;
