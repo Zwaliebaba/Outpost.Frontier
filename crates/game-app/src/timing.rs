@@ -149,6 +149,12 @@ impl<C: Clock> ClientTiming<C> {
         }) as f32
     }
 
+    /// `G_PauseDepth != 0`: the frame times read zero.
+    #[must_use]
+    pub fn paused(&self) -> bool {
+        self.pause_depth != 0
+    }
+
     /// `GetClientFrameTimeCapped`: zero while paused.
     #[must_use]
     pub fn frame_time_capped(&self) -> f64 {

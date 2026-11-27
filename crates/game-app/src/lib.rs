@@ -335,12 +335,13 @@ pub fn run(start_server: session::StartLocalServer<'_>) -> io::Result<()> {
         let frame_ms = cx.core.clock.frame_timestamp_ms();
         // PumpMessages through GameApp's router.
         if let Some(w) = window.as_mut() {
-            let (cursor, wheel) = w
+            let (cursor, wheel, buttons) = w
                 .with_mouse(|m, _| {
                     let (x, y, _) = m.cursor();
-                    ((x, y), m.wheel())
+                    ((x, y), m.wheel(), m.buttons())
                 })
                 .unwrap_or_default();
+            cx.core.mouse_buttons = buttons;
             let mut ime = w.ime();
             let pumped = {
                 let mut router =
