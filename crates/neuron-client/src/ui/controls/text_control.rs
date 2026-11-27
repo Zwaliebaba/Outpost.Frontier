@@ -946,6 +946,9 @@ macro_rules! text_control_slots {
         fn win_control_mut(&mut self) -> Option<&mut WinControl> {
             Some(&mut self.$field.control)
         }
+        fn text_control(&self) -> Option<&TextControl> {
+            Some(&self.$field)
+        }
         fn hit_test(&mut self, ui: &mut Ui, id: NodeId, ray: Vector) -> bool {
             self.$field.hit_test(ui, id, ray)
         }

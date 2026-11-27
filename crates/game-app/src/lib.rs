@@ -18,6 +18,7 @@ pub mod movies;
 pub mod objects;
 pub mod oracle;
 pub mod perf_options;
+pub mod player_behavior;
 pub mod preferences;
 pub mod profile;
 pub mod receiver;
@@ -280,7 +281,7 @@ pub fn run(start_server: session::StartLocalServer<'_>) -> io::Result<()> {
     let mut clock = timing::ClientTiming::new(InstantClock::new());
     let mut camera = cameras::StillCamera::new(mode.back_buffer());
     let mut window = Some(window);
-    let mut host = oracle::StartupHost::default();
+    let mut pending_state = None;
     loop {
         clock.update(true, 0, || {
             std::thread::sleep(std::time::Duration::from_millis(1))
@@ -293,7 +294,10 @@ pub fn run(start_server: session::StartLocalServer<'_>) -> io::Result<()> {
             ));
             dt = oracle::script::FRAME_SECONDS;
             // TickClientFrame's OracleFrameTick, then the local server.
-            run.script.frame_tick(&mut host);
+            run.script.frame_tick(&mut oracle::ClientHost {
+                ui: engine.ui_mut(),
+                pending_state: &mut pending_state,
+            });
             if let Some(log) = link.as_mut().and_then(|l| l.receiver.log.as_mut()) {
                 log.set_frame(run.script.frame());
             }
@@ -305,7 +309,7 @@ pub fn run(start_server: session::StartLocalServer<'_>) -> io::Result<()> {
                 l.deliver_all(Some(s.world()));
             });
         }
-        if host.pending_state == Some(1) {
+        if pending_state == Some(1) {
             // EnterClientState(1): the server shuts down (its Shutdown calls
             // the client's) and the client quits.
             if let Some(l) = link.as_mut() {
