@@ -24,12 +24,18 @@ use game_sim::protocol::to_server::{
     RequestLocationInfo,
 };
 
+use game_sim::protocol::{ToClient, ToServer};
+use neuron_core::net::transport::Transport;
+
 use super::location::apply_location_audio;
 use super::room_data::RoomData;
 use neuron_core::diag::{self, DumpFlags};
 
 use crate::audio::SoundCalls;
+use crate::login::wait_for_server_response;
+use crate::receiver::ClientLink;
 use crate::receiver::location::{LOCATION_CONTROLLER_CPP, LocationDb};
+use crate::session::Session;
 
 /// An `FDUMP` of the controller's source at `line`.
 fn dump(flags: DumpFlags, line: u32, text: &str) {
@@ -86,6 +92,41 @@ pub trait LocationHost {
     fn base_changed(&mut self, base: u32, location: u32);
     /// `OracleNoteScreen("room", location)` at the start of a change.
     fn screen_room(&mut self, location: u32);
+}
+
+/// The controller's server over the client's link: the messages through
+/// `ClientLink::send`, the mirrors at `receiver.location`, and the waits
+/// through `login::wait_for_server_response` (the session's pump in single
+/// player).
+pub struct LinkServer<'a, T, S: ?Sized> {
+    /// The link.
+    pub link: &'a mut ClientLink<T>,
+    /// The in-process session, in single player.
+    pub session: Option<&'a mut S>,
+    /// The waits' clock in seconds.
+    pub now: &'a mut dyn FnMut() -> f64,
+}
+
+impl<T, S> LocationServer for LinkServer<'_, T, S>
+where
+    T: Transport<Outgoing = ToServer, Incoming = ToClient>,
+    S: Session + ?Sized,
+{
+    /// The link's server interface while the client is not disconnected.
+    fn has_server(&self) -> bool {
+        !self.link.receiver.login.server_disconnected
+    }
+    fn send(&mut self, message: ClientMessage) {
+        self.link.send(ToServer::Client(message));
+    }
+    fn db(&mut self) -> &mut LocationDb {
+        &mut self.link.receiver.location
+    }
+    fn wait(&mut self, done: &dyn Fn(&LocationDb) -> bool) -> bool {
+        let session = self.session.as_deref_mut();
+        wait_for_server_response(self.link, session, |r| done(&r.location), self.now);
+        done(&self.link.receiver.location)
+    }
 }
 
 /// A base of the maps (`FLocationBaseEntry`).
