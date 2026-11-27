@@ -360,3 +360,31 @@ fn space_without_a_controller_leaves_at_once() {
 fn the_inverse_mouse_option_defaults_to_off() {
     assert_eq!(plain_ui().game_option(OPT_INVERSE_MOUSE), 0);
 }
+
+#[test]
+fn the_cockpit_option_is_minus_one_until_applied() {
+    let calls = Calls::default();
+    let mut start = starter(&calls);
+    run_with(plain_ui(), "quit\n", &calls, &mut start, |_, cx| {
+        assert!(cx.core.cockpit_option() == -1.0);
+        let perf = &mut cx.core.preferences.perf;
+        let index = crate::perf_options::PerfOptions::find(b"cockpit").expect("cockpit");
+        perf.options[index].value = 1.0;
+        perf.apply_changed();
+        assert!(cx.core.cockpit_option() == 1.0);
+    });
+}
+
+#[test]
+fn the_ship_cameras_are_empty_without_the_worlds_data() {
+    let calls = Calls::default();
+    let mut start = starter(&calls);
+    run_with(plain_ui(), "quit\n", &calls, &mut start, |_, cx| {
+        // The test server's world has no data root.
+        assert!(cx.core.session.is_some());
+        assert_eq!(
+            cx.core.ship_cameras(),
+            crate::space_camera_third::ShipCameraTable::default()
+        );
+    });
+}
