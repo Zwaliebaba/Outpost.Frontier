@@ -41,11 +41,14 @@
 //! population's ships (`session.jsonl` `npc`) are spawned into the motion
 //! world by their archetypes and loadouts.
 //!
-//! The dock behaviour's `Orient3a8` (`beh7`'s floats 26 to 34) is not
-//! judged on the tick of a ship's first dock engagement while nothing has
-//! written it (`RefreshApproachState`, which asks `get_dock_hardpoints`
-//! first, is its only writer): the reference's constructor leaves it as
-//! the heap held it (D178, the owner's decision of 2026-11-26). The
+//! The dock behaviour's mount (`SavedPosition3fc`), `Orient3a8` and
+//! `Orient40c` (`beh7`'s floats 17 to 19, 26 to 34 and 44 to 52) are not
+//! judged while the reference has not written them: its constructor
+//! leaves them as the heap held them, and `RefreshApproachState`, their
+//! only writer, copies its uninitialised locals into them when
+//! `get_dock_hardpoints` does not write an output. They count as written
+//! once a recorded entry restored them or a call wrote all three outputs
+//! (D178, the owner's decisions of 2026-11-26 and 2026-11-27). The
 //! summary counts those fields.
 //!
 //! A tick whose behaviour on entry or exit is not ported yet is counted as
@@ -249,10 +252,11 @@ struct ReplayWorld<'a> {
     /// each candidate's slot and padded capsule, the winner and its
     /// tests), for the mismatch report.
     classify: std::cell::RefCell<Vec<String>>,
-    /// Whether the ship's manager asked `get_dock_hardpoints` (the dock
-    /// behaviour's `RefreshApproachState`, the only writer of its
-    /// `Orient3a8`, asks it first; D178).
-    dock_asked: bool,
+    /// For each `get_dock_hardpoints` call of the tick, in order, whether
+    /// it wrote all three transforms (the mount and both dock points);
+    /// an output it did not write is the caller's uninitialised local in
+    /// the reference (D178).
+    dock_outputs: Vec<bool>,
 }
 
 impl<'a> ReplayWorld<'a> {
@@ -356,7 +360,7 @@ impl<'a> ReplayWorld<'a> {
                 .collect(),
             log: std::cell::RefCell::new(Vec::new()),
             classify: std::cell::RefCell::new(Vec::new()),
-            dock_asked: false,
+            dock_outputs: Vec::new(),
         }
     }
 
@@ -556,12 +560,12 @@ impl AiWorld for ReplayWorld<'_> {
     /// The recorded answer of `get_dock_hardpoints` for the object and
     /// sphere (the caller's buffers as they were after the call).
     fn dock_hardpoints(&mut self, h: u32, index: i32) -> DockHardpoints {
-        self.dock_asked = true;
         let Some(a) = self.take_answer("dock_hardpoints", |a| {
             a.id == h && a.ints.first() == Some(&index)
         }) else {
             self.unanswered
                 .push(format!("dock_hardpoints({h}, {index})"));
+            self.dock_outputs.push(false);
             return DockHardpoints::failed(-5);
         };
         let flag = |k: usize| a.ints.get(k).is_some_and(|&v| v != 0);
@@ -572,7 +576,7 @@ impl AiWorld for ReplayWorld<'_> {
                 Vector::new(f[9], f[10], f[11]),
             ))
         };
-        DockHardpoints {
+        let answer = DockHardpoints {
             result: a.ints.get(1).copied().unwrap_or(-5),
             terminal: a.ints.get(2).copied(),
             mount: if flag(3) { xform(0) } else { None },
@@ -583,7 +587,10 @@ impl AiWorld for ReplayWorld<'_> {
             } else {
                 None
             },
-        }
+        };
+        self.dock_outputs
+            .push(answer.mount.is_some() && answer.point1.is_some() && answer.point2.is_some());
+        answer
     }
 
     /// The recorded answer of `get_lane_start` the ship got for the ring.
@@ -1219,18 +1226,23 @@ fn beh_skipped(kind: i32, k: usize) -> bool {
     kind == 8 && k == 6
 }
 
-/// The floats of `beh7` that hold the dock behaviour's `Orient3a8`
-/// (`design/sim-records.md`: the eight scalars, the six vectors, then
-/// `Orient3a8`, `OrientMatrix3d8` and `Orient40c` row by row).
-const DOCK_ORIENT_3A8: std::ops::Range<usize> = 26..35;
+/// The floats of `beh7` that only `RefreshApproachState` writes, from
+/// `get_dock_hardpoints`' outputs (`design/sim-records.md`: the eight
+/// scalars, the six vectors, then `Orient3a8`, `OrientMatrix3d8` and
+/// `Orient40c` row by row): `SavedPosition3fc` (the mount; its one other
+/// writer copies `DestPoint3cc` into it), `Orient3a8` (the second dock
+/// point's frame) and `Orient40c` (the mount's frame). The constructor
+/// leaves them as the heap held them, and a call that does not write an
+/// output leaves them as its uninitialised local (D178).
+const DOCK_UNWRITTEN: [std::ops::Range<usize>; 3] = [17..20, 26..35, 44..53];
 
 /// The differences between the recorded and the Rust behaviour fields;
-/// the floats of `uninitialised` are not judged (the dock behaviour's
-/// `Orient3a8` before the reference first writes it, D178).
+/// the floats in `uninitialised` are not judged (the dock behaviour's
+/// mount and frames while the reference has not written them, D178).
 fn beh_diff(
     theirs: &BehRecord,
     ours: Option<&BehRecord>,
-    uninitialised: Option<std::ops::Range<usize>>,
+    uninitialised: Option<&[std::ops::Range<usize>]>,
 ) -> Option<String> {
     let Some(ours) = ours else {
         return Some(format!(
@@ -1242,7 +1254,7 @@ fn beh_diff(
         .filter(|&k| !beh_skipped(theirs.kind, k) && theirs.ints.get(k) != ours.ints.get(k))
         .collect();
     let floats: Vec<usize> = (0..theirs.floats.len().max(ours.floats.len()))
-        .filter(|&k| !uninitialised.as_ref().is_some_and(|r| r.contains(&k)))
+        .filter(|&k| !uninitialised.is_some_and(|r| r.iter().any(|r| r.contains(&k))))
         .filter(|&k| {
             theirs.floats.get(k).map(|v| v.to_bits()) != ours.floats.get(k).map(|v| v.to_bits())
         })
@@ -1272,16 +1284,17 @@ fn beh_diff(
 /// face behaviour's): its constructor leaves most of them as the heap
 /// held them, and `SetContext` computed the `hpmount` offset before the
 /// first tick.
-fn restore_dock(manager: &mut BehaviorManager<ReplayWorld<'_>>, r: &BehRecord) {
+/// Whether it restored them.
+fn restore_dock(manager: &mut BehaviorManager<ReplayWorld<'_>>, r: &BehRecord) -> bool {
     if r.kind != 7 || r.ints.len() < 21 || r.floats.len() < 53 {
-        return;
+        return false;
     }
     let Some(d) = manager
         .behavior_mut(7)
         .and_then(|b| b.as_any_mut())
         .and_then(|a| a.downcast_mut::<DockBehavior>())
     else {
-        return;
+        return false;
     };
     let i = &r.ints;
     let f = &r.floats;
@@ -1336,6 +1349,7 @@ fn restore_dock(manager: &mut BehaviorManager<ReplayWorld<'_>>, r: &BehRecord) {
     d.orient_3a8 = m(26);
     d.orient_3d8 = m(35);
     d.orient_40c = m(44);
+    true
 }
 
 /// Puts the recorded trade-lane fields into the Rust behaviour: its
@@ -1612,8 +1626,8 @@ struct Totals {
     /// fields, and those the Rust behaviour left differently.
     beh_compared: usize,
     beh_mismatched: usize,
-    /// The dock behaviour's `Orient3a8` floats not judged at a first
-    /// engagement before the reference wrote them (D178), and the ticks.
+    /// The dock behaviour's mount and frame floats not judged while the
+    /// reference has not written them (D178), and the ticks.
     beh_uninitialised: usize,
     beh_uninitialised_ticks: usize,
     beh_reports: Vec<String>,
@@ -1871,10 +1885,10 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
     let mut last_out: BTreeMap<u32, ManagerRecord> = BTreeMap::new();
     let mut face_point: Option<Vector> = None;
     let mut personalities: BTreeMap<u32, Personality> = BTreeMap::new();
-    // The ships whose dock behaviour has been current (its first
-    // engagement is behind them), and those whose manager asked
-    // `get_dock_hardpoints` (the dock's `Orient3a8` has been written).
-    let mut dock_engaged: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    // The ships whose dock behaviour's mount and frames hold what the
+    // reference wrote (D178): restored from a recorded entry, or written
+    // by a `get_dock_hardpoints` call that set all three outputs, and not
+    // since left by a call that did not.
     let mut dock_written: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     let names: BTreeMap<u32, String> = ticks
         .iter()
@@ -2102,7 +2116,9 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             restore_face(manager, f);
         }
         if let Some(b) = &t.input.beh {
-            restore_dock(manager, b);
+            if restore_dock(manager, b) {
+                dock_written.insert(t.id);
+            }
             restore_trade_lane(manager, b);
         }
         manager.state.stand_in_polls = 0;
@@ -2111,6 +2127,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             manager.state.personality = *p;
         }
         let orient_before = face_snapshot(manager).map(|f| f.orient);
+        let dock_calls = world.dock_outputs.len();
         manager.update_behavior_tick(&mut world, t.id, t.dt);
         // A directive of the tick that no callback took (the manager
         // notified none) waits for the ship's next tick.
@@ -2123,21 +2140,21 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             );
         }
         avoid_shuffled = world.avoid_shuffled;
-        // D178 (owner, 2026-11-26): at a dock's first engagement, until
-        // `RefreshApproachState` writes it, the dock behaviour's
-        // `Orient3a8` holds what the heap held (the oracle's runs disagree
-        // on it); those floats of `beh7` are not judged on that tick.
-        if world.dock_asked {
-            dock_written.insert(t.id);
+        // D178 (owner, 2026-11-26; widened 2026-11-27): until
+        // `RefreshApproachState` writes them from a call that set every
+        // output, the dock behaviour's mount and its two frames hold what
+        // the heap or the call's uninitialised locals held (the oracle's
+        // runs disagree on them); those floats of `beh7` are not judged.
+        match world.dock_outputs[dock_calls..].last() {
+            Some(true) => {
+                dock_written.insert(t.id);
+            }
+            Some(false) => {
+                dock_written.remove(&t.id);
+            }
+            None => {}
         }
-        let dock_uninitialised = (out.behavior == 7
-            && t.input.behavior != 7
-            && !dock_engaged.contains(&t.id)
-            && !dock_written.contains(&t.id))
-        .then_some(DOCK_ORIENT_3A8);
-        if out.behavior == 7 || t.input.behavior == 7 {
-            dock_engaged.insert(t.id);
-        }
+        let dock_uninitialised = !dock_written.contains(&t.id);
         last_out.insert(t.id, out.clone());
         let ours = snapshot(&manager.state);
         if let Some(b) = [t.input.behavior, out.behavior]
@@ -2212,9 +2229,14 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         if let Some(theirs) = &out.beh {
             totals.beh_compared += 1;
             let ours = beh_snapshot(manager, theirs.kind);
-            let uninitialised = dock_uninitialised.filter(|_| theirs.kind == 7);
-            if let Some(r) = &uninitialised {
-                totals.beh_uninitialised += r.clone().filter(|&k| k < theirs.floats.len()).count();
+            let uninitialised =
+                (dock_uninitialised && theirs.kind == 7).then_some(&DOCK_UNWRITTEN[..]);
+            if let Some(r) = uninitialised {
+                totals.beh_uninitialised += r
+                    .iter()
+                    .flat_map(Clone::clone)
+                    .filter(|&k| k < theirs.floats.len())
+                    .count();
                 totals.beh_uninitialised_ticks += 1;
             }
             if let Some(d) = beh_diff(theirs, ours.as_ref(), uninitialised) {
@@ -2361,7 +2383,7 @@ fn behavior_ticks_against_the_oracle() {
     }
     let _ = writeln!(
         summary,
-        "dock, launch and trade-lane fields on exit: {} ticks compared, {} with a difference; {} fields not judged (the dock behaviour's Orient3a8 before the reference writes it, at {} first engagements, D178)",
+        "dock, launch and trade-lane fields on exit: {} ticks compared, {} with a difference; {} fields not judged (the dock behaviour's mount, Orient3a8 and Orient40c before the reference writes them, on {} ticks, D178)",
         totals.beh_compared,
         totals.beh_mismatched,
         totals.beh_uninitialised,

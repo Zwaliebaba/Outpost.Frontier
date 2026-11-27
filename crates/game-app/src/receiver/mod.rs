@@ -362,9 +362,10 @@ impl ClientReceiver {
         marked_by: bool,
     ) {
         let archetype = world.map_or(0, |w| w.data().archetypes.small_to_large(object.archetype));
-        let (slot, method, line, label) = match kind {
-            ClientObjectKind::Solar => (SLOT_CREATE_SOLAR, "SendServerCreateSolar", 0x67, "Solar"),
-            ClientObjectKind::Ship => (SLOT_CREATE_SHIP, "SendServerCreateShip", 0xff, "Ship"),
+        let (slot, method, line, label) = if kind == ClientObjectKind::Solar {
+            (SLOT_CREATE_SOLAR, "SendServerCreateSolar", 0x67, "Solar")
+        } else {
+            (SLOT_CREATE_SHIP, "SendServerCreateShip", 0xff, "Ship")
         };
         self.call(slot, method, |a| {
             a.uint("ClientId", client_id)
@@ -388,12 +389,17 @@ impl ClientReceiver {
             );
             return;
         }
-        self.objects.register(ClientObject {
+        let object = ClientObject {
             id: object.obj_id,
             kind,
             archetype,
             handle,
-        });
+            remote_physics: false,
+        };
+        match world {
+            Some(world) => self.objects.register(object, world),
+            None => self.objects.register(object, &()),
+        };
         self.unported_effect(method);
     }
 
