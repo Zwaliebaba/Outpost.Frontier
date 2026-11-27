@@ -23,6 +23,8 @@
 //                                     OracleNoteScreen
 //   menu_keymap.cpp, ui_page_desc.cpp, wincontrol_base.cpp, nn_preferences.cpp,
 //   hud_element_list.cpp              the OracleOn*Loaded dumps
+//   menu_universe_base.cpp LoadLocationBase
+//                                     OracleOnRoomLoaded after RoomData::load
 //   client_exports.cpp                OracleWrapClientInterface / OracleWrapChatClientInterface
 //   win3d.cpp                         Win3DForEachRegistered (read-only registry walk)
 
@@ -33,6 +35,7 @@ struct DisplaySettings;
 struct Win3D;
 struct FUiPageData;
 class HUDItem;
+class RoomData;
 class NnPreferences;
 class IClient;
 class IChatClient;
@@ -70,6 +73,8 @@ void OracleOnWinControlIni(char const* Path, Win3D* Control);
 void OracleOnKeyListLoaded(char const* Path, NnPreferences const* Preferences);
 void OracleOnOptListLoaded(char const* Path, bool bOpened, NnPreferences const* Preferences);
 void OracleOnHudElementsLoaded(char const* Path, HUDItem* Head, int StaticBlend);
+// menu_universe_base.cpp LoadLocationBase, after RoomData::load: the room's file as read.
+void OracleOnRoomLoaded(RoomData const* Room);
 
 // GetClientInterface / GetChatClientInterface: the logging proxy when the oracle is on,
 // otherwise Real unchanged.

@@ -166,6 +166,21 @@ impl OracleJson {
         self
     }
 
+    /// `BeginObject(nullptr)`: an object as an element of the open array.
+    pub fn begin_object_item(&mut self) -> &mut Self {
+        self.sep(None);
+        self.text.push('{');
+        self.need_comma.push(false);
+        self
+    }
+
+    /// `Null(nullptr)` (also `Str(nullptr, nullptr)`): a null element.
+    pub fn item_null(&mut self) -> &mut Self {
+        self.sep(None);
+        self.text.push_str("null");
+        self
+    }
+
     /// `EndArray`.
     pub fn end_array(&mut self) -> &mut Self {
         self.text.push(']');
