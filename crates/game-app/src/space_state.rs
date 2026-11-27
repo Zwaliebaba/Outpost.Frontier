@@ -357,6 +357,12 @@ pub struct SpaceApp {
     /// Left by [`update`] for the sound layer to play
     /// (`SetClientBackgroundMusic`); `None` when the track is unchanged.
     pub music_change: Option<crate::star_system::MusicChange>,
+    /// The cockpit camera's own state (`FFirstPersonCamera` +0x100 ..).
+    pub first_person: crate::space_camera_first::FirstPersonCamera,
+    /// The `cockpit` performance option's applied value
+    /// (`FindPerfOption("cockpit")->Applied`; -1 until applied), set by the
+    /// owner from `PerfOptions::applied`.
+    pub cockpit_option: f32,
     /// The chase camera's own state (`FThirdPersonCamera` +0x100 ..).
     pub third_person: ThirdPersonCamera,
     /// `G_CameraShakeAmount`, shared by the HUD cameras.
@@ -387,6 +393,8 @@ impl SpaceApp {
             music: None,
             background_music_finished: false,
             music_change: None,
+            first_person: crate::space_camera_first::FirstPersonCamera::default(),
+            cockpit_option: -1.0,
             third_person: ThirdPersonCamera::default(),
             shake: CameraShake::default(),
             ship_cameras: ShipCameraTable::default(),
@@ -411,6 +419,17 @@ impl SpaceApp {
             };
             let cam = self.cameras.camera_mut(mode);
             self.camera_warning = self.third_person.update(cam, &mut cx, dt).err();
+        } else if mode == SpaceCameraMode::FirstPerson {
+            let mut cx = ChaseCx {
+                world,
+                ships: &self.ship_cameras,
+                shake: &mut self.shake,
+                rand: &mut self.rand,
+                hits: ShakeHits::default(),
+            };
+            let cam = self.cameras.camera_mut(mode);
+            self.first_person
+                .update(cam, &mut cx, dt, self.cockpit_option);
         } else {
             self.cameras.camera_mut(mode).update(dt);
         }
@@ -436,6 +455,9 @@ impl SpaceApp {
             };
             let cam = self.cameras.camera_mut(mode);
             self.camera_warning = self.third_person.attach(cam, &mut cx, object).err();
+        } else if mode == SpaceCameraMode::FirstPerson {
+            let cam = self.cameras.camera_mut(mode);
+            self.first_person.attach(cam, world, object);
         } else {
             self.cameras.camera_mut(mode).attach(object);
         }
@@ -453,7 +475,7 @@ impl SpaceApp {
 /// - A requested leave: 6.
 ///
 /// The active camera's update is the chase camera's own solve when it is
-/// `third_person`; the other cameras' motion, and every camera's draw,
+/// `third_person`, the cockpit camera's when it is `first_person`; the other cameras' motion, and every camera's draw,
 /// are not here yet (P5.4b), nor the docking and lights passes, the sound
 /// mixer, the fade, the reap, the pending system switch and the player's
 /// last position.

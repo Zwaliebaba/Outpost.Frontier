@@ -22,6 +22,11 @@
 //!   eye on it through the ship's frame and the manager in level mode; as
 //!   the ship flies, each update keeps the eye behind and above it.
 //!
+//! - `the_cockpit_camera_sits_at_the_cockpit`: the cockpit camera's attach
+//!   puts the eye on the fighter's `HpCockpit`; flying, the rigid eye
+//!   stays on it, and with the `cockpit` option applied the head lags
+//!   behind the acceleration.
+//!
 //! Without the data each prints a notice.
 
 use std::path::{Path, PathBuf};
@@ -30,6 +35,7 @@ use std::sync::Arc;
 use game_app::objects::{ClientObject, ClientObjectKind, ClientObjects};
 use game_app::player_behavior::{FlightFrame, MOUSE_FLIGHT_HOLD, PlayerFlight, PlayerShip};
 use game_app::space_camera::GameCamera;
+use game_app::space_camera_first::FirstPersonCamera;
 use game_app::space_camera_third::{
     CameraShake, ChaseCx, ShakeHits, ShipCameraTable, ThirdPersonCamera,
 };
@@ -316,4 +322,78 @@ fn the_chase_camera_follows_the_ship() {
     assert!(chase.smoothed_speed > 0.0);
     // The camera's velocity follows the ship's.
     assert!(cam.velocity.z < 0.0, "{:?}", cam.velocity);
+}
+
+#[test]
+fn the_cockpit_camera_sits_at_the_cockpit() {
+    let config = WorldConfig {
+        single_player: true,
+        ..WorldConfig::default()
+    };
+    let Some((mut world, ship)) = world_with(config) else {
+        println!("notice: outdir/ has no data; nothing was flown");
+        return;
+    };
+    let table = ShipCameraTable::default();
+    let mut objects = ClientObjects::default();
+    let id = world.get(ship).unwrap().simple.id;
+    objects.register(
+        ClientObject {
+            id,
+            kind: ClientObjectKind::Ship,
+            archetype: create_id(b"he_fighter"),
+            handle: Some(ship),
+            remote_physics: false,
+        },
+        &world,
+    );
+    let mut shake = CameraShake::default();
+    let mut rand = CrtRand::default();
+    let mut rigid_cam = GameCamera::new(Default::default());
+    let mut rigid = FirstPersonCamera::default();
+    rigid.attach(&mut rigid_cam, &world, Some(ship));
+    let p = world.get(ship).unwrap().engine.position;
+    let hp = rigid.hardpoint_pos;
+    println!("HpCockpit at {hp:?}");
+    let eye = rigid_cam.camera.world_pos;
+    assert!((eye.x - (p.x + hp.x)).abs() < 1e-2 && (eye.z - (p.z + hp.z)).abs() < 1e-2);
+    let mut lag_cam = rigid_cam;
+    let mut lag = rigid;
+
+    world.command(ship, Command::SetThrottle(1.0));
+    for _ in 0..15 {
+        space_frame::simulate(&mut world, &objects, create_id(b"he01"), 1, 1.0 / 30.0);
+        for (cam, cockpit, option) in [
+            (&mut rigid_cam, &mut rigid, -1.0),
+            (&mut lag_cam, &mut lag, 1.0),
+        ] {
+            let mut cx = ChaseCx {
+                world: &mut world,
+                ships: &table,
+                shake: &mut shake,
+                rand: &mut rand,
+                hits: ShakeHits::default(),
+            };
+            cockpit.update(cam, &mut cx, 1.0 / 30.0, option);
+        }
+    }
+    let p = world.get(ship).unwrap().engine.position;
+    let rot = world.get(ship).unwrap().engine.orientation;
+    let want = neuron_core::math::transform_matrix(&rot, hp);
+    let eye = rigid_cam.camera.world_pos;
+    assert!(
+        (eye.z - (p.z + want.z)).abs() < 1e-2,
+        "the rigid eye stays on the cockpit: {eye:?} against {p:?}"
+    );
+    assert!(lag.head_lag != 0.0, "the head lags under acceleration");
+    assert_ne!(lag_cam.camera.world_pos, rigid_cam.camera.world_pos);
+    // The first update put the manager back in the normal camera mode.
+    assert_eq!(
+        world
+            .behavior_manager(ship)
+            .expect("made")
+            .state
+            .camera_level_status,
+        0
+    );
 }
