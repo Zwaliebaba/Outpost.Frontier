@@ -11,15 +11,23 @@
 //!   offset from the centre; letting go resets the direction; leaving the
 //!   radius forces the threshold.
 //!
+//! - `the_space_frame_flies_the_players_ship`: with the throttle set, the
+//!   single-player space frame (object updates, the physics step) moves
+//!   the player's ship forward. The step moves every body, a foreign
+//!   ship's too; which objects the client updates is the module's unit
+//!   test.
+//!
 //! Without the data each prints a notice.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use game_app::objects::{ClientObject, ClientObjectKind, ClientObjects};
 use game_app::player_behavior::{FlightFrame, MOUSE_FLIGHT_HOLD, PlayerFlight, PlayerShip};
+use game_app::space_frame;
 use game_sim::data::config::{DataConfig, GameData};
 use game_sim::object::world::{Assets, ShipSpawn, WorldConfig};
-use game_sim::object::{ObjHandle, World};
+use game_sim::object::{Command, ObjHandle, World};
 use neuron_core::id::create_id;
 use neuron_core::math::{Matrix, Vector};
 use neuron_core::vfs::Host;
@@ -30,12 +38,17 @@ fn outdir() -> PathBuf {
 
 /// A world over `outdir/` with he01 loaded and a player's fighter in it.
 fn world() -> Option<(World, ObjHandle)> {
+    world_with(WorldConfig::default())
+}
+
+/// The same with a world configuration.
+fn world_with(world_config: WorldConfig) -> Option<(World, ObjHandle)> {
     let root = outdir();
     let config = DataConfig::read(&Host::new(&root), b"OutpostFrontier.ini")?;
     let mut data = GameData::new();
     data.load(&Host::new(root.join("data")), &config, None);
-    let mut world = World::new(Arc::new(data), WorldConfig::default())
-        .with_assets(Assets::new(root.join("data")));
+    let mut world =
+        World::new(Arc::new(data), world_config).with_assets(Assets::new(root.join("data")));
     let he01 = create_id(b"he01");
     world.load_system(he01);
     let mut spawn = ShipSpawn::new(
@@ -158,4 +171,52 @@ fn mouse_flight_engages_after_the_hold() {
     frame.cursor.0 += 40;
     flight.update_mouse_flight(&mut player, &frame);
     assert_eq!(flight.hold_timer, MOUSE_FLIGHT_HOLD);
+}
+
+#[test]
+fn the_space_frame_flies_the_players_ship() {
+    let config = WorldConfig {
+        single_player: true,
+        ..WorldConfig::default()
+    };
+    let Some((mut world, ship)) = world_with(config) else {
+        println!("notice: outdir/ has no data; nothing was flown");
+        return;
+    };
+    let he01 = create_id(b"he01");
+    let mut spawn = ShipSpawn::new(
+        create_id(b"he_fighter"),
+        create_id(b"li_p_he_fighter_loadout01"),
+        Vector::new(14000.0, 3000.0, -25000.0),
+        Matrix::IDENTITY,
+    );
+    spawn.owner_player = 0;
+    let other = world.spawn_ship(he01, &spawn).expect("a second fighter");
+    let mut objects = ClientObjects::default();
+    for h in [ship, other] {
+        let id = world.get(h).unwrap().simple.id;
+        objects.register(
+            ClientObject {
+                id,
+                kind: ClientObjectKind::Ship,
+                archetype: create_id(b"he_fighter"),
+                handle: Some(h),
+                remote_physics: false,
+            },
+            &world,
+        );
+    }
+    world.command(ship, Command::SetThrottle(1.0));
+    world.command(other, Command::SetThrottle(1.0));
+    let start = |w: &World, h| w.get(h).unwrap().engine.position;
+    let a0 = start(&world, ship);
+    for _ in 0..30 {
+        space_frame::simulate(&mut world, &objects, he01, 1, 1.0 / 30.0);
+    }
+    let a1 = start(&world, ship);
+    // The fighter faces -z.
+    assert!(
+        a1.z < a0.z - 1.0,
+        "the player's ship moved: {a0:?} -> {a1:?}"
+    );
 }
