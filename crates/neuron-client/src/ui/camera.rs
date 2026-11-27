@@ -223,6 +223,49 @@ impl Camera {
         self.rebuild_plane_y(f64::from(tan_y_stored));
     }
 
+    /// `SpaceCameraSetProperty` (the base `SetProperty`, slot 0x4c): `fovx`
+    /// and `fovy` take the full angle and store half of it with the
+    /// projection rebuilt, `znear` and `zfar` set a plane; the key is
+    /// matched without case. False for any other key. The view transform
+    /// stays as it is.
+    pub fn set_property(&mut self, key: &[u8], value: &[u8]) -> bool {
+        let value = neuron_core::msvcrt::ucrt_atof(value);
+        if key.eq_ignore_ascii_case(b"fovx") {
+            // The half angle stays unrounded on the FPU for the tangent.
+            let half = value * 0.5;
+            self.half_fov_x_deg = round(half);
+            let tan_x = (half * f64::from(DEGREES_TO_RADIANS)).tan() * self.hor_plus_scale();
+            let tan_y = tan_x / f64::from(self.aspect);
+            let tan_y_stored = round(tan_y);
+            self.fov_y_deg = tangent_to_degrees(tan_y);
+            self.rebuild_plane_x(tan_x);
+            self.rebuild_plane_y(f64::from(tan_y_stored));
+            return true;
+        }
+        if key.eq_ignore_ascii_case(b"fovy") {
+            // This branch divides with the stored tangents.
+            let fov_y = value * 0.5;
+            self.fov_y_deg = round(fov_y);
+            let tan_y = (fov_y * f64::from(DEGREES_TO_RADIANS)).tan();
+            let tan_y_stored = round(tan_y);
+            let tan_x = tan_y * f64::from(self.aspect);
+            let tan_x_stored = round(tan_x);
+            self.half_fov_x_deg = tangent_to_degrees(tan_x / self.hor_plus_scale());
+            self.rebuild_plane_x(f64::from(tan_x_stored));
+            self.rebuild_plane_y(f64::from(tan_y_stored));
+            return true;
+        }
+        if key.eq_ignore_ascii_case(b"znear") {
+            self.z_near = round(value);
+            return true;
+        }
+        if key.eq_ignore_ascii_case(b"zfar") {
+            self.z_far = round(value);
+            return true;
+        }
+        false
+    }
+
     /// `CameraSetNearFar`: the planes only.
     pub fn set_near_far(&mut self, z_near: f32, z_far: f32) {
         self.z_near = z_near;
