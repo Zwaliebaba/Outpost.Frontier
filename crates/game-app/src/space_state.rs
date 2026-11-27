@@ -10,6 +10,7 @@
 //! and the state's events between those steps are the rest of P5.4; none
 //! of them talks to the server.
 
+use game_sim::object::World;
 use game_sim::protocol::to_server::{RequestCreateShip, RequestLaunch};
 use game_sim::protocol::{ClientMessage, ToClient, ToServer};
 use neuron_core::net::transport::Transport;
@@ -97,13 +98,18 @@ where
         .selected
         .as_ref()
         .map_or(0, |r| r.ship_archetype);
-    let handle = session.and_then(|s| s.world().find(id));
-    link.receiver.objects.register(ClientObject {
+    let world: Option<&World> = session.map(|s| &*s.world());
+    let object = ClientObject {
         id,
         kind: ClientObjectKind::Ship,
         archetype,
-        handle,
-    });
+        handle: world.and_then(|w| w.find(id)),
+        remote_physics: false,
+    };
+    match world {
+        Some(world) => link.receiver.objects.register(object, world),
+        None => link.receiver.objects.register(object, &()),
+    };
     link.receiver.player.launch_acknowledged = false;
     link.send(ToServer::Client(ClientMessage::RequestLaunch(
         RequestLaunch { value: id },
