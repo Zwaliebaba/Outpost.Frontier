@@ -5,7 +5,7 @@
 //! Zones]`, over the defaults of the nebula's constructor and of `Load`.
 //!
 //! A few values neither sets (the exterior's `bit_radius` and `color`, the
-//! fog's `near` and `color`) start at 0 here, where the reference leaves
+//! fog's `color`) start at 0 here, where the reference leaves
 //! the memory as it was (divergence D1700); every shipped nebula sets them.
 //! The shapes found in the nebula's shape database, the zones, the exclusion
 //! shells and the lights are the nebula's runtime.
@@ -127,7 +127,7 @@ impl Exterior {
 pub struct Fog {
     /// `distance`; 10000 (`Load`'s).
     pub distance: f32,
-    /// `near` (D1700: 0 without it).
+    /// `near`; 0 (`Load`'s).
     pub near: f32,
     /// `color` over 255, each kept only below 1 (D1700: 0 without it).
     pub color: [f32; 3],

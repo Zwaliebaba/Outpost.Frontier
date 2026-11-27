@@ -36,6 +36,7 @@ struct Win3D;
 struct FUiPageData;
 class HUDItem;
 struct FCliAsteroid;
+struct FNebulaEffect;
 class RoomData;
 class NnPreferences;
 class IClient;
@@ -90,6 +91,10 @@ void OracleOnLocationAudio(unsigned LocationId, bool bKeepAudio);
 // layout.jsonl with the values the field's file gave, written after its sections are read and
 // before the load applies them (or with opened false when the file did not open).
 void OracleOnAsteroidFieldRead(char const* Path, FCliAsteroid const* Field, int Lod, bool bOpened);
+// FNebulaEffect::Load (cli_nebula.cpp, P5.8): a `nebula` record in layout.jsonl with the
+// values its file gave (those the constructor, Load or the section readers set), written after
+// the sections and before the rebuild (or with opened false when the file did not open).
+void OracleOnNebulaRead(char const* Path, FNebulaEffect const* Nebula, bool bOpened);
 
 // GetClientInterface / GetChatClientInterface: the logging proxy when the oracle is on,
 // otherwise Real unchanged.

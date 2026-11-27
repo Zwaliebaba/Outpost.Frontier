@@ -1,6 +1,7 @@
 // Author: Giperion.
 
 #include "cli_nebula.h"
+#include "oracle_mode.h" // Oracle instrumentation (P0.5)
 
 #include "cli_projectile_fx.h" // CliEffectCompanionArmStop / CliEffectCompanionClear (+0xe4)
 #include "client_mesh_load.h"
@@ -1881,6 +1882,7 @@ void FNebulaEffect::Load(char const* FilePath, char const* ZoneName)
         // an error, then the rebuild and the light as usual.
         FDUMP(0x100001, "%s(%d) : *** ERROR: unable to open nebula file %s",
               "Client\\Space\\Nebula.cpp", 0x312, FullPath);
+        OracleOnNebulaRead(FilePath, This, false); // Oracle instrumentation (P0.5)
     }
     else
     {
@@ -1952,6 +1954,7 @@ void FNebulaEffect::Load(char const* FilePath, char const* ZoneName)
                 ParseExclusionZonesSection(This, Reader, SystemId);
             }
         }
+        OracleOnNebulaRead(FilePath, This, true); // Oracle instrumentation (P0.5)
     }
 
     // the routine.

@@ -93,7 +93,7 @@ fn uint_field(line: &str, key: &str) -> Option<u32> {
 /// frame. Without the variable it prints a notice.
 #[test]
 fn asteroid_field_records_equal_the_cpp_client() {
-    use game_app::oracle::environment::asteroid_field_line;
+    use game_app::oracle::environment::{asteroid_field_line, nebula_line};
     let Some(dir) = std::env::var_os("OUTPOST_CLIENT_ORACLE_DIR").map(PathBuf::from) else {
         println!("notice: OUTPOST_CLIENT_ORACLE_DIR is not set; nothing was compared");
         return;
@@ -119,6 +119,21 @@ fn asteroid_field_records_equal_the_cpp_client() {
         count += 1;
     }
     println!("layout.jsonl: {count} asteroid field records equal");
+    let mut nebulae = 0;
+    for cpp in text.lines().filter(|l| l.contains("\"rec\":\"nebula\"")) {
+        let frame = uint_field(cpp, "frame").expect("a frame");
+        let start = cpp.find("\"path\":\"").expect("a path") + 8;
+        let end = start + cpp[start..].find('"').expect("the path's end");
+        let path = cpp[start..end].replace("\\\\", "\\");
+        let file = NebulaFile::load(&source, path.as_bytes());
+        assert_eq!(
+            nebula_line(frame, path.as_bytes(), &file),
+            cpp,
+            "the nebula {path}"
+        );
+        nebulae += 1;
+    }
+    println!("layout.jsonl: {nebulae} nebula records equal");
 }
 
 /// Whether a `[section]` of the text (any case) has a `key =` line.
@@ -176,7 +191,6 @@ fn every_nebula_reads() {
             for (section, key) in [
                 ("exterior", "bit_radius"),
                 ("exterior", "color"),
-                ("fog", "near"),
                 ("fog", "color"),
             ] {
                 assert!(has_key(&text, section, key), "{name}: [{section}] {key}");
