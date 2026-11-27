@@ -40,6 +40,8 @@ pub use deform::{StackDeform, draw_deformable};
 
 use crate::render::appearance::{AppearanceServices, Camera, Face, MeshView};
 use crate::render::deformable::{EyeHost, UvBinding};
+use crate::render::effects::batch::EffectVertex;
+use crate::render::effects::flush::{EffectDraw, vertex_bytes};
 use crate::render::ff::buffers::{BufferError, IndexSource};
 use crate::render::ff::device::Backend;
 use crate::render::ff::fvf::Fvf;
@@ -1278,6 +1280,40 @@ impl<B: Backend + 'static> ParticleServices for RenderStack<B> {
 /// The particle draws on the device model: the render states and stages
 /// through [`Shading`], the module's vertex buffer by its renderer number,
 /// the dynamic index buffer as the scratch buffer.
+impl<B: Backend + 'static> EffectDraw for RenderStack<B> {
+    fn render_state(&mut self, state: u32) -> u32 {
+        MaterialServices::render_state(&mut self.shading, state)
+    }
+
+    fn set_render_state(&mut self, state: u32, value: u32) {
+        MaterialServices::set_render_state(&mut self.shading, state, value);
+    }
+
+    fn set_stage_state(&mut self, stage: u32, state: u32, value: u32) {
+        MaterialServices::set_stage_state(&mut self.shading, stage, state, value);
+    }
+
+    fn set_stage_texture(&mut self, stage: u32, handle: u32) {
+        MaterialServices::set_stage_texture(&mut self.shading, stage, handle);
+    }
+
+    fn set_modelview(&mut self, matrix: &[f32; 12]) {
+        BatchDevice::set_modelview(&mut self.shading, matrix);
+    }
+
+    fn draw_indexed_up(&mut self, prim: u32, fvf: u32, vertices: &[EffectVertex], indices: &[u16]) {
+        let count = u32::try_from(vertices.len()).unwrap_or(u32::MAX);
+        // The pipeline's answer is dropped, as the flush drops it.
+        let _ = self.shading.device.draw_indexed_up(
+            prim,
+            Fvf(fvf),
+            &vertex_bytes(vertices),
+            count,
+            indices,
+        );
+    }
+}
+
 impl<B: Backend + 'static> ParticleDraw for RenderStack<B> {
     fn render_state(&mut self, state: u32) -> u32 {
         MaterialServices::render_state(&mut self.shading, state)
