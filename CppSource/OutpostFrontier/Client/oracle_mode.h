@@ -23,6 +23,8 @@
 //                                     OracleNoteScreen
 //   menu_keymap.cpp, ui_page_desc.cpp, wincontrol_base.cpp, nn_preferences.cpp,
 //   hud_element_list.cpp              the OracleOn*Loaded dumps
+//   menu_universe_base.cpp LoadLocationBase
+//                                     OracleOnRoomLoaded after RoomData::load
 //   client_exports.cpp                OracleWrapClientInterface / OracleWrapChatClientInterface
 //   win3d.cpp                         Win3DForEachRegistered (read-only registry walk)
 
@@ -34,6 +36,7 @@ struct Win3D;
 struct FUiPageData;
 class HUDItem;
 struct FCliAsteroid;
+class RoomData;
 class NnPreferences;
 class IClient;
 class IChatClient;
@@ -71,6 +74,17 @@ void OracleOnWinControlIni(char const* Path, Win3D* Control);
 void OracleOnKeyListLoaded(char const* Path, NnPreferences const* Preferences);
 void OracleOnOptListLoaded(char const* Path, bool bOpened, NnPreferences const* Preferences);
 void OracleOnHudElementsLoaded(char const* Path, HUDItem* Head, int StaticBlend);
+// menu_universe_base.cpp LoadLocationBase, after RoomData::load: the room's file as read.
+void OracleOnRoomLoaded(RoomData const* Room);
+
+// audio.jsonl (P5.5): a `snd` record for each call the game makes into the client's sound
+// layer (menu_sound_arch.cpp, sound_config.cpp), written as the call returns: the method's
+// name, its unsigned then its float arguments, and its result (Result < 0: none).
+void OracleOnSoundCall(char const* Method, unsigned const* Uints, unsigned UintCount,
+                       float const* Floats, unsigned FloatCount, int Result);
+// ApplyLocationAudio (menu_universe_base.cpp): a `locaudio` record with the location whose
+// room's music and ambience the calls that follow set, and the keep-audio flag.
+void OracleOnLocationAudio(unsigned LocationId, bool bKeepAudio);
 
 // CliAsteroidLoadFieldIni (cli_asteroid.cpp, P5.8): an `asteroidfield` record in
 // layout.jsonl with the values the field's file gave, written after its sections are read and
@@ -92,6 +106,7 @@ enum EOracleStream
     kOracleLayout,
     kOracleIClient,
     kOracleServer,
+    kOracleAudio,
     kOracleStreamCount
 };
 

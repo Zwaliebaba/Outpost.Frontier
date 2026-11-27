@@ -85,6 +85,8 @@
 #include "wincontrol_base.h"
 
 #include "NeuronRuntime.h"
+#include "common_csys.h"           // Csys
+#include "common_goods.h"          // RoomData and its records
 #include "oracle_sim_hooks.h"      // GOracleSimHooks: the in-process server's fixed clock
 #include "neuroncomponents.h"
 #include "render/IRenderPipeline.h"
@@ -117,7 +119,7 @@ namespace
 
     char const* const kStreamFiles[kOracleStreamCount] = {
         "session.jsonl", "tree.jsonl", "keymap.jsonl", "layout.jsonl", "iclient.jsonl",
-        "server.jsonl"};
+        "server.jsonl", "audio.jsonl"};
 
     struct FOracleState
     {
@@ -1339,9 +1341,268 @@ void OracleOnAsteroidFieldRead(char const* Path, FCliAsteroid const* Field, int 
     }
     J.EndArray();
     OracleWriteRecord(kOracleLayout, J.Finish());
+    // The `snd` records' numbers, from 1 (the sound calls are the main thread's).
+    unsigned GOracleSoundSeq = 0;
+}
+
+void OracleOnSoundCall(char const* Method, unsigned const* Uints, unsigned UintCount,
+                       float const* Floats, unsigned FloatCount, int Result)
+{
+    if (!G.bActive)
+        return;
+    FOracleJson J;
+    Head(J, "snd");
+    J.Uint("seq", ++GOracleSoundSeq);
+    J.Str("m", Method);
+    J.BeginArray("a");
+    for (unsigned Index = 0; Index < UintCount; ++Index)
+        J.Uint(nullptr, Uints[Index]);
+    for (unsigned Index = 0; Index < FloatCount; ++Index)
+        J.Float(nullptr, Floats[Index]);
+    J.EndArray();
+    if (Result < 0)
+        J.Null("r");
+    else
+        J.Bool("r", Result != 0);
+    OracleWriteRecord(kOracleAudio, J.Finish());
+}
+
+void OracleOnLocationAudio(unsigned LocationId, bool bKeepAudio)
+{
+    if (!G.bActive)
+        return;
+    FOracleJson J;
+    Head(J, "locaudio");
+    J.Uint("loc", LocationId);
+    J.Bool("keep", bKeepAudio);
+    OracleWriteRecord(kOracleAudio, J.Finish());
 }
 
 unsigned OracleNextIClientSeq()
 {
     return static_cast<unsigned>(InterlockedIncrement(&G.IClientSeq));
+}
+
+// ---- rooms (P5.9) ------------------------------------------------------------------------
+
+namespace
+{
+    // A Csys as twelve floats: the position, then the 3x3 row by row.
+    void CsysFields(FOracleJson& J, char const* Name, Csys const& Frame)
+    {
+        float Words[12] = {Frame.Pos.x, Frame.Pos.y, Frame.Pos.z};
+        for (unsigned Cell = 0; Cell < 9; ++Cell)
+            Words[3 + Cell] = Frame.Orient.E[Cell / 3][Cell % 3];
+        J.FloatArray(Name, Words, 12);
+    }
+
+    void VectorField(FOracleJson& J, char const* Name, Vector const& Value)
+    {
+        float const Words[3] = {Value.x, Value.y, Value.z};
+        J.FloatArray(Name, Words, 3);
+    }
+
+    // The head of one record of the room's file: the frame, the kind, the room and the index.
+    void RoomHead(FOracleJson& J, char const* Rec, RoomData const* Room, size_t Index)
+    {
+        Head(J, Rec);
+        J.Uint("room", Room->RoomId);
+        J.Uint("i", static_cast<unsigned>(Index));
+    }
+}
+
+void OracleOnRoomLoaded(RoomData const* Room)
+{
+    if (!G.bActive || Room == nullptr)
+        return;
+
+    FOracleJson HeadJ;
+    Head(HeadJ, "room");
+    HeadJ.Uint("room", Room->RoomId);
+    HeadJ.Uint("base", Room->BaseId);
+    HeadJ.Str("nickname", Room->Nickname);
+    HeadJ.Str("file", Room->File);
+    HeadJ.BeginArray("animations");
+    for (int Index = 0; Index < Room->AnimationCount && Index < 0x20; ++Index)
+    {
+        HeadJ.BeginObject(nullptr);
+        HeadJ.Str("name", Room->Animations[Index]);
+        HeadJ.Bool("loop", Room->AnimationLoop[Index]);
+        HeadJ.EndObject();
+    }
+    HeadJ.EndArray();
+    HeadJ.Str("goodscart", Room->GoodscartScript);
+    HeadJ.Uint("goodscart_priority", Room->GoodscartPriorityId);
+    HeadJ.Bool("cutoff_on", Room->bCutoffShadowZ);
+    HeadJ.Float("cutoff", Room->CutoffShadowZ);
+    HeadJ.Float("extra_shadow", Room->ExtraShadowHeightOffset);
+    HeadJ.Uint("music", Room->Music.Id);
+    HeadJ.Bool("music_loop", Room->bMusicLoop);
+    HeadJ.Uint("ambient", Room->Ambient.Id);
+    HeadJ.Bool("ambient_loop", Room->bAmbientLoop);
+    VectorField(HeadJ, "ambient_color", Room->AmbientColor);
+    HeadJ.BeginObject("shadow");
+    HeadJ.Bool("on", Room->bShadowLight);
+    HeadJ.Bool("dir_on", Room->bShadowLightWorldSpaceDir);
+    VectorField(HeadJ, "pos", Room->ShadowLightPosition);
+    VectorField(HeadJ, "dir", Room->ShadowLightDirection);
+    VectorField(HeadJ, "color", Room->ShadowLightColor);
+    HeadJ.EndObject();
+    HeadJ.BeginObject("glare");
+    HeadJ.Bool("on", Room->bGlareLight);
+    HeadJ.Bool("dir_on", Room->bGlareLightWorldSpaceDir);
+    VectorField(HeadJ, "pos", Room->GlareLightPosition);
+    VectorField(HeadJ, "dir", Room->GlareLightDirection);
+    VectorField(HeadJ, "color", Room->GlareLightColor);
+    HeadJ.EndObject();
+    HeadJ.Str("camera", Room->CameraName);
+    HeadJ.Uint("cameras", static_cast<unsigned>(Room->Cameras.size()));
+    HeadJ.Uint("lights", static_cast<unsigned>(Room->Lights.size()));
+    HeadJ.Uint("props", static_cast<unsigned>(Room->Props.size()));
+    HeadJ.Uint("setpoints", static_cast<unsigned>(Room->Setpoints.size()));
+    HeadJ.Uint("chars", static_cast<unsigned>(Room->CharacterPlacements.size()));
+    HeadJ.Uint("ships", static_cast<unsigned>(Room->ShipPlacements.size()));
+    HeadJ.Uint("hotspots", static_cast<unsigned>(Room->Hotspots.size()));
+    HeadJ.Uint("flashlights", static_cast<unsigned>(Room->FlashLightSets.size()));
+    HeadJ.Uint("scenes", static_cast<unsigned>(Room->AmbientScripts.size()));
+    Layout(HeadJ);
+
+    for (size_t Index = 0; Index < Room->Cameras.size(); ++Index)
+    {
+        RoomCameraInfo const* const Camera = Room->Cameras[Index];
+        FOracleJson J;
+        RoomHead(J, "roomcam", Room, Index);
+        J.Str("name", Camera->Name);
+        CsysFields(J, "csys", Camera->Frame);
+        J.Float("fov", Camera->Fov);
+        J.Float("near", Camera->NearPlane);
+        J.Float("far", Camera->FarPlane);
+        Layout(J);
+    }
+    for (size_t Index = 0; Index < Room->Lights.size(); ++Index)
+    {
+        RoomLightInfo const* const Light = Room->Lights[Index];
+        FOracleJson J;
+        RoomHead(J, "roomlight", Room, Index);
+        CsysFields(J, "csys", Light->Frame);
+        J.FloatArray("dir", Light->Direction, 3);
+        // The D3DLIGHT8 words from +0x3c (the type, the colour and the opaque tail).
+        J.Bytes("d3d", &Light->Mode, 0x1a * sizeof(unsigned));
+        J.Uint("type", Light->Type);
+        Layout(J);
+    }
+    for (size_t Index = 0; Index < Room->Props.size(); ++Index)
+    {
+        RoomPropInfo const* const Prop = Room->Props[Index];
+        FOracleJson J;
+        RoomHead(J, "roomprop", Room, Index);
+        J.Str("template", Prop->Template);
+        J.Str("name", Prop->Name);
+        J.Int("category", Prop->Category);
+        CsysFields(J, "csys", Prop->Frame);
+        J.Bool("visible", Prop->bVisible);
+        J.Bool("lit", Prop->bLit);
+        J.Bool("fog", Prop->bFog);
+        J.Bool("main", Prop->bRoomMain);
+        J.Uint("light_group", Prop->LightGroup);
+        J.Uint("layer", Prop->Layer);
+        J.Uint("render", Prop->RenderType);
+        J.Str("loadout", Prop->Loadout);
+        J.Uint("priority", Prop->PriorityId);
+        J.Bool("running_lights", Prop->bRunningLights);
+        Layout(J);
+    }
+    for (size_t Index = 0; Index < Room->Setpoints.size(); ++Index)
+    {
+        SetpointInfo const* const Setpoint = Room->Setpoints[Index];
+        FOracleJson J;
+        RoomHead(J, "roomsetpoint", Room, Index);
+        J.Str("name", Setpoint->Name);
+        CsysFields(J, "csys", Setpoint->Frame);
+        SetpointProperties const& Props = Setpoint->Props;
+        J.Bool("valid", Props.bValid != 0);
+        J.Bool("zs", Props.bZoneScript != 0);
+        J.Int("char_type", Props.CharType);
+        J.Str("segment", Props.Segment);
+        J.Int("zone", Props.Zone);
+        J.StrN("pname", Props.NameBuffer, sizeof(Props.NameBuffer));
+        J.Int("posture", Props.Posture);
+        Layout(J);
+    }
+    for (size_t Index = 0; Index < Room->CharacterPlacements.size(); ++Index)
+    {
+        CharPlaceInfo const* const Place = Room->CharacterPlacements[Index];
+        FOracleJson J;
+        RoomHead(J, "roomchar", Room, Index);
+        J.Str("name", Place->Name);
+        CsysFields(J, "csys", Place->Frame);
+        J.Int("char_type", Place->CharType);
+        J.Int("posture", Place->Posture);
+        J.Bool("zs", Place->bZoneScript != 0);
+        J.Str("start_script", Place->StartScript);
+        Layout(J);
+    }
+    for (size_t Index = 0; Index < Room->ShipPlacements.size(); ++Index)
+    {
+        ShipPlaceInfo const* const Place = Room->ShipPlacements[Index];
+        FOracleJson J;
+        RoomHead(J, "roomship", Room, Index);
+        J.Str("name", Place->Nickname);
+        CsysFields(J, "csys", Place->Frame);
+        J.Bool("player", Place->bIsPlayerShip);
+        J.Bool("for_sale", Place->bIsForSale);
+        J.Str("landing", Place->LandingScript);
+        J.Str("launching", Place->LaunchingScript);
+        Layout(J);
+    }
+    for (size_t Index = 0; Index < Room->Hotspots.size(); ++Index)
+    {
+        RoomButtonInfo const* const Button = Room->Hotspots[Index];
+        FOracleJson J;
+        RoomHead(J, "roomhotspot", Room, Index);
+        J.Str("name", Button->Name);
+        J.Str("room_switch", Button->RoomSwitch);
+        J.Str("virtual_room", Button->VirtualRoom);
+        J.Str("set_virtual_room", Button->SetVirtualRoom);
+        J.Int("behavior", Button->Behavior);
+        J.Uint("state_send", Button->StateSend);
+        J.Uint("state_read", Button->StateRead);
+        J.BeginArray("transitions");
+        for (int Slot = 0; Slot < 4; ++Slot)
+            J.Str(nullptr, Button->StateTransition[Slot]);
+        J.EndArray();
+        Layout(J);
+    }
+    for (size_t Index = 0; Index < Room->FlashLightSets.size(); ++Index)
+    {
+        FlashLightSetInfo const* const Set = Room->FlashLightSets[Index];
+        FOracleJson J;
+        RoomHead(J, "roomflash", Room, Index);
+        float const Params[7] = {Set->Param0, Set->Param1, Set->Param2, Set->Param3,
+                                 Set->Param4, Set->Param5, Set->Param6};
+        J.FloatArray("params", Params, 7);
+        J.Int("mode", static_cast<int>(Set->Mode));
+        J.Int("numlights", static_cast<int>(Set->NumLights));
+        J.Int("numlights_alt", static_cast<int>(Set->NumLightsAlt));
+        long const Count = Set->NumLights < 0 ? 0 : (Set->NumLights > 64 ? 64 : Set->NumLights);
+        J.BeginArray("hardpoints");
+        for (long Slot = 0; Slot < Count; ++Slot)
+            J.Str(nullptr, Set->HardpointNames[Slot]);
+        J.EndArray();
+        J.BeginArray("setpoints");
+        for (long Slot = 0; Slot < Count; ++Slot)
+            J.Str(nullptr, Set->SetpointNames[Slot]);
+        J.EndArray();
+        Layout(J);
+    }
+    for (size_t Index = 0; Index < Room->AmbientScripts.size(); ++Index)
+    {
+        AmbientScriptInfo const* const Script = Room->AmbientScripts[Index];
+        FOracleJson J;
+        RoomHead(J, "roomscene", Room, Index);
+        J.Int("type", Script->Type);
+        J.Str("path", Script->Path);
+        J.Uint("priority", Script->Priority);
+        Layout(J);
+    }
 }

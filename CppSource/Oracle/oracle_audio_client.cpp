@@ -132,6 +132,12 @@ namespace
     int GPerfMaxSubmitted = 32;
 }
 
+// The client's oracle mode (oracle_mode.cpp) is not linked in: its audio.jsonl hook does
+// nothing here.
+void OracleOnSoundCall(char const*, unsigned const*, unsigned, float const*, unsigned, int)
+{
+}
+
 // The client's perf options (perf_options.cpp): only the slots the sound code reads.
 float GetPerfOptionSlot(int Index)
 {
