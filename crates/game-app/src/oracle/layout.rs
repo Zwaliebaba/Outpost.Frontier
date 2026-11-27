@@ -190,3 +190,27 @@ pub fn page_lines(
     }
     lines
 }
+
+/// The lines `WinControl::LoadIni(path)` writes at `frame` for the control
+/// `root` after its load (`OracleOnWinControlIni`): a `winini` head and a
+/// `winnode` record per node of its subtree.
+#[must_use]
+pub fn win_ini_lines(
+    ui: &neuron_client::ui::tree::Ui,
+    root: neuron_client::ui::tree::NodeId,
+    frame: u32,
+    path: &[u8],
+) -> Vec<String> {
+    let nodes = super::tree::flatten_from(ui, root);
+    let mut lines = Vec::with_capacity(nodes.len() + 1);
+    let mut j = head(frame, "winini");
+    j.str_bytes("path", path).uint("nodes", index(nodes.len()));
+    lines.push(j.finish());
+    for (i, node) in nodes.iter().enumerate() {
+        let mut j = head(frame, "winnode");
+        j.str_bytes("path", path);
+        super::tree::node_fields(&mut j, ui, node, index(i).cast_signed());
+        lines.push(j.finish());
+    }
+    lines
+}

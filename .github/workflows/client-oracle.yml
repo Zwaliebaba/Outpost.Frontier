@@ -284,9 +284,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Compare the port with the C++ client
         # Decision O53 (2), (4) and (5): the port's oracle files against this runner's C++
-        # runs: keymap.jsonl and layout.jsonl's key and option lists against run a, and the single-player login's IClient lines
-        # against runs w (a fresh user folder) and a (the folder w made), and a new game's IClient
-        # lines up to the frames after entering space against run s1 of single_player.txt.
+        # runs: keymap.jsonl and layout.jsonl's key and option lists, pages and navbar.ini
+        # window tree against run a (the tree also against s1), the single-player login's
+        # IClient lines against runs w (a fresh user folder) and a (the folder w made), and a new
+        # game's IClient lines up to the frames after entering space against run s1 of
+        # single_player.txt.
         if: ${{ always() }}
         shell: pwsh
         env:
@@ -300,6 +302,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p game-app --test page_data -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The navigation bar's window tree (P5.9): menu_walk.txt's load at frame 0 (run a),
+          # then single_player.txt's two loads, the second in the first base (run s1).
+          cargo test --locked -p game-app --test navbar_data -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:OUTPOST_CLIENT_ORACLE_DIR = "${{ runner.temp }}\oracle-out\s1"
+          cargo test --locked -p game-app --test navbar_data -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:OUTPOST_CLIENT_ORACLE_DIR = "${{ runner.temp }}\oracle-out\a"
           cargo test --locked -p outpost-frontier --test local_server -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p outpost-frontier --test new_game -- --nocapture

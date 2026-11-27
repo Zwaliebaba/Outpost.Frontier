@@ -8,6 +8,7 @@ pub mod json;
 pub mod keymap;
 pub mod layout;
 pub mod script;
+pub mod tree;
 
 use std::io::Write as _;
 use std::path::PathBuf;
