@@ -1,11 +1,16 @@
 //! The client's context (`game_app::client`) driven by `menu_walk.txt`
 //! through `TickClientFrame` on the original data in `outdir/`, over a
-//! recording single-player server, and, with `OUTPOST_CLIENT_ORACLE_DIR`
-//! set to a C++ client-oracle run of that script, its `session.jsonl`
-//! screen and dump records against the run's (decision O53 (6): the screen
-//! changes, the dumps and their frames; the screenshots' names left out, as
-//! the port takes none yet, and the intro base's `room` screen, which is
-//! not entered yet, D1107).
+//! recording single-player server, with the start-up's interface windows
+//! and the `IDR_ALWAYS_PRESENT` key map, and, with
+//! `OUTPOST_CLIENT_ORACLE_DIR` set to a C++ client-oracle run of that
+//! script, its `session.jsonl` and `tree.jsonl` against the run's (decision
+//! O53 (6), `game_app::oracle::compare`): the screen changes, the dumps,
+//! the waits and the script lines' results, `command USER_CANCEL`'s note
+//! included, and every node of the nine dumps. Left out as the comparison
+//! of the port's real run leaves them out: the screenshots' names (D1114),
+//! the intro base's `room` (D1107) and `rtti`; and what this test's
+//! interface cannot give: the text windows' heights (no fonts) and two
+//! mesh-dependent fields of the group-request window (no mesh loader).
 
 use std::cell::RefCell;
 use std::fs;
@@ -16,9 +21,12 @@ use std::sync::Arc;
 use game_app::client::{ClientContext, client_states};
 use game_app::client_state::ClientStateId;
 use game_app::frame::{FrameState, tick_client_frame};
-use game_app::keymap::KEY_MAP_PATH;
+use game_app::keymap::{GroupResult, KEY_MAP_PATH, KeyMapFiles};
+use game_app::nn_preferences::{DeviceMode, DisplayMode, PreferencesContext};
 use game_app::oracle::OracleRun;
+use game_app::oracle::compare;
 use game_app::oracle::script::{FRAME_SECONDS, OracleScript, RAND_SEED};
+use game_app::perf_options::PerfOptions;
 use game_app::session::{LocalClientEnd, LocalServerRequest, Session};
 use game_app::timing::ClientTiming;
 use game_sim::data::config::GameData;
@@ -35,6 +43,8 @@ use neuron_core::net::transport::{
 };
 use neuron_core::time::ManualClock;
 use neuron_core::vfs::Host;
+
+mod support;
 
 /// The byte-order mark the catalog build puts before a card.
 const CARD_BOM: [u8; 2] = [0xFF, 0xFE];
@@ -106,6 +116,8 @@ fn ui() -> Option<Ui> {
     let mut ui = Ui::new(Surface::new(1024, 768));
     ui.catalogs = Some(Rc::new(catalogs));
     ui.services = Box::new(DataFiles(data_dir()));
+    game_app::boot_interface::register(&mut ui.factory);
+    game_app::boot_interface::create(&mut ui);
     Some(ui)
 }
 
@@ -153,22 +165,80 @@ impl Session for Server {
     }
 }
 
-/// The record without the screenshot's name.
-fn comparable(line: &str) -> String {
-    let mut line = line.to_owned();
-    if let Some(at) = line.find(",\"shot\":") {
-        line.truncate(at);
+/// The key map's two files: the base map from the data, no player's map.
+struct KeyMapData<'a>(&'a mut dyn UiServices);
+
+impl KeyMapFiles for KeyMapData<'_> {
+    fn base(&mut self) -> (Option<Vec<u8>>, String) {
+        (
+            self.0.data_file(KEY_MAP_PATH.as_bytes()),
+            KEY_MAP_PATH.to_string(),
+        )
     }
-    line
+    fn user(&mut self) -> Option<Vec<u8>> {
+        None
+    }
 }
 
-/// The `screen` and `dump` records, but the intro base's room.
-fn screens_and_dumps(lines: &[String]) -> Vec<String> {
-    lines
-        .iter()
-        .filter(|l| l.contains("\"rec\":\"screen\"") || l.contains("\"rec\":\"dump\""))
-        .filter(|l| !l.contains("\"kind\":\"room\""))
-        .map(|l| comparable(l))
+/// What the C++ run's client gives the preferences window: the display
+/// 1024 x 768 x 32, a `PerfOptions.ini` of version 5 with no options, a US
+/// keyboard layout and a device with the gamma and environment-map
+/// abilities (`tests/options_data.rs`); the context adds the key map.
+fn preferences() -> PreferencesContext {
+    let mut perf = PerfOptions::default();
+    let file = b"[PerfVersion]\nversion=5\nSkipMachineWarnings=TRUE\n".to_vec();
+    assert!(perf.load(Some(file), None).is_some(), "a current file");
+    let mode = |width, height, bpp| DeviceMode {
+        width,
+        height,
+        bpp,
+        unknown_format: false,
+    };
+    PreferencesContext {
+        key_names: support::us_key_names(),
+        perf,
+        display: DisplayMode {
+            width: 1024,
+            height: 768,
+            color_bpp: 32,
+        },
+        device_modes: vec![
+            mode(800, 600, 16),
+            mode(800, 600, 32),
+            mode(1024, 768, 16),
+            mode(1024, 768, 32),
+        ],
+        desktop: (1024, 768),
+        video_memory: 256 << 20,
+        gamma_ability: 1,
+        environment_map_ability: 1,
+        max_submitted_sounds: 32,
+        ..PreferencesContext::default()
+    }
+}
+
+/// A tree line without what this test's interface cannot give: the text
+/// windows' heights (no fonts), and the mesh bounds and hardpoints (no mesh
+/// loader): the group-request window's half extents and the position of
+/// its close button, which sits on its mesh's hardpoint.
+fn without_fonts_and_meshes(line: &str) -> String {
+    if line.contains("\"name\":\"NN_GroupControl\"") {
+        compare::mask(line, "half")
+    } else if line.contains("\"name\":\"BtnClose\"") {
+        compare::mask(line, "pos")
+    } else {
+        line.to_owned()
+    }
+}
+
+/// The first `n` differing lines, for the failure's message.
+fn first_differences(ours: &[String], cpp: &[String], n: usize) -> String {
+    ours.iter()
+        .zip(cpp)
+        .enumerate()
+        .filter(|(_, (a, b))| a != b)
+        .take(n)
+        .map(|(i, (a, b))| format!("line {i}:\n  port: {a}\n  C++:  {b}\n"))
         .collect()
 }
 
@@ -209,19 +279,27 @@ fn menu_walk_runs_through_the_context() {
             t
         }),
     );
-    let map = cx.interface.services.data_file(KEY_MAP_PATH.as_bytes());
-    cx.core.keymap.load_base(map.as_deref(), KEY_MAP_PATH);
+    cx.core.preferences = preferences();
 
     let mut states = client_states();
     states.enter(&mut cx, ClientStateId::Intro.raw());
+    // `RegisterAcceleratorGroup("IDR_ALWAYS_PRESENT")`, as `run` does after
+    // the intro's entry: the key map that `command USER_CANCEL` reads.
+    let group = cx.core.keymap.register_group(
+        b"IDR_ALWAYS_PRESENT",
+        &mut KeyMapData(cx.interface.services.as_mut()),
+        &mut |_, _, _| {},
+    );
+    assert_eq!(group, GroupResult::Done);
     let mut frame = FrameState::default();
     while !cx.core.quit_posted && cx.core.frame < MAX_FRAMES {
         tick_client_frame(&mut frame, &mut states, &mut cx, FRAME_SECONDS);
     }
-    let session = cx.core.oracle.as_ref().unwrap().script.session().to_vec();
+    let run = cx.core.oracle.as_ref().unwrap();
+    let session = run.script.session().to_vec();
     assert!(cx.core.quit_posted, "the script ends: {session:#?}");
     assert_eq!(*starts.borrow(), 1, "one server for the whole walk");
-    let ours = screens_and_dumps(&session);
+    let ours = compare::session_records(&session).lines;
     // The walk's screens: the intro, the column, Load Game, the column again
     // and Options, then the quit.
     let ids: Vec<&str> = ours
@@ -242,6 +320,18 @@ fn menu_walk_runs_through_the_context() {
             r#""kind":"client","id":1}"#,
         ]
     );
+    // The Options page takes no cancel: nothing is registered for it there.
+    assert!(
+        ours.iter().any(|l| l.contains(
+            r#""text":"command USER_CANCEL","ok":true,"note":"id=15 active=1 vk=27 mods=0 down=0 up=-1""#
+        )),
+        "{ours:#?}"
+    );
+    let tree: Vec<String> = compare::tree_records(run.script.tree(), false, &[])
+        .lines
+        .iter()
+        .map(|l| without_fonts_and_meshes(l))
+        .collect();
 
     let Some(dir) = std::env::var_os("OUTPOST_CLIENT_ORACLE_DIR").map(PathBuf::from) else {
         println!("notice: OUTPOST_CLIENT_ORACLE_DIR is not set; nothing was compared");
@@ -249,6 +339,21 @@ fn menu_walk_runs_through_the_context() {
     };
     let text = fs::read_to_string(dir.join("session.jsonl")).expect("session.jsonl");
     let cpp: Vec<String> = text.lines().map(String::from).collect();
-    assert_eq!(ours, screens_and_dumps(&cpp));
-    println!("the {} screen and dump records are equal", ours.len());
+    let cpp = compare::session_records(&cpp).lines;
+    assert_eq!(ours, cpp, "{}", first_differences(&ours, &cpp, 6));
+    println!("session.jsonl: the {} records are equal", ours.len());
+
+    let text = fs::read_to_string(dir.join("tree.jsonl")).expect("tree.jsonl");
+    let cpp: Vec<String> = text.lines().map(String::from).collect();
+    let cpp: Vec<String> = compare::tree_records(&cpp, false, &[])
+        .lines
+        .iter()
+        .map(|l| without_fonts_and_meshes(l))
+        .collect();
+    assert_eq!(tree.len(), cpp.len(), "tree.jsonl's lines");
+    assert!(tree == cpp, "{}", first_differences(&tree, &cpp, 6));
+    println!(
+        "tree.jsonl: the {} lines of the 9 dumps are equal",
+        tree.len()
+    );
 }

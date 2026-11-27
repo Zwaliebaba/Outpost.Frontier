@@ -19,7 +19,6 @@ use std::rc::Rc;
 
 use game_app::intro::menu::{MenuHost, MenuNav};
 use game_app::intro::options::{PageOptions, enter_options_page, make_page};
-use game_app::keymap::names::KeyNames;
 use game_app::keymap::{KEY_MAP_PATH, KeyMap};
 use game_app::nn_preferences::{DeviceMode, DisplayMode, NnPreferences, PreferencesContext};
 use game_app::oracle::json::OracleJson;
@@ -31,6 +30,8 @@ use neuron_client::ui::tree::{NodeId, Ui, VISIBLE};
 use neuron_client::ui::widescreen::Surface;
 use neuron_core::catalog::{CLIENT_MODULES, TextCatalog, TextCatalogs};
 use neuron_core::vfs::Host;
+
+mod support;
 
 /// The byte-order mark the catalog build puts before a card.
 const CARD_BOM: [u8; 2] = [0xFF, 0xFE];
@@ -115,49 +116,6 @@ fn ui() -> Option<Ui> {
     Some(ui)
 }
 
-fn wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().collect()
-}
-
-/// The names a US keyboard layout gives the keys (`GetKeyNameTextW`).
-fn us_key_names() -> KeyNames {
-    let mut names = KeyNames::default();
-    for c in b'A'..=b'Z' {
-        names.keys.insert(u32::from(c), vec![u16::from(c)]);
-    }
-    for c in b'0'..=b'9' {
-        names.keys.insert(u32::from(c), vec![u16::from(c)]);
-    }
-    for (vk, name) in [
-        (0x08, "Backspace"),
-        (0x09, "Tab"),
-        (0x0d, "Enter"),
-        (0x10, "Shift"),
-        (0x11, "Ctrl"),
-        (0x12, "Alt"),
-        (0x14, "Caps Lock"),
-        (0x1b, "Esc"),
-        (0x20, "Space"),
-        (0x21, "Page Up"),
-        (0x22, "Page Down"),
-        (0x23, "End"),
-        (0x24, "Home"),
-        (0x25, "Left"),
-        (0x26, "Up"),
-        (0x27, "Right"),
-        (0x28, "Down"),
-        (0x2d, "Insert"),
-        (0x2e, "Delete"),
-    ] {
-        names.keys.insert(vk, wide(name));
-    }
-    for (i, n) in (0x70..=0x7b).enumerate() {
-        names.keys.insert(n, wide(&format!("F{}", i + 1)));
-    }
-    names.modifiers = [Some(wide("Shift")), Some(wide("Ctrl")), Some(wide("Alt"))];
-    names
-}
-
 /// The C++ run's client as the window reads it.
 fn context(ui: &mut Ui) -> PreferencesContext {
     let mut keymap = KeyMap::new();
@@ -174,7 +132,7 @@ fn context(ui: &mut Ui) -> PreferencesContext {
     };
     PreferencesContext {
         keymap,
-        key_names: us_key_names(),
+        key_names: support::us_key_names(),
         perf,
         display: DisplayMode {
             width: 1024,

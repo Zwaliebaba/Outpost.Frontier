@@ -209,6 +209,15 @@ impl TypeSelect {
         self.anim_time = 0.35;
         true
     }
+
+    /// `OnEvent` (the `Event::Handler` face at `+0x7c`, which `EnterCase1`
+    /// registers for `USER_CANCEL`): the cancel opens the exit dialog
+    /// (`RequestClientQuitDialog`), a modal NeuroNet dialog not ported yet:
+    /// taken and answered as declined (D1102). Every other event is not
+    /// taken.
+    pub fn on_event(&mut self, msg: u32) -> bool {
+        msg == crate::hud_events::EVENT_CANCEL
+    }
 }
 
 impl Widget for TypeSelect {
@@ -254,6 +263,10 @@ impl Widget for TypeSelect {
             ui.delete(v);
         }
         self.statics = [None; 5];
+        // `UnregisterAllEvents` on the `+0x7c` face: `USER_CANCEL` is the
+        // face's only event.
+        ui.services
+            .unregister_event(id, crate::hud_events::EVENT_CANCEL);
         ui.unregister(id);
     }
     /// `TypeSelect::Update`: the children, the multiplayer poll, then the

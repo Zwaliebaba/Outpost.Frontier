@@ -4,6 +4,7 @@
 //! written at the same hooks so that CI compares the two clients' files.
 
 pub mod audio;
+pub mod compare;
 pub mod iclient;
 pub mod json;
 pub mod keymap;
@@ -12,11 +13,15 @@ pub mod room;
 pub mod script;
 pub mod tree;
 
+use std::cell::RefCell;
 use std::io::Write as _;
 use std::path::PathBuf;
 
+use neuron_client::ui::services::HudRecord;
 use neuron_client::ui::tree::Ui;
 
+use crate::hud_events::{self, HudEvents};
+use crate::keymap as key_map;
 use crate::startup_config::DisplayMode;
 
 /// `kOracleWidth`, `kOracleHeight`, `kOracleColorBits`.
@@ -122,16 +127,77 @@ impl OracleRun {
 }
 
 /// The client's answers to the script for one frame: the tree of its
-/// interface and clicks on it; no screenshot, command or key yet (they come
-/// with the screens); the pending state it takes.
+/// interface, clicks on it and the key map's commands; no screenshot or key
+/// yet (D1114); the pending state it takes.
 pub struct ClientHost<'a> {
     /// The engine's interface (the `Win3D` registry), when it has one.
     pub ui: Option<&'a mut Ui>,
     /// The state the script asked for (`state`, or 1 at its end).
     pub pending_state: &'a mut Option<u32>,
+    /// `G_KeyMap`.
+    pub keymap: &'a key_map::KeyMap,
+    /// The HUD command dispatcher's registry.
+    pub events: &'a RefCell<HudEvents>,
+}
+
+impl ClientHost<'_> {
+    /// `DoCommand(nickname)`: the command's id from its nickname; the event
+    /// record filled from its first active binding, else its first
+    /// binding; `HudDispatchCommand(id, 1)` on key down if its state has
+    /// `keydown` (a command the key map lacks has only that) and again on
+    /// key up if it has `keyup`. The note gives the id, whether the binding
+    /// was active, the key, its modifiers and each dispatch's answer (-1
+    /// for none).
+    fn do_command(&mut self, nickname: &str) -> Result<String, String> {
+        let id = key_map::nickname_id(nickname.as_bytes());
+        if id == 0 {
+            return Err("unknown nickname".into());
+        }
+        let mask = self
+            .keymap
+            .find_by_id(id)
+            .map_or(key_map::STATE_KEY_DOWN, |i| self.keymap.commands[i].state);
+        let active = self.keymap.active_binding(id);
+        let binding = active
+            .or_else(|| self.keymap.binding(id, 0))
+            .unwrap_or_default();
+        let events = self.events;
+        let mut ui = self.ui.as_deref_mut();
+        let mut dispatch = |message: u32, down: bool| -> i32 {
+            events.borrow_mut().record = HudRecord {
+                key: binding.virtual_key.cast_unsigned(),
+                modifiers: binding.modifiers,
+                message,
+                wparam: binding.virtual_key.cast_unsigned(),
+                down,
+                ..HudRecord::default()
+            };
+            let taken = ui
+                .as_deref_mut()
+                .is_some_and(|ui| hud_events::dispatch(ui, events, id, 1));
+            i32::from(taken)
+        };
+        let down = if mask & key_map::STATE_KEY_DOWN != 0 {
+            dispatch(hud_events::WM_KEYDOWN, true)
+        } else {
+            -1
+        };
+        let up = if mask & key_map::STATE_KEY_UP != 0 {
+            dispatch(hud_events::WM_KEYUP, false)
+        } else {
+            -1
+        };
+        Ok(format!(
+            "id={id} active={} vk={} mods={} down={down} up={up}",
+            i32::from(active.is_some()),
+            binding.virtual_key,
+            binding.modifiers,
+        ))
+    }
 }
 
 impl script::OracleHost for ClientHost<'_> {
+    /// Not ported yet (D1114): no screenshot is taken.
     fn take_shot(&mut self, _: &str) -> bool {
         false
     }
@@ -141,9 +207,11 @@ impl script::OracleHost for ClientHost<'_> {
             .map(|ui| tree::dump_nodes(ui, dump))
             .unwrap_or_default()
     }
-    fn command(&mut self, _: &str) -> Result<String, String> {
-        Err("not ported yet".into())
+    fn command(&mut self, nickname: &str) -> Result<String, String> {
+        self.do_command(nickname)
     }
+    /// Not ported yet (D1114): posting `WM_KEYDOWN` and `WM_KEYUP` to the
+    /// window needs the window and the key map's routing of key messages.
     fn key(&mut self, _: &str) -> Result<String, String> {
         Err("not ported yet".into())
     }

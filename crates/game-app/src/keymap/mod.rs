@@ -308,6 +308,19 @@ impl KeyMap {
             .find_map(|c| c.bindings.get(index).copied())
     }
 
+    /// `KeyMapFindActiveBinding`: the first binding of the first command
+    /// with this id that has one, in the active groups newest first.
+    #[must_use]
+    pub fn active_binding(&self, id: u32) -> Option<KeyBinding> {
+        self.active
+            .iter()
+            .filter_map(|&g| self.groups.get(g))
+            .flat_map(|g| g.commands.iter())
+            .filter_map(|&c| self.commands.get(c))
+            .filter(|c| c.nickname_id == id)
+            .find_map(|c| c.bindings.first().copied())
+    }
+
     /// `LoadKeyMapIni(path, fatal)`: every `[KeyCmd]` and `[KeyMap]` of the
     /// file appended to the lists, nothing cleared; the answer is the number
     /// of `[KeyMap]` sections, 0 when the file did not open. A first header

@@ -125,7 +125,8 @@ impl MenuNav {
         host.refresh_loading_progress();
     }
 
-    /// `EnterCase1`: the column built again and shown.
+    /// `EnterCase1`: the column built again, registered for `USER_CANCEL`
+    /// and shown.
     fn enter_main_menu(&mut self, ui: &mut Ui, host: &mut dyn MenuHost) {
         // `Flag22d` (back from multiplayer) restarts single player: comes
         // with the multiplayer screens.
@@ -133,6 +134,8 @@ impl MenuNav {
         self.release_active_page(ui);
         let column = *self.column.get_or_insert_with(|| make_column(ui));
         build_column(ui, column, host.single_precision());
+        ui.services
+            .register_event(column, crate::hud_events::EVENT_CANCEL);
         self.active_page = Some(column);
     }
 

@@ -343,8 +343,8 @@ jobs:
       - name: Run the port's client
         # The Rust OutpostFrontier.exe in its +oracle mode (decision O53 (2)) on menu_walk.txt
         # from the run folder and a fresh user folder, as run w. Its start-up is ported (the
-        # forced display, the seed, the single-player login, the IDR_ALWAYS_PRESENT key map);
-        # the screens are not, so the script's waits time out and its dumps have no tree.
+        # forced display, the seed, the single-player login, the IDR_ALWAYS_PRESENT key map),
+        # and so are the menu's screens that menu_walk.txt walks.
         if: ${{ always() }}
         timeout-minutes: 30
         shell: pwsh
@@ -393,6 +393,26 @@ jobs:
             else { Write-Host "session.jsonl $rec differs: $a | $b"; $fail = $true }
           }
           if ($fail) { exit 1 }
+
+      - name: Compare the port's client's screens with the C++ client
+        # Run port against run w (both on a fresh user folder), in game-app's
+        # tests/client_run_data.rs: session.jsonl's screen, dump and waitscreen records and the
+        # script lines' results, and every tree.jsonl dump without rtti; the screenshots' names
+        # are masked (the port takes none yet, D1114). The intro base's room screen line is
+        # removed from both session.jsonl files before they are compared, and the dump heads'
+        # room is masked: the port does not enter the intro base yet (D1107). The Options page's
+        # key names, gamma row and video mode text are masked (D1111, compare::PORT_RUN). Each
+        # mask names its divergence row and the step prints the fields it hid per row (decision
+        # O53 (4)). The text windows' font-dependent heights are compared; the main menu column's
+        # six take D290's one pixel (compare::PORT_RUN_TOLERANCES), counted in the summary.
+        if: ${{ always() }}
+        shell: pwsh
+        env:
+          OUTPOST_CLIENT_ORACLE_FRESH_DIR: ${{ runner.temp }}\oracle-out\w
+          OUTPOST_CLIENT_ORACLE_PORT_DIR: ${{ runner.temp }}\oracle-out\port
+        run: |
+          cargo test --locked -p game-app --test client_run_data -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Compare the runs
         if: ${{ always() }}
