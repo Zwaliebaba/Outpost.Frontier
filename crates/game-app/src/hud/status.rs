@@ -21,7 +21,6 @@
 //! 1310 is a comm line. The update replaces the text of the rows it shows
 //! (`SetNumberText`), so the line is only seen in a hidden row.
 
-pub mod button_mover;
 pub mod update;
 
 use neuron_client::ui::children::{
@@ -37,9 +36,9 @@ use neuron_client::ui::tree::{DrawHost, NodeId, Payload, Property, Ui, Widget};
 use neuron_core::ini::IniReader;
 use neuron_core::math::{Matrix, Vector};
 
-pub use self::button_mover::{ButtonMover, ButtonScaler};
 pub use self::update::{find_hardpoint_row, rebuild_weapon_list};
 use super::HudItem;
+pub use super::button_mover::{ButtonMover, ButtonScaler};
 
 /// The factory's section.
 pub const SECTION: &[u8] = b"Status";
@@ -668,7 +667,8 @@ impl Status {
             show_flags(ui, self.minimized_frame, false);
             self.scaler.start(0.3);
             self.scaler.add_button(self.view_panel, 0.1, 1.0);
-            if self.scaler.update(ui.frame_time) {
+            let frame_time = ui.frame_time;
+            if self.scaler.update(ui, frame_time) {
                 self.on_scale_finished(ui, id);
             }
             return;

@@ -281,7 +281,7 @@ impl Status {
         if self.mover.update(ui, frame_time) {
             self.on_move_finished(ui, id);
         }
-        if self.scaler.update(frame_time) {
+        if self.scaler.update(ui, frame_time) {
             self.on_scale_finished(ui, id);
         }
         if !self.mover.active && !self.scaler.active {

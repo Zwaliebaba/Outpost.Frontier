@@ -17,8 +17,6 @@
 //! draw (`Draw`, the rank line's text) come with them and with the HUD's
 //! draw.
 
-pub mod animation;
-
 use neuron_client::ui::children::{
     ButtonInit, StaticInit, TextInit, create_button_control, create_static_control,
     create_text_control,
@@ -30,8 +28,8 @@ use neuron_client::ui::tree::{ACTIVE, DrawHost, NodeId, Payload, Property, Ui, V
 use neuron_core::ini::IniReader;
 use neuron_core::math::{Matrix, Vector};
 
-use self::animation::{ButtonMover, ButtonScaler};
 use super::HudItem;
+use super::button_mover::{ButtonMover, ButtonScaler};
 
 /// The factory's section and the element's name.
 pub const SECTION: &[u8] = b"Target";

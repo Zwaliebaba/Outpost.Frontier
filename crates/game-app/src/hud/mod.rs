@@ -18,6 +18,7 @@
 //! section's shape database and static texture are kept by name: the
 //! HUD's draw, which reads them, comes with the elements' draws.
 
+pub mod button_mover;
 pub mod contact_list;
 pub mod core;
 pub mod cruise_progress;

@@ -2,9 +2,7 @@
 //! animators a window inherits to slide a set of controls between two
 //! offsets, or to scale their mesh instances, over a fixed time. The
 //! reference shares them between several windows (the NeuroNet main
-//! button, the navigation bar, the HUD's target and status panels); the
-//! target panel is the first port that needs them, so they live with it
-//! until another window does.
+//! button, the navigation bar, the HUD's target and status panels).
 //!
 //! The reference's `OnFinished` slot is the owner's: [`ButtonMover::update`]
 //! and [`ButtonScaler::update`] answer true on the frame the animation
