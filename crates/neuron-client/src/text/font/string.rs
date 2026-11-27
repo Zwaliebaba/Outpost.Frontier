@@ -938,6 +938,17 @@ impl FontString {
         }
     }
 
+    /// `FontStringSetNumberText`'s first step: a non-empty text dropped
+    /// with its children.
+    pub fn drop_text_for_number(&mut self, sys: &mut FontSystem) {
+        if self.text.as_deref().is_some_and(|t| !t.is_empty()) {
+            self.text = None;
+            self.release_children(sys, 0);
+            self.children.clear();
+            self.layout_gen = 0;
+        }
+    }
+
     /// `FontStringSetNumberText`: a non-empty text dropped with its
     /// children, then child 0 made a number string printing `format`, and
     /// the extents from every child.
@@ -947,12 +958,7 @@ impl FontString {
         pipeline: &mut dyn TexturePipeline,
         format: &[u8],
     ) {
-        if self.text.as_deref().is_some_and(|t| !t.is_empty()) {
-            self.text = None;
-            self.release_children(sys, 0);
-            self.children.clear();
-            self.layout_gen = 0;
-        }
+        self.drop_text_for_number(sys);
         let at = self.ensure_child(sys, 0, 1);
         if let Some(Child::Number(child)) = &mut self.children[at].child {
             child.printf(format);
