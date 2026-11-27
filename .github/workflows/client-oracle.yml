@@ -324,6 +324,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p game-app --test location_audio -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The asteroid fields' files as the client reads them (P5.8), in space.
+          cargo test --locked -p game-app --test environment_data -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:OUTPOST_CLIENT_ORACLE_DIR = "${{ runner.temp }}\oracle-out\a"
           cargo test --locked -p outpost-frontier --test local_server -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

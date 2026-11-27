@@ -77,3 +77,45 @@ fn every_asteroid_field_reads() {
     );
     assert!(fields > 20 && exclusions > 0 && billboards > 0 && dynamic > 0);
 }
+
+fn uint_field(line: &str, key: &str) -> Option<u32> {
+    let start = line.find(&format!("\"{key}\":"))? + key.len() + 3;
+    line[start..]
+        .split([',', '}'])
+        .next()
+        .and_then(|v| v.parse().ok())
+}
+
+/// `asteroid_field_records_equal_the_cpp_client`
+/// (`OUTPOST_CLIENT_ORACLE_DIR`): each `asteroidfield` record of the C++
+/// run's `layout.jsonl` equals the port's reading of that path at that
+/// frame. Without the variable it prints a notice.
+#[test]
+fn asteroid_field_records_equal_the_cpp_client() {
+    use game_app::oracle::environment::asteroid_field_line;
+    let Some(dir) = std::env::var_os("OUTPOST_CLIENT_ORACLE_DIR").map(PathBuf::from) else {
+        println!("notice: OUTPOST_CLIENT_ORACLE_DIR is not set; nothing was compared");
+        return;
+    };
+    let source = Host::new(data_dir());
+    let text = std::fs::read_to_string(dir.join("layout.jsonl")).expect("layout.jsonl");
+    let mut count = 0;
+    for cpp in text
+        .lines()
+        .filter(|l| l.contains("\"rec\":\"asteroidfield\""))
+    {
+        let frame = uint_field(cpp, "frame").expect("a frame");
+        let start = cpp.find("\"path\":\"").expect("a path") + 8;
+        let end = start + cpp[start..].find('"').expect("the path's end");
+        // The paths' escapes are `\\` only (ASCII).
+        let path = cpp[start..end].replace("\\\\", "\\");
+        let file = AsteroidFieldFile::load(&source, path.as_bytes());
+        assert_eq!(
+            asteroid_field_line(frame, path.as_bytes(), &file),
+            cpp,
+            "the field {path}"
+        );
+        count += 1;
+    }
+    println!("layout.jsonl: {count} asteroid field records equal");
+}
