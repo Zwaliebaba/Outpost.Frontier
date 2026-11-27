@@ -102,6 +102,14 @@ opt-level = 2
 [profile.dev.package.game-sim]
 opt-level = 2
 
+# The tests' physics runs through parry3d and nalgebra, which are slow
+# unoptimised: unoptimised, game-sim's scenario replay took about 8 minutes of
+# Rust CI's test step (decision O57). The dependencies are optimised as the
+# simulation crates are; Rust contracts no float operations, so the results do
+# not change (O51).
+[profile.dev.package."*"]
+opt-level = 2
+
 [workspace.lints.rust]
 # Unsafe code is denied everywhere. Only the modules listed in xtask's
 # policy may allow it (design/decisions.md T14). Pure crates forbid it.
