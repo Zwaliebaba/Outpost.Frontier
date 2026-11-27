@@ -1,6 +1,7 @@
 // Author: Giperion.
 
 #include "sound_config.h"
+#include "oracle_mode.h" // Oracle instrumentation (P0.5)
 
 #include "common_ini.h"
 #include "neuroncomponents.h"
@@ -197,10 +198,13 @@ void SnapClientAudioFade(float Value)
     GAudioFade.Target = Value;
     GAudioFade.Rate = 0.f;
     GAudioFade.bDirty = 1;
+    OracleOnSoundCall("SnapClientAudioFade", nullptr, 0, &Value, 1, -1); // Oracle (P0.5)
 }
 
 void SetClientAudioFade(float Target, float Seconds)
 {
+    float const OracleFloats[2] = {Target, Seconds};                      // Oracle
+    OracleOnSoundCall("SetClientAudioFade", nullptr, 0, OracleFloats, 2, -1); // (P0.5)
     // (thiscall on the field, RET 8).
     // FCOMP 0.0, `TEST AH,5` + JP -- not below 0 (or unordered) keeps
     // Seconds; below 0 takes the ducking down_time (the routine(0, &Seconds, 0)).
@@ -223,6 +227,8 @@ void SetClientAudioFadeTargetRate(float Target, float Rate)
 {
     GAudioFade.Target = Target;
     GAudioFade.Rate = Rate;
+    float const OracleFloats[2] = {Target, Rate};                                   // Oracle
+    OracleOnSoundCall("SetClientAudioFadeTargetRate", nullptr, 0, OracleFloats, 2, -1); // (P0.5)
 }
 
 bool TickClientAudioFade(float DeltaSeconds)

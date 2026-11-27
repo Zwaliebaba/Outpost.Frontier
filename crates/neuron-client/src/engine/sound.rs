@@ -19,12 +19,16 @@ use neuron_core::vfs::{FileSystem, FsDesc, Host, UtfFileSystem};
 use super::{Engine, lossy};
 use crate::audio::client::config::{ListenerSetting, SoundOptions};
 use crate::audio::client::source::ArchRef;
+#[cfg(windows)]
+use crate::audio::client::streamed::ClientStreamer;
 use crate::audio::client::{
     ClientSound, NoAttachments, PlayKey, SoundDevice, SoundEnv, SourceKey, WavFiles,
 };
 use crate::audio::listener::Listener;
 use crate::audio::mixer::{Archetype, ArchetypeId, Emitter, VoiceBackend, VoiceId};
 use crate::audio::reverb::{EaxState, reverb_parameters};
+#[cfg(windows)]
+use crate::audio::stream::StreamId;
 use crate::render::ff::device::Backend;
 use crate::scene_script::entity::kind as entity_kind;
 use crate::scene_script::playback::Player;
@@ -94,6 +98,37 @@ impl SoundDevice for crate::platform::audio::AudioDevice {
     }
     fn remove_samples(&mut self, archetype: ArchetypeId) {
         crate::platform::audio::AudioDevice::remove_samples(self, archetype);
+    }
+    fn streamer(&mut self) -> Option<&mut dyn ClientStreamer> {
+        let streams: &mut dyn ClientStreamer = self.streams_mut();
+        Some(streams)
+    }
+}
+
+/// `IStreamer2` on the device's streams: a stream that does not decode or
+/// has no voice is a handle of 0 (`CreateStream`'s failure).
+#[cfg(windows)]
+impl ClientStreamer for crate::platform::audio::Streams {
+    fn create(&mut self, file: Vec<u8>, looping: bool) -> Option<StreamId> {
+        crate::platform::audio::Streams::create(self, file.into(), looping, false).ok()
+    }
+    fn destroy(&mut self, stream: StreamId) {
+        crate::platform::audio::Streams::destroy(self, stream);
+    }
+    fn stop(&mut self, stream: StreamId) {
+        crate::platform::audio::Streams::stop(self, stream);
+    }
+    fn start(&mut self, stream: StreamId) {
+        crate::platform::audio::Streams::start(self, stream);
+    }
+    fn set_volume(&mut self, stream: StreamId, volume: i32) {
+        crate::platform::audio::Streams::set_volume(self, stream, volume);
+    }
+    fn set_pan(&mut self, stream: StreamId, pan: i32) {
+        crate::platform::audio::Streams::set_pan(self, stream, pan);
+    }
+    fn status(&mut self, stream: StreamId) -> u32 {
+        crate::platform::audio::Streams::status(self, stream)
     }
 }
 

@@ -687,6 +687,11 @@ impl AudioDevice {
     pub fn streams(&self) -> &Streams {
         &self.streams
     }
+
+    /// The streams, for the client's streamed sources.
+    pub fn streams_mut(&mut self) -> &mut Streams {
+        &mut self.streams
+    }
 }
 
 impl VoiceBackend for AudioDevice {

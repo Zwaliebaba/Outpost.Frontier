@@ -265,6 +265,7 @@ fn menu_walk_runs_through_the_context() {
             out: "out".into(),
             keymap: Vec::new(),
             layout: Vec::new(),
+            audio: Vec::new(),
         }),
         &mut start,
         LocalServerRequest {

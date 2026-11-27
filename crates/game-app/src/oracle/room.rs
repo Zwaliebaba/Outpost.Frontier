@@ -154,9 +154,10 @@ pub fn room_lines(data: &RoomData, name: RoomName<'_>, frame: u32) -> Vec<String
         j.bool("valid", p.valid)
             .bool("zs", p.zone_script)
             .int("char_type", p.char_type);
-        text(&mut j, "segment", p.segment.as_deref());
+        // The reference's segment is null for an invalid name.
+        text(&mut j, "segment", p.valid.then_some(p.segment.as_slice()));
         j.int("zone", p.zone)
-            .str_bytes("pname", &p.name)
+            .str_bytes("pname", &p.name_buffer)
             .int("posture", p.posture);
         lines.push(j.finish());
     }

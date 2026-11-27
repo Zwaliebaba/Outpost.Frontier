@@ -4,6 +4,7 @@
 use std::io::{self, Write};
 
 pub mod account_keys;
+pub mod audio;
 pub mod base;
 pub mod boot_interface;
 pub mod cameras;

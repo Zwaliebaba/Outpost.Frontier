@@ -10,6 +10,7 @@ use crate::audio::mixer::{Emitter, Spatial, VoiceId};
 struct Device {
     voices: BTreeMap<VoiceId, (i32, i32, bool)>,
     samples: BTreeMap<ArchetypeId, usize>,
+    streams: Option<Streams>,
 }
 
 impl VoiceBackend for Device {
@@ -44,6 +45,11 @@ impl SoundDevice for Device {
     }
     fn remove_samples(&mut self, archetype: ArchetypeId) {
         self.samples.remove(&archetype);
+    }
+    fn streamer(&mut self) -> Option<&mut dyn streamed::ClientStreamer> {
+        self.streams
+            .as_mut()
+            .map(|s| s as &mut dyn streamed::ClientStreamer)
     }
 }
 
@@ -212,4 +218,177 @@ fn streamed_archetypes_and_ducking() {
         &NoAttachments,
     );
     assert_eq!(sound.ducking_db(), 0.0);
+}
+
+/// A streamer that keeps its streams' state.
+#[derive(Default)]
+struct Streams {
+    next: u32,
+    streams: BTreeMap<u32, Stream>,
+}
+
+/// A stream's bytes, looping, started, volume and destroyed.
+#[derive(Clone, Debug, PartialEq)]
+struct Stream {
+    bytes: usize,
+    looping: bool,
+    started: bool,
+    volume: i32,
+    destroyed: bool,
+}
+
+impl streamed::ClientStreamer for Streams {
+    fn create(&mut self, file: Vec<u8>, looping: bool) -> Option<u32> {
+        self.next += 1;
+        let stream = Stream {
+            bytes: file.len(),
+            looping,
+            started: false,
+            volume: 0,
+            destroyed: false,
+        };
+        self.streams.insert(self.next, stream);
+        Some(self.next)
+    }
+    fn destroy(&mut self, stream: u32) {
+        self.streams.get_mut(&stream).unwrap().destroyed = true;
+    }
+    fn stop(&mut self, stream: u32) {
+        self.streams.get_mut(&stream).unwrap().started = false;
+    }
+    fn start(&mut self, stream: u32) {
+        self.streams.get_mut(&stream).unwrap().started = true;
+    }
+    fn set_volume(&mut self, stream: u32, volume: i32) {
+        self.streams.get_mut(&stream).unwrap().volume = volume;
+    }
+    fn set_pan(&mut self, _: u32, _: i32) {}
+    fn status(&mut self, stream: u32) -> u32 {
+        let s = &self.streams[&stream];
+        if s.destroyed {
+            0
+        } else if s.started {
+            2
+        } else {
+            1
+        }
+    }
+}
+
+const STREAMS: &[u8] =
+    b"[Sound]\nnickname = music_a\ntype = music\nfile = f100.wav\nstreamer = true\n\
+    [Sound]\nnickname = music_b\ntype = music\nfile = f200.wav\nstreamer = true\n\
+    [Sound]\nnickname = wind\nfile = f300.wav\n";
+
+fn streaming() -> (Mixer<u32>, Device, ClientSound) {
+    let mut mixer = Mixer::new();
+    let mut device = Device {
+        streams: Some(Streams::default()),
+        ..Device::default()
+    };
+    let mut sound = ClientSound::new();
+    sound.load_sounds(&mut env(&mut mixer, &mut device, 0), STREAMS, false);
+    (mixer, device, sound)
+}
+
+fn stream(device: &Device, id: u32) -> Stream {
+    device.streams.as_ref().unwrap().streams[&id].clone()
+}
+
+#[test]
+fn background_music_fades_in_and_out_through_its_stream() {
+    use streamed::Background::{Ambient, Music};
+    let (mut mixer, mut device, mut sound) = streaming();
+    let a = neuron_core::id::create_id(b"music_a");
+    let b = neuron_core::id::create_id(b"music_b");
+    // Looping, at the silence: the stream started at -96 dB.
+    assert!(sound.set_background(&mut env(&mut mixer, &mut device, 0), Music, a, 1, -1.0));
+    let first = sound.background(Music).unwrap();
+    let s1 = stream(&device, 1);
+    assert_eq!(
+        (s1.bytes, s1.looping, s1.started, s1.volume),
+        (244, true, true, -9600)
+    );
+    let s = sound.source(first).unwrap();
+    assert_eq!(
+        (s.category, s.flags & source::source_flags::MANAGED),
+        (category::MUSIC, 0)
+    );
+    assert_eq!(s.streamed.unwrap().fade_time, 3.0);
+    // The same id keeps it.
+    assert!(sound.set_background(&mut env(&mut mixer, &mut device, 0), Music, a, 1, -1.0));
+    assert_eq!(sound.background(Music), Some(first));
+    assert_eq!(device.streams.as_ref().unwrap().streams.len(), 1);
+    // Not ranked, no mixer archetype; part-way up after a tick, at 0 dB
+    // after the fade.
+    let tick = |sound: &mut ClientSound, mixer: &mut Mixer<u32>, device: &mut Device, dt| {
+        sound.tick(&mut env(mixer, device, 0), None, dt, &NoAttachments);
+    };
+    tick(&mut sound, &mut mixer, &mut device, 1.5);
+    assert_eq!(sound.ranked().count(), 0);
+    assert!(device.samples.is_empty());
+    let mid = sound.source(first).unwrap().attenuation_db;
+    assert!(mid > -96.0 && mid < 0.0, "{mid}");
+    assert_eq!(
+        stream(&device, 1).volume,
+        streamed::stream_volume(f64::from(mid))
+    );
+    tick(&mut sound, &mut mixer, &mut device, 1.5);
+    assert_eq!(sound.source(first).unwrap().attenuation_db, 0.0);
+    assert_eq!(stream(&device, 1).volume, 0);
+    // Another id: the first fades out over 2 s and, let go, is retired
+    // with its stream destroyed; the second fades in.
+    assert!(sound.set_background(&mut env(&mut mixer, &mut device, 0), Music, b, 0, 2.0));
+    let second = sound.background(Music).unwrap();
+    assert_ne!(second, first);
+    assert!(!stream(&device, 2).looping);
+    tick(&mut sound, &mut mixer, &mut device, 1.0);
+    assert!(!stream(&device, 1).destroyed);
+    tick(&mut sound, &mut mixer, &mut device, 1.0);
+    assert!(stream(&device, 1).destroyed, "faded out and retired");
+    assert_eq!(sound.playing().collect::<Vec<_>>(), [second]);
+    // An empty id lets the slot go and answers false.
+    assert!(!sound.set_background(&mut env(&mut mixer, &mut device, 0), Music, 0, 0, -1.0));
+    assert_eq!(sound.background(Music), None);
+    // An ambience that is no streamer still streams (the key's bit 2).
+    let wind = neuron_core::id::create_id(b"wind");
+    assert!(sound.set_background(&mut env(&mut mixer, &mut device, 0), Ambient, wind, 1, 0.0));
+    let ambient = sound.background(Ambient).unwrap();
+    assert_eq!(sound.source(ambient).unwrap().category, category::AMBIENT);
+    // Stop-all stops both slots' sources and destroys their streams.
+    sound.stop_all_except(&mut env(&mut mixer, &mut device, 0), None);
+    assert_eq!(
+        (sound.background(Music), sound.background(Ambient)),
+        (None, None)
+    );
+    let streams = &device.streams.as_ref().unwrap().streams;
+    assert!(streams.values().all(|s| s.destroyed), "{streams:?}");
+    assert_eq!(sound.alive(), 0);
+}
+
+#[test]
+fn background_fades_and_no_streamer() {
+    use streamed::Background::Music;
+    let (mut mixer, mut device, mut sound) = streaming();
+    let a = neuron_core::id::create_id(b"music_a");
+    // Without a streamer nothing starts.
+    let mut silent = Device::default();
+    assert!(!sound.set_background(&mut env(&mut mixer, &mut silent, 0), Music, a, 1, -1.0));
+    assert_eq!((sound.background(Music), sound.alive()), (None, 0));
+    // A rate: the time is the distance from the total attenuation.
+    assert!(sound.set_background(&mut env(&mut mixer, &mut device, 0), Music, a, 1, 0.0));
+    let key = sound.background(Music).unwrap();
+    sound.masters.music = -10.0;
+    sound.fade_background(Music, -50.0, 20.0);
+    let s = sound.source(key).unwrap().streamed.unwrap();
+    // The total is the silence (-96 - 10, clamped): 46 / 20.
+    assert_eq!((s.fade_target, s.fade_time), (-50.0, 2.3));
+    // Above 1e8: the ducking's down-by and down-time.
+    sound.fade_background(Music, 1e9, 1e9);
+    let s = sound.source(key).unwrap().streamed.unwrap();
+    assert_eq!((s.fade_target, s.fade_time), sound.config.ducking());
+    // The volume's clamps.
+    assert_eq!(streamed::stream_volume(-96.5), -9999);
+    assert_eq!(streamed::stream_volume(0.5), 0);
+    assert_eq!(streamed::stream_volume(-12.345), -1234);
 }

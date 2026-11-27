@@ -1,6 +1,7 @@
 // Author: Giperion.
 
 #include "menu_sound_arch.h"
+#include "oracle_mode.h" // Oracle instrumentation (P0.5)
 
 #include "perf_options.h"
 
@@ -3179,6 +3180,7 @@ void PauseAllClientSounds()
         Node->Value->Pause();
         Node = Node->Next;
     }
+    OracleOnSoundCall("PauseAllClientSounds", nullptr, 0, nullptr, 0, -1); // Oracle (P0.5)
 }
 
 void ResumePausedClientSounds()
@@ -3194,6 +3196,7 @@ void ResumePausedClientSounds()
             Source->Resume();
         Node = Node->Next;
     }
+    OracleOnSoundCall("ResumePausedClientSounds", nullptr, 0, nullptr, 0, -1); // Oracle (P0.5)
 }
 
 unsigned char BindClientBackgroundMusic(void** OutSource)
@@ -3208,12 +3211,20 @@ unsigned char BindClientBackgroundAmbient(void** OutSource)
 
 unsigned char SetClientBackgroundMusic(unsigned NicknameId, unsigned Flags, float Fade)
 {
-    return WriteBackgroundSource(&G_BackgroundMusic, NicknameId, Flags, Fade, 3);
+    unsigned char const Result =
+        WriteBackgroundSource(&G_BackgroundMusic, NicknameId, Flags, Fade, 3);
+    unsigned const OracleUints[2] = {NicknameId, Flags};                      // Oracle
+    OracleOnSoundCall("SetClientBackgroundMusic", OracleUints, 2, &Fade, 1, Result); // (P0.5)
+    return Result;
 }
 
 unsigned char SetClientBackgroundAmbient(unsigned NicknameId, unsigned Flags, float Fade)
 {
-    return WriteBackgroundSource(&G_BackgroundAmbient, NicknameId, Flags, Fade, 4);
+    unsigned char const Result =
+        WriteBackgroundSource(&G_BackgroundAmbient, NicknameId, Flags, Fade, 4);
+    unsigned const OracleUints[2] = {NicknameId, Flags};                        // Oracle
+    OracleOnSoundCall("SetClientBackgroundAmbient", OracleUints, 2, &Fade, 1, Result); // (P0.5)
+    return Result;
 }
 
 namespace
@@ -3253,6 +3264,8 @@ void FadeClientBackgroundMusic(int Unused, float TargetDb, float Rate)
     // (cdecl) on the field. Unused is never read (callers pass 3).
     (void)Unused;
     FadeBackgroundSource(G_BackgroundMusic, TargetDb, Rate);
+    float const OracleFloats[2] = {TargetDb, Rate};                               // Oracle
+    OracleOnSoundCall("FadeClientBackgroundMusic", nullptr, 0, OracleFloats, 2, -1); // (P0.5)
 }
 
 void FadeClientBackgroundAmbient(int Unused, float TargetDb, float Rate)
@@ -3260,6 +3273,8 @@ void FadeClientBackgroundAmbient(int Unused, float TargetDb, float Rate)
     // (cdecl) on the field. Unused is never read (callers pass 3).
     (void)Unused;
     FadeBackgroundSource(G_BackgroundAmbient, TargetDb, Rate);
+    float const OracleFloats[2] = {TargetDb, Rate};                                 // Oracle
+    OracleOnSoundCall("FadeClientBackgroundAmbient", nullptr, 0, OracleFloats, 2, -1); // (P0.5)
 }
 
 void PushClientSoundDucking()
@@ -3274,6 +3289,7 @@ void PushClientSoundDucking()
         G_DuckTargetDb = GetClientSpaceflightDuckDownBy();
     }
     ++G_DuckRefCount;
+    OracleOnSoundCall("PushClientSoundDucking", nullptr, 0, nullptr, 0, -1); // Oracle (P0.5)
 }
 
 void PopClientSoundDucking()
@@ -3285,6 +3301,7 @@ void PopClientSoundDucking()
         G_DuckTargetDb = 0.f;
         G_DuckTimer = GetClientSpaceflightDuckUpTime();
     }
+    OracleOnSoundCall("PopClientSoundDucking", nullptr, 0, nullptr, 0, -1); // Oracle (P0.5)
 }
 
 float GetClientSoundDuckingDb()
@@ -3329,6 +3346,8 @@ void StopAllClientSoundsExceptArch(void* KeepArch)
     G_DuckCurrentDb = 0.f;
     G_DuckRefCount = 0;
     G_DuckTimer = -1.f;
+    unsigned const OracleKeep = KeepArch != nullptr ? GetClientSoundArchId(KeepArch) : 0u; // Oracle
+    OracleOnSoundCall("StopAllClientSoundsExceptArch", &OracleKeep, 1, nullptr, 0, -1); // (P0.5)
 }
 
 void StopAllClientSounds()
