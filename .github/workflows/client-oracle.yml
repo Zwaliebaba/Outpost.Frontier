@@ -302,6 +302,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p game-app --test page_data -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The HUD's elements and the NeuroNet windows of the space entry (P5.7) against
+          # run s1's first tree dump in space, and the HUD's layout.jsonl records.
+          cargo test --locked -p game-app --test hud_data -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p game-app --test neuronet_data -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The interface windows of the start-up, the loading screen's bar and the main menu's column (P5.1) against
           # the first tree dump.
           cargo test --locked -p game-app --test boot_interface_data --test loading_screen_data --test intro_menu_data --test char_select_single_data --test options_data -- --nocapture
