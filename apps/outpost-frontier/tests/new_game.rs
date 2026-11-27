@@ -132,11 +132,11 @@ fn run(info: &LocalStartupInfo) -> Vec<String> {
         .objects
         .find(11, 1)
         .and_then(|(_, o)| o.handle);
-    assert_eq!(app.cameras.active_camera().and_then(|c| c.watched), ship);
     assert!(
         ship.is_some(),
         "SpawnPlayerShip made the ship in the shared world"
     );
+    assert_eq!(app.cameras.active_camera().and_then(|c| c.watched), ship);
     // `player` is the chase camera; its attach placed it on the ship's
     // `camera_offset`, through the ship's frame.
     assert_eq!(app.cameras.active(), Some(SpaceCameraMode::ThirdPerson));
