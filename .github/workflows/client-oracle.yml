@@ -285,10 +285,10 @@ jobs:
       - name: Compare the port with the C++ client
         # Decision O53 (2), (4) and (5): the port's oracle files against this runner's C++
         # runs: keymap.jsonl and layout.jsonl's key and option lists, pages and navbar.ini
-        # window tree against run a (the tree also against s1), the single-player login's
-        # IClient lines against runs w (a fresh user folder) and a (the folder w made), and a new
-        # game's IClient lines up to the frames after entering space against run s1 of
-        # single_player.txt.
+        # window tree and the start-up's interface windows against run a (the tree also against s1),
+        # the single-player login's IClient lines against runs w (a fresh user folder) and a (the
+        # folder w made), and a new game's IClient lines up to the frames after entering space
+        # against run s1 of single_player.txt.
         if: ${{ always() }}
         shell: pwsh
         env:
@@ -302,12 +302,22 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p game-app --test page_data -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The interface windows of the start-up, the loading screen's bar and the main menu's column (P5.1) against
+          # the first tree dump.
+          cargo test --locked -p game-app --test boot_interface_data --test loading_screen_data --test intro_menu_data --test char_select_single_data --test options_data -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The navigation bar's window tree (P5.9): menu_walk.txt's load at frame 0 (run a),
           # then single_player.txt's two loads, the second in the first base (run s1).
           cargo test --locked -p game-app --test navbar_data -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The rooms' files as RoomData::load reads them (P5.9), for every room of the bases
+          # LoadLocationBase loads in the two scripts.
+          cargo test --locked -p game-app --test room_data -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:OUTPOST_CLIENT_ORACLE_DIR = "${{ runner.temp }}\oracle-out\s1"
           cargo test --locked -p game-app --test navbar_data -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p game-app --test room_data -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:OUTPOST_CLIENT_ORACLE_DIR = "${{ runner.temp }}\oracle-out\a"
           cargo test --locked -p outpost-frontier --test local_server -- --nocapture
@@ -328,6 +338,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $run = "$env:RUNNER_TEMP\run"
           Copy-Item target\x86_64-pc-windows-msvc\release\OutpostFrontier.exe "$run\OutpostFrontierPort.exe"
+          # The interface's strings: the text catalogs beside the executable (decision T21).
+          cargo xtask catalog --out "$run"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $out = "$env:RUNNER_TEMP\oracle-out\port"
           $script = "$PWD\CppSource\OutpostFrontier\oracle\menu_walk.txt"
           $user = "$env:USERPROFILE\Documents\My Games\OutpostFrontier"
