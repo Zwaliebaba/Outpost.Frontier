@@ -18,6 +18,7 @@
 //! (`Slot9Entity`) and user properties (`Slot33UserProp`). The server's
 //! subset of this file (the placements) is `game_sim::data::room`.
 
+use game_sim::data::room::SetpointProps;
 use game_sim::data::{DataSource, Reports, open_ini};
 use neuron_client::scene_script::playback::Player;
 use neuron_client::scene_script::{ScriptModule, build, load};
@@ -28,7 +29,6 @@ use neuron_core::num::trunc_to_i64;
 
 const ROOM_DATA: &str = "Common\\RoomData.cpp";
 const SCENE_PROGRAM: &str = "Common\\SceneProgram.cpp";
-const SETPOINT: &str = "Common\\SetpointProperties.cpp";
 const PETAL: &str = "Common\\PetalDB.cpp";
 
 /// The scene-script entity types the set script files (`kSceneScriptEntity*`).
@@ -61,152 +61,6 @@ impl Frame {
         w[..3].copy_from_slice(&self.pos);
         w[3..].copy_from_slice(&self.orient);
         w
-    }
-}
-
-/// `SetpointProperties`: what a setpoint's name encodes, with the
-/// constructor's defaults for what it does not.
-#[derive(Clone, Debug, PartialEq)]
-pub struct SetpointProps {
-    /// The name has the `zs` or `zg` prefix.
-    pub valid: bool,
-    pub zone_script: bool,
-    /// `pc` 1, `npc` 0, `none` -1, `rpc` 2; -1 by default.
-    pub char_type: i32,
-    /// The third token, lowered.
-    pub segment: Option<Vec<u8>>,
-    /// The fourth token, `strtol` base 10; -1 by default.
-    pub zone: i32,
-    /// `NameBuffer`: the fifth token, upper-cased (the 16 bytes the
-    /// reference's buffer holds).
-    pub name: Vec<u8>,
-    /// `stand` 0, `sitlow` 1, `sithigh` 2, anything else 3; -1 by default.
-    pub posture: i32,
-}
-
-impl Default for SetpointProps {
-    fn default() -> Self {
-        SetpointProps {
-            valid: false,
-            zone_script: false,
-            char_type: -1,
-            segment: None,
-            zone: -1,
-            name: Vec::new(),
-            posture: -1,
-        }
-    }
-}
-
-/// `strtol(text, &end, 10)`: the value (clamped as the CRT clamps) and
-/// whether the whole text was read.
-fn strtol(text: &[u8]) -> (i32, bool) {
-    let mut at = text
-        .iter()
-        .position(|b| !matches!(b, b' ' | b'\t'..=b'\r'))
-        .unwrap_or(text.len());
-    let negative = text.get(at) == Some(&b'-');
-    if matches!(text.get(at), Some(b'-' | b'+')) {
-        at += 1;
-    }
-    let start = at;
-    let mut value: i64 = 0;
-    while let Some(d) = text.get(at).filter(|b| b.is_ascii_digit()) {
-        value = (value * 10 + i64::from(d - b'0')).min(i64::from(i32::MAX) + 1);
-        at += 1;
-    }
-    if at == start {
-        // No digits: `end` is the text itself.
-        return (0, text.is_empty());
-    }
-    let value = if negative { -value } else { value };
-    let clamped = value.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
-    (clamped, at == text.len())
-}
-
-impl SetpointProps {
-    /// `extract_from_name` on a fresh object. A name with a missing token
-    /// is reported; the reference then compares or copies the null token
-    /// and crashes, where the port takes an empty one.
-    #[must_use]
-    pub fn from_name(full: &[u8], reports: &mut Reports) -> SetpointProps {
-        let mut props = SetpointProps::default();
-        let lowered = full.to_ascii_lowercase();
-        let mut tokens = lowered
-            .split(|&b| b == b'/')
-            .filter(|t| !t.is_empty())
-            .map(<[u8]>::to_vec);
-        let prefix = tokens.next();
-        let char_type = tokens.next();
-        let segment = tokens.next();
-        let zone = tokens.next();
-        let name = tokens.next();
-        let posture = tokens.next().unwrap_or_default();
-        let Some(prefix) = prefix.filter(|p| p == b"zs" || p == b"zg") else {
-            return props;
-        };
-        props.valid = true;
-        let shown = lossy(full);
-        if char_type.is_none() || segment.is_none() || zone.is_none() || name.is_none() {
-            reports.push(
-                SETPOINT,
-                0x78,
-                format!("*** ERROR: setpoint name {shown} does not match naming convention"),
-            );
-        }
-        props.zone_script = prefix == b"zs";
-        let char_type = char_type.unwrap_or_default();
-        match char_type.as_slice() {
-            b"pc" => props.char_type = 1,
-            b"npc" => props.char_type = 0,
-            b"none" => props.char_type = -1,
-            b"rpc" => props.char_type = 2,
-            other => reports.push(
-                SETPOINT,
-                0x9e,
-                format!(
-                    "*** ERROR: setpoint character type {} (of {shown}) is not pc, npc, none, or rpc",
-                    lossy(other)
-                ),
-            ),
-        }
-        props.segment = Some(segment.unwrap_or_default());
-        let zone = zone.unwrap_or_default();
-        let (value, whole) = strtol(&zone);
-        props.zone = value;
-        if !whole {
-            reports.push(
-                SETPOINT,
-                0xac,
-                format!(
-                    "*** ERROR: setpoint zone number {} (of {shown}) is not a number",
-                    lossy(&zone)
-                ),
-            );
-        }
-        // `set_segment`: `strcpy` into the 16-byte buffer, then upper-cased.
-        let mut upper = name.unwrap_or_default().to_ascii_uppercase();
-        upper.truncate(16);
-        props.name = upper;
-        props.posture = match posture.as_slice() {
-            b"stand" => 0,
-            b"sitlow" => 1,
-            b"sithigh" => 2,
-            other => {
-                if !props.zone_script {
-                    reports.push(
-                        SETPOINT,
-                        0xc8,
-                        format!(
-                            "*** ERROR: invalid posture {} in setpoint marker {shown} - if this is a special relocation marker, mark it with Zs",
-                            lossy(other)
-                        ),
-                    );
-                }
-                3
-            }
-        };
-        props
     }
 }
 
@@ -1129,21 +983,6 @@ impl RoomData {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn setpoint_names_keep_the_constructor_defaults() {
-        let mut reports = Reports::default();
-        let p = SetpointProps::from_name(b"Camera01", &mut reports);
-        assert_eq!(p, SetpointProps::default());
-        let p = SetpointProps::from_name(b"Zg/NPC/Bar/2/Barkeep/SitLow", &mut reports);
-        assert!(p.valid && !p.zone_script);
-        assert_eq!((p.char_type, p.zone, p.posture), (0, 2, 1));
-        assert_eq!(p.segment.as_deref(), Some(b"bar".as_slice()));
-        assert_eq!(p.name, b"BARKEEP");
-        let p = SetpointProps::from_name(b"zs/xx/a/1/b", &mut reports);
-        assert_eq!(p.char_type, -1, "an unknown type leaves the default");
-        assert_eq!(p.posture, 3);
-    }
 
     #[test]
     fn hotspot_behaviours_compare_the_first_token() {
