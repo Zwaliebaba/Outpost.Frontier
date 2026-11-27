@@ -1236,6 +1236,31 @@ fn beh_skipped(kind: i32, k: usize) -> bool {
 /// output leaves them as its uninitialised local (D178).
 const DOCK_UNWRITTEN: [std::ops::Range<usize>; 3] = [17..20, 26..35, 44..53];
 
+/// The fields of `beh7` the reference's constructor sets (`DockBehavior`'s
+/// initialisers and the base's `ConstructBase`): the base's four, `ModeState320`,
+/// `StateFlags32c`, `Flag39b`, `Watcher324`, the proximity watcher's watcher and the
+/// pilot handle's flag among the ints; the proximity watcher's two zeroed floats
+/// (`Unknown08`, `Unknown0c`) and the `hpmount` offset `SetContext` computes among
+/// the floats. Every other field holds what the heap held until a write (D178).
+const DOCK_CTOR_INTS: [usize; 10] = [0, 1, 2, 3, 4, 5, 13, 15, 17, 20];
+const DOCK_CTOR_FLOATS: [usize; 5] = [5, 6, 20, 21, 22];
+
+/// The fields of a `beh7` record not judged on a tick of a dock behaviour that no
+/// recorded entry has restored yet (its first engagement): those the constructor
+/// leaves as the heap held them and the Rust tick left as they were before it, as
+/// D166 does for the face behaviour's matrix. A field the Rust tick wrote is judged.
+fn dock_untouched(before: Option<&BehRecord>, ours: &BehRecord) -> (Vec<usize>, Vec<usize>) {
+    let int_before = |k: usize| before.map_or(0, |b| b.ints.get(k).copied().unwrap_or(0));
+    let float_before = |k: usize| before.map_or(0, |b| b.floats.get(k).map_or(0, |v| v.to_bits()));
+    let ints = (0..ours.ints.len())
+        .filter(|k| !DOCK_CTOR_INTS.contains(k) && ours.ints[*k] == int_before(*k))
+        .collect();
+    let floats = (0..ours.floats.len())
+        .filter(|k| !DOCK_CTOR_FLOATS.contains(k) && ours.floats[*k].to_bits() == float_before(*k))
+        .collect();
+    (ints, floats)
+}
+
 /// The differences between the recorded and the Rust behaviour fields;
 /// the floats in `uninitialised` are not judged (the dock behaviour's
 /// mount and frames while the reference has not written them, D178).
@@ -1243,6 +1268,7 @@ fn beh_diff(
     theirs: &BehRecord,
     ours: Option<&BehRecord>,
     uninitialised: Option<&[std::ops::Range<usize>]>,
+    untouched: &(Vec<usize>, Vec<usize>),
 ) -> Option<String> {
     let Some(ours) = ours else {
         return Some(format!(
@@ -1251,10 +1277,15 @@ fn beh_diff(
         ));
     };
     let ints: Vec<usize> = (0..theirs.ints.len().max(ours.ints.len()))
-        .filter(|&k| !beh_skipped(theirs.kind, k) && theirs.ints.get(k) != ours.ints.get(k))
+        .filter(|&k| {
+            !beh_skipped(theirs.kind, k)
+                && !untouched.0.contains(&k)
+                && theirs.ints.get(k) != ours.ints.get(k)
+        })
         .collect();
     let floats: Vec<usize> = (0..theirs.floats.len().max(ours.floats.len()))
         .filter(|&k| !uninitialised.is_some_and(|r| r.iter().any(|r| r.contains(&k))))
+        .filter(|&k| !untouched.1.contains(&k))
         .filter(|&k| {
             theirs.floats.get(k).map(|v| v.to_bits()) != ours.floats.get(k).map(|v| v.to_bits())
         })
@@ -1630,6 +1661,10 @@ struct Totals {
     /// reference has not written them (D178), and the ticks.
     beh_uninitialised: usize,
     beh_uninitialised_ticks: usize,
+    /// The dock behaviour's fields not judged on a first engagement because
+    /// the constructor left them unset and the Rust tick did not write them
+    /// (D178).
+    beh_untouched: usize,
     beh_reports: Vec<String>,
     /// The oracle's zone probes (`zone_props`) against the Rust world's
     /// zones (`World::sphere_zone_properties`, P2.1's zones).
@@ -1890,6 +1925,9 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
     // by a `get_dock_hardpoints` call that set all three outputs, and not
     // since left by a call that did not.
     let mut dock_written: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    // The ships whose dock behaviour a recorded entry has restored (its
+    // first engagement is behind them; D178).
+    let mut dock_restored: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     let names: BTreeMap<u32, String> = ticks
         .iter()
         .filter_map(|t| Some((t.id, t.obj.clone()?)))
@@ -2118,6 +2156,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         if let Some(b) = &t.input.beh {
             if restore_dock(manager, b) {
                 dock_written.insert(t.id);
+                dock_restored.insert(t.id);
             }
             restore_trade_lane(manager, b);
         }
@@ -2128,6 +2167,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         }
         let orient_before = face_snapshot(manager).map(|f| f.orient);
         let dock_calls = world.dock_outputs.len();
+        let dock_before = beh_snapshot(manager, 7);
         manager.update_behavior_tick(&mut world, t.id, t.dt);
         // A directive of the tick that no callback took (the manager
         // notified none) waits for the ship's next tick.
@@ -2229,6 +2269,16 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         if let Some(theirs) = &out.beh {
             totals.beh_compared += 1;
             let ours = beh_snapshot(manager, theirs.kind);
+            // D178 (2026-11-27): on a first engagement, before any recorded
+            // entry restored the dock behaviour, the fields its constructor
+            // leaves unset and the Rust tick did not write hold heap bytes in
+            // the reference (populated_he01 run_03 tick 630 ship 16:
+            // `Unknown10`, beh7's float 7, and `Orient3a8`).
+            let untouched = match (&ours, theirs.kind == 7 && !dock_restored.contains(&t.id)) {
+                (Some(o), true) => dock_untouched(dock_before.as_ref(), o),
+                _ => (Vec::new(), Vec::new()),
+            };
+            totals.beh_untouched += untouched.0.len() + untouched.1.len();
             let uninitialised =
                 (dock_uninitialised && theirs.kind == 7).then_some(&DOCK_UNWRITTEN[..]);
             if let Some(r) = uninitialised {
@@ -2239,7 +2289,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
                     .count();
                 totals.beh_uninitialised_ticks += 1;
             }
-            if let Some(d) = beh_diff(theirs, ours.as_ref(), uninitialised) {
+            if let Some(d) = beh_diff(theirs, ours.as_ref(), uninitialised, &untouched) {
                 totals.beh_mismatched += 1;
                 if totals.beh_reports.len() < MAX_REPORTED {
                     totals.beh_reports.push(format!(
@@ -2388,6 +2438,11 @@ fn behavior_ticks_against_the_oracle() {
         totals.beh_mismatched,
         totals.beh_uninitialised,
         totals.beh_uninitialised_ticks
+    );
+    let _ = writeln!(
+        summary,
+        "dock fields not judged on first engagements (left unset by the reference's constructor and not written by the tick, D178): {}",
+        totals.beh_untouched
     );
     for r in &totals.beh_reports {
         let _ = writeln!(summary, "{r}");
