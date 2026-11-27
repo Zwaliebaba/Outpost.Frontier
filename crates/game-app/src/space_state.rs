@@ -144,3 +144,82 @@ fn no_answer<T>(link: &mut ClientLink<T>) -> SpaceEntry {
         SpaceEntry::Disconnected
     }
 }
+
+/// The in-flight controller's state that `UpdateSpaceState` reads and
+/// writes (`SpaceApp`): the cameras, the mouse flight, the active system
+/// and the leave and player-lost latches.
+#[derive(Clone, Debug)]
+pub struct SpaceApp {
+    /// The eight cameras (+0x00c .. +0xba4).
+    pub cameras: crate::space_camera::SpaceCameras,
+    /// `player_behavior.cpp`'s module state.
+    pub flight: crate::player_behavior::PlayerFlight,
+    /// `StarSysGetActiveSystemId`.
+    pub system: u32,
+    /// `bLeaveRequested`: the next frame leaves space (state 6).
+    pub leave_requested: bool,
+    /// `bPlayerLostHandled`.
+    pub player_lost_handled: bool,
+}
+
+impl SpaceApp {
+    /// The controller for a surface, in `system`, with no camera installed.
+    #[must_use]
+    pub fn new(surface: neuron_client::ui::widescreen::Surface, system: u32) -> Self {
+        Self {
+            cameras: crate::space_camera::SpaceCameras::new(surface),
+            flight: crate::player_behavior::PlayerFlight::default(),
+            system,
+            leave_requested: false,
+            player_lost_handled: false,
+        }
+    }
+}
+
+/// `UpdateSpaceState(dt)`: the in-space frame; the next client state (0
+/// stays, 6 leaves space).
+///
+/// - No installed camera: 6 at once.
+/// - Unless the local server's tick is held (`ShouldSkipLocalServerTick`):
+///   the simulation half ([`crate::space_frame::simulate`]; single player).
+/// - In the scene bracket: `UpdateMouseFlightDirection` on the player's
+///   ship with `flight_frame`.
+/// - A requested leave: 6.
+///
+/// Not here yet (P5.4b): the cameras' own update and draw, `StarSysUpdate`,
+/// the docking and lights passes, the sound mixer, the fade, the reap, the
+/// pending system switch, the player's last position and the finished
+/// camera's return to `player`.
+pub fn update<T, S>(
+    app: &mut SpaceApp,
+    link: &mut ClientLink<T>,
+    session: Option<&mut S>,
+    flight_frame: &crate::player_behavior::FlightFrame,
+    skip_local_server_tick: bool,
+    dt: f32,
+) -> i32
+where
+    S: Session + ?Sized,
+{
+    if app.cameras.active().is_none() {
+        return 6;
+    }
+    let Some(session) = session else {
+        // Multiplayer's own world comes with P5.10.
+        return if app.leave_requested { 6 } else { 0 };
+    };
+    let world = session.world();
+    let player = link.receiver.login.connection_id;
+    if !skip_local_server_tick {
+        crate::space_frame::simulate(world, &link.receiver.objects, app.system, player, dt);
+    }
+    let ship = link
+        .receiver
+        .objects
+        .find(link.receiver.player.character_id, 1)
+        .and_then(|(_, o)| o.handle);
+    let mut player_ship = crate::player_behavior::PlayerShip { world, ship };
+    app.flight
+        .update_mouse_flight(&mut player_ship, flight_frame);
+    if app.leave_requested { 6 } else { 0 }
+}
