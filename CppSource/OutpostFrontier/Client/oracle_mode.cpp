@@ -80,12 +80,14 @@
 #include "client_state.h"          // G_PendingClientStateId
 #include "hud_command_dispatch.h"  // HudCommandRecord, HudDispatchCommand
 #include "hud_element_list.h"      // HUDItem
+#include "input_manager.h"         // SetClientSoftwareCursor (the clickat command)
 #include "list_box.h"              // ListBox (the row command)
 #include "menu_keymap_config.h"    // FKeyCmd, FKeyMapGroup, the oracle views
 #include "nn_preferences.h"        // NnPreferences, FKeyRow, FPrefOption
 #include "nn_text_control.h"       // NnTextControl
 #include "text_win.h"              // TextWin
 #include "ui_page_desc.h"          // FUiPageData, FUiWidgetEntry, payloads
+#include "space_camera.h"          // FSpaceCamera (the clickat command)
 #include "win3d.h"
 #include "wincontrol_base.h"
 
@@ -534,6 +536,50 @@ namespace
         return true;
     }
 
+    // clickat <target>: the software cursor put over the target's hit box (its position, offset
+    // and hit offset, projected through the interface camera: the inverse of
+    // ScreenToNearPlane), then the press and release of click. The buttons hit-test the
+    // cursor's ray on release (NnButtonControl::MouseEvent), which click's parked pointer
+    // misses; click itself is left as it is, so the other scripts' dumps do not move.
+    bool DoClickAt(std::string const& Spec, std::string* Note)
+    {
+        Win3D* const Target = ResolveTarget(Spec, Note);
+        if (Target == nullptr)
+            return false;
+        WinControl* const Control = dynamic_cast<WinControl*>(Target);
+        FSpaceCamera* const Cam = Win3DGetCamera();
+        if (Control == nullptr || Cam == nullptr)
+        {
+            *Note = Control == nullptr ? "not a control" : "no camera";
+            return false;
+        }
+        double P[3];
+        for (int Axis = 0; Axis < 3; ++Axis)
+            P[Axis] = static_cast<double>(Target->Position[Axis]) + Control->Offset[Axis] +
+                      Control->HitOffset[Axis];
+        // Into the camera's frame: the transpose of its row-major orientation.
+        double L[3];
+        for (int Axis = 0; Axis < 3; ++Axis)
+            L[Axis] = Cam->World[Axis] * P[0] + Cam->World[3 + Axis] * P[1] +
+                      Cam->World[6 + Axis] * P[2];
+        if (!(L[2] < 0.0))
+        {
+            *Note = "behind the camera";
+            return false;
+        }
+        double const X = Cam->ScreenCenterX + L[0] * Cam->XScale / -L[2];
+        double const Y = Cam->ScreenCenterY + L[1] * Cam->YScale / -L[2];
+        int const CursorX = static_cast<int>(X + 0.5);
+        int const CursorY = static_cast<int>(Y + 0.5);
+        SetClientSoftwareCursor(CursorX, CursorY);
+        if (!DoClick(Spec, Note))
+            return false;
+        char Text[96];
+        sprintf(Text, " cursor=%d,%d", CursorX, CursorY);
+        *Note += Text;
+        return true;
+    }
+
     bool DoRow(std::string const& Rest, std::string* Note)
     {
         std::string IndexText;
@@ -690,6 +736,8 @@ namespace
             return DoKey(Rest, Note);
         if (Command == "click")
             return DoClick(Rest, Note);
+        if (Command == "clickat")
+            return DoClickAt(Rest, Note);
         if (Command == "row")
             return DoRow(Rest, Note);
         if (Command == "state")

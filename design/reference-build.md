@@ -348,6 +348,7 @@ hex after `0x`.
 | `command <USER_NICKNAME>` | dispatch the key-map command as a matching key press does: the event record filled from the command's first active binding (else its first binding), `HudDispatchCommand(id, 1)` on key down if its state has `keydown`, again on key up if it has `keyup`. The raw-key dispatch that precedes a real key and the held-key list are skipped |
 | `key <vk>` | post `WM_KEYDOWN` and `WM_KEYUP` to the window; the pump routes them as real keys. Shift, Ctrl and Alt come from the real keyboard |
 | `click <target>` | left press `{-1, 2}` then release `{-1, 1}` straight to the target's `MouseEvent` (Win3D slot 19). Target: a widget name, `#<n>` (node n of a tree dump taken now) or `text:<caption>` (first TextWin or TextControl showing that text, ASCII case ignored, visible nodes first) |
+| `clickat <target>` | the software cursor put over the target's hit box, then `click` (P5.10): the target's position, offset and hit offset projected through the interface camera (`Win3DGetCamera`, the inverse of `ScreenToNearPlane`) and rounded to a pixel (`SetClientSoftwareCursor`). The target must be a `WinControl` in front of the camera. The note gives `click`'s and the cursor's position. The cursor stays where it was put |
 | `row <target> <index>` | a list box's row clicked (P5.3): `<target>` as for `click`, which must be a `ListBox`; its hovered row becomes `<index>` and it gets the press `{-1, 2}`, so `ListBox::MouseEvent` selects the row and tells its parent (slot 23, `0xf001`) as a click on the row does. The note gives the press result and the selected index |
 | `state <id>` | `G_PendingClientStateId = id`; the frame enters that client state (6 is the main menu) |
 | `log <text>` | a marker in `session.jsonl` |
@@ -356,9 +357,9 @@ hex after `0x`.
 `click` bypasses the pick, hover and capture walk. That works for the
 message buttons (`TextMsgButton` in the main-menu column, `UITextMsgButton`
 in the PAGE screens), which act on the event alone. It does not work for
-NeuroNet buttons (`NnButtonControl`), which test the cursor ray on release;
-moving the software cursor over a widget needs its screen projection, which
-the mode does not compute. Reach those screens through `command` or `key`.
+NeuroNet buttons (`NnButtonControl`), which test the cursor ray on release:
+use `clickat` for those, which puts the cursor over the button first, or reach
+their screens through `command` or `key`.
 A command that opens a modal dialog with its own message loop
 (`NnErrorRunModal`, `NnPromptRunYesNo`, the multiplayer notice) stops the
 script until the dialog closes, because `TickClientFrame` does not run

@@ -18,21 +18,21 @@ dump base
 
 # The navigation bar's dealers (their meshes: commod_trader, equipment_dealer, ship_dealer),
 # each opened, dumped and cancelled.
-click ButtonControl3
+clickat ButtonControl3
 wait 90
 dump commodity-trader
 command USER_CANCEL
 wait 60
 dump commodity-trader-closed
 
-click ButtonControl4
+clickat ButtonControl4
 wait 90
 dump equipment-dealer
 command USER_CANCEL
 wait 60
 dump equipment-dealer-closed
 
-click ButtonControl5
+clickat ButtonControl5
 wait 90
 dump ship-dealer
 command USER_CANCEL
@@ -40,7 +40,7 @@ wait 60
 dump ship-dealer-closed
 
 # The repair room (RoomControl1, repair.3db).
-click RoomControl1
+clickat RoomControl1
 wait 120
 dump repair
 
