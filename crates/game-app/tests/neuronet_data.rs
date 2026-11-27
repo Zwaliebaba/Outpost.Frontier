@@ -298,3 +298,73 @@ fn the_windows_equal_the_cpp_clients_first_dump_in_space() {
     }
     println!("tree.jsonl dump 3: {compared} nodes of the NeuroNet windows are equal");
 }
+
+/// Every `[system]`'s `strid_name` in `universe.ini`.
+fn system_strids() -> Vec<u32> {
+    let mut files = DataFiles(data_dir());
+    let Some(universe) = files.data_file(b"UNIVERSE\\universe.ini") else {
+        return Vec::new();
+    };
+    let mut reader = IniReader::new();
+    assert!(reader.open_memory(&universe));
+    let mut strids = Vec::new();
+    while reader.read_header() {
+        if !reader.is_header(b"system") {
+            continue;
+        }
+        while reader.read_value() {
+            if reader.is_value(b"strid_name") {
+                strids.push(reader.value_int(0).cast_unsigned());
+            }
+        }
+    }
+    strids
+}
+
+/// D1136's condition (owner, 2026-11-27): the arrival caption's port of
+/// `_swprintf` and `CharUpperW` equals the reference's only while every
+/// name it formats is ASCII and every format uses only `%s` and `%%`; the
+/// shipped data must keep that.
+#[test]
+fn the_arrival_captions_names_and_formats_are_ascii_with_only_s_and_percent() {
+    if !data_dir().join("UNIVERSE").is_dir() {
+        println!("notice: outdir/ has no data; nothing was checked");
+        return;
+    }
+    let catalogs = catalogs();
+    let text = |ids: u32| String::from_utf16_lossy(catalogs.string(ids));
+    let strids = system_strids();
+    assert!(!strids.is_empty(), "universe.ini's systems");
+    let regions = [0x4e1, 0x4e2, 0x4e3, 0x4e4];
+    for ids in strids.iter().copied().chain(regions) {
+        let name = text(ids);
+        assert!(!name.is_empty(), "name {ids:#x} is in the catalogs");
+        assert!(name.is_ascii(), "name {ids:#x} {name:?} is not ASCII");
+    }
+    let formats = [
+        arrival_text::IDS_NAMED_FORMAT,
+        arrival_text::IDS_SYSTEM_FORMAT,
+        arrival_text::IDS_REGION_FORMAT,
+    ];
+    for ids in formats {
+        let format = text(ids);
+        assert!(!format.is_empty(), "format {ids:#x} is in the catalogs");
+        assert!(format.is_ascii(), "format {ids:#x} {format:?} is not ASCII");
+        let mut chars = format.chars();
+        while let Some(c) = chars.next() {
+            if c == '%' {
+                let code = chars.next();
+                assert!(
+                    matches!(code, Some('s' | '%')),
+                    "format {ids:#x} {format:?} has %{code:?}"
+                );
+            }
+        }
+    }
+    println!(
+        "{} system names, {} region names and {} formats checked",
+        strids.len(),
+        regions.len(),
+        formats.len()
+    );
+}
