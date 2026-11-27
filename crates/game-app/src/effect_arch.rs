@@ -907,6 +907,10 @@ pub struct EffectArchDb {
     pub lods: [EffectLodSizes; EFFECT_LOD_TABLE_ROWS],
     /// The reports, in order.
     pub reports: Vec<String>,
+    /// The spellings `StringAlloc(name, false)` hands back, by lower-case
+    /// name: the first spelling interned wins. The reference's cache is the
+    /// process's; the owner carries this one from load to load (D1403).
+    pub interned: BTreeMap<Vec<u8>, Vec<u8>>,
 }
 
 impl Default for EffectArchDb {
@@ -917,6 +921,7 @@ impl Default for EffectArchDb {
             beams: BTreeMap::new(),
             types: EFFECT_TYPES,
             lods: [EffectLodSizes::default(); EFFECT_LOD_TABLE_ROWS],
+            interned: BTreeMap::new(),
             reports: Vec::new(),
         }
     }
@@ -1053,7 +1058,7 @@ impl EffectArchDb {
             }
         } else if reader.is_value(b"vis_effect") || reader.is_value(b"vis_generic") {
             let generic = reader.is_value(b"vis_generic");
-            let name = reader.value_string();
+            let name = self.intern(reader.value_string());
             let found = self.vis_effect(&name).map(|v| v.nickname.clone());
             if found.is_none() {
                 self.reports.push(format!(
@@ -1068,7 +1073,7 @@ impl EffectArchDb {
                 arch.vis_effect = found;
             }
         } else if reader.is_value(b"vis_beam") {
-            let name = reader.value_string();
+            let name = self.intern(reader.value_string());
             arch.vis_beam = self.beam(&name).map(|b| b.nickname.clone());
             if arch.vis_beam.is_none() {
                 self.reports.push(format!(
@@ -1213,13 +1218,18 @@ impl EffectArchDb {
         }
     }
 
+    /// `StringAlloc(text, false)`: the first spelling of `text` interned.
+    fn intern(&mut self, text: Vec<u8>) -> Vec<u8> {
+        self.interned.entry(key(&text)).or_insert(text).clone()
+    }
+
     /// `VisEffectLoadSection`: `nickname` selects (finds or inserts) the
     /// entry; keys before it are dropped.
     fn load_vis_effect(&mut self, reader: &mut IniReader) {
         let mut current: Option<Vec<u8>> = None;
         while reader.read_value() {
             if reader.is_value(b"nickname") {
-                let nick = reader.value_string();
+                let nick = self.intern(reader.value_string());
                 let k = key(&nick);
                 self.vis_effects.entry(k.clone()).or_default().nickname = nick;
                 current = Some(k);
@@ -1250,7 +1260,7 @@ impl EffectArchDb {
         let mut current: Option<Vec<u8>> = None;
         while reader.read_value() {
             if reader.is_value(b"nickname") {
-                let nick = reader.value_string();
+                let nick = self.intern(reader.value_string());
                 let k = key(&nick);
                 let beam = self.beams.entry(k.clone()).or_default();
                 beam.nickname = nick;

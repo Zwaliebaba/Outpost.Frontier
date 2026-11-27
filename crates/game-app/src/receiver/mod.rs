@@ -15,7 +15,10 @@
 //! (62), `SendServerSetReputation` (66), `SendServerSetMissionObjectives`
 //! (72), `SendServerLoadHint` (81), the common blocks (1, 91, 92, 97, 98),
 //! the seven `MISCOBJUPDATE` slots (113 to 120), `SendServerSetMusic` (122)
-//! and `SendServerPlaySoundEffect` (124). A slot whose effect belongs to a
+//! and `SendServerPlaySoundEffect` (124), and the location controller's
+//! `SETSTARTROOM` and `GF` slots (28 to 45), which also write into
+//! [`location::LocationDb`].
+//! A slot whose effect belongs to a
 //! sub-system not ported yet (the reputation vibes, the HUD's comm
 //! costumes, the story star, the best path, the space-script camera, the
 //! game objects' equipment) logs the call, does what is ported and counts
@@ -23,6 +26,7 @@
 //! counted in [`ClientReceiver::unported`] until their packages port them.
 
 pub mod args;
+pub mod location;
 
 use std::collections::BTreeMap;
 
@@ -133,6 +137,12 @@ pub struct PlayerState {
     /// `G_bPlayerLaunchAcknowledged`: the player's ship launched
     /// (`SendServerLaunch` found it).
     pub launch_acknowledged: bool,
+    /// The pose `SendServerLaunch` beams the ship to (a launch into open
+    /// space; the dock's launch sequence is not ported): the ship's id, the
+    /// position and the orientation. The receiver has no mutable world, so
+    /// the owner applies it ([`crate::space_state::apply_launch_placement`])
+    /// when the delivery returns.
+    pub launch_placement: Option<(u32, neuron_core::math::Vector, neuron_core::math::Matrix)>,
     /// The game session flags (`AssignGameSessionFlags`, the interface
     /// state's first dword).
     pub session_flags: u32,
@@ -177,6 +187,8 @@ pub struct ClientReceiver {
     /// Slots that ran but whose effect on a sub-system not ported yet was
     /// left out, by method, with their count.
     pub unported_effects: BTreeMap<&'static str, u32>,
+    /// The location controller's mirrors the `GF` slots write.
+    pub location: location::LocationDb,
 }
 
 impl Default for ClientReceiver {
@@ -197,6 +209,7 @@ impl ClientReceiver {
             log: oracle.then(IClientLog::new),
             unported: BTreeMap::new(),
             unported_effects: BTreeMap::new(),
+            location: location::LocationDb::default(),
         }
     }
 
@@ -421,7 +434,27 @@ impl ClientReceiver {
             );
             return;
         }
-        self.unported_effect("SendServerLaunch");
+        // Outside a dock the ship is beamed to the pose; from a dock (in
+        // single player the server's launch places it) the client's
+        // `LaunchFromDock` sequence is not ported.
+        if info.field_04 == 0 {
+            let [w, x, y, z] = info.orientation;
+            let orientation =
+                neuron_core::math::quaternion_to_matrix(&neuron_core::math::Quaternion {
+                    w,
+                    x,
+                    y,
+                    z,
+                });
+            let [px, py, pz] = info.position;
+            self.player.launch_placement = Some((
+                info.field_00,
+                neuron_core::math::Vector::new(px, py, pz),
+                orientation,
+            ));
+        } else {
+            self.unported_effect("SendServerLaunch");
+        }
         self.player.launch_acknowledged = true;
     }
 
@@ -635,6 +668,7 @@ impl ClientReceiver {
                 .uint("RoomId", room);
         });
         self.player.start_room = Some((base, room));
+        self.location.set_base_start_location(base, room);
     }
 
     /// The gameflow slots 29 to 45: each logged with the C++ proxy's
@@ -739,6 +773,7 @@ impl ClientReceiver {
             }
             _ => {}
         }
+        self.location_forward(&m);
         self.player.gameflow.push(m);
     }
 
