@@ -36,8 +36,14 @@ fn lines(dir: &Path, file: &str) -> Vec<String> {
 /// that judges nothing fails (the conductor's rule): both files must have
 /// records.
 fn report(file: &str, port: &[String], cpp: &[String]) -> bool {
-    assert!(!cpp.is_empty(), "{file}: the C++ run has no records to compare");
-    assert!(!port.is_empty(), "{file}: the port's run has no records to compare");
+    assert!(
+        !cpp.is_empty(),
+        "{file}: the C++ run has no records to compare"
+    );
+    assert!(
+        !port.is_empty(),
+        "{file}: the port's run has no records to compare"
+    );
     let equal = port.iter().zip(cpp).filter(|(a, b)| a == b).count();
     if port == cpp {
         println!("{file}: {equal} records equal");

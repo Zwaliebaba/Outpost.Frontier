@@ -150,6 +150,9 @@ pub struct ClientCore<'a, C: Clock> {
     pub nn_screen_up: bool,
     /// `SetClientMouseCursorDrawFlag(1)` was called.
     pub cursor_drawn: bool,
+    /// The ship companions' camera blocks (`[Data] ships`), read once, at
+    /// the first space entry with a server's data.
+    ship_cameras: Option<crate::space_camera_third::ShipCameraTable>,
     /// `Win3DFindByName("NN_Preferences") != nullptr` as the last interface
     /// update left it (the state machine asks without the interface).
     preferences_window: bool,
@@ -227,6 +230,7 @@ impl<'a, I: Interface, C: Clock> ClientContext<'a, I, C> {
                 multiplayer: false,
                 nn_screen_up: false,
                 cursor_drawn: false,
+                ship_cameras: None,
                 preferences_window: false,
                 menu_column: None,
                 load_game_page: None,
@@ -705,6 +709,31 @@ fn launched_app(surface: Surface, system: u32) -> space_state::SpaceApp {
     app
 }
 
+impl<C: Clock> ClientCore<'_, C> {
+    /// The ship companions' camera blocks: `OutpostFrontier.ini`'s
+    /// `[Data] ships` files (the install root's engine INI, the data root
+    /// of the session's world), read the first time a session has them;
+    /// empty without (the chase camera keeps its constructor's values).
+    fn ship_cameras(&mut self) -> crate::space_camera_third::ShipCameraTable {
+        if self.ship_cameras.is_none()
+            && let Some(session) = self.session.as_deref_mut()
+            && let Some(source) = session.world().data_source()
+        {
+            let install = neuron_core::vfs::Host::new(self.request.install_dir.clone());
+            let config = game_sim::data::config::DataConfig::read(&install, b"OutpostFrontier.ini");
+            self.ship_cameras = Some(config.map_or_else(Default::default, |config| {
+                crate::space_camera_third::ShipCameraTable::from_config(source, &config)
+            }));
+        }
+        self.ship_cameras.clone().unwrap_or_default()
+    }
+
+    /// `FindPerfOption("cockpit")->Applied`: -1 until applied.
+    fn cockpit_option(&self) -> f32 {
+        self.preferences.perf.applied(b"cockpit").unwrap_or(-1.0)
+    }
+}
+
 /// The frame's values the player's mouse flight reads (`FlightFrame`):
 /// the interface's hover, cursor and surface, the mouse buttons, the capped
 /// frame time (zero while paused; the caller adds the inverse-mouse
@@ -759,7 +788,10 @@ impl<I: Interface, C: Clock> Environment<ClientContext<'_, I, C>> for SpaceEnvir
             .interface
             .ui()
             .map_or_else(Surface::default, |ui| ui.camera.surface);
-        self.app = Some(launched_app(surface, system));
+        let mut app = launched_app(surface, system);
+        app.ship_cameras = cx.core.ship_cameras();
+        app.cockpit_option = cx.core.cockpit_option();
+        self.app = Some(app);
         true
     }
     fn destroy(&mut self, _cx: &mut ClientContext<'_, I, C>) {
