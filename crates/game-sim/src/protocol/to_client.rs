@@ -1050,28 +1050,82 @@ wire_message! {
 
 /// `FLPACKET_SERVER_REQUESTSPACESCRIPT`: an object and a script name,
 /// terminator included.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+///
+/// In single player the position and the mode byte follow, as rpclocal's
+/// payload carries them (`rpc_payload_ch2.cpp`, `MarshalRequestSpaceScript`
+/// and `DeliverRequestSpaceScript`); a multiplayer packet holds them in its
+/// object only (`FRpcServerRequestSpaceScriptPacket`, "not on the wire"), so
+/// its receiver reads the constructor's zeros and mode 1.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RequestSpaceScript {
     /// `Field_0x00`, the object.
     pub field_00: u32,
     /// The name.
     pub name: Vec<u8>,
+    /// Single player: the position's float bits (`Field_0x108` to
+    /// `Field_0x110` of the IClient argument).
+    pub position: [u32; 3],
+    /// Single player: the mode byte, 1 for the argument's priority 1 or any
+    /// value but 2, 0 for 2; the client reads 0 as mode 2 and any other
+    /// byte as mode 1.
+    pub mode: u8,
+}
+
+impl Default for RequestSpaceScript {
+    fn default() -> Self {
+        Self {
+            field_00: 0,
+            name: Vec::new(),
+            position: [0; 3],
+            mode: 1,
+        }
+    }
+}
+
+impl RequestSpaceScript {
+    /// The sender's mode byte for the argument's `Field_0x114` (the
+    /// priority): 0 for 2, else 1.
+    #[must_use]
+    pub fn mode_byte(priority: u32) -> u8 {
+        u8::from(priority != 2)
+    }
+
+    /// The receiver's `Field_0x114`: 2 for a mode byte of 0, else 1.
+    #[must_use]
+    pub fn priority(&self) -> u32 {
+        if self.mode == 0 { 2 } else { 1 }
+    }
 }
 
 impl Body for RequestSpaceScript {
     const ID: u32 = 0x20032;
     const NAME: &'static str = "FLPACKET_SERVER_REQUESTSPACESCRIPT";
 
-    fn encode_body(&self, _ctx: &WireContext, writer: &mut WireWriter) -> Result<(), WireError> {
+    fn encode_body(&self, ctx: &WireContext, writer: &mut WireWriter) -> Result<(), WireError> {
         writer.put_u32(self.field_00)?;
-        writer.put_bytes_u32(&self.name)
+        writer.put_bytes_u32(&self.name)?;
+        if ctx.single_player {
+            for word in self.position {
+                writer.put_u32(word)?;
+            }
+            writer.put_u8(self.mode)?;
+        }
+        Ok(())
     }
 
-    fn decode_body(_ctx: &WireContext, reader: &mut WireReader<'_>) -> Result<Self, WireError> {
-        Ok(Self {
+    fn decode_body(ctx: &WireContext, reader: &mut WireReader<'_>) -> Result<Self, WireError> {
+        let mut message = Self {
             field_00: reader.get_u32()?,
             name: reader.get_bytes_u32()?.to_vec(),
-        })
+            ..Self::default()
+        };
+        if ctx.single_player {
+            for word in &mut message.position {
+                *word = reader.get_u32()?;
+            }
+            message.mode = reader.get_u8()?;
+        }
+        Ok(message)
     }
 }
 
@@ -2029,6 +2083,28 @@ mod tests {
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), 81);
+    }
+
+    #[test]
+    fn space_script_carries_position_and_mode_in_single_player_only() {
+        let message = RequestSpaceScript {
+            field_00: 7,
+            name: b"a.thn\0".to_vec(),
+            position: [1, 2, 3],
+            mode: 0,
+        };
+        let sp = message.to_wire(&WireContext::SINGLE_PLAYER_SERVER).unwrap();
+        let back = ServerMessage::from_wire(&WireContext::SINGLE_PLAYER_SERVER, &sp).unwrap();
+        assert_eq!(back, ServerMessage::RequestSpaceScript(message.clone()));
+        assert_eq!(message.priority(), 2);
+        let mp = message.to_wire(&WireContext::SERVER).unwrap();
+        assert_eq!(mp.len(), sp.len() - 13);
+        let ServerMessage::RequestSpaceScript(back) =
+            ServerMessage::from_wire(&WireContext::SERVER, &mp).unwrap()
+        else {
+            panic!("wrong message");
+        };
+        assert_eq!((back.position, back.mode, back.priority()), ([0; 3], 1, 1));
     }
 
     #[test]

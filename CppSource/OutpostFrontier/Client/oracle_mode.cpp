@@ -63,6 +63,7 @@
 //   layout.jsonl   PAGE descriptors, [BaseFrame] control INI subtrees, keylist.ini,
 //                  optlist.ini, the HUD element list
 //   iclient.jsonl  every IClient / IChatClient call (oracle_iclient_args.h)
+//   server.jsonl   the in-process server's clock (pub::GetRwTime) at the start of each frame
 //   shot_NNNN_<label>.bmp  screenshots, NNNN counting from 0001
 //
 // design/reference-build.md section 8 has every record layout.
@@ -114,7 +115,8 @@ namespace
     int const kMaxTreeDepth = 64;
 
     char const* const kStreamFiles[kOracleStreamCount] = {
-        "session.jsonl", "tree.jsonl", "keymap.jsonl", "layout.jsonl", "iclient.jsonl"};
+        "session.jsonl", "tree.jsonl", "keymap.jsonl", "layout.jsonl", "iclient.jsonl",
+        "server.jsonl"};
 
     struct FOracleState
     {
@@ -936,11 +938,36 @@ void OracleSeedRandom()
     Session(J);
 }
 
+namespace
+{
+    // The in-process server's clock (g_ElapsedTimeAccum + GServerTimeBase) through Server.dll's
+    // export `int pub::GetRwTime(double&)`, found by name so the client needs no import of it;
+    // nothing before Server.dll is loaded.
+    void OracleServerClock()
+    {
+        typedef int(__cdecl * FGetRwTime)(double&);
+        HMODULE const Server = GetModuleHandleA("Server.dll");
+        if (Server == nullptr)
+            return;
+        FGetRwTime const GetRwTime =
+            reinterpret_cast<FGetRwTime>(GetProcAddress(Server, "?GetRwTime@pub@@YAHAAN@Z"));
+        if (GetRwTime == nullptr)
+            return;
+        double Seconds = 0.0;
+        GetRwTime(Seconds);
+        FOracleJson J;
+        Head(J, "clock");
+        J.Double("t", Seconds);
+        OracleWriteRecord(kOracleServer, J.Finish());
+    }
+}
+
 void OracleFrameTick()
 {
     if (!G.bActive)
         return;
     G.Frame += 1;
+    OracleServerClock(); // the clock the previous frames' ElapseTime calls left
     GOracleSimHooks.ClockSeconds = kOracleServerClockStart + G.Frame * kOracleFrameSeconds;
     if (G.AutoDumpFrame != 0 && G.Frame >= G.AutoDumpFrame)
     {

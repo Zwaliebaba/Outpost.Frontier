@@ -868,6 +868,22 @@ fn spaceobj_actions_over_he01() {
         })
         .collect();
     assert_eq!(scripts, [(1, station_id, b"scene_station\0".to_vec())]);
+    // The position and the priority travel as rpclocal's payload carries
+    // them: priority 2 is mode byte 0, any other priority 1.
+    let at = Vector::new(1.5, -2.0, 3.0);
+    for (priority, mode) in [(2, 0), (1, 1), (7, 1)] {
+        so::request_space_script(&mut cx, station_id, at, priority, 1, b"s\0").unwrap();
+        let sent: Vec<_> = server_messages(&sink)
+            .into_iter()
+            .filter_map(|(_, m)| match m {
+                ServerMessage::RequestSpaceScript(s) => Some((s.position, s.mode, s.priority())),
+                _ => None,
+            })
+            .collect();
+        let bits = [1.5f32.to_bits(), (-2.0f32).to_bits(), 3.0f32.to_bits()];
+        let priority = if priority == 2 { 2 } else { 1 };
+        assert_eq!(sent, [(bits, mode, priority)]);
+    }
     assert_eq!(
         so::request_space_script(&mut cx, 0, Vector::ZERO, 1, 1, b"x"),
         Err(PubError::BAD_ARGUMENT)

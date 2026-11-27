@@ -178,6 +178,10 @@ P5.1, P5.2, P5.10), B (space: P5.3, P5.4, P5.6, P5.7, P5.8) and C (audio and
 bases: P5.5, P5.9), each with its own branches, pull requests and divergence
 range; Claude merges a Phase 5 pull request once its CI and the client-oracle
 job are green.
+On 2026-11-27 the owner rebalanced the streams (decision O56): A also takes
+P5.7 (the HUD) after P5.10, C takes P5.8 (the environment) after P5.5 and
+P5.9, and B splits P5.4 so that P5.4a (the client object database, the star
+system's load and the cameras) reaches main first for the other two to read.
 
 ### Phase 0 — make the migration verifiable
 

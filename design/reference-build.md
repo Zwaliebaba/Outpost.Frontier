@@ -388,6 +388,7 @@ written during start-up have frame 0.
 | `keymap.jsonl` | per phase (`base` after `KeyMap.ini`, `user` after `UserKeyMap.ini`): `load` (result, cmds, groups); `cmd` per KeyCmd in list order (i, nickname, id, ids_name, ids_info, state, keys: [vk, modifiers] pairs); `group` per [KeyMap] (i, nickname, cmds: indices into the cmd list); `active` (the active group nicknames, newest first) |
 | `layout.jsonl` | `page` per PAGE file load (path, ok, aspect, entries) and `widget` per entry (i, type, name, rect[4], payload by type); `winini` per `WinControl::LoadIni` that found `[BaseFrame]` (path, nodes) and `winnode` per node of the control's subtree after the load (the tree node fields; `navbar.ini` and the HUD panels come this way); `keylist` (path, group_names) and `keyrow` per row (group, i, primary and alt: [nickname, vk, modifiers], name_ids, info_ids, cmd, kind, editable); `optlist` (path, opened, seed_mode) and `opt` per row of all three sections (section, i, id, info_ids, default, min, max, slider, byte15, header; the lists grow with every load, as in the client); `hud` (path, static_blend, items) and `huditem` per element (i, name, rtti, tooltip) |
 | `iclient.jsonl` | one line per call into the client event interface, before it is forwarded: frame, seq (call number from 1), slot (the vtable slot in `rpc_iclient.h`), m (the method; `IChatClient::SendCommonChatMsg` for the chat slot), a (the arguments by name). A non-void slot adds a line after the call with the same seq and `r`, the answer |
+| `server.jsonl` | `clock` per frame from frame 1, at the start of the frame before its script lines: `t`, the in-process server's clock as `pub::GetRwTime` reads it (`g_ElapsedTimeAccum + GServerTimeBase`, a double), so the clock the earlier frames' `ElapseTime` calls left; nothing before Server.dll is loaded (P5.3, to trace the server time the new game's `SendServerCharSelectVerified` carries) |
 | `shot_NNNN_<label>.bmp` | screenshots through `IRPTexture::PrintScreen`, NNNN from 0001: the window's client area, 1024x768, 24-bit (D3DX 8.1 saves no PNG) |
 
 IClient arguments: scalars by value; `const unsigned int&` dereferenced;
@@ -491,6 +492,17 @@ The Rust client logged in with status 3 on the user folder the C++ runs had
 made: the port's server read the C++ client's single-player user data. Its
 screens are not ported, so its later session records (the waits for the
 menu screens, the dumps without a tree) are not compared yet.
+
+Run 14 ([45907343089](https://github.com/Zwaliebaba/Outpost.Frontier/actions/runs/45907343089),
+commit `1974c4cb`) added `server.jsonl`, the in-process server's clock per frame. In
+both `single_player.txt` runs it starts at 0 and gains the float nearest 1/30 in frames 1
+and 2 and the double 1/30 from frame 3 on, in all 2,626 frames: Server.dll is built for
+x87 and runs on the client's thread, so its first two steps inherit the 24-bit precision
+the Direct3D 8 device leaves before the client's frame puts 53 bits back (D1400). The new
+game's `SendServerCharSelectVerified` carries that clock. With it the port's new game
+(`apps/outpost-frontier/tests/new_game.rs`, `OUTPOST_CLIENT_ORACLE_SP_DIR` set to run s1)
+equals the C++ client's 61 IClient lines up to frame 120, D857's moved running lights
+included.
 
 A session compares locally (decision O54 (3)): download a run's
 `client-oracle-trial` artifact through the GitHub tools into a scratch folder,
