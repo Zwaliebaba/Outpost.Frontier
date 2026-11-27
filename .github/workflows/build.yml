@@ -379,10 +379,8 @@ jobs:
           # The scene scripts of P4.14 (crates/neuron-client/tests/data_dump.rs); none in this tree.
           cargo test --locked -p neuron-client --tests -- data_dump_ --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # The effect archetypes of P5.6 (crates/game-app/tests/effects_data.rs): no engine INI,
-          # so both sides write no line.
-          cargo test --locked -p game-app --test effects_data -- data_dump_ --nocapture
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The effect archetypes of P5.6 are not compared here: the tree has no engine INI, so
+          # data_dump_effect_arch would judge nothing (data.yml compares them on outdir/).
       - name: Compare the text catalogs with the resource DLLs
         # Work package P1.6: the catalogs built from outdir/data/text must hold
         # what the game reads from the DLLs built from CppSource/Resources.
