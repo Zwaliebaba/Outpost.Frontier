@@ -310,3 +310,52 @@ fn the_scripts_end_quits_through_state_one() {
         );
     });
 }
+
+#[test]
+fn a_launched_controller_has_the_player_camera_and_the_system() {
+    let app = launched_app(Surface::new(1024, 768), 7);
+    assert!(app.cameras.active().is_some());
+    assert_eq!(app.system, 7);
+}
+
+#[test]
+fn the_flight_frame_reads_the_interface_and_the_frame_time() {
+    let calls = Calls::default();
+    let mut start = starter(&calls);
+    run_with(plain_ui(), "quit\n", &calls, &mut start, |_, cx| {
+        cx.core.frame_dt = 0.25;
+        cx.core.mouse_buttons = 1;
+        cx.interface.cursor = (12, 34);
+        let frame = flight_frame(Some(&mut cx.interface), &cx.core);
+        assert_eq!(frame.cursor, (12, 34));
+        assert_eq!(frame.mouse_buttons, 1);
+        assert_eq!(frame.surface, (1024, 768));
+        assert!(!frame.win3d_hover);
+        assert!(frame.frame_time == 0.25);
+        assert!(!frame.turret_view && !frame.rear_view && !frame.letterbox);
+        assert!(!frame.main_button_panel);
+        cx.core.clock.push_pause();
+        let paused = flight_frame(Some(&mut cx.interface), &cx.core);
+        assert!(paused.frame_time == 0.0);
+        assert_eq!(flight_frame(None, &cx.core).surface, (0, 0));
+    });
+}
+
+#[test]
+fn space_without_a_controller_leaves_at_once() {
+    let calls = Calls::default();
+    let mut start = starter(&calls);
+    run_with(plain_ui(), "quit\n", &calls, &mut start, |_, cx| {
+        let mut space = SpaceEnvironment::default();
+        assert_eq!(space.update(cx, 0.1), 6);
+        assert!(cx.core.link.is_some());
+        assert!(!space.init(cx, 0));
+        assert!(space.app.is_none());
+        assert!(cx.core.quit_requested);
+    });
+}
+
+#[test]
+fn the_inverse_mouse_option_defaults_to_off() {
+    assert_eq!(plain_ui().game_option(OPT_INVERSE_MOUSE), 0);
+}
