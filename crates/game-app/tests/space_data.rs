@@ -122,3 +122,33 @@ fn cameras_ini_sets_every_camera() {
     assert_eq!(cockpit.base_half_fov_x, 35.0);
     assert_eq!(win.half_fov_x_deg, (54.431_999_2f64 * 0.5) as f32);
 }
+
+/// `StarSysLoadIni`'s `[Music]`: ew06 (the new game's system) names its
+/// three tracks, which the space frame's music machine plays
+/// (`SystemMusicState`): space first, with no hostile scanned.
+#[test]
+fn ew06_music_reads_and_plays_space_first() {
+    use game_app::star_system::{MusicFrame, SystemMusicState};
+    use neuron_core::id::create_id;
+
+    let root = data_dir();
+    if !root.join("UNIVERSE/SYSTEMS/EW06").is_dir() {
+        println!("notice: outdir/ has no ew06; nothing was read");
+        return;
+    }
+    let file = StarSystemFile::load(&Host::new(root), b"UNIVERSE\\SYSTEMS\\EW06\\ew06.ini")
+        .expect("ew06 opens");
+    assert_eq!(file.music.space, create_id(b"music_omicron_space"));
+    assert_eq!(file.music.danger, create_id(b"music_omicron_danger"));
+    assert_eq!(file.music.battle, create_id(b"music_omicron_battle"));
+    let mut music = SystemMusicState::enter(file.music);
+    let frame = MusicFrame {
+        dt: 1.0 / 30.0,
+        background_finished: false,
+        zone_music: None,
+        player_jumping: false,
+        cross_fade_delay: 30.0,
+    };
+    let change = music.update(&frame, || false).expect("the first track");
+    assert_eq!(change.track, file.music.space);
+}
