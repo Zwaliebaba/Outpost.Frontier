@@ -167,6 +167,28 @@ pub fn ensure(ui: &mut Ui, window: &mut Option<NodeId>) -> Option<NodeId> {
     *window
 }
 
+/// `NnArrivalText::DestroySelf`: each child's tree deleted, the window's
+/// `Destroy`, then the window deleted (its destructor clears
+/// `G_NnArrivalText`, here `window`).
+fn destroy_self(ui: &mut Ui, window: &mut Option<NodeId>, id: NodeId) {
+    for child in ui.children(id) {
+        ui.delete_tree(child);
+    }
+    ui.destroy(id);
+    ui.delete(id);
+    *window = None;
+}
+
+/// `NnArrivalTextDestroy`: nothing without the window, else
+/// `DestroySelf`. The location controller calls it on every exit.
+pub fn destroy(ui: &mut Ui, window: &mut Option<NodeId>) {
+    if let Some(id) = *window
+        && ui.widget::<NnArrivalText>(id).is_some()
+    {
+        destroy_self(ui, window, id);
+    }
+}
+
 /// `GetIdsStringWWithRawFallback(ids, buffer, chars)`: the text without
 /// its terminator, empty without the catalogs.
 fn ids_text(catalogs: Option<&TextCatalogs>, ids: u32, chars: usize) -> Vec<u16> {
@@ -325,5 +347,21 @@ mod tests {
         assert_eq!(region_ids(0x30019), 0);
         assert_eq!(region_ids(0x30031), 0);
         assert_eq!(region_ids(0), 0);
+    }
+
+    #[test]
+    fn destroy_takes_the_window_and_its_caption_and_clears_the_field() {
+        let mut ui = Ui::new(neuron_client::ui::widescreen::Surface::new(1024, 768));
+        register(&mut ui.factory);
+        let mut window = None;
+        destroy(&mut ui, &mut window);
+        assert!(window.is_none(), "nothing without a window");
+        let id = ensure(&mut ui, &mut window).expect("the window");
+        let children = ui.children(id);
+        assert!(!children.is_empty());
+        destroy(&mut ui, &mut window);
+        assert!(window.is_none());
+        assert!(!ui.contains(id));
+        assert!(children.iter().all(|&c| !ui.contains(c)));
     }
 }
