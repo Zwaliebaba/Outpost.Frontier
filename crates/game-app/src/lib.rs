@@ -8,6 +8,7 @@ pub mod base;
 pub mod boot_interface;
 pub mod cameras;
 pub mod chat;
+pub mod client;
 pub mod client_state;
 pub mod frame;
 pub mod input_router;
@@ -56,18 +57,22 @@ pub fn run(_start_server: session::StartLocalServer<'_>) -> io::Result<()> {
 /// `NeuronComponents.ini` and `OutpostFrontier.ini` in the working
 /// directory and the data path), `PerfOptions.ini` saved with the mode the
 /// device took, the startup movies, and the engine's frame on the client
-/// clock until the window closes: each frame pumps the messages through
-/// GameApp's input router, then runs the engine's frame with the window's
-/// mouse. The close command quits at once until the exit dialog exists
-/// (P5).
+/// clock until the window closes. Then, as `WinMain` ends its start-up,
+/// the client's context ([`client::ClientContext`]) is built over the
+/// engine, client state 6 is entered (the intro, whose `Init` starts the
+/// in-process server and logs in) and the `IDR_ALWAYS_PRESENT` group's key
+/// map is registered. Each frame pumps the messages through GameApp's input
+/// router, runs `TickClientFrame` ([`frame::tick_client_frame`]: the
+/// oracle's tick, the interface update, the local server, the state's
+/// update) and then the engine's frame with the window's mouse, which draws
+/// and presents. The close command quits at once until the exit dialog
+/// exists (P5).
 ///
 /// With `+oracle <script> <out>` the oracle mode runs (decision O53 (2)):
 /// the display is forced, the in-process server starts on the oracle's
-/// clock, the single-player login and the `IDR_ALWAYS_PRESENT` group's key
-/// map load at frame 0 as the C++ intro and `WinMain` do, and the script runs
-/// each frame on the fixed step until it ends; its files are written then.
-/// The screens are not ported yet: their trees, screenshots and inputs
-/// answer "not ported yet".
+/// clock, and the script runs at the start of each frame on the fixed step
+/// until it ends; its files are written then. Screenshots, key-map
+/// commands and keys answer "not ported yet".
 #[cfg(windows)]
 pub fn run(start_server: session::StartLocalServer<'_>) -> io::Result<()> {
     use neuron_client::engine::{EngineConfig, FrameInput, windows::create_engine};
@@ -221,44 +226,50 @@ pub fn run(start_server: session::StartLocalServer<'_>) -> io::Result<()> {
         run.script.note_seed(oracle::script::RAND_SEED, 1000.0);
     }
 
-    // EnterClientState(ComputeInitialEnvironment()): the intro starts the
-    // single-player server and logs in (MenuNavStartSinglePlayer's
-    // ConnectAndLogin and RequestCharacterInfo, P5.3).
+    // The client's state (record 0009 point 1). The single-player server
+    // starts when the intro connects (`StartServer`).
     let request = session::LocalServerRequest {
         install_dir: std::env::current_dir().unwrap_or_default(),
         user_data: paths.root().to_path_buf(),
         seed: oracle::script::RAND_SEED,
         oracle: oracle.is_some(),
     };
-    let mut server: Option<Box<dyn session::Session>> = None;
-    let mut link = None;
-    if let Some((mut s, client)) = start_server(&request) {
-        let started = std::time::Instant::now();
-        let mut now = || started.elapsed().as_secs_f64();
-        let mut l =
-            receiver::ClientLink::new(client, receiver::ClientReceiver::new(oracle.is_some()));
-        // IServerImpl::Startup ends with g_pClientInterface->Startup(1, 0x36d9).
-        l.receiver.startup(1, 0x36d9);
-        let settings = login::LoginSettings::single_player(1.0);
-        let connected = login::connect(&mut l, Some(s.as_mut()), &mut now) == 1;
-        let logged_in =
-            connected && login::login_to_server(&mut l, Some(s.as_mut()), &settings, &mut now);
-        if logged_in {
-            login::request_character_info(&mut l, Some(s.as_mut()), &mut now);
-        }
+    let started = std::time::Instant::now();
+    let mut cx = client::ClientContext::new(
+        engine,
+        timing::ClientTiming::new(InstantClock::new()),
+        oracle,
+        start_server,
+        request,
+        Box::new(move || started.elapsed().as_secs_f64()),
+    );
+    // What the preferences window reads that the start-up knows; the key
+    // names, the device's modes and abilities are not given yet (D1111).
+    cx.core.preferences.perf = perf.clone();
+    cx.core.preferences.display = nn_preferences::DisplayMode {
+        width: taken.width.cast_signed(),
+        height: taken.height.cast_signed(),
+        color_bpp: taken.color_bpp,
+    };
+    if let Some((w, h)) = desktop {
+        cx.core.preferences.desktop = (w.cast_signed(), h.cast_signed());
+    }
+
+    // EnterClientState(ComputeInitialEnvironment()): the intro, whose Init
+    // starts the single-player server and logs in (MenuNavStartSinglePlayer).
+    let mut states = client::client_states();
+    states.enter(&mut cx, client_state::ClientStateId::Intro.raw());
+    if let Some(l) = cx.core.link.as_ref() {
         writeln!(
             out,
-            "single player: connected {connected}, logged in {logged_in} (status {})",
+            "single player: logged in (status {})",
             l.receiver.login.login_status
         )?;
-        server = Some(s);
-        link = Some(l);
     } else {
-        writeln!(out, "the in-process server did not start")?;
+        writeln!(out, "the single-player login failed")?;
     }
 
     // RegisterAcceleratorGroup("IDR_ALWAYS_PRESENT"), which loads the key map.
-    let mut keymap = keymap::KeyMap::new();
     {
         struct Files<'a> {
             data: &'a std::path::Path,
@@ -287,120 +298,121 @@ pub fn run(start_server: session::StartLocalServer<'_>) -> io::Result<()> {
             data: &data,
             user: paths.file(keymap::USER_KEY_MAP_FILE),
         };
-        let frame = oracle.as_ref().map_or(0, |r| r.script.frame());
-        let lines = &mut oracle.as_mut().map(|r| &mut r.keymap);
+        let core = &mut cx.core;
+        let frame = core.oracle.as_ref().map_or(0, |r| r.script.frame());
+        let lines = &mut core.oracle.as_mut().map(|r| &mut r.keymap);
         let mut note = |m: &keymap::KeyMap, phase: &str, result: i32| {
             if let Some(lines) = lines.as_mut() {
                 lines.extend(oracle::keymap::phase_lines(m, frame, phase, result));
             }
         };
-        if keymap.register_group(b"IDR_ALWAYS_PRESENT", &mut files, &mut note)
+        if core
+            .keymap
+            .register_group(b"IDR_ALWAYS_PRESENT", &mut files, &mut note)
             == keymap::GroupResult::Invalid
         {
             writeln!(out, "Invalid accelerator: IDR_ALWAYS_PRESENT")?;
         }
     }
 
-    let mut clock = timing::ClientTiming::new(InstantClock::new());
     let mut camera = cameras::StillCamera::new(mode.back_buffer());
     let mut window = Some(window);
-    let mut pending_state = None;
+    let mut frame_state = frame::FrameState::default();
     loop {
-        clock.update(true, 0, || {
+        // UpdateClientTiming.
+        cx.core.clock.update(true, 0, || {
             std::thread::sleep(std::time::Duration::from_millis(1))
         });
         // The oracle's step: 1/30 s paced in real time, reported exactly.
-        let mut dt = clock.frame_time_capped();
-        if let Some(run) = oracle.as_mut() {
+        let mut dt = cx.core.clock.frame_time_capped();
+        if cx.core.oracle.is_some() {
             std::thread::sleep(std::time::Duration::from_secs_f64(
                 oracle::script::FRAME_SECONDS,
             ));
             dt = oracle::script::FRAME_SECONDS;
-            // TickClientFrame's OracleFrameTick, then the local server.
-            run.script.frame_tick(&mut oracle::ClientHost {
-                ui: engine.ui_mut(),
-                pending_state: &mut pending_state,
-            });
-            if let Some(log) = link.as_mut().and_then(|l| l.receiver.log.as_mut()) {
-                log.set_frame(run.script.frame());
-            }
         }
-        if let (Some(s), Some(l)) = (server.as_mut(), link.as_mut()) {
-            #[allow(clippy::cast_possible_truncation)]
-            let dt32 = dt as f32;
-            session::tick_local_server(Some(s.as_mut()), false, dt32, |s| {
-                l.deliver_all(Some(s.world()));
-            });
+        let frame_ms = cx.core.clock.frame_timestamp_ms();
+        // PumpMessages through GameApp's router.
+        if let Some(w) = window.as_mut() {
+            let (cursor, wheel) = w
+                .with_mouse(|m, _| {
+                    let (x, y, _) = m.cursor();
+                    ((x, y), m.wheel())
+                })
+                .unwrap_or_default();
+            let mut ime = w.ime();
+            let pumped = {
+                let mut router =
+                    input_router::GameRouter::new(&mut cx.interface, &mut ime, cursor, wheel);
+                let pumped = w.pump_routed(&mut router);
+                let events = match &pumped {
+                    Pump::Events(events) | Pump::Quit(_, events) => events,
+                };
+                for event in events {
+                    router.window_event(event);
+                }
+                pumped
+            };
+            match pumped {
+                Pump::Quit(code, _) => {
+                    writeln!(out, "quit ({code})")?;
+                    return finish(&mut cx.core, &mut out);
+                }
+                Pump::Events(events) => {
+                    if events.contains(&WindowEvent::CloseRequested)
+                        && let Some(w) = window.take()
+                    {
+                        w.destroy();
+                    }
+                }
+            }
+        } else if let Pump::Quit(code, _) = pump() {
+            // The window is gone: the queue still has to see WM_QUIT.
+            writeln!(out, "quit ({code})")?;
+            return finish(&mut cx.core, &mut out);
         }
-        if pending_state == Some(1) {
-            // EnterClientState(1): the server shuts down (its Shutdown calls
-            // the client's) and the client quits.
-            if let Some(l) = link.as_mut() {
-                l.receiver.shutdown();
-            }
-            if let Some(run) = oracle.as_ref() {
-                let iclient = link
-                    .as_ref()
-                    .and_then(|l| l.receiver.log.as_ref())
-                    .map(|log| log.lines().to_vec())
-                    .unwrap_or_default();
-                run.write(&iclient)?;
-                writeln!(out, "oracle: {} written", run.out.display())?;
-            }
-            return Ok(());
+
+        // TickClientFrame: the oracle's tick, the interface update, the
+        // local server and the state's update; the state's draw is the
+        // engine's frame after it (its interface update already ran).
+        frame::tick_client_frame(&mut frame_state, &mut states, &mut cx, dt);
+        if cx.core.quit_posted {
+            return finish(&mut cx.core, &mut out);
         }
         let input = FrameInput {
             delta_seconds: dt,
-            frame_ms: clock.frame_timestamp_ms(),
+            frame_ms,
             mouse: None,
             ui_input: Vec::new(),
+            ui_updated: true,
         };
-        let Some(w) = window.as_mut() else {
-            // The window is gone: the queue still has to see WM_QUIT.
-            if let Pump::Quit(code, _) = pump() {
-                writeln!(out, "quit ({code})")?;
-                return Ok(());
+        match window.as_mut() {
+            Some(w) => {
+                cx.interface.frame_with_mouse(input, &mut camera, w);
             }
-            engine.frame(input, &mut camera);
-            continue;
-        };
-        // PumpMessages through GameApp's router.
-        let (cursor, wheel) = w
-            .with_mouse(|m, _| {
-                let (x, y, _) = m.cursor();
-                ((x, y), m.wheel())
-            })
-            .unwrap_or_default();
-        let mut ime = w.ime();
-        let pumped = {
-            let mut router = input_router::GameRouter::new(&mut engine, &mut ime, cursor, wheel);
-            let pumped = w.pump_routed(&mut router);
-            let events = match &pumped {
-                Pump::Events(events) | Pump::Quit(_, events) => events,
-            };
-            for event in events {
-                router.window_event(event);
+            None => {
+                cx.interface.frame(input, &mut camera);
             }
-            pumped
-        };
-        let events = match pumped {
-            Pump::Quit(code, _) => {
-                writeln!(out, "quit ({code})")?;
-                return Ok(());
-            }
-            Pump::Events(events) => events,
-        };
-        if events.contains(&WindowEvent::CloseRequested) {
-            if let Some(w) = window.take() {
-                w.destroy();
-            }
-            continue;
         }
-        engine.frame_with_mouse(input, &mut camera, w);
-        if let Some(e) = engine.device().backend.errors.first() {
+        if let Some(e) = cx.interface.device().backend.errors.first() {
             return Err(failure(format!("renderer: {e}")));
         }
     }
+}
+
+/// The client's end: the server shut down (its `Shutdown` calls the
+/// client's) and the oracle's files written.
+#[cfg(windows)]
+fn finish<C: neuron_core::time::Clock>(
+    core: &mut client::ClientCore<'_, C>,
+    out: &mut impl Write,
+) -> io::Result<()> {
+    core.shutdown_server_connection();
+    if let Some(run) = core.oracle.as_ref() {
+        run.write(&core.iclient_lines())?;
+        writeln!(out, "oracle: {} written", run.out.display())?;
+    }
+    Ok(())
 }
 
 /// `BuildLowMachineWarning` and its dialog over this machine's memory (the

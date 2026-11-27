@@ -124,3 +124,16 @@ fn the_load_game_pages_result_and_load_request_are_polled() {
     assert_eq!((nav.character, nav.flag_20c), (7, true));
     assert_eq!(nav.current, 0xc);
 }
+
+#[test]
+fn a_poll_that_moves_the_state_does_not_run_the_next_states_poll() {
+    let (mut ui, mut nav, mut host) = start();
+    nav.driver_update(&mut ui, &mut host);
+    let column = nav.column.unwrap();
+    ui.widget_mut::<TypeSelect>(column).unwrap().next_state = 10;
+    nav.driver_update(&mut ui, &mut host);
+    // State 10's poll would send it back to 1 (no page yet).
+    assert_eq!(nav.current, 10);
+    nav.driver_update(&mut ui, &mut host);
+    assert_eq!(host.screens, [1, 10]);
+}

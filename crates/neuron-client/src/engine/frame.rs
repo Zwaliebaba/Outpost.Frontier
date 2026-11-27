@@ -90,6 +90,10 @@ pub struct FrameInput<'a> {
     pub mouse: Option<&'a mut dyn MousePlatform>,
     /// The key and character messages the router gave the UI.
     pub ui_input: Vec<Input>,
+    /// The caller ran `Win3DUpdateAll` this frame itself, at its place in
+    /// the game's frame (`TickClientFrame`, before the local server and the
+    /// state's update): step 2 is then skipped.
+    pub ui_updated: bool,
 }
 
 impl FrameInput<'_> {
@@ -101,6 +105,7 @@ impl FrameInput<'_> {
             frame_ms: 0,
             mouse: None,
             ui_input: Vec::new(),
+            ui_updated: false,
         }
     }
 }
@@ -221,8 +226,10 @@ impl<B: Backend + 'static> Engine<B> {
                 ui.handle(event);
                 report.ui_events += 1;
             }
-            // 2. Win3DUpdateAll.
-            ui.update_all(dt);
+            // 2. Win3DUpdateAll, unless the caller's frame ran it.
+            if !input.ui_updated {
+                ui.update_all(dt);
+            }
             report.ui_nodes = ui.update_node_count;
         }
         // The IME's messages its context handed since the last frame (the

@@ -21,6 +21,12 @@ pub trait FrameHost: StateHost {
     /// `OracleFrameTick` (oracle instrumentation, P0.5): the port's oracle
     /// mode's dumps and script (decision O53 (2)).
     fn oracle_frame_tick(&mut self);
+    /// The state the oracle's tick asked for (`G_PendingClientStateId`,
+    /// which `OracleFrameTick` sets for the script's `state` and its end),
+    /// taken: the frame queues it on the state machine.
+    fn take_pending_state(&mut self) -> Option<i32> {
+        None
+    }
     /// `ShouldSkipLocalServerTick`: the single-player server tick is paused.
     fn skip_local_server_tick(&self) -> bool;
     /// `Timing::UpdateGlobalTime(dt)`.
@@ -65,6 +71,9 @@ pub fn tick_client_frame<C: FrameHost>(
     dt: f64,
 ) {
     cx.oracle_frame_tick();
+    if let Some(id) = cx.take_pending_state() {
+        states.set_pending(id);
+    }
     if !cx.skip_local_server_tick() {
         cx.update_global_time(dt);
     }
