@@ -93,31 +93,41 @@ fn data_dump_effect_arch() {
         println!("notice: OUTPOST_DATA_DIR is not set; the effect_arch data dump was skipped");
         return;
     };
+    let oracle = std::env::var_os("OUTPOST_ORACLE_DIR").map(PathBuf::from);
     // `RunEffectArchDataDump`: the [Data] effects values in order, each
-    // under DATA, and an empty dump without the engine INI.
+    // under DATA.
+    let Some(config) = DataConfig::read(&Host::new(root.join("EXE")), b"OutpostFrontier.ini")
+    else {
+        // A comparison that judges nothing fails (the conductor's rule,
+        // after #209).
+        assert!(
+            oracle.is_none(),
+            "no EXE/OutpostFrontier.ini under OUTPOST_DATA_DIR: the effect_arch dump judges nothing"
+        );
+        println!("notice: no EXE/OutpostFrontier.ini; the effect_arch data dump was skipped");
+        return;
+    };
     let mut lines = Vec::new();
     let mut db = EffectArchDb::default();
-    if let Some(config) = DataConfig::read(&Host::new(root.join("EXE")), b"OutpostFrontier.ini") {
-        let source = Host::new(root.join("DATA"));
-        for entry in &config.entries {
-            if entry.key.eq_ignore_ascii_case(b"effects") {
-                let grown = db.load_ini(&source, &entry.value, &|_| false);
-                lines.push(format!(
-                    "{{\"case\":\"data\",\"ini\":\"{}\",\"r\":\"{grown}\"}}",
-                    effect_tables::hex(&entry.value)
-                ));
-            }
-        }
-        effect_tables::render("data", &db, &mut lines);
-        // The sound names, which neither side resolves.
-        for (id, e) in &db.effects {
+    let source = Host::new(root.join("DATA"));
+    for entry in &config.entries {
+        if entry.key.eq_ignore_ascii_case(b"effects") {
+            let grown = db.load_ini(&source, &entry.value, &|_| false);
             lines.push(format!(
-                "{{\"case\":\"data\",\"sound\":\"{id:08x}\",\"v\":\"{}\"}}",
-                e.snd_effect_name
-                    .as_deref()
-                    .map_or_else(|| "-".to_owned(), effect_tables::hex)
+                "{{\"case\":\"data\",\"ini\":\"{}\",\"r\":\"{grown}\"}}",
+                effect_tables::hex(&entry.value)
             ));
         }
+    }
+    effect_tables::render("data", &db, &mut lines);
+    // The sound names, which neither side resolves.
+    for (id, e) in &db.effects {
+        lines.push(format!(
+            "{{\"case\":\"data\",\"sound\":\"{id:08x}\",\"v\":\"{}\"}}",
+            e.snd_effect_name
+                .as_deref()
+                .map_or_else(|| "-".to_owned(), effect_tables::hex)
+        ));
     }
     println!(
         "effect_arch: {} effects, {} visual effects, {} beams, {} lines",
@@ -126,7 +136,11 @@ fn data_dump_effect_arch() {
         db.beams.len(),
         lines.len()
     );
-    let Some(oracle) = std::env::var_os("OUTPOST_ORACLE_DIR").map(PathBuf::from) else {
+    assert!(
+        !db.effects.is_empty(),
+        "the [Data] effects files hold no effect"
+    );
+    let Some(oracle) = oracle else {
         println!("notice: OUTPOST_ORACLE_DIR is not set; the effect_arch dump was not compared");
         return;
     };
