@@ -9,6 +9,7 @@
 //! click) goes through [`OracleHost`].
 
 use super::json::OracleJson;
+use super::tree::TreeDump;
 
 /// The fixed frame (`kOracleFrameSeconds`).
 pub const FRAME_SECONDS: f64 = 1.0 / 30.0;
@@ -25,15 +26,28 @@ pub trait OracleHost {
     /// `TakeShot(label)`: the screenshot `name` (`shot_NNNN_<label>.bmp`);
     /// false when it failed.
     fn take_shot(&mut self, name: &str) -> bool;
-    /// `WriteTree(dump, label, shot)`: the interface tree into `tree.jsonl`.
-    fn write_tree(&mut self, dump: u32, label: &str, shot: &str);
-    /// `DoCommand(nickname)`: the key-map command as a matching key press;
-    /// `Err` with the note on failure.
-    fn command(&mut self, nickname: &str) -> Result<(), String>;
+    /// `WriteTree`'s nodes: the interface tree flattened, one line per
+    /// node after `"dump":<dump>` (the script writes the head).
+    fn tree(&mut self, dump: u32) -> TreeDump;
+    /// `DoCommand(nickname)`: the key-map command as a matching key press.
+    /// The note either way (empty for none).
+    ///
+    /// # Errors
+    ///
+    /// The note when the line did not run.
+    fn command(&mut self, nickname: &str) -> Result<String, String>;
     /// `DoKey(arg)`: a key press posted to the window.
-    fn key(&mut self, arg: &str) -> Result<(), String>;
+    ///
+    /// # Errors
+    ///
+    /// The note when the line did not run.
+    fn key(&mut self, arg: &str) -> Result<String, String>;
     /// `DoClick(spec)`: a click on the named target.
-    fn click(&mut self, spec: &str) -> Result<(), String>;
+    ///
+    /// # Errors
+    ///
+    /// The note when the line did not run.
+    fn click(&mut self, spec: &str) -> Result<String, String>;
     /// `G_PendingClientStateId = id`.
     fn set_pending_state(&mut self, id: u32);
 }
@@ -57,7 +71,7 @@ fn first_word(text: &str) -> (&str, &str) {
 /// `ParseUnsigned`: decimal, or hexadecimal after `0x`, through `strtoul`
 /// (a sign is taken and a negative value wraps, an overflow saturates); the
 /// whole text must be read.
-fn parse_unsigned(text: &str) -> Option<u32> {
+pub(crate) fn parse_unsigned(text: &str) -> Option<u32> {
     if text.is_empty() {
         return None;
     }
@@ -126,6 +140,7 @@ pub struct OracleScript {
     dump_count: u32,
     shot_count: u32,
     session: Vec<String>,
+    tree: Vec<String>,
 }
 
 impl OracleScript {
@@ -156,6 +171,7 @@ impl OracleScript {
             dump_count: 0,
             shot_count: 0,
             session: Vec::new(),
+            tree: Vec::new(),
         };
         let mut j = s.head("start");
         j.uint("version", 1)
@@ -185,6 +201,12 @@ impl OracleScript {
     #[must_use]
     pub fn done(&self) -> bool {
         self.done
+    }
+
+    /// The `tree.jsonl` lines so far.
+    #[must_use]
+    pub fn tree(&self) -> &[String] {
+        &self.tree
     }
 
     /// The `session.jsonl` lines so far.
@@ -254,7 +276,7 @@ impl OracleScript {
             }
         }
         if tree {
-            host.write_tree(dump, label, &shot_name);
+            self.write_tree(host, dump, label, &shot_name);
         }
         let mut j = self.head("dump");
         j.uint("dump", dump)
@@ -267,6 +289,29 @@ impl OracleScript {
             j.null("shot");
         }
         self.session.push(j.finish());
+    }
+
+    /// `WriteTree(dump, label, shot)`: the head with the latest screens,
+    /// then the host's nodes.
+    fn write_tree(&mut self, host: &mut dyn OracleHost, dump: u32, label: &str, shot: &str) {
+        let nodes = host.tree(dump);
+        let mut j = self.head("dump");
+        j.uint("dump", dump)
+            .str("label", label)
+            .int("client", self.last_client.cast_signed())
+            .int("menu", self.last_menu.cast_signed())
+            .uint("room", self.last_room);
+        if shot.is_empty() {
+            j.null("shot");
+        } else {
+            j.str("shot", shot);
+        }
+        j.uint("roots", nodes.roots).uint(
+            "nodes",
+            u32::try_from(nodes.nodes.len()).unwrap_or(u32::MAX),
+        );
+        self.tree.push(j.finish());
+        self.tree.extend(nodes.nodes);
     }
 
     /// `Quit(why)`: the script ends and the client enters state 1.
@@ -285,7 +330,7 @@ impl OracleScript {
         host: &mut dyn OracleHost,
         command: &str,
         rest: &str,
-    ) -> Result<(), String> {
+    ) -> Result<String, String> {
         match command {
             "wait" => {
                 let frames = parse_unsigned(rest).ok_or("bad frame count")?;
@@ -310,15 +355,15 @@ impl OracleScript {
             "dump" => self.dump(host, rest, true, true, "script"),
             "tree" => self.dump(host, rest, true, false, "script"),
             "shot" => self.dump(host, rest, false, true, "script"),
-            "command" => host.command(rest)?,
-            "key" => host.key(rest)?,
-            "click" => host.click(rest)?,
+            "command" => return host.command(rest),
+            "key" => return host.key(rest),
+            "click" => return host.click(rest),
             "state" => host.set_pending_state(parse_unsigned(rest).ok_or("bad state id")?),
             "log" => {}
             "quit" => self.quit(host, "script"),
             _ => return Err("unknown command".into()),
         }
-        Ok(())
+        Ok(String::new())
     }
 
     /// `RunScript`: lines until one waits or the script ends.
@@ -353,9 +398,8 @@ impl OracleScript {
             j.uint("line", u32::try_from(self.next_line).unwrap_or(u32::MAX))
                 .str("text", text)
                 .bool("ok", result.is_ok());
-            if let Err(note) = &result
-                && !note.is_empty()
-            {
+            let (Ok(note) | Err(note)) = &result;
+            if !note.is_empty() {
                 j.str("note", note);
             }
             self.session.push(j.finish());
@@ -407,22 +451,26 @@ mod tests {
             self.calls.push(format!("shot {name}"));
             !self.shot_fails
         }
-        fn write_tree(&mut self, dump: u32, label: &str, shot: &str) {
-            self.calls.push(format!("tree {dump} {label} {shot}"));
+        fn tree(&mut self, dump: u32) -> TreeDump {
+            self.calls.push(format!("tree {dump}"));
+            TreeDump {
+                roots: 1,
+                nodes: vec![format!("{{\"dump\":{dump},\"i\":0}}")],
+            }
         }
-        fn command(&mut self, nickname: &str) -> Result<(), String> {
+        fn command(&mut self, nickname: &str) -> Result<String, String> {
             if nickname == "USER_CANCEL" {
-                Ok(())
+                Ok(String::new())
             } else {
                 Err("no such command".into())
             }
         }
-        fn key(&mut self, _: &str) -> Result<(), String> {
-            Ok(())
+        fn key(&mut self, _: &str) -> Result<String, String> {
+            Ok(String::new())
         }
-        fn click(&mut self, spec: &str) -> Result<(), String> {
+        fn click(&mut self, spec: &str) -> Result<String, String> {
             self.calls.push(format!("click {spec}"));
-            Ok(())
+            Ok("press=1 release=0".into())
         }
         fn set_pending_state(&mut self, id: u32) {
             self.pending = Some(id);
@@ -474,7 +522,7 @@ mod tests {
         );
         assert_eq!(
             lines[6],
-            r#"{"frame":4,"rec":"script","line":4,"text":"click text:LOAD GAME","ok":true}"#
+            r#"{"frame":4,"rec":"script","line":4,"text":"click text:LOAD GAME","ok":true,"note":"press=1 release=0"}"#
         );
         assert_eq!(
             lines[7],
@@ -491,11 +539,14 @@ mod tests {
         assert!(s.done());
         // `state 0x6` queued state 6, then the end of the script state 1.
         assert_eq!(h.pending, Some(1));
+        assert_eq!(h.calls[..2], ["shot shot_0001_main_menu_.bmp", "tree 1"]);
+        // The tree's head: the latest screens (-1 and 4294967295 before the
+        // first), the shot, and the host's nodes after it.
         assert_eq!(
-            h.calls[..2],
+            s.tree(),
             [
-                "shot shot_0001_main_menu_.bmp",
-                "tree 1 main menu! shot_0001_main_menu_.bmp"
+                r#"{"frame":4,"rec":"dump","dump":1,"label":"main menu!","client":-1,"menu":1,"room":4294967295,"shot":"shot_0001_main_menu_.bmp","roots":1,"nodes":1}"#,
+                r#"{"dump":1,"i":0}"#
             ]
         );
     }

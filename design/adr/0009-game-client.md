@@ -256,8 +256,7 @@ Answered by the owner on 2026-11-26, each as recommended.
    (the client's sound warning is answered Yes). Recommended: the C++
    oracle's menu scripts run in CI and the Rust client's comparison with
    them is a CI job; the owner compares one CI artifact with a local run
-   once, to confirm the runner's files equal the owner's (dropped by the
-   owner on 2026-11-26, decision O53 (5) as amended); scripts with a
+   once, to confirm the runner's files equal the owner's; scripts with a
    session follow question 3, and screenshots keep the Tier C metric
    because the runner's adapter and default options differ from the
    owner's.
