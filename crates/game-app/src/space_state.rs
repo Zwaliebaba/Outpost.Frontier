@@ -19,7 +19,10 @@ use crate::login::wait_for_server_response;
 use crate::objects::{ClientObject, ClientObjectKind};
 use crate::receiver::ClientLink;
 use crate::session::{Session, tick_modal_server};
-use crate::space_camera::GameCamera;
+use crate::space_camera::{GameCamera, SpaceCameraMode};
+use crate::space_camera_third::{
+    CameraShake, ChaseCx, ChaseWarning, ShakeHits, ShipCameraTable, ThirdPersonCamera,
+};
 
 /// How the entry ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -239,6 +242,20 @@ pub struct SpaceApp {
     /// Left by [`update`] for the sound layer to play
     /// (`SetClientBackgroundMusic`); `None` when the track is unchanged.
     pub music_change: Option<crate::star_system::MusicChange>,
+    /// The chase camera's own state (`FThirdPersonCamera` +0x100 ..).
+    pub third_person: ThirdPersonCamera,
+    /// `G_CameraShakeAmount`, shared by the HUD cameras.
+    pub shake: CameraShake,
+    /// The ship companions' camera blocks; the owner fills them from the
+    /// data configuration ([`ShipCameraTable::from_config`]). Empty, the
+    /// chase camera keeps its constructor's values.
+    pub ship_cameras: ShipCameraTable,
+    /// The client's `rand` for the camera shake (the caller's generator,
+    /// as D513).
+    pub rand: neuron_core::rng::CrtRand,
+    /// The last frame's camera report (the reference's `FDUMP`), for the
+    /// caller to log.
+    pub camera_warning: Option<ChaseWarning>,
 }
 
 impl SpaceApp {
@@ -255,6 +272,57 @@ impl SpaceApp {
             music: None,
             background_music_finished: false,
             music_change: None,
+            third_person: ThirdPersonCamera::default(),
+            shake: CameraShake::default(),
+            ship_cameras: ShipCameraTable::default(),
+            rand: neuron_core::rng::CrtRand::default(),
+            camera_warning: None,
+        }
+    }
+
+    /// The active camera's update (slot 0x6c): the chase camera's own, or
+    /// the base's.
+    fn update_camera(&mut self, world: &mut World, dt: f32) {
+        let Some(mode) = self.cameras.active() else {
+            return;
+        };
+        if mode == SpaceCameraMode::ThirdPerson {
+            let mut cx = ChaseCx {
+                world,
+                ships: &self.ship_cameras,
+                shake: &mut self.shake,
+                rand: &mut self.rand,
+                hits: ShakeHits::default(),
+            };
+            let cam = self.cameras.camera_mut(mode);
+            self.camera_warning = self.third_person.update(cam, &mut cx, dt).err();
+        } else {
+            self.cameras.camera_mut(mode).update(dt);
+        }
+    }
+
+    /// The active camera's attach (slot 0x58): the chase camera's own, or
+    /// the base's.
+    pub fn attach_camera(
+        &mut self,
+        world: &mut World,
+        object: Option<game_sim::object::ObjHandle>,
+    ) {
+        let Some(mode) = self.cameras.active() else {
+            return;
+        };
+        if mode == SpaceCameraMode::ThirdPerson {
+            let mut cx = ChaseCx {
+                world,
+                ships: &self.ship_cameras,
+                shake: &mut self.shake,
+                rand: &mut self.rand,
+                hits: ShakeHits::default(),
+            };
+            let cam = self.cameras.camera_mut(mode);
+            self.camera_warning = self.third_person.attach(cam, &mut cx, object).err();
+        } else {
+            self.cameras.camera_mut(mode).attach(object);
         }
     }
 }
@@ -269,10 +337,11 @@ impl SpaceApp {
 ///   ship with `flight_frame`.
 /// - A requested leave: 6.
 ///
-/// Not here yet (P5.4b): the cameras' own update and draw, `StarSysUpdate`,
-/// the docking and lights passes, the sound mixer, the fade, the reap, the
-/// pending system switch, the player's last position and the finished
-/// camera's return to `player`.
+/// The active camera's update is the chase camera's own solve when it is
+/// `third_person`; the other cameras' motion, and every camera's draw,
+/// are not here yet (P5.4b), nor the docking and lights passes, the sound
+/// mixer, the fade, the reap, the pending system switch and the player's
+/// last position.
 pub fn update<T, S>(
     app: &mut SpaceApp,
     link: &mut ClientLink<T>,
@@ -303,14 +372,15 @@ where
         .and_then(|(_, o)| o.handle);
     if !skip_local_server_tick {
         // The active camera's update (slot 0x6c).
-        if let Some(camera) = app.cameras.active_camera_mut() {
-            camera.update(dt);
-        }
+        app.update_camera(world, dt);
         // StarSysUpdate's music part (its dust, nebulae, panels and
         // asteroids are the environment's, P5.8).
         star_sys_music(app, world, ship, dt);
     }
-    let mut player_ship = crate::player_behavior::PlayerShip { world, ship };
+    let mut player_ship = crate::player_behavior::PlayerShip {
+        world: &mut *world,
+        ship,
+    };
     app.flight
         .update_mouse_flight(&mut player_ship, flight_frame);
     // A finished camera (slot 0x60, no object watched): without a player
@@ -331,9 +401,7 @@ where
             }
             Some(h) => {
                 app.cameras.switch_mode(b"player");
-                if let Some(camera) = app.cameras.active_camera_mut() {
-                    camera.attach(Some(h));
-                }
+                app.attach_camera(world, Some(h));
             }
         }
     }

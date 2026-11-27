@@ -17,6 +17,11 @@
 //!   ship's too; which objects the client updates is the module's unit
 //!   test.
 //!
+//! - `the_chase_camera_follows_the_ship`: the third-person camera's attach
+//!   reads the fighter's `camera_offset` from `shiparch.ini`, puts the
+//!   eye on it through the ship's frame and the manager in level mode; as
+//!   the ship flies, each update keeps the eye behind and above it.
+//!
 //! Without the data each prints a notice.
 
 use std::path::{Path, PathBuf};
@@ -24,12 +29,17 @@ use std::sync::Arc;
 
 use game_app::objects::{ClientObject, ClientObjectKind, ClientObjects};
 use game_app::player_behavior::{FlightFrame, MOUSE_FLIGHT_HOLD, PlayerFlight, PlayerShip};
+use game_app::space_camera::GameCamera;
+use game_app::space_camera_third::{
+    CameraShake, ChaseCx, ShakeHits, ShipCameraTable, ThirdPersonCamera,
+};
 use game_app::space_frame;
 use game_sim::data::config::{DataConfig, GameData};
 use game_sim::object::world::{Assets, ShipSpawn, WorldConfig};
 use game_sim::object::{Command, ObjHandle, World};
 use neuron_core::id::create_id;
 use neuron_core::math::{Matrix, Vector};
+use neuron_core::rng::CrtRand;
 use neuron_core::vfs::Host;
 
 fn outdir() -> PathBuf {
@@ -219,4 +229,91 @@ fn the_space_frame_flies_the_players_ship() {
         a1.z < a0.z - 1.0,
         "the player's ship moved: {a0:?} -> {a1:?}"
     );
+}
+
+#[test]
+fn the_chase_camera_follows_the_ship() {
+    let config = WorldConfig {
+        single_player: true,
+        ..WorldConfig::default()
+    };
+    let Some((mut world, ship)) = world_with(config) else {
+        println!("notice: outdir/ has no data; nothing was flown");
+        return;
+    };
+    let root = outdir();
+    let data_config =
+        DataConfig::read(&Host::new(&root), b"OutpostFrontier.ini").expect("the config");
+    let table = ShipCameraTable::from_config(&Host::new(root.join("data")), &data_config);
+    let params = *table
+        .get(create_id(b"he_fighter"))
+        .expect("he_fighter's block");
+    assert!(params.offset[1] > 0.0);
+
+    let mut objects = ClientObjects::default();
+    let id = world.get(ship).unwrap().simple.id;
+    objects.register(
+        ClientObject {
+            id,
+            kind: ClientObjectKind::Ship,
+            archetype: create_id(b"he_fighter"),
+            handle: Some(ship),
+            remote_physics: false,
+        },
+        &world,
+    );
+    let mut cam = GameCamera::new(Default::default());
+    let mut chase = ThirdPersonCamera::default();
+    let mut shake = CameraShake::default();
+    let mut rand = CrtRand::default();
+    let mut cx = ChaseCx {
+        world: &mut world,
+        ships: &table,
+        shake: &mut shake,
+        rand: &mut rand,
+        hits: ShakeHits::default(),
+    };
+    chase
+        .attach(&mut cam, &mut cx, Some(ship))
+        .expect("attached");
+    assert_eq!(chase.offset.y, params.offset[0]);
+    assert_eq!(chase.offset.z, params.offset[1]);
+    assert!(chase.initialised);
+    let start = world.get(ship).unwrap().engine.position;
+    // The ship's identity frame: the eye is the hardpoint plus the offset
+    // (no look-ahead at rest).
+    let eye = cam.camera.world_pos;
+    let want_y = start.y + chase.hardpoint_pos.y + params.offset[0];
+    let want_z = start.z + chase.hardpoint_pos.z + params.offset[1];
+    assert!((eye.y - want_y).abs() < 1e-2, "{eye:?}");
+    assert!((eye.z - want_z).abs() < 1e-2, "{eye:?}");
+    assert_eq!(
+        world
+            .behavior_manager(ship)
+            .expect("made")
+            .state
+            .camera_level_status,
+        1
+    );
+
+    world.command(ship, Command::SetThrottle(1.0));
+    for _ in 0..30 {
+        space_frame::simulate(&mut world, &objects, create_id(b"he01"), 1, 1.0 / 30.0);
+        let mut cx = ChaseCx {
+            world: &mut world,
+            ships: &table,
+            shake: &mut shake,
+            rand: &mut rand,
+            hits: ShakeHits::default(),
+        };
+        chase.update(&mut cam, &mut cx, 1.0 / 30.0).expect("a ship");
+    }
+    let p = world.get(ship).unwrap().engine.position;
+    let eye = cam.camera.world_pos;
+    assert!(p.z < start.z - 1.0, "the ship flew forward");
+    // Behind (the fighter faces -z) and above.
+    assert!(eye.z > p.z && eye.y > p.y, "{eye:?} against {p:?}");
+    assert!(chase.smoothed_speed > 0.0);
+    // The camera's velocity follows the ship's.
+    assert!(cam.velocity.z < 0.0, "{:?}", cam.velocity);
 }

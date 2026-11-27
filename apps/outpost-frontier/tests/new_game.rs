@@ -22,8 +22,12 @@ use game_app::login::{
 use game_app::player_behavior::FlightFrame;
 use game_app::receiver::{ClientLink, ClientReceiver};
 use game_app::session::tick_local_server;
+use game_app::space_camera::SpaceCameraMode;
+use game_app::space_camera_third::ShipCameraTable;
 use game_app::space_state::{SpaceApp, SpaceEntry, enter_space, update as space_update};
 use game_logic::startup::LocalStartupInfo;
+use game_sim::data::config::DataConfig;
+use neuron_core::vfs::Host;
 use outpost_frontier::local_server::{LocalSession, RealClock, start_local_server};
 
 /// The frame the C++ client enters space in (`single_player.txt`).
@@ -107,6 +111,11 @@ fn run(info: &LocalStartupInfo) -> Vec<String> {
     // UpdateSpaceState: 6 without a camera; with the player's camera the
     // frame stays in space (0).
     let mut app = SpaceApp::new(Default::default(), 0);
+    let root = outdir();
+    if let Some(config) = DataConfig::read(&Host::new(&root), b"OutpostFrontier.ini") {
+        app.ship_cameras = ShipCameraTable::from_config(&Host::new(root.join("data")), &config);
+    }
+    assert!(!app.ship_cameras.is_empty(), "the ships' camera blocks");
     let flight = FlightFrame::default();
     assert_eq!(
         space_update(&mut app, &mut link, Some(&mut session), &flight, true, 0.0),
@@ -124,6 +133,10 @@ fn run(info: &LocalStartupInfo) -> Vec<String> {
         .find(11, 1)
         .and_then(|(_, o)| o.handle);
     assert_eq!(app.cameras.active_camera().and_then(|c| c.watched), ship);
+    // `player` is the chase camera. The shared world has no ship of the
+    // player's id until `SpawnPlayerShip`'s `CShip::init` is ported, so the
+    // object has no handle yet and the camera watches nothing.
+    assert_eq!(app.cameras.active(), Some(SpaceCameraMode::ThirdPerson));
     frame(&mut link, &mut session, SPACE_FRAME + 1);
     frame(&mut link, &mut session, SPACE_FRAME + 2);
     link.receiver
