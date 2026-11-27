@@ -13,6 +13,7 @@ pub mod client;
 pub mod client_state;
 pub mod effect_arch;
 pub mod frame;
+pub mod hud;
 pub mod input_router;
 pub mod intro;
 pub mod keymap;
@@ -22,6 +23,7 @@ pub mod login_history;
 pub mod machine_warning;
 #[cfg(windows)]
 pub mod movies;
+pub mod neuronet;
 pub mod nn_preferences;
 pub mod objects;
 pub mod oracle;
@@ -138,6 +140,10 @@ pub fn run(start_server: session::StartLocalServer<'_>) -> io::Result<()> {
     };
     let ini = std::fs::read(String::from_utf8_lossy(startup_config::INI_NAME).as_ref()).ok();
     let config = startup_config::StartupConfig::load(ini.clone(), &args);
+    // `SetHudIniPath` from `[Data]` (`LoadClientDataValue`'s HUD key).
+    let hud_ini = ini
+        .as_deref()
+        .and_then(|ini| hud::hud_ini(ini, &config.data_path));
 
     // InitializeEngine's render mode: PerfOptions.ini's [Display], the
     // low-machine warning, the display switches, SelectInitialRenderMode.
@@ -204,6 +210,7 @@ pub fn run(start_server: session::StartLocalServer<'_>) -> io::Result<()> {
         }
         ui.catalogs = Some(std::rc::Rc::new(catalogs));
         boot_interface::register(&mut ui.factory);
+        neuronet::register(&mut ui.factory);
         boot_interface::create(ui);
     }
     // SavePerfOptions with the mode the device took.
@@ -247,6 +254,7 @@ pub fn run(start_server: session::StartLocalServer<'_>) -> io::Result<()> {
         request,
         Box::new(move || started.elapsed().as_secs_f64()),
     );
+    cx.core.hud_ini = hud_ini;
     // What the preferences window reads that the start-up knows; the key
     // names, the device's modes and abilities are not given yet (D1111).
     cx.core.preferences.perf = perf.clone();
