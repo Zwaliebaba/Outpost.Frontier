@@ -373,7 +373,11 @@ fn effect_arch() {
                 effect_tables(c, &db, &mut out);
             }
             case = Some(name.to_owned());
-            db = EffectArchDb::default();
+            // The tables start again; the string cache is the process's.
+            db = EffectArchDb {
+                interned: std::mem::take(&mut db.interned),
+                ..EffectArchDb::default()
+            };
         } else if let Some(file) = line.strip_prefix("ini ") {
             let grown = db.load_ini(&source, file.as_bytes(), &|_| false);
             out.push(format!(
