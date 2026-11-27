@@ -4,12 +4,14 @@
 //! Ported so far: the main menu (state 1, the column of
 //! [`super::type_select`]), states 2 and 3 of the single-player Load Game
 //! path (3 → 2 → 18), state 18's entry as a hook of the host (the Load Game
-//! page of [`super::char_select_single`]), state 1's poll of the column,
-//! state 18's poll of the page, and the first
-//! settled frame's loading-screen step. The other states (the multiplayer
-//! server, account and character pages, options, the new game's 16 and 12,
-//! the return from the game) come with their screens; until then their
-//! entry leaves the state as it is (`default:` of the switch).
+//! page of [`super::char_select_single`]), state 10's entry as a hook of the
+//! host (the Options page of [`super::options`]), state 1's poll of the
+//! column, state 10's and state 18's polls of their pages, the leave of
+//! state 10, and the first settled frame's loading-screen step. The other
+//! states (the multiplayer server, account and character pages, the new
+//! game's 16 and 12, the return from the game) come with their screens;
+//! until then their entry leaves the state as it is (`default:` of the
+//! switch).
 //!
 //! The frame's draw (`BeginClientRenderFrame` up to the present) is the
 //! host's: the intro scene, the logo and the interface.
@@ -17,6 +19,7 @@
 use neuron_client::ui::tree::{NodeId, Ui};
 
 use super::char_select_single::PageCharacterSelectSingle;
+use super::options::PageOptions;
 use super::type_select::{TypeSelect, build_column, make_column};
 
 /// What the menu needs from the client around it.
@@ -37,6 +40,11 @@ pub trait MenuHost {
     /// page node ([`super::char_select_single::make_page`]) and calls
     /// [`super::char_select_single::enter_load_game_page`] with the roster.
     fn enter_load_game(&mut self, ui: &mut Ui) -> Option<NodeId>;
+    /// State 10: the Options page (`PageOptions`) made and shown; its node.
+    /// A host keeps one page node ([`super::options::make_page`]) and calls
+    /// [`super::options::enter_options_page`] with the preferences window's
+    /// context.
+    fn enter_options(&mut self, ui: &mut Ui) -> NodeId;
     /// The Load Game page asked to load: the intro base left when the
     /// intro draws its scripts (`GetIntroConfigState()->bDrawScripts`,
     /// `LeaveIntroBase`).
@@ -73,6 +81,8 @@ pub struct MenuNav {
     pub character: i32,
     /// `+0x20c`.
     pub flag_20c: bool,
+    /// The Options page (`G_PageOptions`), once state 10 was entered.
+    pub options_page: Option<NodeId>,
 }
 
 impl MenuNav {
@@ -97,6 +107,12 @@ impl MenuNav {
                 }
             }
             3 => self.current = 2,
+            10 => {
+                self.release_active_page(ui);
+                let page = host.enter_options(ui);
+                self.options_page = Some(page);
+                self.active_page = Some(page);
+            }
             18 => {
                 self.release_active_page(ui);
                 match host.enter_load_game(ui) {
@@ -127,7 +143,12 @@ impl MenuNav {
     pub fn driver_update(&mut self, ui: &mut Ui, host: &mut dyn MenuHost) -> i32 {
         while self.current != self.prev {
             host.refresh_loading_progress();
-            // Leaving 5 and 10 come with their screens.
+            // Leaving 5 comes with its screen. Leaving 10 goes to state 1
+            // when `GOptionsChild_67c20c` is missing or inactive; nothing
+            // ever sets it, so always.
+            if self.prev == 10 {
+                self.current = 1;
+            }
             host.refresh_loading_progress();
             self.prev = self.current;
             self.enter_state(ui, host, self.current);
@@ -145,6 +166,9 @@ impl MenuNav {
                 host.refresh_loading_progress();
             }
         }
+        if self.current == 10 {
+            self.poll_options(ui);
+        }
         if self.current == 18 {
             self.poll_load_game(ui, host);
         }
@@ -153,6 +177,45 @@ impl MenuNav {
             self.flag_22c = true;
         }
         0
+    }
+
+    /// Poll index 4 (state 10): without a preferences window, state 1; a
+    /// closed one is deleted and state 1 follows; else the page's result
+    /// becomes the state, cleared once taken.
+    fn poll_options(&mut self, ui: &mut Ui) {
+        let Some(page) = self.options_page else {
+            self.current = 1;
+            return;
+        };
+        let window = ui
+            .widget::<PageOptions>(page)
+            .and_then(|p| p.preferences)
+            .filter(|&w| ui.contains(w));
+        let Some(window) = window else {
+            self.current = 1;
+            if let Some(p) = ui.widget_mut::<PageOptions>(page) {
+                p.preferences = None;
+                p.result = 0;
+            }
+            return;
+        };
+        let closed = ui
+            .widget::<crate::nn_preferences::NnPreferences>(window)
+            .is_some_and(|w| w.state.closed);
+        let Some(p) = ui.widget_mut::<PageOptions>(page) else {
+            return;
+        };
+        if closed {
+            p.preferences = None;
+            p.result = 0;
+            ui.delete_tree(window);
+            self.current = 1;
+            return;
+        }
+        if p.result != 0 {
+            self.current = p.result;
+            p.result = 0;
+        }
     }
 
     /// Poll index 8 (state 18): the page's load request leaves the intro

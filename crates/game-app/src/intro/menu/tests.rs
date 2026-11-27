@@ -27,6 +27,11 @@ impl MenuHost for Host {
     fn enter_load_game(&mut self, ui: &mut Ui) -> Option<NodeId> {
         self.page.then(|| ui.create_plain(None))
     }
+    fn enter_options(&mut self, ui: &mut Ui) -> NodeId {
+        let page = crate::intro::options::make_page(ui);
+        crate::intro::options::enter_options_page(ui, page, Default::default());
+        page
+    }
     fn leave_intro_base(&mut self) {
         self.left_base += 1;
     }

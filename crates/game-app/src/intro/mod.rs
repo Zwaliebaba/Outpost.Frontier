@@ -3,4 +3,5 @@
 
 pub mod char_select_single;
 pub mod menu;
+pub mod options;
 pub mod type_select;
