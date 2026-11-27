@@ -1,0 +1,9 @@
+# The effect archetype suite (Oracle.exe game-app, oracle_effect_arch.cpp): "case NAME" starts
+# from the initial tables; "ini FILE" is EffectArchLoadIni(FILE, false). The tables are printed
+# at the end of each case.
+case all
+ini effects/types.ini
+ini effects/beams.ini
+ini effects/effects.ini
+case effects_only
+ini effects/effects.ini
