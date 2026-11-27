@@ -410,6 +410,9 @@ impl Widget for ToolTip {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
+    fn text_win(&self) -> Option<&TextWin> {
+        Some(&self.text_win)
+    }
     /// Never picked.
     fn hit_test(&mut self, _: &mut Ui, _: NodeId, _: Vector) -> bool {
         false
@@ -742,6 +745,9 @@ impl Widget for Rollover {
     }
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+    fn text_win(&self) -> Option<&TextWin> {
+        Some(&self.text_win)
     }
     fn hit_test(&mut self, _: &mut Ui, _: NodeId, _: Vector) -> bool {
         false
