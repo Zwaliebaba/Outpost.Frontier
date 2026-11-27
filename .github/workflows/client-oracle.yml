@@ -137,6 +137,9 @@ jobs:
         #   c      menu_walk.txt after removing the registry key only
         #   d      menu_walk.txt after removing the user folder only
         #   s1, s2 single_player.txt twice, with the in-process server on the oracle clock
+        #   l1, l2 load_game.txt twice: the newest save, the first base s2 left (P5.3)
+        # Each run's user folder afterwards is copied to its out\user (the saves, for the port's
+        # load-game comparison, since a cache hit skips the runs).
         # c and d tell which per-user state makes the first run's extra login response.
         # Every run starts from a PerfOptions.ini that skips the machine warnings.
         timeout-minutes: 45
@@ -254,6 +257,7 @@ jobs:
             Write-Host "Run $name ($script, reset $reset): exit $code after $seconds s"
             New-Item -ItemType Directory -Force $out | Out-Null
             if (Test-Path $spew) { Copy-Item $spew "$out\FLSpew.txt" }
+            if (Test-Path $user) { Copy-Item $user "$out\user" -Recurse -Force }
             if ($code -ne 0 -and (Test-Path $spew)) { Get-Content $spew -Tail 30 | Write-Host }
             "$name,$script,$reset,$code,$seconds"
           }
@@ -265,6 +269,8 @@ jobs:
           $result += RunOracle 'd' 'menu_walk.txt' 'files'
           $result += RunOracle 's1' 'single_player.txt' 'none'
           $result += RunOracle 's2' 'single_player.txt' 'none'
+          $result += RunOracle 'l1' 'load_game.txt' 'none'
+          $result += RunOracle 'l2' 'load_game.txt' 'none'
           Get-ChildItem "$env:LOCALAPPDATA\CrashDumps", "$env:ProgramData\Microsoft\Windows\WER\ReportArchive" -Recurse -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -like '*OutpostFrontier*' } | ForEach-Object { Write-Host "WER: $($_.FullName)" }
           $result | Where-Object { $_ -match ',' } | Set-Content "$env:RUNNER_TEMP\oracle-out\exit.csv"
@@ -287,14 +293,15 @@ jobs:
         # runs: keymap.jsonl and layout.jsonl's key and option lists, pages and navbar.ini
         # window tree and the start-up's interface windows against run a (the tree also against s1),
         # the single-player login's IClient lines against runs w (a fresh user folder) and a (the
-        # folder w made), and a new game's IClient lines up to the frames after entering space
-        # against run s1 of single_player.txt.
+        # folder w made), a new game's IClient lines up to the frames after entering space against
+        # run s1 of single_player.txt, and the load game's up to the save's selection against run l1.
         if: ${{ always() }}
         shell: pwsh
         env:
           OUTPOST_CLIENT_ORACLE_DIR: ${{ runner.temp }}\oracle-out\a
           OUTPOST_CLIENT_ORACLE_FRESH_DIR: ${{ runner.temp }}\oracle-out\w
           OUTPOST_CLIENT_ORACLE_SP_DIR: ${{ runner.temp }}\oracle-out\s1
+          OUTPOST_CLIENT_ORACLE_ROOT: ${{ runner.temp }}\oracle-out
         run: |
           cargo test --locked -p game-app --test keymap_data -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -331,6 +338,9 @@ jobs:
           cargo test --locked -p outpost-frontier --test local_server -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p outpost-frontier --test new_game -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The load game (P5.3): s2's saves loaded as l1 loads them, up to the selection.
+          cargo test --locked -p outpost-frontier --test load_game -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run the port's client
@@ -434,6 +444,7 @@ jobs:
           $summary += Pair 'a' 'b'
           $summary += Pair 'w' 'a'
           $summary += Pair 's1' 's2'
+          $summary += Pair 'l1' 'l2'
           $summary += @('', '### Login responses per run', '')
           foreach ($n in 'w', 'a', 'c', 'd') {
             $calls = Lines "$root\$n\iclient.jsonl" | Where-Object { $_ -match 'SendServerLoginResponse|"m":"Startup"|OnConnect' -and $_ -notmatch '"r":' }

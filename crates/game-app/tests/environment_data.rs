@@ -134,6 +134,11 @@ fn asteroid_field_records_equal_the_cpp_client() {
         nebulae += 1;
     }
     println!("layout.jsonl: {nebulae} nebula records equal");
+    if count + nebulae == 0 {
+        // single_player.txt stays in FP7 (RELAYSEVEN_system), which has no
+        // field or nebula: nothing is judged until a script visits one.
+        println!("notice: the run loaded no asteroid field or nebula; nothing was compared");
+    }
 }
 
 /// Whether a `[section]` of the text (any case) has a `key =` line.
