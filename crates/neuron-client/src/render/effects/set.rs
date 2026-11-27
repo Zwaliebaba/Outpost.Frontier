@@ -549,6 +549,39 @@ mod tests {
     }
 
     #[test]
+    fn start_links_a_beam_and_a_missing_texture_kills_it() {
+        use crate::render::effects::beam::{BeamStart, start_beam};
+        let host = Host { alive: true };
+        let mut set = EffectSet::default();
+        let id = set.insert(BeamEffect::new(3));
+        let shape = beam_at(0.0).shape;
+        assert_eq!(
+            start_beam(&mut set, id, None, &frame(&host), |b| b),
+            BeamStart::NoBeam
+        );
+        assert!(set.bucket(BEAM_EFFECT_TYPE).is_empty());
+        assert_eq!(
+            start_beam(&mut set, id, shape, &frame(&host), |b| b),
+            BeamStart::Started
+        );
+        assert_eq!(set.bucket(BEAM_EFFECT_TYPE).front(), Some(&id));
+        assert_eq!(set.get(id).map(|b| b.base.ref_count), Some(2));
+        let other = set.insert(BeamEffect::new(BEAM_EFFECT_TYPE));
+        let no_texture = WalkFrame {
+            beam_texture: false,
+            ..frame(&host)
+        };
+        assert_eq!(
+            start_beam(&mut set, other, shape, &no_texture, |b| b),
+            BeamStart::NoTexture
+        );
+        assert!(
+            set.get(other)
+                .is_some_and(|b| b.base.dead() && b.base.linked)
+        );
+    }
+
+    #[test]
     #[should_panic(expected = "recurses without end")]
     fn freezing_an_orphaned_instance_is_the_reference_s_endless_recursion() {
         let host = Host { alive: false };

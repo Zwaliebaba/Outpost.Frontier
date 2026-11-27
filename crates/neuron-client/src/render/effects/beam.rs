@@ -15,7 +15,7 @@
 use neuron_core::math::{Transform, Vector, transform_xform};
 
 use super::batch::{EffectVertexBatch, ftol_low_byte};
-use super::set::{EffectBase, EffectCamera, SpaceEffect, WalkFrame};
+use super::set::{EffectBase, EffectCamera, EffectId, EffectSet, SpaceEffect, WalkFrame};
 
 /// `kUvCore`, the tip cross's centre `u`.
 const UV_CORE: f32 = 0.75;
@@ -444,6 +444,59 @@ impl BeamEffect {
     fn flag_visible(&self) -> bool {
         self.state.flags & 1 != 0
     }
+}
+
+/// What [`start_beam`] did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BeamStart {
+    /// The archetype has no beam (`VisBeam` null): nothing changed.
+    NoBeam,
+    /// Linked into the beam bucket.
+    Started,
+    /// Linked, but without the `code_beam` texture the beam is frozen and
+    /// marked dead; the reference reports
+    /// `texture ( code_beam ) for BeamEffect not found` (`Effect.cpp`
+    /// line 0x5df).
+    NoTexture,
+}
+
+/// The report of [`BeamStart::NoTexture`].
+pub const NO_TEXTURE_REPORT: &str =
+    "Client\\space\\Effect.cpp(1503) : *** WARNING: texture ( code_beam ) for BeamEffect not found";
+
+/// `FBeamEffect::Start` (slot 0x00): the archetype's beam, the beam type
+/// (`EFT_CODE_PROJ_EFFECT`, whatever the archetype's type) with its
+/// priority, then the link. `beam` reaches the beam in the caller's kind.
+pub fn start_beam<K: SpaceEffect>(
+    set: &mut EffectSet<K>,
+    id: EffectId,
+    shape: Option<BeamShape>,
+    frame: &WalkFrame<'_>,
+    beam: impl Fn(&mut K) -> &mut BeamEffect,
+) -> BeamStart {
+    let Some(effect) = set.get_mut(id) else {
+        return BeamStart::NoBeam;
+    };
+    let b = beam(effect);
+    b.shape = shape;
+    if shape.is_none() {
+        return BeamStart::NoBeam;
+    }
+    b.base.type_id = BEAM_EFFECT_TYPE;
+    if let Some(info) = frame.types.get(BEAM_EFFECT_TYPE) {
+        b.base.priority = info.priority;
+    }
+    b.base.flags &= 0xfd;
+    set.link(id);
+    if frame.beam_texture {
+        return BeamStart::Started;
+    }
+    if let Some(effect) = set.get_mut(id) {
+        let base = &mut beam(effect).base;
+        base.freeze_to_world(frame.host);
+        base.flags |= 2;
+    }
+    BeamStart::NoTexture
 }
 
 impl SpaceEffect for BeamEffect {
