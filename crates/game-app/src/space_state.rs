@@ -124,6 +124,72 @@ where
     )));
 }
 
+/// `StarSysUpdate`'s music: the zone music at the player's ship, the
+/// danger scan over the ship's scanner list, and the machine's change left
+/// in [`SpaceApp::music_change`].
+fn star_sys_music(
+    app: &mut SpaceApp,
+    world: &World,
+    ship: Option<game_sim::object::ObjHandle>,
+    dt: f32,
+) {
+    use game_sim::ai::world::AiWorld;
+    use game_sim::equip::{EquipKind, types};
+
+    let system = app.system;
+    let music = app.music.get_or_insert_with(|| {
+        let tracks = crate::star_system::system_file_path(world, system)
+            .and_then(|path| crate::star_system::StarSystemFile::load(world.data_source()?, &path))
+            .map(|f| f.music)
+            .unwrap_or_default();
+        crate::star_system::SystemMusicState::enter(tracks)
+    });
+    let data = world.data();
+    let position = ship.and_then(|h| world.get(h)).map(|o| o.engine.position);
+    let zone_music = position
+        .filter(|_| music.override_music.space == 0)
+        .and_then(|p| {
+            data.universe
+                .smallest_zone_with_properties_at(system, p, 0x40_0000)
+        })
+        .and_then(|z| data.universe.zones.get(&z))
+        .map(|z| z.music)
+        .filter(|&m| m != 0);
+    let frame = crate::star_system::MusicFrame {
+        dt,
+        background_finished: std::mem::take(&mut app.background_music_finished),
+        zone_music,
+        // The player's game object's jump state comes with its game object.
+        player_jumping: false,
+        cross_fade_delay: data.constants.general.music_cross_fade_delay,
+    };
+    // ScannerSeesHostile: a scanned object whose attitude to the player is
+    // at most -0.6 (GetAttitudeClass -1).
+    let hostile = || {
+        let Some(h) = ship.filter(|&h| {
+            world
+                .get(h)
+                .is_some_and(|o| o.kind == game_sim::object::ObjectKind::Ship)
+        }) else {
+            return false;
+        };
+        let Some(scanner) = world
+            .get(h)
+            .and_then(|o| o.as_equipped())
+            .and_then(|e| e.equipment.first(types::SCANNER))
+        else {
+            return false;
+        };
+        let EquipKind::Scanner(s) = &scanner.kind else {
+            return false;
+        };
+        s.scans
+            .iter()
+            .any(|&t| world.attitude(t, h).is_some_and(|a| a <= -0.6))
+    };
+    app.music_change = music.update(&frame, hostile);
+}
+
 /// `GetPlayerStarSystemIdbaseline`: the selected character's system, 0
 /// when it is in a base (`ApplyCharacterSelectEquipFields`).
 fn player_system<T>(link: &ClientLink<T>) -> u32 {
@@ -160,6 +226,15 @@ pub struct SpaceApp {
     pub leave_requested: bool,
     /// `bPlayerLostHandled`.
     pub player_lost_handled: bool,
+    /// `star_sys.cpp`'s music state, made from the system file's `[Music]`
+    /// on the first frame with a world (`StarSysEnter` reads the same file).
+    pub music: Option<crate::star_system::SystemMusicState>,
+    /// Set by the sound layer before [`update`]: the background music
+    /// source has finished (`BindClientBackgroundMusic`, `IsFinished`).
+    pub background_music_finished: bool,
+    /// Left by [`update`] for the sound layer to play
+    /// (`SetClientBackgroundMusic`); `None` when the track is unchanged.
+    pub music_change: Option<crate::star_system::MusicChange>,
 }
 
 impl SpaceApp {
@@ -172,6 +247,9 @@ impl SpaceApp {
             system,
             leave_requested: false,
             player_lost_handled: false,
+            music: None,
+            background_music_finished: false,
+            music_change: None,
         }
     }
 }
@@ -218,6 +296,11 @@ where
         .objects
         .find(link.receiver.player.character_id, 1)
         .and_then(|(_, o)| o.handle);
+    if !skip_local_server_tick {
+        // StarSysUpdate's music part (its dust, nebulae, panels and
+        // asteroids are the environment's, P5.8).
+        star_sys_music(app, world, ship, dt);
+    }
     let mut player_ship = crate::player_behavior::PlayerShip { world, ship };
     app.flight
         .update_mouse_flight(&mut player_ship, flight_frame);
