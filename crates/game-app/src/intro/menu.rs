@@ -154,23 +154,25 @@ impl MenuNav {
             self.enter_state(ui, host, self.current);
             host.refresh_loading_progress();
         }
-        if self.current == 1
-            && let Some(next) = self
-                .column
-                .and_then(|c| ui.widget::<TypeSelect>(c))
-                .map(|c| c.next_state)
-            && next != 0
-        {
-            self.current = next;
-            if next == 0xc {
-                host.refresh_loading_progress();
+        // One poll, the settled state's (the C++'s `switch` over its byte
+        // table): a state the poll moves to is entered by the next call.
+        match self.current {
+            1 => {
+                if let Some(next) = self
+                    .column
+                    .and_then(|c| ui.widget::<TypeSelect>(c))
+                    .map(|c| c.next_state)
+                    && next != 0
+                {
+                    self.current = next;
+                    if next == 0xc {
+                        host.refresh_loading_progress();
+                    }
+                }
             }
-        }
-        if self.current == 10 {
-            self.poll_options(ui);
-        }
-        if self.current == 18 {
-            self.poll_load_game(ui, host);
+            10 => self.poll_options(ui),
+            18 => self.poll_load_game(ui, host),
+            _ => {}
         }
         if !self.flag_22c {
             host.first_settled_frame(ui);

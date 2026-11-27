@@ -185,6 +185,7 @@ pub fn run(
             frame_ms,
             mouse: None,
             ui_input: Vec::new(),
+            ui_updated: false,
         });
         if let Some(e) = viewer.engine.device().backend.errors.first() {
             return Err(format!("renderer: {e}"));
