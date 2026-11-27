@@ -310,8 +310,14 @@ jobs:
           # then single_player.txt's two loads, the second in the first base (run s1).
           cargo test --locked -p game-app --test navbar_data -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The rooms' files as RoomData::load reads them (P5.9), for every room of the bases
+          # LoadLocationBase loads in the two scripts.
+          cargo test --locked -p game-app --test room_data -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:OUTPOST_CLIENT_ORACLE_DIR = "${{ runner.temp }}\oracle-out\s1"
           cargo test --locked -p game-app --test navbar_data -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p game-app --test room_data -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:OUTPOST_CLIENT_ORACLE_DIR = "${{ runner.temp }}\oracle-out\a"
           cargo test --locked -p outpost-frontier --test local_server -- --nocapture

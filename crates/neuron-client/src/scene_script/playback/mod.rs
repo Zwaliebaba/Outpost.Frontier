@@ -35,6 +35,31 @@ use std::collections::{BTreeMap, BTreeSet};
 pub use controls::{EntityControls, EventRef, interface};
 pub use math::Csys;
 
+/// An entity's descriptor as the scene holds it (`FSceneScriptEntitySnap`
+/// behind `Slot9Entity`): the fields of the last applied descriptor, the
+/// pose in the scene's frame and the tail of each kind.
+#[derive(Clone, Copy, Debug)]
+pub struct EntitySnap<'a> {
+    pub kind: i32,
+    pub flags: i32,
+    pub pos: [f32; 3],
+    /// Row-major.
+    pub orient: [f32; 9],
+    pub name: Option<&'a [u8]>,
+    pub template_name: Option<&'a [u8]>,
+    pub lt_grp: u8,
+    pub srt_grp: u8,
+    pub usr_flg: u8,
+    /// COMPOUND and DEFORMABLE (`+0x44`).
+    pub floor_height: f32,
+    /// CAMERA and MONITOR: fov, near, far, aspect.
+    pub camera: [f32; 4],
+    /// LIGHT.
+    pub light: &'a super::entity::LightProps,
+    /// SCENE and SUB_SCENE: the fifteen words, the ambient colour first.
+    pub scene: [u32; 15],
+}
+
 use entity::{Entity, PathBinding, World, bind_set};
 use event::Event;
 
@@ -563,6 +588,28 @@ impl Player {
     #[must_use]
     pub fn entity_owner_type(&self, index: i32) -> Option<i32> {
         self.world.entities.get(&index).map(|e| e.owner_type)
+    }
+
+    /// `Slot9Entity` (`EntitySnap`): the descriptor an entity holds now,
+    /// `None` for a handle without an entity.
+    #[must_use]
+    pub fn entity_snap(&self, index: i32) -> Option<EntitySnap<'_>> {
+        let e = self.world.entities.get(&index)?;
+        Some(EntitySnap {
+            kind: e.kind,
+            flags: e.flags,
+            pos: e.pos,
+            orient: e.orient,
+            name: e.name.as_deref(),
+            template_name: e.template_name.as_deref(),
+            lt_grp: e.groups[0],
+            srt_grp: e.groups[1],
+            usr_flg: e.groups[2],
+            floor_height: e.snap_floor_height,
+            camera: e.snap_camera,
+            light: &e.snap_light,
+            scene: e.snap_scene,
+        })
     }
 
     /// The handles of the entities, in order (`Slot7EntityHandle`).
