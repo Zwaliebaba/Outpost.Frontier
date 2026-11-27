@@ -304,6 +304,7 @@ fn background_music_fades_in_and_out_through_its_stream() {
     // Looping, at the silence: the stream started at -96 dB.
     assert!(sound.set_background(&mut env(&mut mixer, &mut device, 0), Music, a, 1, -1.0));
     let first = sound.background(Music).unwrap();
+    assert!(!sound.background_finished(&mut env(&mut mixer, &mut device, 0), Music));
     let s1 = stream(&device, 1);
     assert_eq!(
         (s1.bytes, s1.looping, s1.started, s1.volume),
@@ -350,6 +351,10 @@ fn background_music_fades_in_and_out_through_its_stream() {
     // An empty id lets the slot go and answers false.
     assert!(!sound.set_background(&mut env(&mut mixer, &mut device, 0), Music, 0, 0, -1.0));
     assert_eq!(sound.background(Music), None);
+    assert!(
+        !sound.background_finished(&mut env(&mut mixer, &mut device, 0), Music),
+        "no source: not finished"
+    );
     // An ambience that is no streamer still streams (the key's bit 2).
     let wind = neuron_core::id::create_id(b"wind");
     assert!(sound.set_background(&mut env(&mut mixer, &mut device, 0), Ambient, wind, 1, 0.0));

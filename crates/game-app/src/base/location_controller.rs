@@ -707,6 +707,7 @@ impl LocationController {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audio::Silent;
     use game_sim::data::base::{BaseData, Room};
 
     /// A server that answers each full info request by completing its
@@ -749,32 +750,10 @@ mod tests {
         }
     }
 
-    /// Plays nothing.
-    struct Quiet;
-
-    impl SoundCalls for Quiet {
-        fn set_background_music(&mut self, _: u32, _: u32, _: f32) -> bool {
-            false
-        }
-        fn set_background_ambient(&mut self, _: u32, _: u32, _: f32) -> bool {
-            false
-        }
-        fn fade_background_music(&mut self, _: f32, _: f32) {}
-        fn fade_background_ambient(&mut self, _: f32, _: f32) {}
-        fn push_ducking(&mut self) {}
-        fn pop_ducking(&mut self) {}
-        fn stop_all_except(&mut self, _: u32) {}
-        fn snap_audio_fade(&mut self, _: f32) {}
-        fn set_audio_fade(&mut self, _: f32, _: f32) {}
-        fn music_fade_time(&self) -> f32 {
-            1.0
-        }
-    }
-
     /// Records the host's calls.
     struct Host {
         events: Vec<String>,
-        sound: Quiet,
+        sound: Silent,
     }
 
     impl LocationHost for Host {
@@ -846,7 +825,7 @@ mod tests {
         c.build_maps(&list(), &GoodList::default(), &mut server.db);
         let host = Host {
             events: Vec::new(),
-            sound: Quiet,
+            sound: Silent::default(),
         };
         (c, server, host)
     }

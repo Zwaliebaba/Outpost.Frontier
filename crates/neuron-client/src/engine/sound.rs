@@ -392,6 +392,24 @@ impl<B: Backend + 'static> Engine<B> {
         client.play(&mut env, sound.0, key, want_handle)
     }
 
+    /// `f` over the client's sounds and the mixer, device, data and clock
+    /// they play through: the calls the game makes on the sound layer
+    /// (`SetClientBackgroundMusic` and the others).
+    pub fn with_client_sound<R>(
+        &mut self,
+        f: impl FnOnce(&mut ClientSound, SoundEnv<'_>) -> R,
+    ) -> R {
+        let (client, mixer, device, wavs, options, now) = sound_env!(self);
+        let env = SoundEnv {
+            mixer,
+            device,
+            files: &wavs,
+            options,
+            now,
+        };
+        f(client, env)
+    }
+
     /// Releases a handle [`Engine::play_sound_with`] gave.
     pub fn release_sound_source(&mut self, key: SourceKey) {
         let (client, mixer, device, wavs, options, now) = sound_env!(self);

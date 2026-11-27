@@ -43,6 +43,8 @@ use neuron_core::time::Clock;
 use game_sim::protocol::to_server::SkipAutosave;
 use game_sim::protocol::{ClientMessage, ToServer};
 
+use crate::audio::{Silent, SoundCalls, SoundLayer};
+use crate::base::location_controller::LocationController;
 use crate::client_state::{ClientStates, Environment, EnvironmentKind, StateHost};
 use crate::frame::FrameHost;
 use crate::intro::char_select_single::{
@@ -77,6 +79,11 @@ const PREFERENCES_NAME: &[u8] = b"NN_Preferences";
 pub trait Interface {
     /// The UI manager, when the interface has one.
     fn ui(&mut self) -> Option<&mut Ui>;
+    /// `f` on the client's sound calls: without an engine, the calls of a
+    /// client without sound ([`Silent`]).
+    fn with_sound(&mut self, f: &mut dyn FnMut(&mut dyn SoundCalls)) {
+        f(&mut Silent::default());
+    }
     /// `GetGameOption(index)`: the reference's default without an engine.
     fn game_option(&self, index: u32) -> i32 {
         neuron_client::engine::options::GameOptions::default().get(index)
@@ -92,6 +99,9 @@ impl Interface for Ui {
 impl<B: Backend + 'static> Interface for Engine<B> {
     fn ui(&mut self) -> Option<&mut Ui> {
         self.ui_mut()
+    }
+    fn with_sound(&mut self, f: &mut dyn FnMut(&mut dyn SoundCalls)) {
+        self.with_client_sound(|sound, env| f(&mut SoundLayer { sound, env }));
     }
     fn game_option(&self, index: u32) -> i32 {
         self.options.get(index)
@@ -114,6 +124,9 @@ pub struct ClientCore<'a, C: Clock> {
     pub oracle: Option<OracleRun>,
     /// `G_KeyMap`.
     pub keymap: KeyMap,
+    /// The location controller's maps and state (`menu_universe_base.cpp`,
+    /// P5.9).
+    pub location: LocationController,
     /// The loading screen.
     pub loading_screen: LoadingScreen,
     /// What the preferences window reads of the client (its key map is the
@@ -193,6 +206,7 @@ impl<'a, I: Interface, C: Clock> ClientContext<'a, I, C> {
                 link: None,
                 oracle,
                 keymap: KeyMap::new(),
+                location: LocationController::new(),
                 loading_screen: LoadingScreen::default(),
                 preferences: PreferencesContext::default(),
                 intro_mode_request: 0,
@@ -263,12 +277,20 @@ impl<C: Clock> ClientCore<'_, C> {
     fn connect_to_server(&mut self) -> bool {
         self.shutdown_server_connection();
         self.multiplayer = false;
-        let Some((session, client)) = (self.start_server)(&self.request) else {
+        let Some((mut session, client)) = (self.start_server)(&self.request) else {
             self.shutdown_server_connection();
             return false;
         };
         self.server_count += 1;
         let mut receiver = ClientReceiver::new(false);
+        // `InitGameflowData`'s `BuildClientLocationMaps` (gameflow.cpp:504
+        // `GF::PreInit`, gameflow.cpp:670), which the reference runs once at
+        // start-up over the shared game data. The client's data is the
+        // in-process server's, so the port builds the maps here, into the new
+        // receiver's mirrors (D1702).
+        let data = session.world().data_arc();
+        self.location
+            .build_maps(&data.bases, &data.goods, &mut receiver.location);
         receiver.log = self.iclient_log.take().or_else(|| {
             self.oracle.as_ref().map(|_| {
                 let mut log = IClientLog::new();
@@ -749,11 +771,25 @@ impl<I: Interface, C: Clock> Environment<ClientContext<'_, I, C>> for SpaceEnvir
         let inverse_mouse = cx.interface.game_option(OPT_INVERSE_MOUSE) != 0;
         let mut frame = flight_frame(cx.interface.ui(), &cx.core);
         frame.inverse_mouse = inverse_mouse;
-        let core = &mut cx.core;
+        let (interface, core) = (&mut cx.interface, &mut cx.core);
         let (Some(app), Some(link)) = (self.app.as_mut(), core.link.as_mut()) else {
             return 6;
         };
-        space_state::update(app, link, core.session.as_deref_mut(), &frame, skip, dt)
+        // StarSysUpdate's music on the sound layer: whether the background
+        // music finished (`BindClientBackgroundMusic`, `IsFinished`) before
+        // the frame, and the machine's change (`SetClientBackgroundMusic`)
+        // after it.
+        interface.with_sound(&mut |s| {
+            app.background_music_finished = s.background_music_finished();
+        });
+        let next = space_state::update(app, link, core.session.as_deref_mut(), &frame, skip, dt);
+        if let Some(change) = app.music_change.take() {
+            interface.with_sound(&mut |s| {
+                let _ =
+                    s.set_background_music(change.track, u32::from(change.no_fade), change.fade);
+            });
+        }
+        next
     }
 }
 

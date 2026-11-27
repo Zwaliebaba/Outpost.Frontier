@@ -117,8 +117,7 @@ pub struct LocationDb {
     /// the room control to take.
     pub updated_characters: Vec<(u32, u32)>,
     /// The forwards skipped because the controller does not know the base
-    /// or room (each also reported; D1401, and D1402 while the controller
-    /// registers nothing).
+    /// or room (each also reported; D1401).
     pub skipped: u32,
 }
 
@@ -191,16 +190,10 @@ impl LocationDb {
         self.rooms.get_mut(&room)?.state.as_mut()
     }
 
-    /// An id the controller does not know: counted, and reported once the
-    /// controller has registered anything. Temporary rule (D1402): while no
-    /// base or room is registered (the controller's registration at the
-    /// client's start-up, `InitGameflowData`, is not wired yet) the report,
-    /// which the C++ never writes on the shipped data, is left out.
+    /// An id the controller does not know: counted and reported.
     fn miss(&mut self, line: u32, what: &str, id: u32) {
         self.skipped += 1;
-        if !(self.bases.is_empty() && self.rooms.is_empty()) {
-            miss(line, what, id);
-        }
+        miss(line, what, id);
     }
 
     /// `FindLocationBaseEntry` then its runtime: `None` for a base not

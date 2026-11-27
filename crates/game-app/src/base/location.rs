@@ -31,37 +31,17 @@ pub fn apply_location_audio(sound: &mut dyn SoundCalls, room: &RoomData, keep_au
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audio::{Logged, SoundCalls};
+    use crate::audio::{Logged, Silent};
     use crate::oracle::audio::AudioLog;
-
-    /// Answers every set with false, as a client without sound.
-    struct Silent;
-
-    impl SoundCalls for Silent {
-        fn set_background_music(&mut self, _: u32, _: u32, _: f32) -> bool {
-            false
-        }
-        fn set_background_ambient(&mut self, _: u32, _: u32, _: f32) -> bool {
-            false
-        }
-        fn fade_background_music(&mut self, _: f32, _: f32) {}
-        fn fade_background_ambient(&mut self, _: f32, _: f32) {}
-        fn push_ducking(&mut self) {}
-        fn pop_ducking(&mut self) {}
-        fn stop_all_except(&mut self, _: u32) {}
-        fn snap_audio_fade(&mut self, _: f32) {}
-        fn set_audio_fade(&mut self, _: f32, _: f32) {}
-        fn music_fade_time(&self) -> f32 {
-            2.0
-        }
-    }
 
     fn calls(room: &RoomData, keep: bool) -> (Vec<String>, bool) {
         let mut log = AudioLog::new();
         let mut keep = keep;
         apply_location_audio(
             &mut Logged {
-                inner: &mut Silent,
+                inner: &mut Silent {
+                    music_fade_time: 2.0,
+                },
                 log: &mut log,
                 frame: 3,
             },

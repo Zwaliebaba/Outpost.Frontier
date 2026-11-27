@@ -295,6 +295,19 @@ impl ClientSound {
         }
     }
 
+    /// `BindClientBackgroundMusic` (or the ambient slot's), then slot 29
+    /// (`IsFinished`) of its source: false with no source in the slot.
+    pub fn background_finished(&mut self, env: &mut SoundEnv<'_>, which: Background) -> bool {
+        let Some(key) = self.background(which) else {
+            return false;
+        };
+        match self.slots.0.get(key.0 as usize).and_then(Option::as_ref) {
+            None => false,
+            Some(s) if s.streamed.is_some() => self.streamed_finished(env, key.0),
+            Some(s) => s.is_finished(),
+        }
+    }
+
     /// Slot 29 of a streamed source: finished without a stream, faded
     /// out, or with a stream status of 0 or 4; otherwise the base test.
     pub(super) fn streamed_finished(&mut self, env: &mut SoundEnv<'_>, key: u32) -> bool {

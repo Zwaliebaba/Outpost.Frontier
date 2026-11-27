@@ -10,6 +10,12 @@
 //! state 3), whose base entry (`BaseEnter`, `LocationEnter`, frame 192) is
 //! the bases' (P5.9); this test stops at the selection.
 //!
+//! After the comparison the test enters the save's base as the C++ GF
+//! state's `Init(1)` does (`EnterClientLocationBase`), through the location
+//! controller against the same server, whose maps were built at the
+//! connection as the client builds them (D1702): every base and room
+//! message the server sends then finds its entry, so none is skipped.
+//!
 //! The saves come from the client-oracle job: `OUTPOST_CLIENT_ORACLE_ROOT`
 //! names its output folder, whose `s2/user` is the user folder
 //! `single_player.txt`'s second run left and `l1` the first run of
@@ -18,6 +24,9 @@
 
 use std::path::{Path, PathBuf};
 
+use game_app::audio::Silent;
+use game_app::base::location_controller::{LinkServer, LocationController};
+use game_app::base::location_host::LocationParts;
 use game_app::login::{
     LoginSettings, connect, login_to_server, request_character_info, select_character_by_id,
 };
@@ -83,6 +92,10 @@ fn a_saved_game_loads_as_the_cpp_client_loads_it() {
     let (mut session, client) =
         start_local_server(&info, RealClock::Fixed).expect("the server starts on outdir");
     let mut link = ClientLink::new(client, ClientReceiver::new(true));
+    // The location maps, as the client builds them at the connection.
+    let data = session.world().data_arc();
+    let mut location = LocationController::new();
+    location.build_maps(&data.bases, &data.goods, &mut link.receiver.location);
     assert!(link.receiver.startup(1, 0x36d9));
     let mut t = 0.0;
     let mut now = || {
@@ -143,6 +156,40 @@ fn a_saved_game_loads_as_the_cpp_client_loads_it() {
         .take()
         .map(|mut l| l.take_lines())
         .unwrap_or_default();
+
+    // The save's base entered through the controller (GF Init(1)).
+    let source = session.world().data_host().expect("the server's data host");
+    let mut parts = LocationParts::default();
+    let mut sound = Silent::default();
+    {
+        let mut host = parts.host(&source, &mut sound, None, None, true);
+        let mut server = LinkServer {
+            link: &mut link,
+            session: Some(&mut session),
+            now: &mut now,
+        };
+        location.enter_base(base, &mut server, &mut host);
+        assert!(!host.sync_failed, "the base's synchronisation failed");
+    }
+    for n in SELECT_FRAME + 1..=SELECT_FRAME + 30 {
+        frame(&mut link, &mut session, n);
+    }
+    let db = &link.receiver.location;
+    assert_eq!(db.skipped, 0, "a base or room message the maps do not know");
+    assert_eq!(location.current_base, base);
+    assert_ne!(
+        location.current_room, 0,
+        "the base's start location entered"
+    );
+    assert!(db.base(base).is_some(), "the base's runtime opened");
+    assert!(
+        db.room(location.current_room).is_some(),
+        "the start room's state opened"
+    );
+    println!(
+        "the base {base} entered in room {}; no base or room message skipped",
+        location.current_room
+    );
     let _ = std::fs::remove_dir_all(user);
 
     let text =

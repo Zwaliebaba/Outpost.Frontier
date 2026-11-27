@@ -33,6 +33,40 @@ pub trait SoundCalls {
     fn set_audio_fade(&mut self, target: f32, seconds: f32);
     /// `GetClientDuckingConfig`'s `music_fade_time`.
     fn music_fade_time(&self) -> f32;
+    /// `BindClientBackgroundMusic` and its source's `IsFinished`: false
+    /// without a background music source.
+    fn background_music_finished(&mut self) -> bool;
+}
+
+/// The calls where nothing plays (a client without its sound layer, as in
+/// the tests): the backgrounds are not set, the rest does nothing, and the
+/// music's fade time is the given one.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Silent {
+    /// What `music_fade_time` answers.
+    pub music_fade_time: f32,
+}
+
+impl SoundCalls for Silent {
+    fn set_background_music(&mut self, _: u32, _: u32, _: f32) -> bool {
+        false
+    }
+    fn set_background_ambient(&mut self, _: u32, _: u32, _: f32) -> bool {
+        false
+    }
+    fn fade_background_music(&mut self, _: f32, _: f32) {}
+    fn fade_background_ambient(&mut self, _: f32, _: f32) {}
+    fn push_ducking(&mut self) {}
+    fn pop_ducking(&mut self) {}
+    fn stop_all_except(&mut self, _: u32) {}
+    fn snap_audio_fade(&mut self, _: f32) {}
+    fn set_audio_fade(&mut self, _: f32, _: f32) {}
+    fn music_fade_time(&self) -> f32 {
+        self.music_fade_time
+    }
+    fn background_music_finished(&mut self) -> bool {
+        false
+    }
 }
 
 /// The client's sound layer for one call.
@@ -79,6 +113,10 @@ impl SoundCalls for SoundLayer<'_, '_> {
     }
     fn music_fade_time(&self) -> f32 {
         self.sound.config.music_fade_time
+    }
+    fn background_music_finished(&mut self) -> bool {
+        self.sound
+            .background_finished(&mut self.env, Background::Music)
     }
 }
 
@@ -153,5 +191,9 @@ impl SoundCalls for Logged<'_> {
     }
     fn music_fade_time(&self) -> f32 {
         self.inner.music_fade_time()
+    }
+    /// Not a logged call: the C++ hook logs the calls that change the sound.
+    fn background_music_finished(&mut self) -> bool {
+        self.inner.background_music_finished()
     }
 }
