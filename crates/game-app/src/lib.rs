@@ -9,6 +9,7 @@ pub mod boot_interface;
 pub mod cameras;
 pub mod chat;
 pub mod client_state;
+pub mod environment;
 pub mod frame;
 pub mod input_router;
 pub mod intro;

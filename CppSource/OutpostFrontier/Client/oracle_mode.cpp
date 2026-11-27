@@ -70,6 +70,7 @@
 
 #include "globals.h"
 #include "oracle_mode.h"
+#include "cli_asteroid.h"
 #include "oracle_json.h"
 
 #include "client_state.h"          // G_PendingClientStateId
@@ -1248,6 +1249,96 @@ void OracleWriteRecord(EOracleStream Stream, std::string const& Line)
 unsigned OracleFrameNumber()
 {
     return G.Frame;
+}
+
+namespace
+{
+    // A band blob's values (InitBandBlob, BandParseIni) as an object.
+    void OracleAsteroidBand(FOracleJson& J, char const* Name, unsigned char const* Blob)
+    {
+        float const* const F = reinterpret_cast<float const*>(Blob);
+        unsigned const* const U = reinterpret_cast<unsigned const*>(Blob);
+        J.BeginObject(Name);
+        J.Float("texture_aspect", F[0x10]);
+        J.Float("height", F[0x12]);
+        J.Bool("offset_percent", Blob[0x74] != 0);
+        J.Float("offset", F[0x1e]);
+        J.FloatArray("color_shift", F + 9, 3);
+        J.FloatArray("fade", F + 0x19, 4);
+        J.Uint("vert_increase", U[0x13]);
+        J.Uint("render_parts", U[0x16]);
+        J.Uint("cull_mode", U[0x14]);
+        J.Float("ambient_intensity", F[2]);
+        J.EndObject();
+    }
+}
+
+void OracleOnAsteroidFieldRead(char const* Path, FCliAsteroid const* Field, int Lod, bool bOpened)
+{
+    if (!G.bActive || Field == nullptr)
+        return;
+    FOracleJson J;
+    Head(J, "asteroidfield");
+    J.Str("path", Path);
+    J.Bool("opened", bOpened);
+    J.Int("cube_size", Field->CubeSize);
+    J.Int("fill_dist", Field->FillDistAt24);
+    J.Int("lod", Lod);
+    float const Diffuse[3] = {Field->TintB4, Field->TintB8, Field->TintBC};
+    float const Ambient[3] = {Field->TintC0, Field->TintC4, Field->TintC8};
+    J.FloatArray("diffuse", Diffuse, 3);
+    J.FloatArray("ambient", Ambient, 3);
+    J.BeginArray("ambient_increase");
+    J.Uint(nullptr, Field->FlagD0);
+    J.Uint(nullptr, Field->FlagD1);
+    J.Uint(nullptr, Field->FlagD2);
+    J.EndArray();
+    J.Float("empty_cube_frequency", Field->EmptyCubeFreq);
+    J.Float("max_alpha", Field->ScaleCC);
+    J.Bool("test_placement", Field->Flag00 != 0);
+    J.Bool("fog_zone", Field->FlagD3 != 0);
+    if (Field->FlagF8 != 0)
+        OracleAsteroidBand(J, "band", Field->BandBlob);
+    else
+        J.Null("band");
+    J.BeginArray("exclusion_bands");
+    for (unsigned char* const* It = Field->BandBegin; It != nullptr && It != Field->BandEnd; ++It)
+        OracleAsteroidBand(J, nullptr, *It);
+    J.EndArray();
+    if (Field->Flag198 != 0)
+    {
+        FAsteroidBillboardBlock const& B = Field->Billboard;
+        J.BeginObject("billboards");
+        J.Int("count", B.Count);
+        float const Size[2] = {B.SizeMin, B.SizeMax};
+        J.FloatArray("size", Size, 2);
+        J.Float("start_dist", B.StartDist);
+        J.Float("fade_dist_percent", B.FadeDistPercent);
+        J.Float("ambient_intensity", B.AmbientIntensity);
+        float const Shift[3] = {B.ColorShift0, B.ColorShift1, B.ColorShift2};
+        J.FloatArray("color_shift", Shift, 3);
+        J.EndObject();
+    }
+    else
+    {
+        J.Null("billboards");
+    }
+    J.BeginArray("dynamic");
+    for (void* const* It = Field->DynBegin; It != nullptr && It != Field->DynEnd; ++It)
+    {
+        FCliDynamicAsteroid const* const D = static_cast<FCliDynamicAsteroid const*>(*It);
+        J.BeginObject(nullptr);
+        J.Int("count", D->CountIni);
+        J.Float("placement_radius", D->PlacementRadius);
+        J.Float("placement_radius_inner", D->PlacementRadiusInner);
+        J.Float("max_velocity", D->MaxVelocity);
+        J.Float("max_angular_velocity", D->MaxAngularVelocity);
+        float const Shift[3] = {D->ColorShift0, D->ColorShift1, D->ColorShift2};
+        J.FloatArray("color_shift", Shift, 3);
+        J.EndObject();
+    }
+    J.EndArray();
+    OracleWriteRecord(kOracleLayout, J.Finish());
 }
 
 unsigned OracleNextIClientSeq()

@@ -33,6 +33,7 @@ struct DisplaySettings;
 struct Win3D;
 struct FUiPageData;
 class HUDItem;
+struct FCliAsteroid;
 class NnPreferences;
 class IClient;
 class IChatClient;
@@ -70,6 +71,11 @@ void OracleOnWinControlIni(char const* Path, Win3D* Control);
 void OracleOnKeyListLoaded(char const* Path, NnPreferences const* Preferences);
 void OracleOnOptListLoaded(char const* Path, bool bOpened, NnPreferences const* Preferences);
 void OracleOnHudElementsLoaded(char const* Path, HUDItem* Head, int StaticBlend);
+
+// CliAsteroidLoadFieldIni (cli_asteroid.cpp, P5.8): an `asteroidfield` record in
+// layout.jsonl with the values the field's file gave, written after its sections are read and
+// before the load applies them (or with opened false when the file did not open).
+void OracleOnAsteroidFieldRead(char const* Path, FCliAsteroid const* Field, int Lod, bool bOpened);
 
 // GetClientInterface / GetChatClientInterface: the logging proxy when the oracle is on,
 // otherwise Real unchanged.
