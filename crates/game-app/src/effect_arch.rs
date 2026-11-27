@@ -854,6 +854,9 @@ pub struct EffectArch {
     pub vis_beam: Option<Vec<u8>>,
     /// +0x18 `snd_effect`'s id, when the sounds know it.
     pub snd_effect: Option<u32>,
+    /// The last `snd_effect` value as read. The reference keeps only the
+    /// lookup's result; the data dump compares the names (P5.6).
+    pub snd_effect_name: Option<Vec<u8>>,
     /// +0x20 `lgt_effect`, at most 31 characters.
     pub lgt_effect: Vec<u8>,
     /// +0x40.
@@ -878,6 +881,7 @@ impl Default for EffectArch {
             vis_generic: None,
             vis_beam: None,
             snd_effect: None,
+            snd_effect_name: None,
             lgt_effect: Vec::new(),
             lgt_range_scale: 1.0,
             lgt_time_scale: 1.0,
@@ -1074,7 +1078,9 @@ impl EffectArchDb {
                 ));
             }
         } else if reader.is_value(b"snd_effect") {
-            let id = create_id(&reader.value_string());
+            let name = reader.value_string();
+            let id = create_id(&name);
+            arch.snd_effect_name = Some(name);
             arch.snd_effect = sound_known(id).then_some(id);
             if arch.snd_effect.is_none() {
                 self.reports.push(format!(
@@ -1318,6 +1324,7 @@ mod tests {
         assert_eq!(e.vis_effect.as_deref(), Some(&b"gun_ale"[..]));
         assert_eq!(e.vis_beam.as_deref(), Some(&b"spear"[..]));
         assert_eq!(e.snd_effect, Some(create_id(b"fire_snd")));
+        assert_eq!(e.snd_effect_name.as_deref(), Some(&b"fire_snd"[..]));
         assert_eq!(e.flags & 1, 0, "run_time 3 is not negative");
         assert_eq!(e.lgt_color, [255, 44, 7, 255]);
         let odd = db.find(create_id(b"odd")).expect("kept");

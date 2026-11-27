@@ -11,6 +11,16 @@
 // holds none of the fixtures' names. Archetype::ResolveMaterialEntry, which only a reference
 // would call, is stood in below.
 //
+// Oracle.exe dump runs RunEffectArchDataDump (kind "effect_arch"): the [Data] effects values of
+// EXE\OutpostFrontier.ini in order through EffectArchLoadIni("DATA\<value>"), as the client's
+// LoadClientDataValue does, then the same lines as case "data" into
+// <output>\effect_arch\effects.jsonl, the "ini" lines naming the [Data] value. The Rust test
+// data_dump_effect_arch (crates/game-app/tests/effects_data.rs) renders the same lines. The
+// sound table is empty here too, so the loader keeps no sound; the harness reads each [Effect]
+// section's last snd_effect value itself, the first section of a nickname winning as the
+// registry keeps it, and writes {"case","sound","v"} per effect in id order after the tables.
+// Nothing it writes may be committed.
+//
 // Output lines (floats as eight hex digits of the f32, texts in hex, "-" for none):
 //   {"case","ini","r"}                 per file, the registry's growth
 // then at the end of each case
@@ -182,5 +192,82 @@ void RunEffectArchSuite()
     }
     if (!Case.empty())
         PrintTables(Out, Case);
+    ResetTables();
+}
+
+void RunEffectArchDataDump(const std::vector<std::string>& Files)
+{
+    (void)Files;
+    ResetTables();
+    Suite Out("effect_arch\\effects.jsonl");
+    INI_Reader Reader;
+    if (!Reader.open("EXE\\OutpostFrontier.ini", false))
+    {
+        // No engine INI under the dump root (the synthetic tree of build.yml): an empty dump, as
+        // the Rust test reads it.
+        printf("effect_arch: no EXE\\OutpostFrontier.ini, nothing loaded\n");
+        return;
+    }
+    std::vector<std::string> Values;
+    while (Reader.read_header())
+    {
+        if (!Reader.is_header("Data"))
+            continue;
+        while (Reader.read_value())
+        {
+            if (Reader.is_value("effects"))
+                Values.push_back(Reader.get_value_string());
+        }
+    }
+    Reader.close();
+    for (const std::string& Value : Values)
+    {
+        const std::string Path = "DATA\\" + Value;
+        const int Grown = EffectArchLoadIni(Path.c_str(), false);
+        Out.Line("{\"case\":\"data\",\"ini\":\"" + HexC(Value.c_str()) + "\",\"r\":\"" +
+                 Format("%d", Grown) + "\"}");
+    }
+    PrintTables(Out, "data");
+    // The snd_effect names, which the loader resolves against the empty sound table and drops.
+    std::map<unsigned, std::string> Sounds;
+    for (const std::string& Value : Values)
+    {
+        const std::string Path = "DATA\\" + Value;
+        INI_Reader File;
+        if (!File.open(Path.c_str(), false))
+            continue;
+        while (File.read_header())
+        {
+            if (!File.is_header("Effect"))
+                continue;
+            unsigned Nickname = 0;
+            bool bHasSound = false;
+            std::string Sound;
+            while (File.read_value())
+            {
+                if (File.is_value("nickname"))
+                    Nickname = CreateID(File.get_value_string());
+                else if (File.is_value("snd_effect"))
+                {
+                    char const* const Name = File.get_value_string();
+                    Sound = Name != nullptr ? Name : "";
+                    bHasSound = true;
+                }
+            }
+            if (Sounds.find(Nickname) == Sounds.end())
+                Sounds[Nickname] = bHasSound ? HexC(Sound.c_str()) : std::string("-");
+        }
+        File.close();
+    }
+    for (std::map<unsigned, FEffectArch*>::const_iterator It = G_EffectArchs.begin();
+         It != G_EffectArchs.end(); ++It)
+    {
+        std::map<unsigned, std::string>::const_iterator Found = Sounds.find(It->first);
+        Out.Line(Format("{\"case\":\"data\",\"sound\":\"%08x\",\"v\":\"", It->first) +
+                 (Found != Sounds.end() ? Found->second : std::string("-")) + "\"}");
+    }
+    printf("effect_arch: %u files, %u effects, %u visual effects, %u beams\n",
+           (unsigned int)Values.size(), (unsigned int)G_EffectArchs.size(),
+           (unsigned int)G_VisEffects.size(), (unsigned int)G_BeamArches.size());
     ResetTables();
 }

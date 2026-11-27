@@ -43,7 +43,10 @@ jobs:
     # neuron-client's tests use), the C++, the data, the build's settings or this
     # workflow. None of those crates depends on game-app or the executables
     # (xtask/src/graph.rs), so a change confined to them cannot change this job's result.
-    # Pushes to main, the nightly run and manual runs always run it.
+    # The one game-app test the job runs, data_dump_effect_arch (P5.6), adds the files it
+    # reads through: the effect registry, the crate's root and manifest, and the test with its
+    # shared renderer. A change elsewhere in game-app that breaks its build fails Rust CI on
+    # the same pull request. Pushes to main, the nightly run and manual runs always run it.
     name: Changes
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
@@ -64,6 +67,11 @@ jobs:
               - "crates/neuron-server/**"
               - "crates/neuron-client/**"
               - "crates/lua32-compiler/**"
+              - "crates/game-app/Cargo.toml"
+              - "crates/game-app/src/lib.rs"
+              - "crates/game-app/src/effect_arch.rs"
+              - "crates/game-app/tests/effects_data.rs"
+              - "crates/game-app/tests/support/effect_tables.rs"
               - "CppSource/**"
               - "outdir/**"
               - "Cargo.toml"
@@ -684,6 +692,10 @@ jobs:
           # story_session.rs, against outpost-oracle\story_session; summary
           # rust-story-session.txt, exact to the first divergence).
           cmd /c "cargo test --locked --release -p game-logic --tests -- data_dump_ --nocapture 2>&1" | Tee-Object -FilePath $log -Append
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The client's effect archetypes of P5.6 (crates/game-app/tests/effects_data.rs, against
+          # outpost-oracle\effect_arch\effects.jsonl, line for line).
+          cmd /c "cargo test --locked --release -p game-app --test effects_data -- data_dump_ --nocapture 2>&1" | Tee-Object -FilePath $log -Append
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Keep the summaries
         if: always()
