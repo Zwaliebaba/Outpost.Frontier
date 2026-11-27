@@ -11,6 +11,7 @@ pub mod chat;
 pub mod client;
 pub mod client_state;
 pub mod frame;
+pub mod hud_events;
 pub mod input_router;
 pub mod intro;
 pub mod keymap;
@@ -71,8 +72,9 @@ pub fn run(_start_server: session::StartLocalServer<'_>) -> io::Result<()> {
 /// With `+oracle <script> <out>` the oracle mode runs (decision O53 (2)):
 /// the display is forced, the in-process server starts on the oracle's
 /// clock, and the script runs at the start of each frame on the fixed step
-/// until it ends; its files are written then. Screenshots, key-map
-/// commands and keys answer "not ported yet".
+/// until it ends; its files are written then. Key-map commands go to the
+/// screens' event handlers; no screenshot is taken and keys answer "not
+/// ported yet" (D1114).
 #[cfg(windows)]
 pub fn run(start_server: session::StartLocalServer<'_>) -> io::Result<()> {
     use neuron_client::engine::{EngineConfig, FrameInput, windows::create_engine};
@@ -199,6 +201,18 @@ pub fn run(start_server: session::StartLocalServer<'_>) -> io::Result<()> {
             writeln!(out, "text catalogs: {} modules not loaded", missing.len())?;
         }
         ui.catalogs = Some(std::rc::Rc::new(catalogs));
+        // The data files the screens read (their page files and INI files),
+        // over the engine's services.
+        let inner = std::mem::replace(
+            &mut ui.services,
+            Box::new(neuron_client::ui::services::NoServices),
+        );
+        ui.services = Box::new(DataServices {
+            inner,
+            data: std::path::PathBuf::from(
+                String::from_utf8_lossy(&config.data_path).replace('\\', "/"),
+            ),
+        });
         boot_interface::register(&mut ui.factory);
         boot_interface::create(ui);
     }
@@ -398,6 +412,39 @@ pub fn run(start_server: session::StartLocalServer<'_>) -> io::Result<()> {
         if let Some(e) = cx.interface.device().backend.errors.first() {
             return Err(failure(format!("renderer: {e}")));
         }
+    }
+}
+
+/// The engine's services with the data files of the data root
+/// (`GetFileSysPath` and `INI_Reader::open`). The engine's own services
+/// answer only the IME's two calls, which go to them.
+#[cfg(windows)]
+struct DataServices {
+    inner: Box<dyn neuron_client::ui::services::UiServices>,
+    data: std::path::PathBuf,
+}
+
+#[cfg(windows)]
+impl neuron_client::ui::services::UiServices for DataServices {
+    fn data_file(&mut self, path: &[u8]) -> Option<Vec<u8>> {
+        let rel: Vec<u8> = path
+            .iter()
+            .map(|&b| if b == b'\\' { b'/' } else { b })
+            .collect();
+        let found = neuron_core::vfs::Host::new(self.data.clone())
+            .locate(&rel)
+            .ok()
+            .flatten()?;
+        std::fs::read(found.path).ok()
+    }
+    fn create_ime_box(
+        &mut self,
+        owner: neuron_client::ui::tree::NodeId,
+    ) -> Option<Box<dyn neuron_client::ui::services::ImeBox>> {
+        self.inner.create_ime_box(owner)
+    }
+    fn clear_ime_focus(&mut self) {
+        self.inner.clear_ime_focus();
     }
 }
 

@@ -33,6 +33,9 @@
 //! [`ClientCore::single_precision`] for frames 1 and 2, which the main
 //! menu's column reads when it is built and when it is updated.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use neuron_client::engine::Engine;
 use neuron_client::render::ff::device::Backend;
 use neuron_client::ui::page::PageDesc;
@@ -45,6 +48,7 @@ use game_sim::protocol::{ClientMessage, ToServer};
 
 use crate::client_state::{ClientStates, Environment, EnvironmentKind, StateHost};
 use crate::frame::FrameHost;
+use crate::hud_events::{EventServices, HudEvents};
 use crate::intro::char_select_single::{
     self, PAGE_FILE, Roster, RosterRow, RowDetails, enter_load_game_page,
 };
@@ -114,6 +118,9 @@ pub struct ClientCore<'a, C: Clock> {
     pub oracle: Option<OracleRun>,
     /// `G_KeyMap`.
     pub keymap: KeyMap,
+    /// The HUD command dispatcher's registry, which the screens register
+    /// with through the interface's services ([`EventServices`]).
+    pub events: Rc<RefCell<HudEvents>>,
     /// The loading screen.
     pub loading_screen: LoadingScreen,
     /// What the preferences window reads of the client (its key map is the
@@ -174,17 +181,30 @@ pub struct ClientContext<'a, I, C: Clock> {
 }
 
 impl<'a, I: Interface, C: Clock> ClientContext<'a, I, C> {
-    /// The context before `EnterClientState`: no server yet; `start_server`
+    /// The context before `EnterClientState`: no server yet, the
+    /// interface's services wrapped so that the screens' event
+    /// registrations reach [`ClientCore::events`]; `start_server`
     /// starts the in-process server with `request` when the intro connects,
     /// and `now` is the clock the login's waits read, in seconds.
     pub fn new(
-        interface: I,
+        mut interface: I,
         clock: ClientTiming<C>,
         oracle: Option<OracleRun>,
         start_server: StartLocalServer<'a>,
         request: LocalServerRequest,
         now: Box<dyn FnMut() -> f64 + 'a>,
     ) -> Self {
+        let events = Rc::new(RefCell::new(HudEvents::default()));
+        if let Some(ui) = interface.ui() {
+            let inner = std::mem::replace(
+                &mut ui.services,
+                Box::new(neuron_client::ui::services::NoServices),
+            );
+            ui.services = Box::new(EventServices {
+                inner,
+                events: Rc::clone(&events),
+            });
+        }
         Self {
             interface,
             core: ClientCore {
@@ -193,6 +213,7 @@ impl<'a, I: Interface, C: Clock> ClientContext<'a, I, C> {
                 link: None,
                 oracle,
                 keymap: KeyMap::new(),
+                events,
                 loading_screen: LoadingScreen::default(),
                 preferences: PreferencesContext::default(),
                 intro_mode_request: 0,
@@ -508,6 +529,8 @@ impl<I: Interface, C: Clock> FrameHost for ClientContext<'_, I, C> {
         run.script.frame_tick(&mut ClientHost {
             ui: self.interface.ui(),
             pending_state: &mut core.pending_state,
+            keymap: &core.keymap,
+            events: &core.events,
         });
         let frame = run.script.frame();
         if let Some(log) = core.link.as_mut().and_then(|l| l.receiver.log.as_mut()) {
