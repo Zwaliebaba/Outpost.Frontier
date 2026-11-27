@@ -60,6 +60,7 @@
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
 
 pub mod camera;
+pub mod children;
 pub mod control;
 pub mod controls;
 pub mod cursor;

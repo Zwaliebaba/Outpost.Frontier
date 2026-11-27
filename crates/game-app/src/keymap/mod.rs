@@ -8,6 +8,7 @@
 //! screens that use it. The files are read by the caller, so the loaders take
 //! their text (`None` when the file does not open).
 
+pub mod names;
 pub mod nicknames;
 
 use neuron_core::diag::{self, DumpFlags};

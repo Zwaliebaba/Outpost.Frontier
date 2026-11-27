@@ -153,6 +153,8 @@ pub trait UiServices {
     }
     /// `PlayOrRewindUiSoundSlot`.
     fn play_or_rewind_ui_sound_slot(&mut self, slot: u32) {}
+    /// `PlayUiSoundSlot`.
+    fn play_ui_sound_slot(&mut self, slot: u32) {}
     /// `PlayUiSoundSlotFlag1`.
     fn play_ui_sound_slot_flag1(&mut self, slot: u32) {}
     /// `StopUiSoundSlot`.

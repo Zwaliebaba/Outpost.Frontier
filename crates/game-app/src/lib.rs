@@ -5,16 +5,21 @@ use std::io::{self, Write};
 
 pub mod account_keys;
 pub mod base;
+pub mod boot_interface;
 pub mod cameras;
+pub mod chat;
 pub mod client_state;
 pub mod frame;
 pub mod input_router;
+pub mod intro;
 pub mod keymap;
+pub mod loading_screen;
 pub mod login;
 pub mod login_history;
 pub mod machine_warning;
 #[cfg(windows)]
 pub mod movies;
+pub mod nn_preferences;
 pub mod objects;
 pub mod oracle;
 pub mod perf_options;
@@ -173,6 +178,23 @@ pub fn run(start_server: session::StartLocalServer<'_>) -> io::Result<()> {
         .map_err(|e| failure(e.to_string()))?;
     for notice in &engine.notices {
         writeln!(out, "engine: {notice}")?;
+    }
+    // InitializeEngine's interface windows: the briefing's parent, the
+    // group-request window, the tool tip and the rollover.
+    if let Some(ui) = engine.ui_mut() {
+        // The interface's strings: the text catalogs beside the executable
+        // (decision T21), as the low-machine warning reads them.
+        let dir = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf))
+            .unwrap_or_default();
+        let (catalogs, missing) = neuron_core::catalog::TextCatalogs::load_client(&dir);
+        if !missing.is_empty() {
+            writeln!(out, "text catalogs: {} modules not loaded", missing.len())?;
+        }
+        ui.catalogs = Some(std::rc::Rc::new(catalogs));
+        boot_interface::register(&mut ui.factory);
+        boot_interface::create(ui);
     }
     // SavePerfOptions with the mode the device took.
     if let Err(e) = paths
