@@ -23,6 +23,9 @@
 //! - the preloads: [`StarSystemFile::preloads`].
 
 use game_sim::data::DataSource;
+use game_sim::object::World;
+
+use crate::objects::{ClientObject, ClientObjectKind, ClientObjects};
 use neuron_core::id::create_id;
 use neuron_core::ini::IniReader;
 use neuron_core::num::trunc_to_i32;
@@ -299,6 +302,52 @@ impl StarSystemFile {
             }
         }
     }
+}
+
+/// The path of a system's file (`Universe::get_filename` of the system's
+/// `file`); `None` for a system the universe does not have.
+#[must_use]
+pub fn system_file_path(world: &World, system: u32) -> Option<Vec<u8>> {
+    let universe = &world.data().universe;
+    let sys = universe.systems.get(&system)?;
+    Some(universe.system_file_path(world.strings().get(sys.file)))
+}
+
+/// `StarSysEnter(system)`'s part over the world and the object database:
+/// the system's physics started (`PhySys::Startup`, so creates are taken),
+/// then `StarSysLoadIni`: the spatial set freed, every `[Object]` solar
+/// made in file order (`SpawnWorldSolarFromObjectSection`; in single
+/// player these are the solars the server's `load_solars` wraps) and
+/// registered, and the spatial set rebuilt. The file as read is returned;
+/// `None` when it cannot be opened ("unknown system"), after which the
+/// set is rebuilt as the C++ does.
+pub fn enter_system(
+    world: &mut World,
+    objects: &mut ClientObjects,
+    system: u32,
+) -> Option<StarSystemFile> {
+    world.load_system(system);
+    objects.physics_active = true;
+    objects.free_spatial();
+    let file = system_file_path(world, system).and_then(|path| {
+        let source = world.data_source()?;
+        StarSystemFile::load(source, &path)
+    });
+    if file.is_some() {
+        for h in world.load_system_solars(system) {
+            let Some(o) = world.get(h) else { continue };
+            let object = ClientObject {
+                id: o.simple.id,
+                kind: ClientObjectKind::Solar,
+                archetype: o.archetype,
+                handle: Some(h),
+                remote_physics: false,
+            };
+            objects.register(object, world);
+        }
+    }
+    objects.rebuild_spatial(world);
+    file
 }
 
 /// `get_value_float(index)` stored to a `float`.

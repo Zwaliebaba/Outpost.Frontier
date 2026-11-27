@@ -149,6 +149,12 @@ impl<C: Clock> ClientTiming<C> {
         }) as f32
     }
 
+    /// `G_PauseDepth != 0`: the frame times read zero.
+    #[must_use]
+    pub fn paused(&self) -> bool {
+        self.pause_depth != 0
+    }
+
     /// `GetClientFrameTimeCapped`: zero while paused.
     #[must_use]
     pub fn frame_time_capped(&self) -> f64 {
@@ -241,6 +247,17 @@ impl<C: Clock> ClientTiming<C> {
     /// `SetClientFpsCap`.
     pub fn set_fps_cap(&mut self, fps: f32) {
         self.fps_cap = fps;
+    }
+
+    /// `Timing::UpdateGlobalTime(dt)` (`TickClientFrame`'s first step).
+    pub fn update_global_time(&mut self, dt: f64) {
+        self.timing.update_global_time(dt);
+    }
+
+    /// `Timing::GetGlobalTime`.
+    #[must_use]
+    pub fn global_time(&self) -> f64 {
+        self.timing.global_time()
     }
 }
 

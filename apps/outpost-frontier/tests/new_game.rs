@@ -19,9 +19,10 @@ use game_app::login::{
     LoginSettings, connect, find_restart_character, login_to_server, request_character_info,
     select_character_by_id,
 };
+use game_app::player_behavior::FlightFrame;
 use game_app::receiver::{ClientLink, ClientReceiver};
 use game_app::session::tick_local_server;
-use game_app::space_state::{SpaceEntry, enter_space};
+use game_app::space_state::{SpaceApp, SpaceEntry, enter_space, update as space_update};
 use game_logic::startup::LocalStartupInfo;
 use outpost_frontier::local_server::{LocalSession, RealClock, start_local_server};
 
@@ -96,7 +97,26 @@ fn run(info: &LocalStartupInfo) -> Vec<String> {
         SpaceEntry::Entered
     );
     assert!(link.receiver.objects.find(11, 1).is_some());
+    // StarSysEnter made the system's solars (the server's load_solars wraps
+    // them) and the spatial set.
+    let solars = link.receiver.objects.solar_count();
+    println!("{solars} solars");
+    assert!(solars > 0, "the system's solars are registered");
+    assert!(link.receiver.objects.spatial().is_some());
     assert_eq!(link.receiver.player.session_flags, 3);
+    // UpdateSpaceState: 6 without a camera; with the player's camera the
+    // frame stays in space (0).
+    let mut app = SpaceApp::new(Default::default(), 0);
+    let flight = FlightFrame::default();
+    assert_eq!(
+        space_update(&mut app, &mut link, Some(&mut session), &flight, true, 0.0),
+        6
+    );
+    app.cameras.switch_mode(b"player");
+    assert_eq!(
+        space_update(&mut app, &mut link, Some(&mut session), &flight, true, 0.0),
+        0
+    );
     frame(&mut link, &mut session, SPACE_FRAME + 1);
     frame(&mut link, &mut session, SPACE_FRAME + 2);
     link.receiver
