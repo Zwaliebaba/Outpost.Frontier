@@ -11,18 +11,25 @@
 //! oracle's fixed frames from the `hud` record's frame to the dump's, as
 //! the C++ client's updates did.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use game_app::hud::status::{
+    self, NANOBOT_ARCH, SHIELD_BATTERY_ARCH, StatusInput, StatusLauncher, StatusLegalHps,
+    StatusShip,
+};
 use game_app::hud::{self, FACTORIES};
-use game_app::oracle::script::FRAME_SECONDS;
 use game_app::oracle::tree::dump_nodes;
+use game_sim::data::archetype::equipment::EquipmentKind;
+use game_sim::data::config::{DataConfig, GameData};
 use neuron_client::ui::montage;
 use neuron_client::ui::services::UiServices;
 use neuron_client::ui::shape::FixedTextures;
 use neuron_client::ui::tree::Ui;
 use neuron_client::ui::widescreen::Surface;
 use neuron_core::catalog::{CLIENT_MODULES, TextCatalog, TextCatalogs};
+use neuron_core::id::create_id;
+use neuron_core::ini::IniReader;
 use neuron_core::vfs::Host;
 
 /// `hud.ini`'s path as `SetHudIniPath` stores it on the reference run
@@ -194,20 +201,150 @@ fn subtree(lines: &[String], name: &str) -> Vec<String> {
     out
 }
 
+/// The new game's player in `newplayer.fl` (its `[Player]` section): the
+/// launchers of its `equip` lines with their hardpoints and ammo (the
+/// `cargo` line of their projectile), the ship archetype's `hp_type` lines
+/// and the nanobot and battery counts, as `HUD_Status` reads them.
+fn new_player_status() -> StatusInput {
+    let root = data_dir().join("..");
+    let config = DataConfig::read(&Host::new(&root), b"OutpostFrontier.ini").expect("the ini");
+    let mut data = GameData::new();
+    data.load(&Host::new(data_dir()), &config, None);
+    let mut reader = IniReader::new();
+    let text = std::fs::read(root.join("newplayer.fl")).expect("newplayer.fl");
+    assert!(reader.open(b"newplayer.fl", text));
+    let (mut ship, mut equip, mut cargo) = (None, Vec::new(), Vec::new());
+    while reader.read_header() {
+        if !reader.is_header(b"Player") {
+            continue;
+        }
+        while reader.read_value() {
+            if reader.is_value(b"ship_archetype") {
+                ship = Some(create_id(&reader.value_string_at(0)));
+            } else if reader.is_value(b"equip") {
+                equip.push((reader.value_string_at(0), reader.value_string_at(1)));
+            } else if reader.is_value(b"cargo") {
+                cargo.push((create_id(&reader.value_string_at(0)), reader.value_int(1)));
+            }
+        }
+    }
+    let count = |id: u32| cargo.iter().find(|&&(c, _)| c == id).map(|&(_, n)| n);
+    let archetypes = &data.archetypes;
+    let mut launchers = Vec::new();
+    for (sub_id, (nickname, hardpoint)) in (1u16..).zip(&equip) {
+        let Some(e) = archetypes.equipment.get(&create_id(nickname)) else {
+            continue;
+        };
+        let launcher = match &e.kind {
+            EquipmentKind::Gun(g) => &g.launcher,
+            EquipmentKind::MineDropper(l) => l,
+            EquipmentKind::CounterMeasureDropper { launcher, .. } => launcher,
+            _ => continue,
+        };
+        let projectile = launcher.projectile_archetype;
+        let requires_ammo = archetypes
+            .equipment
+            .get(&projectile)
+            .and_then(|p| p.projectile())
+            .is_some_and(|p| p.requires_ammo);
+        launchers.push(StatusLauncher {
+            sub_id,
+            hardpoint: hardpoint.clone(),
+            ids_name: e.root.ids_name,
+            ammo_count: if requires_ammo {
+                count(projectile).unwrap_or(0)
+            } else {
+                -1
+            },
+            active: true,
+        });
+    }
+    let legal_hps = ship.and_then(|id| archetypes.ships.get(&id)).map(|s| {
+        s.legal_hps
+            .iter()
+            .map(|l| StatusLegalHps {
+                hp_type: l.hp_type.cast_signed(),
+                hardpoints: l
+                    .hardpoints
+                    .iter()
+                    .map(|&h| data.strings.get(h).to_vec())
+                    .collect(),
+            })
+            .collect()
+    });
+    StatusInput {
+        ship: Some(StatusShip {
+            launchers,
+            legal_hps,
+            ..StatusShip::default()
+        }),
+        view_object: true,
+        target: true,
+        repair_count: count(create_id(NANOBOT_ARCH)),
+        battery_count: count(create_id(SHIELD_BATTERY_ARCH)),
+        ..StatusInput::default()
+    }
+}
+
+/// The text of `"key":"..."` in the first line of `text` holding `marker`.
+fn quoted<'a>(text: &'a str, marker: &str, key: &str) -> &'a str {
+    let line = text.lines().find(|l| l.contains(marker)).expect(marker);
+    let pattern = format!("\"{key}\":\"");
+    let at = line.find(&pattern).expect(key) + pattern.len();
+    &line[at..at + line[at..].find('"').unwrap()]
+}
+
+/// The HUD's frames from its load (`layout.jsonl`'s `hud` record) to tree
+/// dump 3 (`session.jsonl`), at the run's fixed step, with the new
+/// player's status and the session flags the server sent
+/// (`SendCommonSetInterfaceState`, `iclient.jsonl`).
+fn run_to_dump_3(ui: &mut Ui, elements: &hud::HudElements, dir: &Path) {
+    let read = |name: &str| std::fs::read_to_string(dir.join(name)).expect(name);
+    let (session, layout, iclient) = (
+        read("session.jsonl"),
+        read("layout.jsonl"),
+        read("iclient.jsonl"),
+    );
+    let step = quoted(&session, "\"rec\":\"start\"", "frame_seconds");
+    let step = f64::from_bits(u64::from_str_radix(step, 16).unwrap());
+    ui.frame_time = step;
+    let frame = |text: &str, marker: &str| -> u32 {
+        let line = text.lines().find(|l| l.contains(marker)).expect(marker);
+        field(line, "frame").parse().unwrap()
+    };
+    let frames =
+        frame(&session, "\"rec\":\"dump\",\"dump\":3,") - frame(&layout, "\"rec\":\"hud\"");
+    let data = quoted(&iclient, "SendCommonSetInterfaceState", "Data");
+    let flags = u32::from_str_radix(data, 16).unwrap().swap_bytes();
+    let window = elements
+        .items
+        .iter()
+        .find(|i| i.name() == status::ITEM_NAME)
+        .and_then(|i| i.window())
+        .expect("HUD_Status");
+    status::set_input(
+        ui,
+        window,
+        StatusInput {
+            session_flags: flags,
+            ..new_player_status()
+        },
+    );
+    // The frames from the HUD's load to the dump: `Win3DUpdateAll` over
+    // every window.
+    for _ in 0..frames {
+        ui.update_all(step);
+    }
+}
+
 #[test]
-fn hud_ini_makes_the_ported_elements_and_warns_for_the_others() {
+fn hud_ini_makes_its_eleven_elements() {
     let Some((ui, elements, warnings)) = hud() else {
         return;
     };
-    // Every one of the file's eleven element sections makes its element or,
-    // not ported yet, warns.
-    assert_eq!(elements.items.len() + warnings.len(), 11, "{warnings:#?}");
-    assert!(
-        warnings
-            .iter()
-            .all(|w| w.contains("HUD - unknown INI entry")),
-        "{warnings:#?}"
-    );
+    // Every one of the file's eleven element sections makes its element.
+    assert_eq!(elements.items.len(), 11);
+    assert!(warnings.is_empty(), "{warnings:#?}");
     let core = elements
         .items
         .iter()
@@ -226,19 +363,8 @@ fn the_elements_equal_the_cpp_clients_first_dump_in_space() {
     let Some((mut ui, elements, _)) = hud() else {
         return;
     };
+    run_to_dump_3(&mut ui, &elements, &dir);
     let text = std::fs::read_to_string(dir.join("tree.jsonl")).expect("tree.jsonl");
-    let layout = std::fs::read_to_string(dir.join("layout.jsonl")).expect("layout.jsonl");
-    let frame_of = |text: &str, rec: &str| -> u32 {
-        text.lines()
-            .find(|l| l.contains(rec))
-            .map(|l| field(l, "frame").parse().unwrap())
-            .expect(rec)
-    };
-    let loaded = frame_of(&layout, "\"rec\":\"hud\"");
-    let dumped = frame_of(&text, "\"rec\":\"dump\",\"dump\":3,");
-    for _ in loaded..dumped {
-        ui.update_all(FRAME_SECONDS);
-    }
     let cpp: Vec<String> = text
         .lines()
         .filter(|l| l.starts_with("{\"dump\":3,\"i\":"))
@@ -262,17 +388,29 @@ fn the_elements_equal_the_cpp_clients_first_dump_in_space() {
     }
     println!("tree.jsonl dump 3: {compared} nodes of the HUD's windows are equal");
 
-    // `OracleOnHudElementsLoaded`: the ported elements' records, by name
-    // (their index waits for the other elements).
-    let frame = loaded;
-    let ours = hud::oracle_lines(frame, HUD_INI, &elements);
+    // `OracleOnHudElementsLoaded`: the `hud` head and every element's
+    // `huditem` record, in the file's order.
+    let layout = std::fs::read_to_string(dir.join("layout.jsonl")).expect("layout.jsonl");
+    let head = layout
+        .lines()
+        .find(|l| l.contains("\"rec\":\"hud\""))
+        .expect("a hud record");
+    let frame: u32 = field(head, "frame").parse().unwrap();
+    let ours: Vec<String> = hud::oracle_lines(frame, HUD_INI, &elements)
+        .iter()
+        .map(|l| mask_from(l, 0, "rtti"))
+        .collect();
     let theirs: Vec<String> = layout
         .lines()
-        .filter(|l| l.contains("\"rec\":\"huditem\"") && l.contains(&format!("\"frame\":{frame},")))
-        .map(|l| mask_from(&mask_from(l, 0, "rtti"), 0, "i"))
+        .filter(|l| {
+            l.contains(&format!("{{\"frame\":{frame},"))
+                && (l.contains("\"rec\":\"hud\"") || l.contains("\"rec\":\"huditem\""))
+        })
+        .map(|l| mask_from(l, 0, "rtti"))
         .collect();
-    for line in &ours[1..] {
-        let line = mask_from(&mask_from(line, 0, "rtti"), 0, "i");
-        assert!(theirs.contains(&line), "{line} is one of {theirs:#?}");
-    }
+    assert_eq!(ours, theirs);
+    println!(
+        "layout.jsonl: the hud record and its {} items are equal",
+        ours.len() - 1
+    );
 }

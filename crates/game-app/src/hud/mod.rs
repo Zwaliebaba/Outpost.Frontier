@@ -24,6 +24,7 @@ pub mod cruise_progress;
 pub mod damage_indicator;
 pub mod maneuvers;
 pub mod receiver;
+pub mod status;
 pub mod steer;
 pub mod target;
 pub mod targetable_objects;
@@ -117,6 +118,10 @@ pub const FACTORIES: &[HudFactory] = &[
     HudFactory {
         section: contact_list::SECTION,
         create: contact_list::create,
+    },
+    HudFactory {
+        section: status::SECTION,
+        create: status::create,
     },
 ];
 

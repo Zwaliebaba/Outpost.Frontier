@@ -134,7 +134,16 @@ impl ControlText for FontText {
     fn text(&self) -> Option<&[u16]> {
         self.string.text()
     }
-    fn set_number_text(&mut self, _ui: &mut Ui, format: &[u8]) {
+    /// The text dropped at once (it needs no layout), the number child
+    /// made at the next draw (D437).
+    fn set_number_text(&mut self, ui: &mut Ui, format: &[u8]) {
+        match ui.fonts.as_mut() {
+            Some(sys) => self.string.drop_text_for_number(sys),
+            None => {
+                let mut scratch = super::text_win::scratch_fonts();
+                self.string.drop_text_for_number(&mut scratch);
+            }
+        }
         self.pending_number = Some(format.to_vec());
     }
     fn font(&self) -> Option<FontId> {
