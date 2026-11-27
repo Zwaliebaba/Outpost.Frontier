@@ -21,7 +21,7 @@ use game_app::login::{
 };
 use game_app::player_behavior::FlightFrame;
 use game_app::receiver::{ClientLink, ClientReceiver};
-use game_app::session::tick_local_server;
+use game_app::session::{Session, tick_local_server};
 use game_app::space_camera::SpaceCameraMode;
 use game_app::space_camera_third::ShipCameraTable;
 use game_app::space_state::{SpaceApp, SpaceEntry, enter_space, update as space_update};
@@ -133,10 +133,34 @@ fn run(info: &LocalStartupInfo) -> Vec<String> {
         .find(11, 1)
         .and_then(|(_, o)| o.handle);
     assert_eq!(app.cameras.active_camera().and_then(|c| c.watched), ship);
-    // `player` is the chase camera. The shared world has no ship of the
-    // player's id until `SpawnPlayerShip`'s `CShip::init` is ported, so the
-    // object has no handle yet and the camera watches nothing.
+    assert!(
+        ship.is_some(),
+        "SpawnPlayerShip made the ship in the shared world"
+    );
+    // `player` is the chase camera; its attach placed it on the ship's
+    // `camera_offset`, through the ship's frame.
     assert_eq!(app.cameras.active(), Some(SpaceCameraMode::ThirdPerson));
+    assert_eq!(app.camera_warning, None);
+    let ship_pos = session
+        .world()
+        .get(ship.expect("a ship"))
+        .expect("in the world")
+        .engine
+        .position;
+    println!("the player's ship at {ship_pos:?}");
+    let eye = app
+        .cameras
+        .active_camera()
+        .expect("active")
+        .camera
+        .world_pos;
+    let d = |a: f32, b: f32| f64::from(a) - f64::from(b);
+    let dist = (d(eye.x, ship_pos.x).powi(2)
+        + d(eye.y, ship_pos.y).powi(2)
+        + d(eye.z, ship_pos.z).powi(2))
+    .sqrt();
+    println!("chase camera {dist:.2} m from the ship");
+    assert!(dist > 5.0 && dist < 200.0, "{eye:?} against {ship_pos:?}");
     frame(&mut link, &mut session, SPACE_FRAME + 1);
     frame(&mut link, &mut session, SPACE_FRAME + 2);
     link.receiver

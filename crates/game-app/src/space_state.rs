@@ -83,7 +83,15 @@ where
         link.deliver_all(Some(s.world()));
     });
 
-    wait_for_server_response(link, session, |r| r.player.launch_acknowledged, now);
+    wait_for_server_response(
+        link,
+        session.as_deref_mut(),
+        |r| r.player.launch_acknowledged,
+        now,
+    );
+    if let Some(s) = session {
+        apply_launch_placement(link, s.world());
+    }
     if link.receiver.player.launch_acknowledged {
         SpaceEntry::Entered
     } else {
@@ -91,13 +99,40 @@ where
     }
 }
 
-/// `SpawnPlayerShip`'s registration and launch request: the player's ship
-/// under the id the create answer gave (`G_PlayerCharacterId`), with the
-/// selected character's ship archetype, registered in the object database
-/// (in single player beside the shared world's ship of that id), the launch
-/// acknowledgement cleared and `PlayerLaunch(ship, connection)` sent. The
-/// game object's archetype, equipment and costume set-up is the rest of
-/// P5.4.
+/// `SendServerLaunch`'s beam (`beam_object(Position, Orient, false)`),
+/// recorded by the receiver: the ship of that id in the world moved to the
+/// pose. Nothing without one.
+pub fn apply_launch_placement<T>(link: &mut ClientLink<T>, world: &mut World) {
+    let Some((id, position, orientation)) = link.receiver.player.launch_placement.take() else {
+        return;
+    };
+    let handle = link
+        .receiver
+        .objects
+        .find(id, 1)
+        .and_then(|(_, o)| o.handle);
+    if let Some(h) = handle {
+        world.beam_object(h, position, orientation);
+    }
+}
+
+/// `SpawnPlayerShip`: the player's ship made from the selected character
+/// (in single player in the shared world, record 0002, `CShip::init` with
+/// the fields `ApplyCharacterSelectEquipFields` and
+/// `NotifyCharacterSelectComplete` kept), registered in the object
+/// database, the launch acknowledgement cleared and
+/// `PlayerLaunch(ship, connection)` sent.
+///
+/// The parameters: the id `G_PlayerCharacterId`, the owner the connection,
+/// the reputation group the select answer's (`GetPlayerSpawnSystemId`, -1
+/// before one), the comm costume, the voice, the hit points the hull
+/// status times the archetype's, the record's equipment (each on the
+/// hardpoint it names, `StringAlloc`, or in the cargo bay) and collision
+/// groups, and the group's rank; at the origin with the identity, as
+/// `CSimple::CreateParms` leaves them, until the launch beams it. Without
+/// a world (multiplayer, P5.10) only the object is registered. The game
+/// object's render set-up (the companions' `Load`, the instance tree's
+/// materials, slot 92) is the renderer's.
 pub fn spawn_player_ship<T, S>(link: &mut ClientLink<T>, session: Option<&mut S>)
 where
     T: Transport<Outgoing = ToServer, Incoming = ToClient>,
@@ -110,22 +145,102 @@ where
         .selected
         .as_ref()
         .map_or(0, |r| r.ship_archetype);
-    let world: Option<&World> = session.map(|s| &*s.world());
+    let world: Option<&mut World> = session.map(|s| s.world());
+    let handle = world.map(|w| {
+        let spawned = player_ship_spawn(link, w, id, archetype)
+            .and_then(|(system, spawn)| w.spawn_ship(system, &spawn).ok());
+        (spawned, &*w)
+    });
     let object = ClientObject {
         id,
         kind: ClientObjectKind::Ship,
         archetype,
-        handle: world.and_then(|w| w.find(id)),
-        remote_physics: false,
+        handle: handle.as_ref().and_then(|(h, _)| *h),
+        remote_physics: true,
     };
-    match world {
-        Some(world) => link.receiver.objects.register(object, world),
+    match handle {
+        Some((_, world)) => link.receiver.objects.register(object, world),
         None => link.receiver.objects.register(object, &()),
     };
     link.receiver.player.launch_acknowledged = false;
     link.send(ToServer::Client(ClientMessage::RequestLaunch(
         RequestLaunch { value: id },
     )));
+}
+
+/// The system and `CShip::CreateParms` of [`spawn_player_ship`]; `None`
+/// without a selected character or for an unknown ship archetype (the
+/// reference tests neither).
+fn player_ship_spawn<T>(
+    link: &ClientLink<T>,
+    world: &mut World,
+    id: u32,
+    archetype: u32,
+) -> Option<(u32, game_sim::object::world::ShipSpawn)> {
+    let record = link.receiver.login.selected.as_ref()?;
+    let arch_hit_pts = world
+        .data()
+        .archetypes
+        .ships
+        .get(&archetype)?
+        .eq_obj
+        .root
+        .hit_pts;
+    let mut spawn = game_sim::object::world::ShipSpawn::new(
+        archetype,
+        0,
+        neuron_core::math::Vector::ZERO,
+        neuron_core::math::Matrix::IDENTITY,
+    );
+    spawn.id = Some(id);
+    spawn.owner_player = link.receiver.login.connection_id;
+    #[allow(clippy::cast_possible_wrap)]
+    let vibe = link
+        .receiver
+        .login
+        .char_select
+        .as_ref()
+        .map_or(-1, |c| c.rep_instance as i32);
+    spawn.vibe = vibe;
+    if let Some(c) = &record.com_costume {
+        spawn.costume = game_sim::data::costume::Costume {
+            part_ids: c.parts,
+            accessory_ids: c.accessories.clone(),
+        };
+    }
+    spawn.voice = record.voice_id;
+    #[allow(clippy::cast_possible_truncation)]
+    {
+        spawn.hit_pts = (f64::from(record.hull_status) * f64::from(arch_hit_pts)) as f32;
+    }
+    spawn.equipment = record
+        .equipment
+        .iter()
+        .map(|e| {
+            let mut desc = game_sim::data::equip_desc::EquipDesc::new(world.strings());
+            desc.arch_id = e.arch_id;
+            desc.count = e.count;
+            desc.health = e.health;
+            desc.id = e.id;
+            desc.equipped = e.equipped;
+            let name = e.hardpoint.strip_suffix(&[0]).unwrap_or(&e.hardpoint);
+            if name.is_empty() {
+                desc.make_internal(world.strings());
+            } else {
+                desc.hardpoint = world.strings_mut().alloc(name, false);
+            }
+            desc
+        })
+        .collect();
+    spawn.collision_groups = Some(
+        record
+            .collision_groups
+            .iter()
+            .map(|g| (g.id, g.health))
+            .collect(),
+    );
+    spawn.rank = world.vibes().0.rank(vibe).1;
+    Some((player_system(link), spawn))
 }
 
 /// `StarSysUpdate`'s music: the zone music at the player's ship, the

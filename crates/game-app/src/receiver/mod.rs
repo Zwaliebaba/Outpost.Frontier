@@ -132,6 +132,12 @@ pub struct PlayerState {
     /// `G_bPlayerLaunchAcknowledged`: the player's ship launched
     /// (`SendServerLaunch` found it).
     pub launch_acknowledged: bool,
+    /// The pose `SendServerLaunch` beams the ship to (a launch into open
+    /// space; the dock's launch sequence is not ported): the ship's id, the
+    /// position and the orientation. The receiver has no mutable world, so
+    /// the owner applies it ([`crate::space_state::apply_launch_placement`])
+    /// when the delivery returns.
+    pub launch_placement: Option<(u32, neuron_core::math::Vector, neuron_core::math::Matrix)>,
     /// The game session flags (`AssignGameSessionFlags`, the interface
     /// state's first dword).
     pub session_flags: u32,
@@ -388,7 +394,27 @@ impl ClientReceiver {
             );
             return;
         }
-        self.unported_effect("SendServerLaunch");
+        // Outside a dock the ship is beamed to the pose; from a dock (in
+        // single player the server's launch places it) the client's
+        // `LaunchFromDock` sequence is not ported.
+        if info.field_04 == 0 {
+            let [w, x, y, z] = info.orientation;
+            let orientation =
+                neuron_core::math::quaternion_to_matrix(&neuron_core::math::Quaternion {
+                    w,
+                    x,
+                    y,
+                    z,
+                });
+            let [px, py, pz] = info.position;
+            self.player.launch_placement = Some((
+                info.field_00,
+                neuron_core::math::Vector::new(px, py, pz),
+                orientation,
+            ));
+        } else {
+            self.unported_effect("SendServerLaunch");
+        }
         self.player.launch_acknowledged = true;
     }
 
