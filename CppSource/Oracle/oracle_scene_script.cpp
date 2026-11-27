@@ -325,6 +325,7 @@ void RunNeuronClientSuites()
     RunParticleSuites();
     RunMaterialSuites();
     RunBeamSuite();
+    RunBeamWalkSuite();
 }
 
 void RunSceneScriptDataDump(const std::vector<std::string>& Files)

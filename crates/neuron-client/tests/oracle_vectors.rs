@@ -494,3 +494,14 @@ fn deformable_anim() {
 fn beam() {
     check_suite("beam.jsonl", &beam::lines(&input_lines("beam.list")));
 }
+
+/// P5.6: the beams' lifecycle in their bucket: `Kill`, `UpdateVisibility`
+/// and `TickDraw` under `EffectTypeBucketWalk`'s order, the links and the
+/// counts (`tests/fixtures/oracle/beam_walk.list`).
+#[test]
+fn beam_walk() {
+    check_suite(
+        "beam_walk.jsonl",
+        &beam::walk_lines(&input_lines("beam_walk.list")),
+    );
+}

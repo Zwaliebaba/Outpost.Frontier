@@ -308,6 +308,8 @@ void RunEffectArchSuite();
 
 // P5.6: the beam's geometry in the effect vertex batch (oracle_beam.cpp); beam.jsonl.
 void RunBeamSuite();
+// P5.6: the beams' lifecycle in their bucket (oracle_beam.cpp); beam_walk.jsonl.
+void RunBeamWalkSuite();
 
 // P5.6: the shipped effect archetypes (the [Data] effects files) through EffectArchLoadIni; kind
 // "effect_arch" (oracle_effect_arch.cpp).
