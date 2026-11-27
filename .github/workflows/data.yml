@@ -12,17 +12,10 @@ on:
     - cron: "17 2 * * *"
   push:
     branches: [main]
-  # Pull requests that touch the port, the oracle or the data run here too, beside Rust CI.
+  # Every pull request and merge group starts the workflow, so that its check always
+  # reports; the Changes job below decides whether the data job runs (O57, O58).
   pull_request:
-    paths:
-      - "crates/**"
-      - "apps/**"
-      - "xtask/**"
-      - "CppSource/**"
-      - "outdir/**"
-      - "Cargo.lock"
-      - ".github/workflows/data.yml"
-      - ".github/scripts/**"
+  merge_group:
   workflow_dispatch:
 
 concurrency:
@@ -45,7 +38,8 @@ jobs:
     # (xtask/src/graph.rs), so a change confined to them cannot change this job's result.
     # Pushes to main, the nightly run and manual runs always run it.
     name: Changes
-    if: ${{ github.event_name == 'pull_request' }}
+    # Pull requests read their files through the API; merge groups through git (O58).
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -53,9 +47,20 @@ jobs:
     outputs:
       data: ${{ steps.filter.outputs.data }}
     steps:
+      - name: Check out the merge group's history
+        # A merge group has no pull request files to ask the API for: the filter compares
+        # the group's head with its base in git (trees only, no file contents).
+        if: ${{ github.event_name == 'merge_group' }}
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout: .github
       - id: filter
         uses: dorny/paths-filter@v3
         with:
+          base: ${{ github.event.merge_group.base_sha }}
           filters: |
             data:
               - "crates/neuron-core/**"
@@ -78,7 +83,7 @@ jobs:
     name: Original data against the oracle
     # A skipped job counts as passed (O57).
     needs: changes
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.data == 'true') }}
+    if: ${{ !cancelled() && ((github.event_name != 'pull_request' && github.event_name != 'merge_group') || needs.changes.outputs.data == 'true') }}
     runs-on: windows-2025-vs2026
     timeout-minutes: 120
     steps:
@@ -155,8 +160,9 @@ jobs:
           & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo @pin
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Save the C++ build
-        # The restore step's key, hashed before the build wrote CppSource/obj/.
-        if: ${{ success() && steps.data-bin.outputs.cache-hit != 'true' }}
+        # The restore step's key, hashed before the build wrote CppSource/obj/. A merge
+        # group's temporary branch saves nothing (O58).
+        if: ${{ success() && github.event_name != 'merge_group' && steps.data-bin.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           key: ${{ steps.data-bin.outputs.cache-primary-key }}
@@ -611,7 +617,7 @@ jobs:
         # same key in that pull request's later runs, and the C++ leaves some recorded fields
         # as the heap held them (D178), so two fresh runs can disagree. Every pull request
         # then compares with the outputs main saved.
-        if: ${{ success() && github.event_name != 'pull_request' && steps.oracle-cache.outputs.cache-hit != 'true' }}
+        if: ${{ success() && github.event_name != 'pull_request' && github.event_name != 'merge_group' && steps.oracle-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           key: ${{ steps.oracle-cache.outputs.cache-primary-key }}
@@ -626,7 +632,7 @@ jobs:
         # The key step's key, computed on the clean checkout before the build. The nightly run,
         # which skipped the restore, saves only a key no run saved before. As the oracle's
         # outputs, only main and the nightly run save (owner, 2026-11-27).
-        if: ${{ success() && github.event_name != 'pull_request' && steps.ensemble-cache.outputs.cache-hit != 'true' }}
+        if: ${{ success() && github.event_name != 'pull_request' && github.event_name != 'merge_group' && steps.ensemble-cache.outputs.cache-hit != 'true' }}
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
@@ -638,6 +644,9 @@ jobs:
         run: rustup toolchain install
       - name: Cache the Rust build
         uses: Swatinem/rust-cache@v2
+        with:
+          # A merge group's temporary branch saves no cache (O58).
+          save-if: ${{ github.event_name != 'merge_group' }}
       - name: Compare the port with the oracle
         shell: pwsh
         run: |

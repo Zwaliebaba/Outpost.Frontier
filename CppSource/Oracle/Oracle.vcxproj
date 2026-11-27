@@ -447,6 +447,9 @@
          controller registry driven by SimClientStub.dll's scripted controllers. -->
     <ClCompile Include="oracle_bus.cpp" />
     <ClCompile Include="oracle_perf_options.cpp" />
+    <!-- P5.6: Oracle.exe game-app, the effect_arch suite: the client's vis_effect_arch.cpp and
+         effect_type_info.cpp compiled in (Archetype::ResolveMaterialEntry stood in). -->
+    <ClCompile Include="oracle_effect_arch.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="oracle_support.h" />

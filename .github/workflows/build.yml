@@ -6,6 +6,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The merge queue (decision O58): each queued pull request is tested merged with main
+  # and the entries ahead of it before it lands.
+  merge_group:
   workflow_dispatch:
 
 concurrency:
@@ -30,6 +33,9 @@ jobs:
         run: rustup toolchain install
       - name: Cache the Rust build
         uses: Swatinem/rust-cache@v2
+        with:
+          # A merge group's temporary branch saves no cache (O58).
+          save-if: ${{ github.event_name != 'merge_group' }}
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Lint workspace
@@ -77,6 +83,9 @@ jobs:
         run: rustup toolchain install
       - name: Cache the Rust build
         uses: Swatinem/rust-cache@v2
+        with:
+          # A merge group's temporary branch saves no cache (O58).
+          save-if: ${{ github.event_name != 'merge_group' }}
       - name: Lint workspace
         run: cargo clippy --locked --workspace --all-targets --target host-tuple -- -D warnings
       - name: Install cargo-nextest
@@ -100,6 +109,9 @@ jobs:
         run: rustup toolchain install
       - name: Cache the Rust build
         uses: Swatinem/rust-cache@v2
+        with:
+          # A merge group's temporary branch saves no cache (O58).
+          save-if: ${{ github.event_name != 'merge_group' }}
       - name: Check crate graph, legacy APIs and unsafe placement
         run: cargo xtask check-policy
       - name: Install cargo-deny
@@ -113,8 +125,8 @@ jobs:
     # Which parts of the tree a push or pull request changes, for the jobs
     # that need not run otherwise.
     name: Changes
-    # Pull requests only: the filter reads the pull request's files through the API.
-    if: ${{ github.event_name == 'pull_request' }}
+    # Pull requests read their files through the API; merge groups through git (O58).
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -122,9 +134,20 @@ jobs:
     outputs:
       cpp: ${{ steps.filter.outputs.cpp }}
     steps:
+      - name: Check out the merge group's history
+        # A merge group has no pull request files to ask the API for: the filter compares
+        # the group's head with its base in git (trees only, no file contents).
+        if: ${{ github.event_name == 'merge_group' }}
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout: .github
       - id: filter
         uses: dorny/paths-filter@v3
         with:
+          base: ${{ github.event.merge_group.base_sha }}
           filters: |
             cpp:
               - "CppSource/**"
@@ -139,10 +162,10 @@ jobs:
     # push. Running the client needs the owner's machine. Removed with the C++
     # in P7.3.
     name: Reference build
-    # On pushes to main and on request; on a pull request only when the C++, its build or
-    # this file changed. A skipped job counts as passed.
+    # On pushes to main and on request; on a pull request or a merge group only when the
+    # C++, its build or this file changed. A skipped job counts as passed.
     needs: changes
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.cpp == 'true') }}
+    if: ${{ !cancelled() && ((github.event_name != 'pull_request' && github.event_name != 'merge_group') || needs.changes.outputs.cpp == 'true') }}
     runs-on: windows-2025-vs2026
     steps:
       - uses: actions/checkout@v6
@@ -224,8 +247,9 @@ jobs:
           & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo @pin
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Save the C++ build
-        # The restore step's key, hashed before the build wrote CppSource/obj/.
-        if: ${{ success() && steps.cpp-bin.outputs.cache-hit != 'true' }}
+        # The restore step's key, hashed before the build wrote CppSource/obj/. A merge
+        # group's temporary branch saves nothing (O58).
+        if: ${{ success() && github.event_name != 'merge_group' && steps.cpp-bin.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           key: ${{ steps.cpp-bin.outputs.cache-primary-key }}
