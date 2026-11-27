@@ -15,6 +15,7 @@ pub mod login_history;
 pub mod machine_warning;
 #[cfg(windows)]
 pub mod movies;
+pub mod objects;
 pub mod oracle;
 pub mod perf_options;
 pub mod preferences;
@@ -22,6 +23,7 @@ pub mod profile;
 pub mod receiver;
 pub mod render_mode;
 pub mod session;
+pub mod space_state;
 pub mod startup_config;
 pub mod table_layouts;
 pub mod timing;
@@ -297,7 +299,9 @@ pub fn run(start_server: session::StartLocalServer<'_>) -> io::Result<()> {
         if let (Some(s), Some(l)) = (server.as_mut(), link.as_mut()) {
             #[allow(clippy::cast_possible_truncation)]
             let dt32 = dt as f32;
-            session::tick_local_server(Some(s.as_mut()), false, dt32, |_| l.deliver_all());
+            session::tick_local_server(Some(s.as_mut()), false, dt32, |s| {
+                l.deliver_all(Some(s.world()));
+            });
         }
         if host.pending_state == Some(1) {
             // EnterClientState(1): the server shuts down (its Shutdown calls
