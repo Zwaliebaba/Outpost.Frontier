@@ -46,6 +46,11 @@
 //                                      pick, hover and capture walk are bypassed, so this works
 //                                      for message buttons (TextMsgButton, UITextMsgButton) but
 //                                      not for NeuroNet buttons, which test the cursor on release
+//   row <target> <index>               a list box's row clicked: <target> as for click must be
+//                                      a ListBox; its hovered row becomes <index> (decimal or
+//                                      0x hex) and it gets the press {-1, 2} click sends, so
+//                                      ListBox::MouseEvent selects the row and tells its parent
+//                                      (slot 23, 0xf001) as a real click on the row does
 //   state <client state id>            G_PendingClientStateId = id: the frame enters that
 //                                      client state (client_state.h; 6 is the main menu)
 //   log <text>                         a marker in session.jsonl
@@ -75,6 +80,7 @@
 #include "client_state.h"          // G_PendingClientStateId
 #include "hud_command_dispatch.h"  // HudCommandRecord, HudDispatchCommand
 #include "hud_element_list.h"      // HUDItem
+#include "list_box.h"              // ListBox (the row command)
 #include "menu_keymap_config.h"    // FKeyCmd, FKeyMapGroup, the oracle views
 #include "nn_preferences.h"        // NnPreferences, FKeyRow, FPrefOption
 #include "nn_text_control.h"       // NnTextControl
@@ -118,7 +124,7 @@ namespace
 
     char const* const kStreamFiles[kOracleStreamCount] = {
         "session.jsonl", "tree.jsonl", "keymap.jsonl", "layout.jsonl", "iclient.jsonl",
-        "server.jsonl"};
+        "server.jsonl", "audio.jsonl"};
 
     struct FOracleState
     {
@@ -528,6 +534,36 @@ namespace
         return true;
     }
 
+    bool DoRow(std::string const& Rest, std::string* Note)
+    {
+        std::string IndexText;
+        std::string const Spec = FirstWord(Rest, &IndexText);
+        unsigned Index = 0;
+        if (!ParseUnsigned(IndexText, &Index))
+        {
+            *Note = "usage: row <target> <index>";
+            return false;
+        }
+        Win3D* const Target = ResolveTarget(Spec, Note);
+        if (Target == nullptr)
+            return false;
+        ListBox* const List = dynamic_cast<ListBox*>(Target);
+        if (List == nullptr)
+        {
+            *Note = "not a list box";
+            return false;
+        }
+        List->HoverIndex = static_cast<int>(Index);
+        FWin3DMouseEvent Press;
+        Press.Field0 = -1;
+        Press.Field1 = 2;
+        bool const bPress = List->MouseEvent(&Press);
+        char Text[64];
+        sprintf(Text, "press=%d selected=%d", bPress ? 1 : 0, List->SelectedIndex);
+        *Note = Text;
+        return true;
+    }
+
     bool DoCommand(std::string const& Nickname, std::string* Note)
     {
         unsigned const Id = KeyMapGetActionNicknameId(Nickname.c_str());
@@ -654,6 +690,8 @@ namespace
             return DoKey(Rest, Note);
         if (Command == "click")
             return DoClick(Rest, Note);
+        if (Command == "row")
+            return DoRow(Rest, Note);
         if (Command == "state")
         {
             unsigned Id = 0;
@@ -1250,6 +1288,45 @@ void OracleWriteRecord(EOracleStream Stream, std::string const& Line)
 unsigned OracleFrameNumber()
 {
     return G.Frame;
+}
+
+namespace
+{
+    // The `snd` records' numbers, from 1 (the sound calls are the main thread's).
+    unsigned GOracleSoundSeq = 0;
+}
+
+void OracleOnSoundCall(char const* Method, unsigned const* Uints, unsigned UintCount,
+                       float const* Floats, unsigned FloatCount, int Result)
+{
+    if (!G.bActive)
+        return;
+    FOracleJson J;
+    Head(J, "snd");
+    J.Uint("seq", ++GOracleSoundSeq);
+    J.Str("m", Method);
+    J.BeginArray("a");
+    for (unsigned Index = 0; Index < UintCount; ++Index)
+        J.Uint(nullptr, Uints[Index]);
+    for (unsigned Index = 0; Index < FloatCount; ++Index)
+        J.Float(nullptr, Floats[Index]);
+    J.EndArray();
+    if (Result < 0)
+        J.Null("r");
+    else
+        J.Bool("r", Result != 0);
+    OracleWriteRecord(kOracleAudio, J.Finish());
+}
+
+void OracleOnLocationAudio(unsigned LocationId, bool bKeepAudio)
+{
+    if (!G.bActive)
+        return;
+    FOracleJson J;
+    Head(J, "locaudio");
+    J.Uint("loc", LocationId);
+    J.Bool("keep", bKeepAudio);
+    OracleWriteRecord(kOracleAudio, J.Finish());
 }
 
 unsigned OracleNextIClientSeq()
