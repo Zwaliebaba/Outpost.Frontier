@@ -34,8 +34,14 @@ jobs:
         run: cargo fmt --all --check
       - name: Lint workspace
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - name: Test workspace
-        run: cargo test --locked --workspace --all-targets
+        # Decision O57: nextest runs the workspace's test binaries in parallel, where
+        # `cargo test` runs them one after another (.config/nextest.toml).
+        run: cargo nextest run --locked --workspace --all-targets --profile ci
       - name: Build executables
         run: cargo build --locked --release --workspace --bins
       - name: Fetch the pinned shader compiler
@@ -73,8 +79,12 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Lint workspace
         run: cargo clippy --locked --workspace --all-targets --target host-tuple -- -D warnings
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - name: Test workspace
-        run: cargo test --locked --workspace --all-targets --target host-tuple
+        run: cargo nextest run --locked --workspace --all-targets --target host-tuple --profile ci
       - name: Check the synthetic render traces
         # Record 0004, point 15: the committed traces are what the generator writes.
         run: python3 crates/neuron-client/tests/fixtures/render/make_render_traces.py --check
