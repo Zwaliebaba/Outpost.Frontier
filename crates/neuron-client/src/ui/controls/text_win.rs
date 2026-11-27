@@ -280,6 +280,9 @@ impl Widget for UiStaticText {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
+    fn text_win(&self) -> Option<&TextWin> {
+        Some(&self.text_win)
+    }
 
     /// `UIStaticText::Create`: the `Win3D` part, the text defaults,
     /// inactive, a 0.1 box and the text "StaticText"; from a payload the
