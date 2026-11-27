@@ -8,9 +8,14 @@
 //! stores a `float` (decision T11); the transforms are the math engine's
 //! `TransformXform`.
 
+// The negated comparisons are the reference's unordered tests: NaN takes
+// the branch that `!(a < b)` names.
+#![allow(clippy::neg_cmp_op_on_partial_ord)]
+
 use neuron_core::math::{Transform, Vector, transform_xform};
 
 use super::batch::{EffectVertexBatch, ftol_low_byte};
+use super::set::{EffectBase, EffectCamera, SpaceEffect, WalkFrame};
 
 /// `kUvCore`, the tip cross's centre `u`.
 const UV_CORE: f32 = 0.75;
@@ -404,6 +409,163 @@ pub fn build_multi_segment(
     }
     for c in [c0, c1, c2, c3] {
         batch.push_triangle(b3, b4, c);
+    }
+}
+
+/// `EFT_CODE_PROJ_EFFECT`, the type `Start` gives every beam.
+pub const BEAM_EFFECT_TYPE: usize = 0x2c;
+
+/// `FBeamEffect` (0x84 bytes): the head, the archetype's shape (`Arch`,
+/// +0x6c), the state and the culling radius (+0x74).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BeamEffect {
+    /// +0x00..+0x6b.
+    pub base: EffectBase,
+    /// +0x6c, `None` before `Start` found one.
+    pub shape: Option<BeamShape>,
+    /// +0x70..+0x80.
+    pub state: BeamState,
+    /// +0x74.
+    pub radius: f32,
+}
+
+impl BeamEffect {
+    /// The constructor: the base's, the state's and a radius of 50.
+    #[must_use]
+    pub fn new(type_id: usize) -> Self {
+        Self {
+            base: EffectBase::new(type_id),
+            shape: None,
+            state: BeamState::default(),
+            radius: 50.0,
+        }
+    }
+
+    fn flag_visible(&self) -> bool {
+        self.state.flags & 1 != 0
+    }
+}
+
+impl SpaceEffect for BeamEffect {
+    fn base(&self) -> &EffectBase {
+        &self.base
+    }
+
+    fn base_mut(&mut self) -> &mut EffectBase {
+        &mut self.base
+    }
+
+    /// `FBeamEffect::Kill`. A single-segment beam dies at once. Any other
+    /// beam leaves its instance, keeping its world pose, and fades over at
+    /// most 0.3 s; `TickDraw` kills it at the end.
+    fn kill(&mut self, frame: &WalkFrame<'_>) {
+        if self.state.flags & 2 != 0 {
+            self.base.kill(frame.host);
+            return;
+        }
+        self.base.freeze_to_world(frame.host);
+        // TEST AH,5 / JNP and TEST AH,0x41 / JNZ: exactly 0 and NaN stay.
+        let lifetime = self.state.lifetime;
+        if lifetime < 0.0 || lifetime > LIFETIME_INTENSITY_CAP {
+            self.state.lifetime = LIFETIME_INTENSITY_CAP;
+        }
+    }
+
+    fn is_alive(&self) -> bool {
+        true
+    }
+
+    /// `FBeamEffect::UpdateVisibility`: without the `code_beam` texture the
+    /// flag as it stands; below the performance level the beam is killed.
+    /// Otherwise its sphere (`radius` about the world position) must reach
+    /// beyond the near plane, start inside the type's `pbubble` (narrowed
+    /// by the performance level) and meet both side planes.
+    fn update_visibility(&mut self, _dt: f32, cam: &EffectCamera, frame: &WalkFrame<'_>) -> bool {
+        if !frame.beam_texture {
+            return self.flag_visible();
+        }
+        let perf = frame.generic_effect_perf;
+        if !(self.base.priority >= perf) {
+            self.base.kill(frame.host);
+            return self.flag_visible();
+        }
+        let position = self.base.world_transform(frame.host).translation;
+        let radius = self.radius;
+        let view = transform_xform(&cam.view, position);
+        let neg_z = -view.z;
+        let far_edge = sum(neg_z, radius);
+        if !(cam.z_near < far_edge) {
+            return self.flag_visible();
+        }
+        let info = &frame.types[self.base.type_id];
+        let near_distance = f32_of(f64::from(neg_z) - f64::from(radius));
+        let narrowing = f32_of(1.0 - f64::from(perf));
+        let threshold = f32_of(
+            (f64::from(info.pbubble_far) - f64::from(info.pbubble_near)) * f64::from(narrowing)
+                + f64::from(info.pbubble_near),
+        );
+        if !(threshold > near_distance) {
+            return self.flag_visible();
+        }
+        // |lateral| * plane[axis] + view.z * plane[2], stored.
+        let plane = |lateral: f32, along: f32, depth: f32| {
+            f32_of(
+                f64::from(lateral.abs()) * f64::from(along) + f64::from(view.z) * f64::from(depth),
+            )
+        };
+        let dist_x = plane(view.x, cam.plane_x[0], cam.plane_x[2]);
+        let dist_y = plane(view.y, cam.plane_y[1], cam.plane_y[2]);
+        if dist_x <= radius && dist_y <= radius {
+            self.state.flags |= 1;
+        } else {
+            self.state.flags &= 0xfe;
+        }
+        self.flag_visible()
+    }
+
+    /// `FBeamEffect::TickDraw`: nothing with the `particles` option off,
+    /// nothing moves while the single-player server is paused; the growth
+    /// clock runs from 0, and a fading beam is killed when its time is out.
+    fn tick_draw(&mut self, dt: f32, _cam: &EffectCamera, frame: &WalkFrame<'_>) -> bool {
+        if !frame.particles {
+            return false;
+        }
+        if frame.server_paused {
+            return true;
+        }
+        let state = &mut self.state;
+        state.progress = if state.progress >= 0.0 {
+            sum(state.progress, dt)
+        } else {
+            0.0
+        };
+        if !(state.lifetime > 0.0) {
+            return true;
+        }
+        state.lifetime = f32_of(f64::from(state.lifetime) - f64::from(dt));
+        if !(state.lifetime <= 0.0) {
+            return true;
+        }
+        self.base.kill(frame.host);
+        false
+    }
+
+    /// `FBeamEffect::BuildGeometry` with the world transform it picks.
+    fn build_geometry(
+        &mut self,
+        _cam: &EffectCamera,
+        frame: &WalkFrame<'_>,
+        batch: &mut EffectVertexBatch,
+    ) {
+        let Some(shape) = self.shape else {
+            return;
+        };
+        let world = self.base.world_transform(frame.host);
+        let beam_frame = BeamFrame {
+            particles: frame.particles,
+            first_person: frame.first_person,
+        };
+        build_geometry(&mut self.state, &shape, &world, beam_frame, batch);
     }
 }
 
