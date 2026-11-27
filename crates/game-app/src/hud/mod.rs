@@ -18,12 +18,14 @@
 //! section's shape database and static texture are kept by name: the
 //! HUD's draw, which reads them, comes with the elements' draws.
 
+pub mod contact_list;
 pub mod core;
 pub mod cruise_progress;
 pub mod damage_indicator;
 pub mod maneuvers;
 pub mod receiver;
 pub mod steer;
+pub mod target;
 pub mod targetable_objects;
 pub mod waypoint;
 
@@ -107,6 +109,14 @@ pub const FACTORIES: &[HudFactory] = &[
     HudFactory {
         section: cruise_progress::SECTION,
         create: cruise_progress::create,
+    },
+    HudFactory {
+        section: target::SECTION,
+        create: target::create,
+    },
+    HudFactory {
+        section: contact_list::SECTION,
+        create: contact_list::create,
     },
 ];
 

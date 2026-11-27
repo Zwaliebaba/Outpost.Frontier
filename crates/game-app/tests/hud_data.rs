@@ -7,12 +7,15 @@
 //! The windows are compared each on its own, with their nodes' indices
 //! counted from the window (the dump's other roots are not all ported);
 //! `rtti` is left out (decision O53 (4)), and the text windows' heights,
-//! which only the Windows font backend gives.
+//! which only the Windows font backend gives. The interface first runs the
+//! oracle's fixed frames from the `hud` record's frame to the dump's, as
+//! the C++ client's updates did.
 
 use std::path::PathBuf;
 use std::rc::Rc;
 
 use game_app::hud::{self, FACTORIES};
+use game_app::oracle::script::FRAME_SECONDS;
 use game_app::oracle::tree::dump_nodes;
 use neuron_client::ui::montage;
 use neuron_client::ui::services::UiServices;
@@ -115,9 +118,6 @@ fn hud() -> Option<(Ui, hud::HudElements, Vec<String>)> {
     let elements = hud::load_hud_elements(&mut ui, HUD_INI, ini, FACTORIES, &mut |w| {
         warnings.push(w);
     });
-    // A frame of the interface (`Win3DUpdateAll`), as the frames between the
-    // load and the dump run: the elements' `Update` with no player ship.
-    ui.update_all(0.0);
     Some((ui, elements, warnings))
 }
 
@@ -223,10 +223,22 @@ fn the_elements_equal_the_cpp_clients_first_dump_in_space() {
         println!("notice: OUTPOST_CLIENT_ORACLE_SP_DIR is not set; nothing was compared");
         return;
     };
-    let Some((ui, elements, _)) = hud() else {
+    let Some((mut ui, elements, _)) = hud() else {
         return;
     };
     let text = std::fs::read_to_string(dir.join("tree.jsonl")).expect("tree.jsonl");
+    let layout = std::fs::read_to_string(dir.join("layout.jsonl")).expect("layout.jsonl");
+    let frame_of = |text: &str, rec: &str| -> u32 {
+        text.lines()
+            .find(|l| l.contains(rec))
+            .map(|l| field(l, "frame").parse().unwrap())
+            .expect(rec)
+    };
+    let loaded = frame_of(&layout, "\"rec\":\"hud\"");
+    let dumped = frame_of(&text, "\"rec\":\"dump\",\"dump\":3,");
+    for _ in loaded..dumped {
+        ui.update_all(FRAME_SECONDS);
+    }
     let cpp: Vec<String> = text
         .lines()
         .filter(|l| l.starts_with("{\"dump\":3,\"i\":"))
@@ -252,12 +264,7 @@ fn the_elements_equal_the_cpp_clients_first_dump_in_space() {
 
     // `OracleOnHudElementsLoaded`: the ported elements' records, by name
     // (their index waits for the other elements).
-    let layout = std::fs::read_to_string(dir.join("layout.jsonl")).expect("layout.jsonl");
-    let frame: u32 = layout
-        .lines()
-        .find(|l| l.contains("\"rec\":\"hud\""))
-        .map(|l| field(l, "frame").parse().unwrap())
-        .expect("a hud record");
+    let frame = loaded;
     let ours = hud::oracle_lines(frame, HUD_INI, &elements);
     let theirs: Vec<String> = layout
         .lines()
