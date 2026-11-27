@@ -294,13 +294,14 @@ jobs:
         # window tree against run a (the tree also against s1), the single-player login's
         # IClient lines against runs w (a fresh user folder) and a (the folder w made), and a new
         # game's IClient lines up to the frames after entering space against run s1 of
-        # single_player.txt.
+        # single_player.txt, and the load game's up to the save's selection against run l1.
         if: ${{ always() }}
         shell: pwsh
         env:
           OUTPOST_CLIENT_ORACLE_DIR: ${{ runner.temp }}\oracle-out\a
           OUTPOST_CLIENT_ORACLE_FRESH_DIR: ${{ runner.temp }}\oracle-out\w
           OUTPOST_CLIENT_ORACLE_SP_DIR: ${{ runner.temp }}\oracle-out\s1
+          OUTPOST_CLIENT_ORACLE_ROOT: ${{ runner.temp }}\oracle-out
         run: |
           cargo test --locked -p game-app --test keymap_data -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -319,6 +320,9 @@ jobs:
           cargo test --locked -p outpost-frontier --test local_server -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p outpost-frontier --test new_game -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The load game (P5.3): s2's saves loaded as l1 loads them, up to the selection.
+          cargo test --locked -p outpost-frontier --test load_game -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run the port's client

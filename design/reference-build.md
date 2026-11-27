@@ -507,6 +507,18 @@ game's `SendServerCharSelectVerified` carries that clock. With it the port's new
 equals the C++ client's 61 IClient lines up to frame 120, D857's moved running lights
 included.
 
+Run 27 ([45930826111](https://github.com/Zwaliebaba/Outpost.Frontier/actions/runs/45930826111),
+commit `4aefd105`) ran `load_game.txt` twice after `single_player.txt` (l1, l2): both
+exit 0 after 492 frames; Load Game opens the character page (menu state 18) at frame
+118, `row CharSelDesc 0` selects `AutoSave.fl`, the page's state 12 selects it at frame
+191 and the client enters the first base (client state 3, room `2695128518`). The two
+IClient logs (34 calls) differ only in `SendServerCharSelectVerified`'s server time: l1's
+quit in the base saved again, so l2 loads l1's save. Each run's user folder is kept in
+its `user` folder. The port's load (`apps/outpost-frontier/tests/load_game.rs`,
+`OUTPOST_CLIENT_ORACLE_ROOT` set to the output folder) starts from s2's `user` copy and
+equals l1's 14 IClient lines up to the selection; the base entry of frame 192 is the
+bases' (P5.9).
+
 A session compares locally (decision O54 (3)): download a run's
 `client-oracle-trial` artifact through the GitHub tools into a scratch folder,
 unpack it, and run the comparison tests with `OUTPOST_CLIENT_ORACLE_DIR` set to
