@@ -7,17 +7,22 @@
 //! The windows are compared each on its own, with their nodes' indices
 //! counted from the window (the dump's other roots are not all ported);
 //! `rtti` is left out (decision O53 (4)), and the text windows' heights,
-//! which only the Windows font backend gives.
+//! which only the Windows font backend gives. The interface first runs the
+//! oracle's fixed frames from the `hud` record's frame to the dump's, as
+//! the C++ client's updates did.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use game_app::hud::{self, FACTORIES};
+use game_app::oracle::script::FRAME_SECONDS;
 use game_app::oracle::tree::dump_nodes;
 use neuron_client::ui::montage;
 use neuron_client::ui::services::UiServices;
 use neuron_client::ui::shape::FixedTextures;
 use neuron_client::ui::tree::Ui;
 use neuron_client::ui::widescreen::Surface;
+use neuron_core::catalog::{CLIENT_MODULES, TextCatalog, TextCatalogs};
 use neuron_core::vfs::Host;
 
 /// `hud.ini`'s path as `SetHudIniPath` stores it on the reference run
@@ -44,6 +49,50 @@ impl UiServices for DataFiles {
     }
 }
 
+/// The byte-order mark the catalog build puts before a card.
+const CARD_BOM: [u8; 2] = [0xFF, 0xFE];
+
+/// A module's catalog built from its TOML source as `cargo xtask catalog`
+/// builds it.
+fn catalog(text: &str) -> TextCatalog {
+    let module: toml::Table = text.parse().expect("the module's TOML");
+    let mut catalog = TextCatalog::new();
+    let table = |name: &str| {
+        module
+            .get(name)
+            .and_then(toml::Value::as_table)
+            .cloned()
+            .unwrap_or_default()
+    };
+    for (id, value) in table("strings") {
+        let units = value.as_str().unwrap_or_default().encode_utf16().collect();
+        catalog.add_string(id.parse().unwrap(), units).unwrap();
+    }
+    for (id, value) in table("cards") {
+        let mut bytes = CARD_BOM.to_vec();
+        bytes.extend(
+            value
+                .as_str()
+                .unwrap_or_default()
+                .encode_utf16()
+                .flat_map(u16::to_le_bytes),
+        );
+        catalog.add_card(id.parse().unwrap(), bytes).unwrap();
+    }
+    catalog
+}
+
+/// The client's modules from `outdir/data/text`, in the client's order.
+fn catalogs() -> TextCatalogs {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../outdir/data/text");
+    let mut catalogs = TextCatalogs::new();
+    for module in CLIENT_MODULES {
+        let text = std::fs::read_to_string(dir.join(format!("{module}.toml"))).ok();
+        catalogs.register(text.as_deref().map(catalog));
+    }
+    catalogs
+}
+
 /// The interface and the HUD's elements, `None` without the data.
 fn hud() -> Option<(Ui, hud::HudElements, Vec<String>)> {
     if !data_dir().join("INTERFACE").is_dir() {
@@ -51,6 +100,7 @@ fn hud() -> Option<(Ui, hud::HudElements, Vec<String>)> {
         return None;
     }
     let mut ui = Ui::new(Surface::new(1024, 768));
+    ui.catalogs = Some(Rc::new(catalogs()));
     let mut files = DataFiles(data_dir());
     let textures = files.data_file(montage::BUTTON_TEXTURES_INI);
     let tiles = files.data_file(montage::BUTTON_MONTAGE_INI);
@@ -173,10 +223,22 @@ fn the_elements_equal_the_cpp_clients_first_dump_in_space() {
         println!("notice: OUTPOST_CLIENT_ORACLE_SP_DIR is not set; nothing was compared");
         return;
     };
-    let Some((ui, elements, _)) = hud() else {
+    let Some((mut ui, elements, _)) = hud() else {
         return;
     };
     let text = std::fs::read_to_string(dir.join("tree.jsonl")).expect("tree.jsonl");
+    let layout = std::fs::read_to_string(dir.join("layout.jsonl")).expect("layout.jsonl");
+    let frame_of = |text: &str, rec: &str| -> u32 {
+        text.lines()
+            .find(|l| l.contains(rec))
+            .map(|l| field(l, "frame").parse().unwrap())
+            .expect(rec)
+    };
+    let loaded = frame_of(&layout, "\"rec\":\"hud\"");
+    let dumped = frame_of(&text, "\"rec\":\"dump\",\"dump\":3,");
+    for _ in loaded..dumped {
+        ui.update_all(FRAME_SECONDS);
+    }
     let cpp: Vec<String> = text
         .lines()
         .filter(|l| l.starts_with("{\"dump\":3,\"i\":"))
@@ -202,12 +264,7 @@ fn the_elements_equal_the_cpp_clients_first_dump_in_space() {
 
     // `OracleOnHudElementsLoaded`: the ported elements' records, by name
     // (their index waits for the other elements).
-    let layout = std::fs::read_to_string(dir.join("layout.jsonl")).expect("layout.jsonl");
-    let frame: u32 = layout
-        .lines()
-        .find(|l| l.contains("\"rec\":\"hud\""))
-        .map(|l| field(l, "frame").parse().unwrap())
-        .expect("a hud record");
+    let frame = loaded;
     let ours = hud::oracle_lines(frame, HUD_INI, &elements);
     let theirs: Vec<String> = layout
         .lines()
