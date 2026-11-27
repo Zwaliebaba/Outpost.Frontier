@@ -104,8 +104,25 @@ impl<B: Backend + 'static> MeshLoader for EngineMeshLoader<B> {
                 t.insert(i.index() as usize, Rc::clone(&floats));
             }
         }
+        // `ClientMeshQueryAabb`: `GetInstanceArchetype`, then the
+        // renderer's `GetBounds(archetype, 1.0)`.
+        let render = Rc::clone(&self.render);
+        let links = Rc::clone(&self.links);
+        let bounds: Box<dyn Fn(InstanceId) -> Option<[f32; 6]>> = Box::new(move |root| {
+            let archetype = links.try_borrow().ok()?.instance_archetype(root.index());
+            if archetype < 0 {
+                return None;
+            }
+            render
+                .try_borrow_mut()
+                .ok()?
+                .manager
+                .bounds(archetype, 1.0)
+                .1
+        });
         Some(Box::new(EngineMesh {
             scene: Rc::clone(&self.scene),
+            bounds,
             root,
             archetype,
             floats,
@@ -133,6 +150,8 @@ fn tree_instances(scene: &neuron_core::scene::Engine, root: InstanceId) -> Vec<I
 /// [`UserFloatTable`]).
 pub struct EngineMesh {
     scene: SharedScene,
+    /// The renderer's box of the root's archetype.
+    bounds: Box<dyn Fn(InstanceId) -> Option<[f32; 6]>>,
     root: InstanceId,
     archetype: ArchetypeId,
     floats: UserFloats,
@@ -184,6 +203,10 @@ impl ControlMesh for EngineMesh {
         self.scene
             .try_borrow_mut()
             .map_or(0.0, |mut s| s.instance_extent(Some(self.root), flags).0)
+    }
+
+    fn aabb(&self) -> Option<[f32; 6]> {
+        (self.bounds)(self.root)
     }
 
     fn put_orientation(&mut self, orientation: Matrix) {
