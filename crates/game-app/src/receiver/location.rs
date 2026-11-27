@@ -191,30 +191,36 @@ impl LocationDb {
         self.rooms.get_mut(&room)?.state.as_mut()
     }
 
+    /// An id the controller does not know: counted, and reported once the
+    /// controller has registered anything. Temporary rule (D1402): while no
+    /// base or room is registered (the controller's registration at the
+    /// client's start-up, `InitGameflowData`, is not wired yet) the report,
+    /// which the C++ never writes on the shipped data, is left out.
+    fn miss(&mut self, line: u32, what: &str, id: u32) {
+        self.skipped += 1;
+        if !(self.bases.is_empty() && self.rooms.is_empty()) {
+            miss(line, what, id);
+        }
+    }
+
     /// `FindLocationBaseEntry` then its runtime: `None` for a base not
     /// known (reported, line 0x100) or not opened.
     fn base_runtime(&mut self, base: u32) -> Option<&mut BaseMirror> {
-        match self.bases.get_mut(&base) {
-            Some(runtime) => runtime.as_mut(),
-            None => {
-                miss(0x100, "base", base);
-                self.skipped += 1;
-                None
-            }
+        if !self.bases.contains_key(&base) {
+            self.miss(0x100, "base", base);
+            return None;
         }
+        self.bases.get_mut(&base)?.as_mut()
     }
 
     /// `FindClientLocationRoomState`: `None` for a room not known
     /// (reported, line 0x110) or without a state.
     fn room_state(&mut self, room: u32) -> Option<&mut RoomMirror> {
-        match self.rooms.get_mut(&room) {
-            Some(entry) => entry.state.as_mut(),
-            None => {
-                miss(0x110, "location", room);
-                self.skipped += 1;
-                None
-            }
+        if !self.rooms.contains_key(&room) {
+            self.miss(0x110, "location", room);
+            return None;
         }
+        self.rooms.get_mut(&room)?.state.as_mut()
     }
 
     /// `SetClientLocationBaseStartLocation`.
@@ -279,10 +285,7 @@ impl LocationDb {
                     self.updated_characters.push((room, key));
                 }
             }
-            None => {
-                miss(0x110, "location", room);
-                self.skipped += 1;
-            }
+            None => self.miss(0x110, "location", room),
         }
     }
 
